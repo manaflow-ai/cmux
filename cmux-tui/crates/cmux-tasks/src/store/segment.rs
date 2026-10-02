@@ -45,17 +45,26 @@ pub fn read_all(dir: &Path) -> Result<Vec<Record>, OpenError> {
         let bytes = fs::read(path)?;
         let mut offset = 0usize;
         while offset < bytes.len() {
-            let Some(end) = bytes[offset..].iter().position(|b| *b == b'\n').map(|n| offset + n) else {
+            let Some(end) = bytes[offset..].iter().position(|b| *b == b'\n').map(|n| offset + n)
+            else {
                 if last_segment {
                     truncate(path, offset as u64)?;
                     break;
                 }
-                return Err(OpenError::Corrupt(format!("{}: unterminated record in a sealed segment", path.display())));
+                return Err(OpenError::Corrupt(format!(
+                    "{}: unterminated record in a sealed segment",
+                    path.display()
+                )));
             };
             let line = &bytes[offset..end];
             match serde_json::from_slice::<Record>(line) {
                 Ok(record) => out.push(record),
-                Err(e) => return Err(OpenError::Corrupt(format!("{} at byte {offset}: {e}", path.display()))),
+                Err(e) => {
+                    return Err(OpenError::Corrupt(format!(
+                        "{} at byte {offset}: {e}",
+                        path.display()
+                    )));
+                }
             }
             offset = end + 1;
         }

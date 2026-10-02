@@ -12,7 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
 import { Route as DevicesRouteImport } from './routes/devices'
+import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
 
@@ -31,9 +33,19 @@ const DevicesRoute = DevicesRouteImport.update({
   path: '/devices',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PolicyRoute = PolicyRouteImport.update({
+  id: '/policy',
+  path: '/policy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
   path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ICodeRoute = ICodeRouteImport.update({
+  id: '/i/$code',
+  path: '/i/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IntegrationsIndexRoute = IntegrationsIndexRouteImport.update({
@@ -51,7 +63,9 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations/': typeof IntegrationsIndexRoute
 }
@@ -59,7 +73,9 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations': typeof IntegrationsIndexRoute
 }
@@ -68,7 +84,9 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
   '/devices': typeof DevicesRoute
+  '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
+  '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations/': typeof IntegrationsIndexRoute
 }
@@ -78,7 +96,9 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/devices'
+    | '/policy'
     | '/team'
+    | '/i/$code'
     | '/integrations/callback'
     | '/integrations/'
   fileRoutesByTo: FileRoutesByTo
@@ -86,7 +106,9 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/devices'
+    | '/policy'
     | '/team'
+    | '/i/$code'
     | '/integrations/callback'
     | '/integrations'
   id:
@@ -94,7 +116,9 @@ export interface FileRouteTypes {
     | '/'
     | '/automations'
     | '/devices'
+    | '/policy'
     | '/team'
+    | '/i/$code'
     | '/integrations/callback'
     | '/integrations/'
   fileRoutesById: FileRoutesById
@@ -103,7 +127,9 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AutomationsRoute: typeof AutomationsRoute
   DevicesRoute: typeof DevicesRoute
+  PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
+  ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
 }
@@ -131,11 +157,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DevicesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/policy': {
+      id: '/policy'
+      path: '/policy'
+      fullPath: '/policy'
+      preLoaderRoute: typeof PolicyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/team': {
       id: '/team'
       path: '/team'
       fullPath: '/team'
       preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/i/$code': {
+      id: '/i/$code'
+      path: '/i/$code'
+      fullPath: '/i/$code'
+      preLoaderRoute: typeof ICodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/integrations/': {
@@ -159,7 +199,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AutomationsRoute: AutomationsRoute,
   DevicesRoute: DevicesRoute,
+  PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
+  ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
 }

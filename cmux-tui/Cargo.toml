@@ -19,6 +19,7 @@ members = [
     "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
@@ -37,11 +38,15 @@ members = [
     "crates/cmux-wg",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
 ]
 default-members = [
     "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
@@ -59,6 +64,9 @@ default-members = [
     "crates/cmux-wg",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
+    "crates/cmux-server-core",
+    "crates/cmux-motion",
+    "crates/cmux-theme-tokens",
 ]
 exclude = ["vendor/crossterm"]
 
@@ -159,6 +167,9 @@ wait-timeout = "0.2"
 # declaring that MSRV. Keep the workspace's advertised Rust 1.91 support.
 rusqlite = { version = "=0.39.0", default-features = false, features = ["bundled", "hooks"] }
 sha2 = "0.10"
+# Ed25519 verification of the signed channel manifest (cmux-server-core).
+# ring is already in the graph through rustls; this adds no new code.
+ring = "0.17"
 socket2 = { version = "0.5", features = ["all"] }
 snow = "0.10"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }

@@ -17,6 +17,8 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case shortcutConflict
         /// The file sets a key an MDM profile or the team policy manages; the file's value is ignored.
         case managedOverride
+        /// An MDM forced value and the team policy's enforced value differ; the MDM value applies (decision E2).
+        case managedConflict
     }
 
     public let kind: Kind
@@ -91,6 +93,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
+    /// `status.*`.
+    public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`; "default" when unset or invalid.
     public var borders: BorderMode = BordersSetting.fallback
     /// `appearance.focusIndicator`; "both" when unset or invalid.
@@ -167,6 +171,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
         snapshot.borders = borders
         if let bordersDiagnostic { snapshot.diagnostics.append(bordersDiagnostic) }

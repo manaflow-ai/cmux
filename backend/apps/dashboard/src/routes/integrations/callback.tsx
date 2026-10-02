@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useLoad } from "../../lib/hooks"
+import { callbackSearch } from "../../lib/search"
 import { mutate } from "../../lib/server"
 import { setSignedIn, useSignedIn } from "../../lib/session"
 
@@ -9,13 +10,7 @@ import { setSignedIn, useSignedIn } from "../../lib/session"
  * state that belongs to someone else.
  */
 export const Route = createFileRoute("/integrations/callback")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    state: typeof s.state === "string" ? s.state : undefined,
-    code: typeof s.code === "string" ? s.code : undefined,
-    installation_id: typeof s.installation_id === "string" || typeof s.installation_id === "number" ? String(s.installation_id) : undefined,
-    setup_action: typeof s.setup_action === "string" ? s.setup_action : undefined,
-    error: typeof s.error === "string" ? s.error : undefined
-  }),
+  validateSearch: callbackSearch,
   component: Callback
 })
 

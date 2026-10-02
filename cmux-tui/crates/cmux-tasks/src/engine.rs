@@ -49,17 +49,72 @@ fn reject_body(reject: Reject) -> ErrorBody {
     ErrorBody::new(code, reject.message)
 }
 
-fn stamp(seq: u64, tx: &str, at: i64, actor: &Principal, origin: Origin, kinds: Vec<cmux_tasks_core::EventKind>) -> Vec<Event> {
+fn stamp(
+    seq: u64,
+    tx: &str,
+    at: i64,
+    actor: &Principal,
+    origin: Origin,
+    kinds: Vec<cmux_tasks_core::EventKind>,
+) -> Vec<Event> {
     kinds
         .into_iter()
         .enumerate()
-        .map(|(index, body)| Event { seq, index: index as u32, tx: tx.to_owned(), at, actor: actor.clone(), origin, body })
+        .map(|(index, body)| Event {
+            seq,
+            index: index as u32,
+            tx: tx.to_owned(),
+            at,
+            actor: actor.clone(),
+            origin,
+            body,
+        })
         .collect()
+}
+
+/// Fill omitted generated ids (`task_…`, `cmt_…`, `asess_…`, …) from the
+/// actor and idempotency key: deterministic, so a retry with the same key
+/// names the same entity and replays instead of conflicting.
+fn derive_ids(op: &str, params: &mut Value, actor: &Principal, key: &str) {
+    let Some(entry) = catalog::find(op) else { return };
+    let Some(object) = params.as_object_mut() else { return };
+    for param in entry.params {
+        if let catalog::Ty::Id { prefix, generate: true } = param.ty
+            && !object.contains_key(param.name)
+        {
+            object.insert(
+                param.name.to_owned(),
+                json!(format!("{prefix}{}", stable_hash(&[actor.id(), key, param.name]))),
+            );
+        }
+    }
+}
+
+/// FNV-1a 64 over the parts, as 16 lowercase hex digits.
+fn stable_hash(parts: &[&str]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in parts {
+        for byte in part.bytes().chain(std::iter::once(0x1f)) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
 }
 
 impl Engine {
     pub fn open(dir: &Path, team: &str, key_prefix: &str, clock: Clock) -> Result<Self, OpenError> {
-        let (store, recovered) = Store::open(dir, team, key_prefix)?;
+        Self::open_with(dir, team, key_prefix, clock, crate::store::Limits::default())
+    }
+
+    pub fn open_with(
+        dir: &Path,
+        team: &str,
+        key_prefix: &str,
+        clock: Clock,
+        limits: crate::store::Limits,
+    ) -> Result<Self, OpenError> {
+        let (store, recovered) = Store::open_with(dir, team, key_prefix, limits)?;
         let floor = recovered.first().map_or(store.state().seq, |(record, _)| record.seq - 1);
         let mut engine = Self { store, ring: VecDeque::new(), floor, clock };
         for (record, kinds) in recovered {
@@ -76,11 +131,15 @@ impl Engine {
 
     /// Handle requests as one group commit: one fsync for all mutations.
     /// An `Err` means the log write failed; the caller must exit.
-    pub fn handle_batch(&mut self, requests: Vec<(Principal, Request)>) -> io::Result<Vec<Outcome>> {
+    pub fn handle_batch(
+        &mut self,
+        requests: Vec<(Principal, Request)>,
+    ) -> io::Result<Vec<Outcome>> {
         let mut outcomes = Vec::with_capacity(requests.len());
         for (actor, request) in requests {
             let (reply, events) = self.handle_one(&actor, &request);
-            let settled = Settled { id: request.id, tx: request.key.clone(), seq: self.store.state().seq };
+            let settled =
+                Settled { id: request.id, tx: request.key.clone(), seq: self.store.state().seq };
             outcomes.push(Outcome { reply, settled, events });
         }
         self.store.flush()?;
@@ -103,25 +162,49 @@ impl Engine {
         Ok(outcomes.remove(0))
     }
 
-    fn handle_one(&mut self, actor: &Principal, request: &Request) -> (Result<Value, ErrorBody>, Vec<Event>) {
+    fn handle_one(
+        &mut self,
+        actor: &Principal,
+        request: &Request,
+    ) -> (Result<Value, ErrorBody>, Vec<Event>) {
         let Some(entry) = catalog::find(&request.op) else {
-            return (Err(ErrorBody::new(ErrorCode::Usage, format!("unknown op {}", request.op))), Vec::new());
+            return (
+                Err(ErrorBody::new(ErrorCode::Usage, format!("unknown op {}", request.op))),
+                Vec::new(),
+            );
         };
         match entry.class {
             Class::Read => (self.read(actor, &request.op, &request.params), Vec::new()),
-            Class::Stream => (Err(ErrorBody::new(ErrorCode::Usage, "streams need the socket server")), Vec::new()),
+            Class::Stream => (
+                Err(ErrorBody::new(ErrorCode::Usage, "streams need the socket server")),
+                Vec::new(),
+            ),
             Class::Mutation => self.mutate(actor, request),
         }
     }
 
-    fn mutate(&mut self, actor: &Principal, request: &Request) -> (Result<Value, ErrorBody>, Vec<Event>) {
+    fn mutate(
+        &mut self,
+        actor: &Principal,
+        request: &Request,
+    ) -> (Result<Value, ErrorBody>, Vec<Event>) {
         let Some(key) = request.key.clone() else {
-            return (Err(ErrorBody::new(ErrorCode::Usage, "mutations need an idempotency key")), Vec::new());
+            return (
+                Err(ErrorBody::new(ErrorCode::Usage, "mutations need an idempotency key")),
+                Vec::new(),
+            );
         };
-        let wire = json!({"op": request.op, "params": request.params});
+        let mut params = if request.params.is_null() { json!({}) } else { request.params.clone() };
+        derive_ids(&request.op, &mut params, actor, &key);
+        let wire = json!({"op": request.op, "params": params});
         let op: Op = match serde_json::from_value(wire) {
             Ok(op) => op,
-            Err(e) => return (Err(ErrorBody::new(ErrorCode::Usage, format!("{}: {e}", request.op))), Vec::new()),
+            Err(e) => {
+                return (
+                    Err(ErrorBody::new(ErrorCode::Usage, format!("{}: {e}", request.op))),
+                    Vec::new(),
+                );
+            }
         };
         let origin = request.origin.unwrap_or_default();
         let grants = Default::default();
@@ -141,12 +224,18 @@ impl Engine {
         let state = self.store.state();
         let params = if params.is_null() { json!({}) } else { params.clone() };
         let task_param = |state: &State| -> Result<String, ErrorBody> {
-            let reference = params.get("task").and_then(Value::as_str).ok_or_else(|| ErrorBody::new(ErrorCode::Usage, "task is required"))?;
-            state.resolve_task(reference).ok_or_else(|| ErrorBody::new(ErrorCode::NotFound, format!("task not found: {reference}")))
+            let reference = params
+                .get("task")
+                .and_then(Value::as_str)
+                .ok_or_else(|| ErrorBody::new(ErrorCode::Usage, "task is required"))?;
+            state.resolve_task(reference).ok_or_else(|| {
+                ErrorBody::new(ErrorCode::NotFound, format!("task not found: {reference}"))
+            })
         };
         let value = match op {
             "task.list" => {
-                let filter: ListFilter = serde_json::from_value(params.clone()).map_err(|e| ErrorBody::new(ErrorCode::Usage, e.to_string()))?;
+                let filter: ListFilter = serde_json::from_value(params.clone())
+                    .map_err(|e| ErrorBody::new(ErrorCode::Usage, e.to_string()))?;
                 json!(query::list(state, actor, &filter))
             }
             "task.get" => {
@@ -171,15 +260,24 @@ impl Engine {
                     .collect();
                 json!(sessions)
             }
-            "task.label.list" => json!(state.labels.values().filter(|l| !l.archived).collect::<Vec<_>>()),
+            "task.label.list" => {
+                json!(state.labels.values().filter(|l| !l.archived).collect::<Vec<_>>())
+            }
             "task.status.list" => {
                 let mut statuses: Vec<_> = state.statuses.values().collect();
                 statuses.sort_by_key(|s| (s.category.rank(), s.position));
                 json!(statuses)
             }
-            "task.project.list" => json!(state.projects.values().filter(|p| !p.archived).collect::<Vec<_>>()),
+            "task.project.list" => {
+                json!(state.projects.values().filter(|p| !p.archived).collect::<Vec<_>>())
+            }
             "task.settings.get" => json!(state.settings),
-            other => return Err(ErrorBody::new(ErrorCode::Usage, format!("no read handler for {other}"))),
+            other => {
+                return Err(ErrorBody::new(
+                    ErrorCode::Usage,
+                    format!("no read handler for {other}"),
+                ));
+            }
         };
         Ok(value)
     }
@@ -211,7 +309,10 @@ impl Engine {
             return Ok(Vec::new());
         }
         if after < self.floor {
-            return Err(ErrorBody::new(ErrorCode::Resync, "events no longer held; subscribe without after_seq"));
+            return Err(ErrorBody::new(
+                ErrorCode::Resync,
+                "events no longer held; subscribe without after_seq",
+            ));
         }
         Ok(self.ring.iter().filter(|e| e.seq > after).cloned().collect())
     }

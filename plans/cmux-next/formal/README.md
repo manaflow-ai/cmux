@@ -76,6 +76,8 @@ The structure that the row ops of `../rows.md` produce. Owner state: one screen 
 
 Mutants (`BUG`), each must fail: `keepEmptyRow` (an emptied row is kept), `noStickyNormalize` (a column removal skips sticky normalization; run on the three-column start), `ownPlaceRowOnly` (own place sees only the boundary below the own row), `noDedup` (a replayed key applies again), `noFocusRepair` (a client keeps a removed focus), `focusColumnFirst` (focus repair jumps to the left column before the rows above and below), `respawnDropsTab` (the spawn-same-kind move puts the new tab in the new row and drops the moved tab).
 
+`FRAME = TRUE` (`LayoutRows_frame*.cfg`, start `"frame"`) adds the four-edge docks of `../layout-model.md`: sticky edges top and bottom, `PinRow` (lift a row into a top or bottom dock), and the frame orientation (column-major or row-major). Extra properties: `E3_BandOneRow` (a top or bottom dock holds one row) and `E7_OrientationOnly` (an orientation change changes nothing else). Frame mutants: `dockAllowsRows`, `pinRowNoCascade`, `orientTouchesPins`. The frame run found that lifting the only row of the last strip column into a dock only churns ids (normalize unpins the new dock); `PinRow` now rejects when the pin would not survive.
+
 Run `./run-rows-tlc.sh` (main configs and mutants), `./run-rows-tlc.sh main` or `./run-rows-tlc.sh mutants`.
 
 Last results (2026-10-01/02, shared Mac at load 130-160, TLC 1.7.4, Java 26; heights 1..2):
@@ -92,6 +94,21 @@ Last results (2026-10-01/02, shared Mac at load 130-160, TLC 1.7.4, Java 26; hei
 | `noFocusRepair` | same | `ViewValid` violated | 11,605 when found | 5 | 1 s |
 | `focusColumnFirst` | same | `FocusStaysLocal` violated | 12,748,151 when found | 9 | 203 s |
 | `respawnDropsTab` | same | `R3_TabConservation` violated | 1,947 when found | 4 | 2 s |
+
+Frame and successor-rule results (2026-10-02, load about 700, TLC 1.7.4):
+
+| Config | Bound | Result | Distinct states | Depth |
+| --- | --- | --- | --- | --- |
+| `LayoutRows_frame.cfg` | four-edge docks and orientation; 1 client, 2 ops, no replay; 4 tabs, 4 pane ids, 4 row ids, 3 column ids | pass | 595,522 (2,214,657 generated) | 9 |
+| `frame_dockAllowsRows` | same | `E3_BandOneRow` violated | 35,826 when found | 4 |
+| `frame_pinRowNoCascade` | same | `R2_NoEmptyContainer` violated | 4,487 when found | 4 |
+| `frame_orientTouchesPins` | same | `E7_OrientationOnly` violated | 186,203 when found | 5 |
+| `LayoutRows_2clients.cfg`, after the successor change | as above | pass | 6,793,112 | 14 |
+| `LayoutRows_sticky3.cfg`, after the successor change | as above | pass | 1,508,296 | 11 |
+| `focusColumnFirst`, after the successor change | as above | `FocusStaysLocal` violated | 12,923,609 when found | 9 |
+| `noFocusRepair`, after the successor change | as above | `ViewValid` violated | 10,663 when found | 5 |
+
+The frame runs found two rule gaps, both fixed in the model: `PinRow` on the only row of the last strip column only churned ids (now rejected), and the close-focus successor followed a row that another client had lifted into a dock (candidates must still be in the closed pane's column after the change, not merely alive). `LayoutRows.cfg` (22,804,256 states) was run before the successor change and was not rerun. The frame config with three ops did not finish (more than 26 million distinct states at load 700) and is not evidence.
 
 Bounds that did not finish and are not evidence: two clients with three ops (more than 53 million distinct states, queue still growing after 17 minutes) and one client with three ops plus a replay (79 million distinct states, 26 million queued after 70 minutes). Not covered: split ratios and column widths (the reducer does not model them yet), `fit` heights (sum 1000), sticky rows (not in `rows-v1`), the vertical scroll reducer (Swift tests), legacy commands from old clients (daemon proptest, rows.md step 3).
 

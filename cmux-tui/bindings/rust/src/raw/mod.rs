@@ -4,6 +4,8 @@
 //! root. This module exists for protocol tooling and features that have not
 //! acquired a resource-level operation.
 
+mod byte_attachment;
+
 pub use crate::client::{
     ClientConfig, CmuxClient as Client, CmuxError as Error, CmuxStream as Stream, Result,
     ServerInfo, StreamCloser, default_socket_path, env_socket_path,
@@ -15,3 +17,8 @@ pub use crate::raw_support::{
     CommandMetadata, EventMetadata, ProfileMetadata, RequiredNullable, StreamMetadata,
 };
 pub use crate::topology::SurfaceContext;
+pub use byte_attachment::{
+    AttachInfo, AttachOptions, AttachTarget, AttachmentItem, BYTE_ATTACHMENT_CAPABILITIES,
+    ByteAttachment, ByteAttachmentReader, ByteAttachmentWriter, CellSize, ClientIdentity,
+    EndReason, Reattach, Replay,
+};

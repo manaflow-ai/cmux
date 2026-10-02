@@ -1,0 +1,19 @@
+# First-party cmux apps
+
+Official cmux apps built on the app platform with only the public app API (the generated `cmux` global, the view builders and `cmux-app.json`). They prove the platform: whatever they cannot do with the public API is a platform gap, recorded in `plans/cmux-next/first-party-apps.md` section 3.
+
+| App | Id | What it does |
+| --- | --- | --- |
+| `search/` | `cmux/search` | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result |
+| `inbox/` | `cmux/inbox` | one triage list of notifications, waiting agents and connected-service work items |
+| `notes/` | `cmux/notes` | markdown notes, global and per workspace, readable by agents |
+| `coderouter/` | `cmux/coderouter` | CodeRouter status, accounts, keys, usage and first-run onboarding |
+| `usage/` | `cmux/usage` | plan usage and limits per provider in the macOS menu bar |
+
+Each app is `cmux-app.json` + `src/main.ts` (typed by `cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts`) + built `dist/main.js` + `test/` (bun) + `preview/` (fixtures for screenshots) + a README with its scopes, variants, proposed operations and gaps.
+
+Build and validate all: `bun first-party-apps/build.ts` (`--check` verifies that the built files are current). Test one: `bun test first-party-apps/<name>/test`.
+
+Variants: each app has two or three designs, selected by the DEV/NIGHTLY app setting `variant` and the palette command "Next <App> Variant". These are prototypes; the pick happens after dogfood.
+
+Operations an app needs that do not exist yet are called with `cmux.call("<family>.<verb>")` and answer `operation.unsupported` until their owner implements them; the app then shows what is missing.

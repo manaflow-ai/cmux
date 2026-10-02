@@ -24,6 +24,8 @@ interface NodeRecord {
   mount: Mount
   handlers: Record<string, Handler>
   menu: MenuEntry[] | null
+  /** Current child ids, so a removal releases the whole subtree from the budget. */
+  children: string[]
 }
 
 export class Mount {
@@ -86,6 +88,12 @@ export function unmount(mountId: string): void {
 export const mountExists = (mountId: string) => mounts.has(mountId)
 export const nodeRecord = (nodeId: string) => nodes.get(nodeId)
 
+function setChildren(m: Mount, id: string, children: string[]) {
+  const record = nodes.get(id)
+  if (record) record.children = children
+  m.pending.push({ op: "children", id, children })
+}
+
 function newNode(m: Mount, type: string, props: Record<string, unknown>): string {
   if (++m.nodeCount > LIMITS.nodesPerMount) throw new Error(`app.limit: more than ${LIMITS.nodesPerMount} scene nodes`)
   const id = `n${nextNodeId++}`
@@ -108,7 +116,7 @@ function build(m: Mount, view: ViewNode, depth: number): string {
   for (const [key, v] of firstValues) staticProps[key] = v
   if (view.menu) staticProps.menu = null
   const id = newNode(m, view.type, staticProps)
-  const record: NodeRecord = { mount: m, handlers: { ...view.handlers }, menu: null }
+  const record: NodeRecord = { mount: m, handlers: { ...view.handlers }, menu: null, children: [] }
   nodes.set(id, record)
 
   for (const [key, fn] of live) {
@@ -135,7 +143,7 @@ function build(m: Mount, view: ViewNode, depth: number): string {
       if (child instanceof ViewNode) childIds.push(build(m, child, depth + 1))
       else childIds.push(buildDynamic(m, child, depth + 1))
     }
-    if (childIds.length) m.pending.push({ op: "children", id, children: childIds })
+    if (childIds.length) setChildren(m, id, childIds)
   }
   return id
 }
@@ -143,7 +151,7 @@ function build(m: Mount, view: ViewNode, depth: number): string {
 /** A function child: a Group whose single child is rebuilt when the function's result changes. */
 function buildDynamic(m: Mount, fn: () => unknown, depth: number): string {
   const id = newNode(m, "Group", {})
-  nodes.set(id, { mount: m, handlers: {}, menu: null })
+  nodes.set(id, { mount: m, handlers: {}, menu: null, children: [] })
   let current: { owner: Owner; ids: string[] } | null = null
   effect(() => {
     const result = fn()
@@ -156,16 +164,22 @@ function buildDynamic(m: Mount, fn: () => unknown, depth: number): string {
       const views = (Array.isArray(result) ? result : [result]).filter((v): v is ViewNode => v instanceof ViewNode)
       const ids = runWithOwner(owner, () => views.map((v) => build(m, v, depth + 1)))
       current = { owner, ids }
-      m.pending.push({ op: "children", id, children: ids })
+      setChildren(m, id, ids)
     })
   })
   return id
 }
 
+/** Removes a node and its subtree: one `remove` op (the host drops the subtree), every record and budget slot released. */
 function removeNode(m: Mount, id: string) {
   m.pending.push({ op: "remove", id })
-  nodes.delete(id)
-  m.nodeCount = Math.max(0, m.nodeCount - 1)
+  const stack = [id]
+  while (stack.length) {
+    const next = stack.pop()!
+    const record = nodes.get(next)
+    if (record) stack.push(...record.children)
+    if (nodes.delete(next)) m.nodeCount--
+  }
 }
 
 interface Row {
@@ -207,7 +221,7 @@ function buildList(m: Mount, containerId: string, view: ViewNode, depth: number)
       const changed = nextOrder.length !== order.length || nextOrder.some((k, i) => k !== order[i] || rows.get(k)?.nodeId !== next.get(k)?.nodeId)
       rows = next
       order = nextOrder
-      if (changed) m.pending.push({ op: "children", id: containerId, children: nextOrder.map((k) => next.get(k)!.nodeId) })
+      if (changed) setChildren(m, containerId, nextOrder.map((k) => next.get(k)!.nodeId))
     })
   })
   // Rows emit `move` with the row key, which is what onMove(id, index) expects.

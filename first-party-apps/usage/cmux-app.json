@@ -1,0 +1,75 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/usage",
+  "name": { "en": "Usage", "ja": "使用量" },
+  "version": "0.1.0",
+  "description": { "en": "Agent plan usage and limits: 5-hour and weekly windows, API budgets and CodeRouter pools, with reset times, pace and warnings.", "ja": "エージェントのプラン使用量と上限: 5時間枠と週間枠、API 予算、CodeRouter プール。リセット時刻、ペース、警告付き。" },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["agents", "monitoring"],
+  "keywords": ["usage", "limits", "quota", "rate limit", "plan"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "usage:read": "Read plan usage numbers from the cmux usage service. The app never sees your sign-in tokens.",
+    "usage:write": "Ask the usage service to refresh now when you click Refresh.",
+    "notification:write": "Warn you once per window when a limit reaches 80 or 95 percent."
+  },
+  "optionalScopes": {
+    "coderouter:read": "Show per-account usage of your CodeRouter pools.",
+    "mcp:expose": "Let agents read usage through the status tool.",
+    "actions:run": "Reveal the usage section when you choose Show Usage."
+  },
+  "contributes": {
+    "statusItems": [
+      { "id": "menu", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "placement": "statusStrip", "render": "renderStatus" }
+    ],
+    "sidebarSections": [
+      { "id": "usage", "title": { "en": "Usage", "ja": "使用量" }, "symbol": "gauge.with.needle", "defaultRegion": "bottom", "render": "renderSection", "maxRows": 12 }
+    ],
+    "commands": [
+      { "id": "show", "title": { "en": "Show Usage", "ja": "使用量を表示" }, "run": "show", "keywords": ["usage", "limits", "quota"], "contexts": ["palette", "statusItem:menu"] },
+      { "id": "refresh", "title": { "en": "Refresh Usage Now", "ja": "使用量を今すぐ更新" }, "run": "refresh", "keywords": ["usage", "limits"], "contexts": ["palette", "statusItem:menu", "sidebarSection:usage"] },
+      {
+        "id": "status",
+        "title": { "en": "Usage Status", "ja": "使用量の状態" },
+        "run": "status",
+        "keywords": ["usage", "limits", "json"],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "provider": { "type": "string", "description": "Only this provider (claude-code, codex, anthropic-api, openai-api, coderouter)." },
+            "refresh": { "type": "boolean", "description": "Ask the usage service to refresh first (rate-limited by the service)." }
+          }
+        }
+      },
+      { "id": "cycleVariant", "title": { "en": "Next Usage Variant", "ja": "次の使用量バリアント" }, "run": "cycleVariant", "contexts": ["palette"], "mcp": false }
+    ],
+    "mcpServers": [{ "id": "tools", "title": { "en": "Usage", "ja": "使用量" }, "tools": "commands" }],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "title": "Design variant",
+          "enum": ["menuPercent", "menuMeters", "sidebarOnly"],
+          "default": "menuPercent",
+          "x-cmux-devOnly": true
+        },
+        "notifications": { "type": "boolean", "title": "Warn when a limit is nearly used", "default": true },
+        "warnAt": {
+          "type": "array",
+          "title": "Warn at percent",
+          "items": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "default": [80, 95]
+        },
+        "staleMinutes": { "type": "integer", "title": "Mark data stale after minutes", "minimum": 1, "default": 30 }
+      }
+    }
+  },
+  "activation": ["onStatusItem:menu", "onSidebarSection:usage", "onCommand:show", "onCommand:refresh", "onCommand:status", "onCommand:cycleVariant"],
+  "files": ["dist/", "assets/"]
+}

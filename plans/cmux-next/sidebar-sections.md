@@ -86,10 +86,21 @@ Arrangement { layout: list|inline|grid, align: leading|center|trailing|fill, gap
 Item { id: "itm_<base32>", ref: {kind, value}, shows_label: Bool }  // id stable across moves
 ```
 
+`section.update` patches each arrangement field alone (`layout`, `align`, `gap`, `columns`; null
+clears `gap` or `columns`), so concurrent edits of different fields both apply. Unknown `layout`,
+`align` or `look` values from a newer app decode to the defaults on an older client (it never writes
+the document back; it sends ops). The shared cases in
+`Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
+both reducers (Swift and cmux-tui-core).
+
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
 only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
-the leftover space on a line (`fill` spreads it between items, so two items sit at both edges).
+the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
+item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
+stretches its tiles, and a grid with fixed columns places every line by the leftover of a full
+line, so columns line up. Precedence: a section's inline or grid arrangement always wins; the tray
+and lines-icons looks only tile built-in sections whose arrangement is a list (the default).
 
 Order inside a region is the order of `sections` filtered by region. Invariants, checked by the pure
 reducer and its tests:
@@ -197,7 +208,10 @@ Look: setting `sidebar.sectionLook` in cmux.json and Settings > Appearance > Sid
 `quiet` (Lawrence, 2026-10-02); Debug Settings `sidebar.sections.look` overrides it in DEV. The band
 caps are settings too: `sidebar.topBandMaxShare` (default 1/3), `sidebar.bottomBandMaxShare`
 (default 1/4), `sidebar.stickyBandsScroll` (default true; false = the bands never scroll and the list
-shrinks to three rows, then both bands shrink in proportion as a last resort). Looks:
+shrinks to three rows). In both modes the two bands together leave the list three rows (they
+shrink in proportion and scroll inside), and each band keeps at least its first row, so Home and
+Settings never vanish in a short window. The two shares together are at most 0.8; past that both
+shrink in proportion. Looks:
 
 - quiet: icon + label rows, no fill at rest; a hairline separates the sticky bands from the list.
 - card: each section of a sticky band sits in a rounded inset card.

@@ -1,0 +1,33 @@
+{
+ "ops": {
+  "app.storage.get": {
+   "$error": {
+    "code": "storage.unavailable",
+    "message": "The app storage database is locked."
+   }
+  },
+  "workspace.list": [
+   {
+    "id": "workspace_api",
+    "session_id": "session_1",
+    "name": "api",
+    "index": 0,
+    "focused": true
+   },
+   {
+    "id": "workspace_web",
+    "session_id": "session_1",
+    "name": "web",
+    "index": 1,
+    "focused": false
+   },
+   {
+    "id": "workspace_docs",
+    "session_id": "session_1",
+    "name": "docs",
+    "index": 2,
+    "focused": false
+   }
+  ]
+ }
+}

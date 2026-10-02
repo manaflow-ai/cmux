@@ -30,7 +30,9 @@ public actor AppEngine {
     var commands: [Int: CheckedContinuation<Result<AppJSON, AppOperationError>, Never>] = [:]
     var nextCommand = 1
     /// Nonzero while a tap or menu pick handler runs (ops get origin `user`).
-    var gestureDepth = 0
+    /// Live user-gesture tokens (one per user event), each accepted once within `gestureWindow`.
+    var gestures: [String: ContinuousClock.Instant] = [:]
+    static let gestureWindow: Duration = .seconds(10)
 
     public init(configuration: AppEngineConfiguration) {
         self.configuration = configuration
@@ -70,7 +72,11 @@ public actor AppEngine {
             "app": ["id": .string(configuration.manifest.id), "version": .string(configuration.manifest.version)],
             "settings": configuration.settings,
             "apiVersion": .string(configuration.scopes.apiVersion),
-            "ops": .array(configuration.scopes.allowedOps(granted: configuration.grantedScopes).map(AppJSON.string)),
+            // Every op a declared scope could allow: a scope granted later
+            // works without a reload; the host checks the live grant per call.
+            "ops": .array(configuration.scopes.allowedOps(granted: declaredScopes).map(AppJSON.string)),
+            // Every op this cmux version has: anything else is operation.unsupported, not scope.missing.
+            "knownOps": .array((Set(configuration.scopes.ops.keys).union(configuration.scopes.never)).sorted().map(AppJSON.string)),
         ]
         let result = enter("__cmuxAppInit", [initJSON.jsonText])
         if let result, !result.isEmpty, !(result == "undefined") { try fail("init: \(result)") }
@@ -90,14 +96,29 @@ public actor AppEngine {
         _ = enter("__cmuxAppUnmount", [mountID])
     }
 
-    /// Sends a UI event to a mounted node. Taps and menu picks are user
-    /// gestures: ops the handler issues during this turn carry origin `user`.
+    /// Sends a UI event to a mounted node. User events (tap, menu, submit) get
+    /// a one-time gesture token in the payload; an op that presents it within
+    /// `gestureWindow` runs with origin `user` (ABI.md, "Gesture tokens").
     public func dispatch(_ mountID: String, node: String, event: String, payload: AppJSON = .object([:])) {
         guard state == .running else { return }
-        let gesture = event == "tap" || event == "menu"
-        if gesture { gestureDepth += 1 }
-        defer { if gesture { gestureDepth -= 1 } }
+        var payload = payload
+        if ["tap", "menu", "submit"].contains(event), case .object(var object) = payload {
+            let now = ContinuousClock.now
+            gestures = gestures.filter { now - $0.value < Self.gestureWindow }
+            let token = UUID().uuidString.lowercased()
+            gestures[token] = now
+            object["gesture"] = .string(token)
+            payload = .object(object)
+        }
         _ = enter("__cmuxAppDispatch", [mountID, node, event, payload.jsonText])
+    }
+
+    /// Whether a gesture token is live. A mutation uses it up (one focus or selection
+    /// change per user event); reads may present it without spending it.
+    func acceptGesture(_ token: String?, consume: Bool) -> Bool {
+        guard let token, let issued = gestures[token], ContinuousClock.now - issued < Self.gestureWindow else { return false }
+        if consume { gestures[token] = nil }
+        return true
     }
 
     public func setSettings(_ settings: AppJSON) {
@@ -131,6 +152,10 @@ public actor AppEngine {
         context?.exceptionHandler = nil
         context = nil
         configuration.output(.stopped(reason: reason))
+    }
+
+    private var declaredScopes: Set<String> {
+        Set((configuration.manifest.scopes + configuration.manifest.optionalScopes).map(\.scope))
     }
 
     var stoppedReason: String? {

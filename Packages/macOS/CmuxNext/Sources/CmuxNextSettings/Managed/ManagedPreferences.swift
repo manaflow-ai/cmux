@@ -12,7 +12,9 @@ public nonisolated enum ManagedSource: Sendable, Hashable {
 /// (`appearance.borders`); keys that start with an uppercase letter are
 /// policy keys that are not user settings (`EnrollmentToken`,
 /// `DisabledFeatures`, ...). Forced values override the user's file;
-/// recommended values only replace the product default.
+/// recommended (non-forced) values only replace the product default. Any
+/// local user can write non-forced values (`defaults write`), so policy keys
+/// are read from forced values only.
 public nonisolated struct ManagedPreferences: Sendable, Equatable {
     public var forced: [String: JSONValue]
     public var recommended: [String: JSONValue]
@@ -25,8 +27,8 @@ public nonisolated struct ManagedPreferences: Sendable, Equatable {
     public static let empty = ManagedPreferences()
 
     /// The managed preference domain every channel (stable, NIGHTLY, DEV)
-    /// reads. Not a bundle id on purpose: the app never writes it, so a
-    /// non-forced value there can only come from an administrator.
+    /// reads. Not a bundle id, so the app's own `UserDefaults` never mix in;
+    /// non-forced values there act only as defaults (a user could write them).
     public static let domain = "com.manaflow.cmux"
     /// The shipped updater's domain; only its forced `DisableAutoUpdate` is read.
     public static let legacyDomain = "com.cmuxterm.app"

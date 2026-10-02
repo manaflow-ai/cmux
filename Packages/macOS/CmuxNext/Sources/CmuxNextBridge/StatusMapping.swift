@@ -22,20 +22,23 @@ public struct StatusMapping {
 
     /// One tab's merged status.
     public func summary(_ tab: TabModel) -> StatusSummary {
-        StatusStack.resolve(reports(tab))
+        StatusStack.resolve(reports(tab), honoring: honored)
     }
 
     /// The strongest loading report of one tab, for the tab's icon slot:
     /// a waiting or failed source does not hide another source's spinner
     /// there, because the tab's badge already marks those states.
     public func loading(_ tab: TabModel) -> StatusSummary {
-        StatusStack.resolve(reports(tab).filter { $0.state.isLoading })
+        StatusStack.resolve(reports(tab).filter { $0.state.isLoading }, honoring: honored)
     }
 
     /// A workspace's merged status over its tabs.
     public func summary(tabs: [TabModel]) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports))
+        StatusStack.resolve(tabs.flatMap(reports), honoring: honored)
     }
+
+    /// Sources whose style hint wins (`appearance.statusIndicator.honorStatusStyle`).
+    var honored: Set<StatusReport.Source> { DesignSettings.shared.statusIndicator.honoredStyleSources }
 
     /// Agent hook state as an indicator state. `done` is not shown here:
     /// the tab's status badge marks it, and a finished agent is not loading.

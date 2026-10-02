@@ -1,0 +1,67 @@
+{
+  "grant": [
+    "feed:read",
+    "feed:write",
+    "actions:run"
+  ],
+  "scopes": {
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.mark": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.respond": {
+      "scope": "feed:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "feed.list": {
+      "items": [],
+      "cursor": null,
+      "revision": "1",
+      "counts": {
+        "unseen": 0,
+        "open": 0,
+        "needsResponse": 0,
+        "urgent": 0,
+        "snoozed": 0
+      }
+    },
+    "feed.counts": {
+      "unseen": 0,
+      "open": 0,
+      "needsResponse": 0,
+      "urgent": 0,
+      "snoozed": 0
+    },
+    "feed.get": null,
+    "feed.mark": {
+      "revision": "2"
+    },
+    "feed.snooze": {
+      "revision": "2"
+    },
+    "feed.respond": {
+      "revision": "2"
+    },
+    "action.run": null,
+    "app.storage.get": null,
+    "app.storage.set": {}
+  }
+}

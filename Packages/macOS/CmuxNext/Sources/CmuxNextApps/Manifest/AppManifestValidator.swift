@@ -13,7 +13,7 @@ nonisolated struct AppManifestValidator {
     static let topLevelKeys: Set<String> = [
         "$schema", "manifestVersion", "id", "name", "version", "description", "publisher", "repository", "homepage",
         "license", "icon", "screenshots", "categories", "keywords", "engines", "main", "scopes", "optionalScopes",
-        "contributes", "activation", "files", "pricing",
+        "contributes", "activation", "files", "pricing", "server", "x-cmux-devOnly",
     ]
 
     static func validate(_ document: AppJSON) -> [AppManifestIssue] {
@@ -55,6 +55,7 @@ nonisolated struct AppManifestValidator {
         scopeMap(object["scopes"], "/scopes")
         scopeMap(object["optionalScopes"], "/optionalScopes")
         if let contributes = object["contributes"] { self.contributes(contributes) }
+        if let server = object["server"] { self.server(server) }
         stringArray(object["activation"], "/activation", maxItems: 64) { this, item, path in
             this.pattern(.string(item), path, P.activation, "a known activation event")
         }
@@ -166,3 +167,25 @@ nonisolated struct AppManifestValidator {
         }
     }
 }
+
+/// `server`: a long-running app server supervised by the daemon on one host per team.
+nonisolated extension AppManifestValidator {
+    mutating func server(_ value: AppJSON) {
+        let path = "/server"
+        guard let object = object(value, at: path) else { return }
+        for key in object.keys.sorted() where !["kind", "binary", "args", "catalog", "hosts", "data"].contains(key) {
+            fail("\(path)/\(key)", "additionalProperties", "unknown key \(key)")
+        }
+        if object["kind"] == nil { fail("\(path)/kind", "required", "kind is required") }
+        if object["hosts"] == nil { fail("\(path)/hosts", "required", "hosts is required") }
+        enumValue(object["kind"], "\(path)/kind", ["native", "js"])
+        if object["kind"]?.stringValue == "native", object["binary"] == nil { fail("\(path)/binary", "required", "binary is required") }
+        pattern(object["binary"], "\(path)/binary", P.binaryName, "a cmux binary name")
+        stringArray(object["args"], "\(path)/args", maxItems: 32) { this, item, path in this.maxLength(item, path, 256) }
+        relativePath(object["catalog"], "\(path)/catalog")
+        stringArray(object["hosts"], "\(path)/hosts", maxItems: 3) { this, item, path in this.enumValue(.string(item), path, ["local", "team-vm", "cmux-server"]) }
+        if object["hosts"]?.arrayValue?.isEmpty == true { fail("\(path)/hosts", "minItems", "hosts needs at least one item") }
+        enumValue(object["data"], "\(path)/data", ["durable", "ephemeral"])
+    }
+}
+

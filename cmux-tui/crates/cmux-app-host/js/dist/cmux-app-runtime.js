@@ -200,6 +200,7 @@
       this.name = "CmuxError";
     }
   }
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -209,6 +210,10 @@
     app: { id: "", version: "" },
     apiVersion: "0.0.0",
     allowedOps: null,
+    knownOps: null,
+    gesture: null,
+    locale: "en",
+    strings: {},
     settings: signal({})
   };
   var native = () => {
@@ -228,9 +233,14 @@
     }
   };
   function callRaw(name, params = {}, options = {}) {
-    if (state.allowedOps && !state.allowedOps.has(name)) {
+    if (state.knownOps && !state.knownOps.has(name) && !HOST_OPS.has(name)) {
+      return Promise.reject(new CmuxError("operation.unsupported", `${name} is not an operation of this cmux version`, { op: name }));
+    }
+    if (state.allowedOps && !state.allowedOps.has(name) && !HOST_OPS.has(name)) {
       return Promise.reject(new CmuxError("scope.missing", `this app cannot call ${name}`, { op: name }));
     }
+    if (state.gesture && options.gesture === undefined)
+      options = { ...options, gesture: state.gesture };
     const cbId = state.nextCallback++;
     return new Promise((resolve, reject) => {
       state.pending.set(cbId, { resolve, reject });
@@ -385,7 +395,18 @@
       get apiVersion() {
         return state.apiVersion;
       },
-      settings: () => state.settings[0]()
+      get locale() {
+        return state.locale;
+      },
+      settings: Object.assign(() => state.settings[0](), {
+        set: (values) => call("app.settings.set", { values })
+      })
+    },
+    gesture: () => state.gesture,
+    t: (key, fallbackOrParams, params) => {
+      const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key;
+      const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {};
+      return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k) => (k in values) ? String(values[k]) : m);
     }
   };
   var cmux = new Proxy(builtins, {
@@ -773,6 +794,12 @@
   }
   var mountExists = (mountId) => mounts.has(mountId);
   var nodeRecord = (nodeId) => nodes.get(nodeId);
+  function setChildren(m, id, children) {
+    const record = nodes.get(id);
+    if (record)
+      record.children = children;
+    m.pending.push({ op: "children", id, children });
+  }
   function newNode(m, type, props) {
     if (++m.nodeCount > LIMITS.nodesPerMount)
       throw new Error(`app.limit: more than ${LIMITS.nodesPerMount} scene nodes`);
@@ -801,7 +828,7 @@
     if (view.menu)
       staticProps.menu = null;
     const id = newNode(m, view.type, staticProps);
-    const record = { mount: m, handlers: { ...view.handlers }, menu: null };
+    const record = { mount: m, handlers: { ...view.handlers }, menu: null, children: [] };
     nodes.set(id, record);
     for (const [key, fn] of live) {
       let last = firstValues.get(key);
@@ -831,13 +858,13 @@
           childIds.push(buildDynamic(m, child, depth + 1));
       }
       if (childIds.length)
-        m.pending.push({ op: "children", id, children: childIds });
+        setChildren(m, id, childIds);
     }
     return id;
   }
   function buildDynamic(m, fn, depth) {
     const id = newNode(m, "Group", {});
-    nodes.set(id, { mount: m, handlers: {}, menu: null });
+    nodes.set(id, { mount: m, handlers: {}, menu: null, children: [] });
     let current = null;
     effect(() => {
       const result = fn();
@@ -851,15 +878,22 @@
         const views = (Array.isArray(result) ? result : [result]).filter((v) => v instanceof ViewNode);
         const ids = runWithOwner(owner, () => views.map((v) => build(m, v, depth + 1)));
         current = { owner, ids };
-        m.pending.push({ op: "children", id, children: ids });
+        setChildren(m, id, ids);
       });
     });
     return id;
   }
   function removeNode(m, id) {
     m.pending.push({ op: "remove", id });
-    nodes.delete(id);
-    m.nodeCount = Math.max(0, m.nodeCount - 1);
+    const stack = [id];
+    while (stack.length) {
+      const next = stack.pop();
+      const record = nodes.get(next);
+      if (record)
+        stack.push(...record.children);
+      if (nodes.delete(next))
+        m.nodeCount--;
+    }
   }
   function buildList(m, containerId, view, depth) {
     const { spec, template } = view.list;
@@ -896,7 +930,7 @@
         rows = next;
         order = nextOrder;
         if (changed)
-          m.pending.push({ op: "children", id: containerId, children: nextOrder.map((k) => next.get(k).nodeId) });
+          setChildren(m, containerId, nextOrder.map((k) => next.get(k).nodeId));
       });
     });
   }
@@ -983,7 +1017,7 @@
     const native = g.__cmuxAppNative;
     if (native)
       state.native = native;
-    Object.assign(g, exports_view, { cmux, signal, computed, effect, untrack, CmuxError });
+    Object.assign(g, exports_view, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError });
     if (typeof g.console === "undefined") {
       g.console = { log: (...a) => log("info", ...a), info: (...a) => log("info", ...a), warn: (...a) => log("warn", ...a), error: (...a) => log("error", ...a), debug: (...a) => log("debug", ...a) };
     }
@@ -998,6 +1032,9 @@
       if (init.apiVersion)
         state.apiVersion = init.apiVersion;
       state.allowedOps = Array.isArray(init.ops) ? new Set(init.ops) : null;
+      state.knownOps = Array.isArray(init.knownOps) ? new Set(init.knownOps) : null;
+      state.locale = init.locale ?? "en";
+      state.strings = init.strings ?? {};
       state.settings[1](init.settings ?? {});
       return "";
     }, "init failed");
@@ -1029,6 +1066,14 @@
       if (!record || record.mount.id !== mountId)
         return;
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {};
+      state.gesture = typeof payload.gesture === "string" ? payload.gesture : null;
+      try {
+        dispatchEvent(record, event, payload);
+      } finally {
+        state.gesture = null;
+      }
+    }, undefined);
+    function dispatchEvent(record, event, payload) {
       switch (event) {
         case "menu":
           runHandler("menu", menuHandler(record, Array.isArray(payload.path) ? payload.path : []));
@@ -1052,7 +1097,7 @@
         default:
           runHandler(event, record.handlers[event]);
       }
-    }, undefined);
+    }
     g.__cmuxAppRunCommand = (exportName, argsJSON, cbId) => entry("command", () => {
       const fn = exportsOf()[exportName];
       const done = (ok, body) => state.native?.commandDone(cbId, ok, JSON.stringify(body ?? null));

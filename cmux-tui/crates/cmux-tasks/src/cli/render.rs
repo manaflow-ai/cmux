@@ -63,7 +63,13 @@ pub fn task_detail(detail: &Value) -> String {
         return "Not found.\n".to_owned();
     }
     let mut out = format!("{}  {}\n", s(detail, "key"), s(detail, "title"));
-    out.push_str(&format!("status {}  priority {}  assignee {}{}\n", s(detail, "status_name"), s(detail, "priority"), who(detail), attention(detail)));
+    out.push_str(&format!(
+        "status {}  priority {}  assignee {}{}\n",
+        s(detail, "status_name"),
+        s(detail, "priority"),
+        who(detail),
+        attention(detail)
+    ));
     let text = detail.pointer("/description/text").and_then(Value::as_str).unwrap_or("");
     if !text.is_empty() {
         out.push('\n');
@@ -71,7 +77,12 @@ pub fn task_detail(detail: &Value) -> String {
         out.push('\n');
     }
     for session in detail.get("sessions").and_then(Value::as_array).into_iter().flatten() {
-        out.push_str(&format!("\nagent {} ({})  {}", s(session.get("agent").unwrap_or(&Value::Null), "harness"), s(session, "id"), s(session, "status")));
+        out.push_str(&format!(
+            "\nagent {} ({})  {}",
+            s(session.get("agent").unwrap_or(&Value::Null), "harness"),
+            s(session, "id"),
+            s(session, "status")
+        ));
         if let Some(pr) = session.pointer("/links/pr").and_then(Value::as_str) {
             out.push_str(&format!("  {pr}"));
         }
@@ -95,8 +106,16 @@ pub fn task_detail(detail: &Value) -> String {
 /// One line for a committed mutation: the task key or entity id.
 pub fn mutation(op: &str, reply: &Value) -> String {
     let result = reply.get("result").unwrap_or(&Value::Null);
-    let subject = result.get("key").and_then(Value::as_str).or_else(|| result.get("id").and_then(Value::as_str)).unwrap_or("");
-    let replay = if reply.get("replay").and_then(Value::as_bool) == Some(true) { " (already done)" } else { "" };
+    let subject = result
+        .get("key")
+        .and_then(Value::as_str)
+        .or_else(|| result.get("id").and_then(Value::as_str))
+        .unwrap_or("");
+    let replay = if reply.get("replay").and_then(Value::as_bool) == Some(true) {
+        " (already done)"
+    } else {
+        ""
+    };
     let verb = match op.rsplit('.').next().unwrap_or(op) {
         "add" => "added",
         "remove" => "removed",

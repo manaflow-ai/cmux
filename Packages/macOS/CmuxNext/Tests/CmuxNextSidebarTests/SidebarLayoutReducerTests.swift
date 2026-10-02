@@ -234,6 +234,9 @@ import Testing
         #expect(owner.document.revision == 1)
         #expect(owner.apply(.itemRemove(settings), key: "k1") == .failure(.idempotencyConflict))
         #expect(owner.document.item(settings) != nil)
+        let label = SidebarLayoutOp.itemUpdate(LayoutItemID("itm_account"), showsLabel: true)
+        #expect(owner.apply(label, key: "k2") == owner.apply(label, key: "k2"))
+        #expect(owner.document.revision == 2)
     }
 
     // MARK: Wire
@@ -298,6 +301,7 @@ import Testing
             if case .sectionMove = op { #expect(Set(ids) == Set(Self.itemIDs(before))) }
             #expect(doc.revision == before.revision + (doc.sections == before.sections ? 0 : 1))
             #expect(doc.sections.filter { $0.content == .workspaces }.allSatisfy { $0.room == nil })
+            #expect(doc.sections.allSatisfy { $0.arrangement.isValid && ($0.maxRows.map(SidebarLayoutReducer.maxRowsRange.contains) ?? true) })
         }
     }
 
@@ -314,14 +318,21 @@ import Testing
             let content: SectionContent = Int.random(in: 0..<10, using: &rng) == 0 ? .workspaces : .items
             return .sectionAdd(LayoutSection(id: LayoutSectionID("sec_r\(step)"), region: region, content: content), index: index)
         case 1:
-            return .sectionUpdate(sections.randomElement(using: &rng)!, SectionPatch(title: .set("T\(step)"), maxRows: .set(Int.random(in: 0...52, using: &rng))))
+            let layout = SectionArrangement.Layout.allCases.randomElement(using: &rng)!
+            let align = SectionArrangement.Alignment.allCases.randomElement(using: &rng)!
+            let patch = SectionPatch(title: .set("T\(step)"), maxRows: .set(Int.random(in: 0...52, using: &rng)),
+                                     layout: layout, align: align, gap: .set(Int.random(in: -2...34, using: &rng)),
+                                     columns: Bool.random(using: &rng) ? .clear : .set(Int.random(in: 0...14, using: &rng)))
+            return .sectionUpdate(sections.randomElement(using: &rng)!, patch)
         case 2: return .sectionMove(sections.randomElement(using: &rng)!, region: region, index: index)
         case 3: return .sectionRemove(sections.randomElement(using: &rng)!)
         case 4, 5:
             return .itemAdd(LayoutItem(id: LayoutItemID("itm_r\(step)"), ref: refs.randomElement(using: &rng)!),
                             section: sections.randomElement(using: &rng)!, index: index)
         case 6: return .itemMove(items.randomElement(using: &rng)!, section: sections.randomElement(using: &rng)!, index: index)
-        case 7: return .itemRemove(items.randomElement(using: &rng)!)
+        case 7:
+            return Bool.random(using: &rng) ? .itemRemove(items.randomElement(using: &rng)!)
+                : .itemUpdate(items.randomElement(using: &rng)!, showsLabel: Bool.random(using: &rng))
         default: return Int.random(in: 0..<20, using: &rng) == 0 ? .reset : .itemMove(items.randomElement(using: &rng)!, section: sections.randomElement(using: &rng)!, index: index)
         }
     }

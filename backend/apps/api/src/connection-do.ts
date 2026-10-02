@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
-import { cloudOpByName, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
+import { connectionsDomain, expiredForgets, githubRepoAllowed, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -41,6 +41,9 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
  * a retry with the same key replays the stored reply, and a key whose call
  * was cut off answers `mutation.indeterminate` instead of calling twice.
  */
+/** An SSO or MDM lock, which TeamPolicy never replaces. */
+const managedBy = (source: string): "sso" | "mdm" | null => (source === "sso" || source === "mdm" ? source : null)
+
 export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** Provider HTTP. Tests replace it on the live instance. */
   http: Http = (r) => fetch(r)
@@ -63,6 +66,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       identity TEXT NOT NULL, idempotency_key TEXT NOT NULL, op TEXT NOT NULL, params_hash TEXT NOT NULL,
       status TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (identity, idempotency_key))`)
     sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -83,11 +87,53 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** The external-effect ledger keeps the same 7-day replay window as the op ledger. */
   protected override onPrune(before: number): void {
     this.ctx.storage.sql.exec(`DELETE FROM external_calls WHERE created_at < ?`, before)
+    // A refused op's target connection is gone or no longer pending by then.
+    const ids = new Set(Object.keys(this.boundEngine?.currentState.connections ?? {}))
+    for (const r of this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops WHERE at < ?`, before).toArray()) {
+      if (!ids.has(r.key.slice(r.key.indexOf(":") + 1))) this.ctx.storage.sql.exec(`DELETE FROM refused_system_ops WHERE key = ?`, r.key)
+    }
   }
 
-  protected override nextWakeAt(_state: ConnectionsState, _now: number): number | null {
+  /** The earliest of: a pending connection's expiry, an expired one leaving state, the external-call ledger's prune. */
+  protected override nextWakeAt(state: ConnectionsState, _now: number): number | null {
     const oldest = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM external_calls`).toArray()[0]?.at
-    return oldest === null || oldest === undefined ? null : Number(oldest) + LEDGER_RETENTION_MS
+    const times: Array<number> = []
+    if (oldest !== null && oldest !== undefined) times.push(Number(oldest) + LEDGER_RETENTION_MS)
+    const skip = this.skipped()
+    const expiry = pendingExpiries(state).find((p) => !skip.has(`expire:${p.connection}`))
+    if (expiry) times.push(expiry.at)
+    const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
+    if (forget) times.push(forget.at)
+    return times.length === 0 ? null : Math.min(...times)
+  }
+
+  /** System ops that were refused: never retried, so a refusal cannot spin the alarm. Logged loudly. */
+  private skipped(): Set<string> {
+    return new Set(this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops`).toArray().map((r) => r.key))
+  }
+
+  private runSystem(op: string, params: unknown, key: string) {
+    const res = this.submitSystem(op, params, key)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) {
+      this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO refused_system_ops (key, code, at) VALUES (?, ?, ?)`, key, rej.code, Date.now())
+      console.error(JSON.stringify({ msg: "connection system op refused", key, code: rej.code }))
+    }
+  }
+
+  /** Expires pending connections whose lifetime ended and drops long-expired ones; keys make repeated alarms replays. */
+  protected override async onWake(now: number): Promise<void> {
+    const engine = this.boundEngine
+    if (!engine) return
+    const skip = this.skipped()
+    for (const p of pendingExpiries(engine.currentState)) {
+      if (p.at > now) break
+      if (!skip.has(`expire:${p.connection}`)) this.runSystem("connection.expire", { connection: p.connection, at: now }, `expire:${p.connection}`)
+    }
+    for (const p of expiredForgets(engine.currentState)) {
+      if (p.at > now) break
+      if (!skip.has(`forget:${p.connection}`)) this.runSystem("connection.forget", { connection: p.connection, at: now }, `forget:${p.connection}`)
+    }
   }
 
   /** Revocation deletes the credential at once and unlinks the account from webhook routing. */
@@ -133,6 +179,38 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
+  /**
+   * RPC from TeamDO, once per team: returns the integration fields this
+   * projection enforces and, in the same commit, locks them as source
+   * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
+   * Idempotent: a repeated call replays the lock and returns the locked values.
+   */
+  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } }; managed_by: "sso" | "mdm" | null } | { ok: false; message: string }> {
+    const engine = this.bind(team)
+    const fields = (p: ReturnType<typeof policyOf>) => ({
+      allowed_providers: p.allowed_providers,
+      github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist }
+    })
+    const current = fields(policyOf(engine.currentState))
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", policy: current, applied_by: "team_policy:adopt" }, `integration-adopt:${team}`)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) return { ok: false, message: rej.message }
+    const held = policyOf(engine.currentState)
+    return { ok: true, policy: fields(held), managed_by: managedBy(held.source) }
+  }
+
+  /**
+   * RPC from TeamDO: the team's TeamPolicy (single writer) replaces and locks
+   * this projection (spec/enterprise.md 4.6). Idempotent by key; a newer
+   * version always carries the full slice.
+   */
+  async applyTeamPolicy(team: string, params: { policy: unknown; applied_by: string }, idempotencyKey: string): Promise<{ ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }> {
+    const engine = this.bind(team)
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", ...params }, idempotencyKey)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    return rej ? { ok: false, message: rej.message, managed_by: null } : { ok: true, managed_by: managedBy(policyOf(engine.currentState).source) }
+  }
+
   async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {
     const engine = this.bind(entity)
     const identity = principal.identity
@@ -184,6 +262,10 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const c = this.boundEngine!.currentState.connections[st.conn]
     if (!c || c.provider !== st.provider || c.created_by !== principal.user) throw new ProviderError("integration.state_invalid", "this connection attempt is not yours")
     if (c.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
+    // Expired, or past its lifetime with the expiry alarm not yet run: refuse before calling the provider.
+    if (c.status === "expired" || (c.status === "pending" && Date.now() >= c.created_at + PENDING_CONNECTION_TTL_MS)) {
+      throw new ProviderError("integration.state_invalid", "the connection link expired; start again from Connect")
+    }
     const impl = providers[c.provider]
     if (!impl.configured(this.env) || !this.env.INTEGRATIONS_KEK) throw new ProviderError("integration.unavailable", `${c.provider} is not configured`)
     const policy = policyOf(this.boundEngine!.currentState)
@@ -196,7 +278,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     })
     if (c.account && c.account.key !== approved.account.key) throw new ProviderError("integration.state_invalid", "re-authorization must use the same provider account")
     // A disconnect may have committed while we waited on the provider.
-    if (this.boundEngine!.currentState.connections[c.id]?.status === "revoked") throw new ProviderError("integration.state_invalid", "this connection was revoked")
+    const now = this.boundEngine!.currentState.connections[c.id]?.status
+    if (now === "revoked" || now === "expired") throw new ProviderError("integration.state_invalid", `this connection was ${now}`)
     // Route webhooks first (idempotent), then seal, then commit. If the commit is refused (a
     // disconnect landed in between), undo both so no credential or route outlives it.
     await this.index(approved.account.key).add(c.owner, c.id)
@@ -208,6 +291,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         ...(approved.resources ? { resources: { repos: approved.resources.repos === null ? null : [...approved.resources.repos] } } : {})
       }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted, approved.resources ?? null])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    // An exchange that began inside the lifetime and finished after it still activates when the
+    // expiry alarm has not run yet: the provider code is already spent, so refusing would only strand it.
     if (rej) {
       this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
       await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)

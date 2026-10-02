@@ -41,7 +41,10 @@ the strip's scroll function (niri.md).
 - C2/C3 The successor is a surviving item on the same screen (panes on hidden screens are
   used only when that screen emptied); focus is nil only when nothing is left.
 - Pane (`layout.closeFocus`, default `previousNeighbor`): the previous pane in its column,
-  else the next pane there; when the column went, the nearest column to the left, else to
+  else the next pane there, counting only panes still in that column after the change
+  (column identity, not liveness: a neighbor moved to another column in the same snapshot
+  does not count; found by the rows lead's LayoutRows.tla), else a pane that joined the
+  column; when the column went, the nearest column to the left, else to
   the right, in visual order (left sticky, strip, right sticky; a split screen is one
   column), entering it at its most recently focused pane, else its first. `mostRecent`:
   the newest surviving pane of this window's history on that screen, else the default.
@@ -103,16 +106,16 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 
 | Check | Bound | States / sequences | Transitions | Time |
 | --- | --- | --- | --- | --- |
-| `FocusAfterClose.pane` previousNeighbor | up to 4 columns x 3 panes, 6 panes, depth 6 | 39,626 states | 608,785 (369,664 closes) | 8 s |
+| `FocusAfterClose.pane` previousNeighbor | up to 4 columns x 3 panes, 6 panes, depth 6, incl. close + move to another or a new column in one snapshot | 49,341 states | 822,006 (557,595 closes) | ~60 s at load 600+ |
 | same, `CMUX_MODELCHECK_PANES=7` | 7 panes | 341,004 states | 4,024,915 | 63 s |
-| `FocusAfterClose.pane` mostRecent | as above | 39,626 states | 608,785 | 8 s |
+| `FocusAfterClose.pane` mostRecent | as above | 48,180 states | 810,480 | |
 | `FocusAfterClose.tab` | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
 | `FocusAfterClose.workspace` | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
 | `ListViewport` | 5 rows, 3 viewports, depth 3 | 1,025,508 states | 3,365,334 | 150 s |
 | `ColumnScrollState` (strip) | 4 columns, 3 widths, 2 viewports, depth 6 | 12,100 states | 73,766 | 5 s |
 | TLA+ strip / strip-recent / list | see formal/README.md | 23,057 / 23,229 / 93,149 distinct | | 20 s |
 
-Mutants caught: 6 pane, 2 tab, 6 list, 4 strip, 7 TLA+ runs. The strip check found a real
+Mutants caught: 7 pane (incl. liveness instead of column membership), 2 tab, 6 list, 4 strip, 7 TLA+ runs. The strip check found a real
 bug: niri's restore point fired on an unfocused close of the just-opened column (fixed;
 `ColumnScrollRestoreTests`).
 

@@ -101,10 +101,13 @@ public nonisolated enum StatusStack {
         return a.id < b.id
     }
 
-    public static func resolve(_ reports: [StatusReport]) -> StatusSummary {
+    /// The winning report's style hint counts only when its source is in
+    /// `honoring` (`appearance.statusIndicator.honorStatusStyle`).
+    public static func resolve(_ reports: [StatusReport],
+                               honoring: Set<StatusReport.Source> = Set(StatusReport.Source.allCases)) -> StatusSummary {
         let visible = reports.filter { $0.state.isVisible }.sorted(by: precedes)
         guard let top = visible.first else { return .idle }
-        return StatusSummary(state: top.state, style: top.style, reports: visible)
+        return StatusSummary(state: top.state, style: honoring.contains(top.source) ? top.style : nil, reports: visible)
     }
 
     /// A parent's summary (a workspace over its tabs, a collapsed group over

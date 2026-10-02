@@ -15,6 +15,7 @@ public nonisolated enum TasksChange: Sendable {
     case label(TaskLabelItem)
     case project(TaskProjectItem)
     case session(TaskSessionItem)
+    case settings(TasksSettings)
     case remove(entity: String, id: String)
     case other
 }

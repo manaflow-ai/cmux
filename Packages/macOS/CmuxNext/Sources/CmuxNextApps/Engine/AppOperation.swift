@@ -36,6 +36,6 @@ public nonisolated struct AppOperationRequest: Sendable, Hashable {
 /// through the registry, reads from the control snapshot, per-app storage,
 /// egress); the module never imports the daemon. Called off the main
 /// actor; implementations hop as they need.
-public protocol AppOperationSink: Sendable {
+public nonisolated protocol AppOperationSink: Sendable {
     func perform(_ request: AppOperationRequest) async -> Result<AppOperationResult, AppOperationError>
 }
