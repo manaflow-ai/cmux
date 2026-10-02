@@ -71,12 +71,10 @@ nonisolated struct TranscriptWindow: Sendable {
             if let newest = messages.last?.seq { newestKnown = max(newestKnown, newest) }
             return .none
         }
-        let wasAtNewest = atNewest
         let start = confirmed.count
         confirmed.append(contentsOf: fresh)
         newestKnown = max(newestKnown, lastSeq)
-        if !wasAtNewest { return .touched(IndexSet(integersIn: start..<confirmed.count)) }
-        // pending rows sit after the new confirmed ones: they moved too
+        // pending rows sit after the new confirmed ones (or just became visible): they moved too
         return .touched(IndexSet(integersIn: start..<count))
     }
 
@@ -129,8 +127,11 @@ nonisolated struct TranscriptWindow: Sendable {
         let top = min(top, confirmed.count)
         let bottom = min(bottom, confirmed.count - top)
         guard top > 0 || bottom > 0 else { return .none }
+        let before = count
         confirmed.remove(top: top, bottom: bottom)
         firstSeq += top
-        return top > 0 ? .evictTop(top) : .evictBottom(bottom)
+        if top > 0, bottom > 0 { return .full }
+        // leaving the newest end also hides the pending rows
+        return top > 0 ? .evictTop(top) : .evictBottom(before - count)
     }
 }

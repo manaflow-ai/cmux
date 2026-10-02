@@ -70,7 +70,6 @@ final class MotionCommitter {
 }
 
 /// Which components a layer already carries, per key path.
-@MainActor
-final class MotionTag {
+nonisolated final class MotionTag {
     var ids: [String: Set<Int>] = [:]
 }
