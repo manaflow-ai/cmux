@@ -104,7 +104,13 @@ public final class ThemeScope {
     /// its own). Children keep inheriting this scope's own theme, so a
     /// parked workspace never takes the shown one's colors.
     public func show(_ scope: ThemeScope?, animated: Bool = false) {
-        guard scope !== shown, scope !== self else { return }
+        guard scope !== shown else { return }
+        // A chain that leads back here would never resolve its colors.
+        var next = scope
+        while let candidate = next {
+            if candidate === self { return }
+            next = candidate.shown
+        }
         let before = tokens
         shown?.viewers.remove(self)
         shown = scope

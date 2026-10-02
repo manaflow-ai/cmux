@@ -193,8 +193,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
-        themeScope.show(controller.themeScope, animated: true)
+        // The workspace's theme first, so the chrome repaints once; no
+        // crossfade, which would fade the swap itself.
         services.themes.contentDidShow(controller)
+        themeScope.show(controller.themeScope)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil
