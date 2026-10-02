@@ -37,7 +37,7 @@ extension CloudHandlers {
         }
         bind("cloudFilesList", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            run("list Cloud files", context) {
+            runTracked("list Cloud files", context) {
                 let entries = try await cloud.api.listFiles(session.machineID, path: path)
                 let body = entries.map { entry in
                     var line = entry.kind == "directory" ? "d" : "-"
@@ -50,7 +50,7 @@ extension CloudHandlers {
         }
         bind("cloudFileRead", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            run("read Cloud file", context) {
+            runTracked("read Cloud file", context) {
                 let contents = try await cloud.api.readFile(session.machineID, path: path)
                 CloudPresenter.show(CloudStrings.fileContentsTitle, contents.text ?? contents.dataBase64,
                                    copyable: true, in: window(context))
@@ -73,7 +73,7 @@ extension CloudHandlers {
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
-            run("stat Cloud file", context) {
+            runTracked("stat Cloud file", context) {
                 let stat = try await cloud.api.statFile(session.machineID, path: path)
                 var body = ["kind: \(stat.kind)"]
                 if let size = stat.size { body.append("size: \(size) bytes") }
@@ -86,7 +86,7 @@ extension CloudHandlers {
             guard let publicKey = invocation["publicKey"]?.stringValue, !publicKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw ActionFailure(message: CloudStrings.publicKeyRequired)
             }
-            run("prepare Cloud file transfer", context) {
+            runTracked("prepare Cloud file transfer", context) {
                 let endpoint = try await cloud.api.prepareSCP(session.machineID, publicKey: publicKey)
                 let body = ["host: \(endpoint.host)", "port: \(endpoint.port)", "user: \(endpoint.username)",
                             "host key: \(endpoint.hostPublicKey)", "expires: \(Date(timeIntervalSince1970: TimeInterval(endpoint.expiresAtUnix)))"].joined(separator: "\n")

@@ -2,7 +2,7 @@
 
 nonisolated enum CloudActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
-        [
+        var actions: [ActionDescriptor] = [
             ActionDescriptor(
                 id: "newCloudWorkspace",
                 title: String(localized: "action.newCloudWorkspace", defaultValue: "New Cloud Workspace", bundle: .module),
@@ -232,5 +232,13 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette], cliName: "cloud open-mobile-pairing"
             ),
         ]
+        let waitsForResult: Set<ActionID> = [
+            "cloudFilesList", "cloudFileRead", "cloudFileWrite", "cloudFileMkdir",
+            "cloudFileRemove", "cloudFileStat", "cloudPrepareSCP",
+        ]
+        for index in actions.indices where waitsForResult.contains(actions[index].id) {
+            actions[index].waitsForResult = true
+        }
+        return actions
     }
 }
