@@ -22,7 +22,9 @@ impl Hub {
                     let s = session.clone();
                     let epoch = session.permission_epoch.load(Ordering::SeqCst);
                     let turn_id = session.turn().map(|t| t.turn_id);
-                    tokio::spawn(async move { hub.on_agent_request(s, id, m, params, epoch, turn_id).await });
+                    tokio::spawn(async move {
+                        hub.on_agent_request(s, id, m, params, epoch, turn_id).await
+                    });
                 }
                 Inbound::Stderr(line) => {
                     let line = short_text(&line, 4000);
@@ -134,12 +136,14 @@ impl Hub {
         // the client. Writes go through the permission policy like any edit
         // tool; reads are refused only by deny-all or a deny rule.
         if m == "fs/write_text_file" {
-            let result = self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
+            let result =
+                self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
             let _ = child.respond(id, result).await;
             return;
         }
         if m == "fs/read_text_file" {
-            let result = self.handle_fs_read(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
+            let result =
+                self.handle_fs_read(&session, params.unwrap_or(Value::Null), epoch, turn_id).await;
             let _ = child.respond(id, result).await;
             return;
         }
@@ -229,7 +233,8 @@ impl Hub {
                     {"optionId": "reject_once", "name": "Reject", "kind": "reject_once"}
                 ]
             });
-            denied = !outcome_allows(&self.handle_permission(session, request, epoch, turn_id).await);
+            denied =
+                !outcome_allows(&self.handle_permission(session, request, epoch, turn_id).await);
         }
         if denied {
             return Err(RpcError::new(
@@ -275,96 +280,128 @@ impl Hub {
         turn_id: Option<String>,
     ) -> Value {
         let (rx, prev, grouping, permission_id) = {
-        let cfg = self.config.read().await;
-        let mut state = session.permissions.lock().unwrap();
-        if session.permission_epoch.load(Ordering::SeqCst) != epoch || session.turn().map(|t| t.turn_id) != turn_id {
-            return json!({"outcome":{"outcome":"cancelled"}});
-        }
-        let policy = self.policy_for(session, cfg.permission_policy);
-        let options = request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
-        let pick = |kinds: &[&str]| -> Option<String> {
-            for k in kinds {
-                if let Some(o) =
-                    options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
-                {
-                    return o.get("optionId").and_then(Value::as_str).map(str::to_owned);
-                }
+            let cfg = self.config.read().await;
+            let mut state = session.permissions.lock().unwrap();
+            if session.permission_epoch.load(Ordering::SeqCst) != epoch
+                || session.turn().map(|t| t.turn_id) != turn_id
+            {
+                return json!({"outcome":{"outcome":"cancelled"}});
             }
-            None
-        };
-        let tool_kind = request
-            .get("toolCall")
-            .and_then(|t| t.get("kind"))
-            .and_then(Value::as_str)
-            .unwrap_or("");
-        let rule = session
-            .meta()
-            .permission_rules
-            .as_ref()
-            .and_then(|r| super::rules::decide(r, &request));
-        let auto = match rule {
-            Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
-            Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
-            Some(super::rules::RuleDecision::Ask) => None,
-            None => match policy {
-                PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
-                PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
-                PermissionPolicy::ApproveReads => {
-                    if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
-                        pick(&["allow_once", "allow_always"])
-                    } else {
-                        None
+            let policy = self.policy_for(session, cfg.permission_policy);
+            let options =
+                request.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+            let pick = |kinds: &[&str]| -> Option<String> {
+                for k in kinds {
+                    if let Some(o) =
+                        options.iter().find(|o| o.get("kind").and_then(Value::as_str) == Some(k))
+                    {
+                        return o.get("optionId").and_then(Value::as_str).map(str::to_owned);
                     }
                 }
-                PermissionPolicy::ApproveEdits => {
-                    if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
-                        pick(&["allow_once", "allow_always"])
-                    } else {
-                        None
+                None
+            };
+            let tool_kind = request
+                .get("toolCall")
+                .and_then(|t| t.get("kind"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            let rule = session
+                .meta()
+                .permission_rules
+                .as_ref()
+                .and_then(|r| super::rules::decide(r, &request));
+            let auto = match rule {
+                Some(super::rules::RuleDecision::Approve) => pick(&["allow_once", "allow_always"]),
+                Some(super::rules::RuleDecision::Deny) => pick(&["reject_once", "reject_always"]),
+                Some(super::rules::RuleDecision::Ask) => None,
+                None => match policy {
+                    PermissionPolicy::ApproveAll => pick(&["allow_once", "allow_always"]),
+                    PermissionPolicy::DenyAll => pick(&["reject_once", "reject_always"]),
+                    PermissionPolicy::ApproveReads => {
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think") {
+                            pick(&["allow_once", "allow_always"])
+                        } else {
+                            None
+                        }
                     }
-                }
-                PermissionPolicy::Ask => None,
-            },
-        };
-        let denied = policy == PermissionPolicy::DenyAll || rule == Some(super::rules::RuleDecision::Deny);
-        let chat_option = if state.chat_allowed && !denied && session.turn().is_some() && super::permission_groups::eligible(&request) {
-            super::permission_groups::option(&request, "allow_once")
-        } else { None };
-        let auto = if denied { pick(&["reject_once", "reject_always"]) } else { chat_option.clone().or(auto) };
-        let permission_id = uuid::Uuid::now_v7().to_string();
-        if let Some(option_id) = auto {
-            self.append(
+                    PermissionPolicy::ApproveEdits => {
+                        if matches!(tool_kind, "read" | "search" | "fetch" | "think" | "edit") {
+                            pick(&["allow_once", "allow_always"])
+                        } else {
+                            None
+                        }
+                    }
+                    PermissionPolicy::Ask => None,
+                },
+            };
+            let denied = policy == PermissionPolicy::DenyAll
+                || rule == Some(super::rules::RuleDecision::Deny);
+            let chat_option = if state.chat_allowed
+                && !denied
+                && session.turn().is_some()
+                && super::permission_groups::eligible(&request)
+            {
+                super::permission_groups::option(&request, "allow_once")
+            } else {
+                None
+            };
+            let auto = if denied {
+                pick(&["reject_once", "reject_always"])
+            } else {
+                chat_option.clone().or(auto)
+            };
+            let permission_id = uuid::Uuid::now_v7().to_string();
+            if let Some(option_id) = auto {
+                self.append(
                 session,
                 "mux",
                 "permission_auto",
                 json!({"permissionId": permission_id, "policy": policy.to_string(), "rule": rule.map(|r| format!("{r:?}").to_lowercase()), "optionId": option_id, "chatAllowance":chat_option.is_some(), "request": request}),
             );
-            return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
-        }
-        // No safe rejection option means cancel, never fall through to an allow ask.
-        if denied {
-            self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"policy":policy.to_string(),"request":request,"cancelled":true}));
-            return json!({"outcome":{"outcome":"cancelled"}});
-        }
-        let (tx, rx) = oneshot::channel();
-        let grouping = if super::permission_groups::eligible(&request) && turn_id.is_some() {
-            match state.register(&permission_id, &request, turn_id.clone(), epoch, std::time::Instant::now()) {
-                Ok(g) => Some(g),
-                Err(error) => {
-                    self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"request":request,"cancelled":true,"reason":error.message}));
-                    return json!({"outcome":{"outcome":"cancelled"}});
-                }
+                return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
             }
-        } else { None };
-        state.pending.insert(permission_id.clone(), PendingPermission {request:request.clone(),reply:tx});
-        self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id}));
-        let prev = session.status();
-        self.set_status(session, SessionStatus::Waiting);
-        (rx, prev, grouping, permission_id)
+            // No safe rejection option means cancel, never fall through to an allow ask.
+            if denied {
+                self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"policy":policy.to_string(),"request":request,"cancelled":true}));
+                return json!({"outcome":{"outcome":"cancelled"}});
+            }
+            let (tx, rx) = oneshot::channel();
+            let grouping = if super::permission_groups::eligible(&request) && turn_id.is_some() {
+                match state.register(
+                    &permission_id,
+                    &request,
+                    turn_id.clone(),
+                    epoch,
+                    std::time::Instant::now(),
+                ) {
+                    Ok(g) => Some(g),
+                    Err(error) => {
+                        self.append(session,"mux","permission_auto",json!({"permissionId":permission_id,"request":request,"cancelled":true,"reason":error.message}));
+                        return json!({"outcome":{"outcome":"cancelled"}});
+                    }
+                }
+            } else {
+                None
+            };
+            state.pending.insert(
+                permission_id.clone(),
+                PendingPermission { request: request.clone(), reply: tx },
+            );
+            self.append(session,"mux","permission_request",json!({"permissionId":permission_id,"request":request,"groupId":grouping.as_ref().map(|(id,_)|id),"turnId":turn_id}));
+            let prev = session.status();
+            self.set_status(session, SessionStatus::Waiting);
+            (rx, prev, grouping, permission_id)
         };
-        if let Some((id,true)) = grouping { self.start_permission_group_timer(session,id); }
+        if let Some((id, true)) = grouping {
+            self.start_permission_group_timer(session, id);
+        }
         let outcome = rx.await.unwrap_or_else(|_| json!({"outcome":"cancelled"}));
-        self.append(session,"mux","permission_decision",json!({"permissionId":permission_id,"outcome":outcome}));
+        self.append(
+            session,
+            "mux",
+            "permission_decision",
+            json!({"permissionId":permission_id,"outcome":outcome}),
+        );
         {
             let state = session.permissions.lock().unwrap();
             if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
@@ -409,8 +446,9 @@ impl Hub {
                 )));
             }
             let p = map.remove(permission_id).unwrap();
-            if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none()) {
-                self.append(session,"mux","permission_group",json!({"group":group}));
+            if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
+            {
+                self.append(session, "mux", "permission_group", json!({"group":group}));
             }
             p
         };
@@ -434,8 +472,8 @@ impl Hub {
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
-                if let Some(group) = state.finish_item(&session.id,id,true) {
-                    self.append(session,"mux","permission_group",json!({"group":group}));
+                if let Some(group) = state.finish_item(&session.id, id, true) {
+                    self.append(session, "mux", "permission_group", json!({"group":group}));
                 }
             }
             drained

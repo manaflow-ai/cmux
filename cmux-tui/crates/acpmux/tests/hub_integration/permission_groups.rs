@@ -88,7 +88,12 @@ async fn permission_groups_fixture_legacy_resolution_invalidates_revision() {
     let mut r = connect(&hub).await;
     r.request(method::MUX_PERMISSION_RESPOND, json!({"sessionId":id,
         "permissionId":g["items"][0]["permissionId"], "optionId":g["items"][0]["request"]["options"][0]["optionId"]})).await.unwrap();
-    assert!(r.request(RESPOND, decision(&id, &g, "stale", "allow_once")).await.unwrap_err().contains("stale_revision"));
+    assert!(
+        r.request(RESPOND, decision(&id, &g, "stale", "allow_once"))
+            .await
+            .unwrap_err()
+            .contains("stale_revision")
+    );
     let current = r.request(GROUPS, json!({"sessionId":id,"groupId":g["groupId"]})).await.unwrap();
     r.request(RESPOND, decision(&id, &current["groups"][0], "fresh", "deny")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
@@ -98,7 +103,8 @@ async fn permission_groups_fixture_legacy_resolution_invalidates_revision() {
 async fn permission_groups_fixture_missing_once_option_cannot_widen() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
     let id = new_session(&mut c, "safe-options").await;
-    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: unsafe-option", None)).await;
+    let rid =
+        c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: unsafe-option", None)).await;
     let g = ready(&mut c).await;
     assert_eq!(g["decisions"], json!(["deny"]));
     let mut r = connect(&hub).await;
@@ -133,34 +139,56 @@ async fn permission_groups_fixture_chat_isolation_policy_and_stop() {
     let g = ready(&mut c).await;
     r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
-    assert_eq!(r.request(GROUPS,json!({"sessionId":other})).await.unwrap()["chatAllowance"]["active"],false);
+    assert_eq!(
+        r.request(GROUPS, json!({"sessionId":other})).await.unwrap()["chatAllowance"]["active"],
+        false
+    );
     // Changing rules revokes the grant and explicit deny still wins.
-    r.request(method::MUX_SET_RULES,json!({"sessionId":id,"rules":{"autoDeny":["edit"]}})).await.unwrap();
-    assert_eq!(r.request(GROUPS,json!({"sessionId":id})).await.unwrap()["chatAllowance"]["active"],false);
-    c.request(method::SESSION_PROMPT,prompt(&id,"permission-batch: single",None)).await.unwrap();
-    let events = hub.events(&id,0,1000).unwrap();
-    assert_eq!(find(&events,"permission_auto").last().unwrap().msg["optionId"].as_str().unwrap().starts_with("no-"),true);
-    r.request(method::MUX_SET_RULES,json!({"sessionId":id,"rules":null})).await.unwrap();
-    let rid = c.send(method::SESSION_PROMPT,prompt(&id,"permission-batch: single",None)).await;
+    r.request(method::MUX_SET_RULES, json!({"sessionId":id,"rules":{"autoDeny":["edit"]}}))
+        .await
+        .unwrap();
+    assert_eq!(
+        r.request(GROUPS, json!({"sessionId":id})).await.unwrap()["chatAllowance"]["active"],
+        false
+    );
+    c.request(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    assert_eq!(
+        find(&events, "permission_auto").last().unwrap().msg["optionId"]
+            .as_str()
+            .unwrap()
+            .starts_with("no-"),
+        true
+    );
+    r.request(method::MUX_SET_RULES, json!({"sessionId":id,"rules":null})).await.unwrap();
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
     let g = ready(&mut c).await;
-    r.request(RESPOND,decision(&id,&g,"second-grant","allow_chat")).await.unwrap();
+    r.request(RESPOND, decision(&id, &g, "second-grant", "allow_chat")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
-    r.request(method::MUX_KILL,json!({"sessionId":id})).await.unwrap();
-    assert_eq!(r.request(GROUPS,json!({"sessionId":id})).await.unwrap()["chatAllowance"]["active"],false);
+    r.request(method::MUX_KILL, json!({"sessionId":id})).await.unwrap();
+    assert_eq!(
+        r.request(GROUPS, json!({"sessionId":id})).await.unwrap()["chatAllowance"]["active"],
+        false
+    );
 }
 
 #[tokio::test]
 async fn permission_groups_fixture_interactive_and_unknown_remain_individual() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
-    let id = new_session(&mut c,"individual").await;
+    let id = new_session(&mut c, "individual").await;
     let mut r = connect(&hub).await;
     // Start with a chat allowance to prove these requests do not inherit it.
-    let rid = c.send(method::SESSION_PROMPT,prompt(&id,"permission-batch: single",None)).await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: single", None)).await;
     let g = ready(&mut c).await;
-    r.request(RESPOND,decision(&id,&g,"grant","allow_chat")).await.unwrap();
+    r.request(RESPOND, decision(&id, &g, "grant", "allow_chat")).await.unwrap();
     assert!(c.response(rid).await.0.is_ok());
-    for fixture in ["interactive","unknown"] {
-        let rid = c.send(method::SESSION_PROMPT,prompt(&id,&format!("permission-batch: {fixture}"),None)).await;
+    for fixture in ["interactive", "unknown"] {
+        let rid = c
+            .send(
+                method::SESSION_PROMPT,
+                prompt(&id, &format!("permission-batch: {fixture}"), None),
+            )
+            .await;
         let p = c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
         assert!(p["groupId"].is_null());
         r.request(method::MUX_PERMISSION_RESPOND,json!({"sessionId":id,"permissionId":p["permissionId"],"optionId":p["request"]["options"][1]["optionId"]})).await.unwrap();
@@ -171,16 +199,16 @@ async fn permission_groups_fixture_interactive_and_unknown_remain_individual() {
 #[tokio::test]
 async fn permission_groups_fixture_only_one_responder_wins() {
     let (hub, mut c) = setup(PermissionPolicy::Ask).await;
-    let id = new_session(&mut c,"race").await;
-    let rid = c.send(method::SESSION_PROMPT,prompt(&id,"permission-batch: parallel",None)).await;
+    let id = new_session(&mut c, "race").await;
+    let rid = c.send(method::SESSION_PROMPT, prompt(&id, "permission-batch: parallel", None)).await;
     let g = ready(&mut c).await;
     let mut a = connect(&hub).await;
     let mut b = connect(&hub).await;
-    let (one,two) = tokio::join!(
-        a.request(RESPOND,decision(&id,&g,"a","allow_once")),
-        b.request(RESPOND,decision(&id,&g,"b","deny"))
+    let (one, two) = tokio::join!(
+        a.request(RESPOND, decision(&id, &g, "a", "allow_once")),
+        b.request(RESPOND, decision(&id, &g, "b", "deny"))
     );
-    assert_ne!(one.is_ok(),two.is_ok());
+    assert_ne!(one.is_ok(), two.is_ok());
     assert!(c.response(rid).await.0.is_ok());
-    assert_eq!(find(&hub.events(&id,0,1000).unwrap(),"permission_decision").len(),3);
+    assert_eq!(find(&hub.events(&id, 0, 1000).unwrap(), "permission_decision").len(), 3);
 }
