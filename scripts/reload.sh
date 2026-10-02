@@ -7,6 +7,8 @@ RELOAD_ORIGINAL_ARGS=("$@")
 source "$SCRIPT_DIR/lib/mobile-attach.sh"
 # shellcheck source=scripts/lib/dev-secrets.sh
 source "$SCRIPT_DIR/lib/dev-secrets.sh"
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$SCRIPT_DIR/lib/stop-app-instances.sh"
 
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
@@ -2054,20 +2056,11 @@ fi
 # that path first can make Bundle.module trap during startup while the old
 # process is still initializing.
 if [[ -n "$TAG" && "$BUILD_ONLY" -ne 1 ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   TAG_PROCESS_PATTERN="${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
-  pkill -f "$TAG_PROCESS_PATTERN" || true
-  for _ in {1..20}; do
-    if ! pgrep -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.1
-  done
-  # A startup process may not service its quit event yet. Do not replace the
-  # resource-bearing bundle while it is still mapped; force only this tagged
-  # executable after the bounded graceful window.
-  pkill -KILL -f "$TAG_PROCESS_PATTERN" >/dev/null 2>&1 || true
+  # A startup process may not service its quit request yet. Do not replace the
+  # resource-bearing bundle while it is still mapped; the helper forces only
+  # this tag's executables after a bounded graceful window.
+  cmux_stop_app_instances "$BUNDLE_ID" "$TAG_PROCESS_PATTERN" "$APP_PATH/Contents/MacOS/${APP_EXECUTABLE_NAME}"
   # Tagged --launch runs are handed off to launchd so they survive the terminal
   # or automation process that invoked reload.sh. Remove a still-registered
   # prior job before publishing the replacement bundle.
