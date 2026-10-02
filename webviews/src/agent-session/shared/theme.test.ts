@@ -90,7 +90,9 @@ describe("agent theme", () => {
   test("the composer box is a tint over the page", () => {
     const acpmux = css("../acpmux/styles.css");
     for (const name of ["--acpmux-composer-bg", "--acpmux-composer-edge"]) {
-      expect(acpmux).toMatch(new RegExp(`${name}:color-mix\\(in srgb,var\\(--agent-text\\) \\d+%,var\\(--agent-page-bg`));
+      expect(acpmux).toMatch(
+        new RegExp(`${name}:color-mix\\(in srgb,var\\(--agent-text\\) \\d+%,var\\(--agent-page-bg`),
+      );
     }
   });
 });

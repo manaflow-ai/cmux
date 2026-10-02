@@ -54,12 +54,19 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
-const atlas = path.resolve(option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"));
+const atlas = path.resolve(
+  option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"),
+);
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const names = args.length ? args : Object.keys(scenarios);
-for (const name of names) if (!scenarios[name]) throw new Error(`unknown scenario ${name}; known: ${Object.keys(scenarios).join(", ")}`);
+for (const name of names)
+  if (!scenarios[name]) throw new Error(`unknown scenario ${name}; known: ${Object.keys(scenarios).join(", ")}`);
 
-const server = await createServer({ configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"), server: { port: 0, strictPort: false }, logLevel: "error" });
+const server = await createServer({
+  configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+  server: { port: 0, strictPort: false },
+  logLevel: "error",
+});
 await server.listen();
 const url = server.resolvedUrls.local[0];
 try {
@@ -76,20 +83,28 @@ try {
 async function run(browser, name, scenario) {
   const fixture = JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8"));
   const referencePath = path.join(atlas, scenario.reference);
-  if (!fs.existsSync(referencePath)) throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
+  if (!fs.existsSync(referencePath))
+    throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
   const reference = PNG.sync.read(fs.readFileSync(referencePath));
   const { pane, compare, scale } = scenario;
 
-  const context = await browser.newContext({ viewport: { width: Math.round(pane.width), height: Math.round(pane.height) }, deviceScaleFactor: scale, colorScheme: "dark" });
+  const context = await browser.newContext({
+    viewport: { width: Math.round(pane.width), height: Math.round(pane.height) },
+    deviceScaleFactor: scale,
+    colorScheme: "dark",
+  });
   try {
     const page = await context.newPage();
     // A page that throws is not the pane being measured.
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
-    await page.addInitScript(({ steps, endAtMs }) => {
-      window.cmuxAcpmuxMockScript = { steps, endAtMs };
-      window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
-    }, { steps: fixture.steps, endAtMs: fixture.endAtMs });
+    await page.addInitScript(
+      ({ steps, endAtMs }) => {
+        window.cmuxAcpmuxMockScript = { steps, endAtMs };
+        window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };
+      },
+      { steps: fixture.steps, endAtMs: fixture.endAtMs },
+    );
     await page.goto(url, { waitUntil: "networkidle" });
     // Swift applies the theme once the page has loaded.
     await page.waitForFunction(() => window.cmuxAcpmuxBridge && window.cmuxAcpmuxActions?.["chat.send"]);
@@ -122,8 +137,9 @@ async function run(browser, name, scenario) {
     PNG.bitblt(actual, side, 0, 0, width, height, width, 0);
     const dir = path.join(outRoot, name);
     fs.mkdirSync(dir, { recursive: true });
-    for (const [file, png] of Object.entries({ ref: expected, actual, diff, side })) fs.writeFileSync(path.join(dir, `${file}.png`), PNG.sync.write(png));
-    const percent = (count) => (100 * count / (width * height)).toFixed(3);
+    for (const [file, png] of Object.entries({ ref: expected, actual, diff, side }))
+      fs.writeFileSync(path.join(dir, `${file}.png`), PNG.sync.write(png));
+    const percent = (count) => ((100 * count) / (width * height)).toFixed(3);
     return `${name}: ${percent(mismatched)}% mismatched, ${percent(strict)}% at threshold 0.02 (${dir})`;
   } finally {
     await context.close();

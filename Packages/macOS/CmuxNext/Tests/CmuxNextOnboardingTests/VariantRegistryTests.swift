@@ -13,23 +13,23 @@ import Testing
     }
 
     @Test func idsAreUniqueAndNamedByStep() {
-        let all = OnboardingVariantRegistry.all
+        let all = OnboardingModel.Step.allVariants
         #expect(Set(all.map { $0.id }).count == all.count)
         for variant in all {
             #expect(variant.id.hasPrefix(variant.step.rawValue + "."), "\(variant.id)")
             #expect(!variant.name.isEmpty && !variant.summary.isEmpty)
         }
-        for step in OnboardingModel.Step.allCases { #expect(!OnboardingVariantRegistry.variants(for: step).isEmpty) }
+        for step in OnboardingModel.Step.allCases { #expect(!step.variants.isEmpty) }
     }
 
     @Test func pickFallsBackToTheFirst() {
-        #expect(OnboardingVariantRegistry.chosen(for: .theme, id: "nope").id == OnboardingVariantRegistry.variants(for: .theme)[0].id)
-        let last = OnboardingVariantRegistry.variants(for: .importData).last!
-        #expect(OnboardingVariantRegistry.chosen(for: .importData, id: last.id).id == last.id)
+        #expect(OnboardingModel.Step.theme.chosenVariant(id: "nope").id == OnboardingModel.Step.theme.variants[0].id)
+        let last = OnboardingModel.Step.importData.variants.last!
+        #expect(OnboardingModel.Step.importData.chosenVariant(id: last.id).id == last.id)
     }
 
     @Test func everyVariantLaysOut() async {
-        for variant in OnboardingVariantRegistry.all {
+        for variant in OnboardingModel.Step.allVariants {
             let services = sample()
             let model = OnboardingModel(services: services, start: variant.step)
             let controller = OnboardingWindowController(model: model, variant: variant)
@@ -73,10 +73,10 @@ import Testing
         gallery.handle(.pick)
         gallery.handle(.compare)
         gallery.handle(.compare)
-        let browser = OnboardingVariantRegistry.variants(for: .defaultBrowser)[2].id
+        let browser = OnboardingModel.Step.defaultBrowser.variants[2].id
         store.update { $0.notes[browser] = "too much copy" }
         #expect(store.pick(for: .defaultBrowser) == browser)
-        #expect(store.pick(for: .importData) == OnboardingVariantRegistry.variants(for: .importData)[0].id)
+        #expect(store.pick(for: .importData) == OnboardingModel.Step.importData.variants[0].id)
         let summary = GalleryReviewStore.summary(store.review)
         #expect(summary.hasPrefix("Default Browser: C (note: too much copy) · Import: A · Theme: —"))
         // A relaunch finds position, picks and notes.

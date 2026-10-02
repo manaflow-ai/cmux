@@ -11,7 +11,8 @@ export type SlashMatch = { command: SlashCommand; ranges: [number, number][] };
 /// The commands in an ACP `available_commands_update`, or undefined when the
 /// update is something else. Names are taken without a leading `/`.
 export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
-  if (update?.sessionUpdate !== "available_commands_update" || !Array.isArray(update.availableCommands)) return undefined;
+  if (update?.sessionUpdate !== "available_commands_update" || !Array.isArray(update.availableCommands))
+    return undefined;
   const commands: SlashCommand[] = [];
   for (const entry of update.availableCommands) {
     const name = typeof entry?.name === "string" ? entry.name.replace(/^\//, "").trim() : "";
@@ -35,7 +36,8 @@ export function matchCommands(commands: SlashCommand[], query: string): SlashMat
   commands.forEach((command, index) => {
     const name = command.name.toLowerCase();
     if (!needle) return scored.push({ match: { command, ranges: [] }, score: 0, index });
-    if (name.startsWith(needle)) return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: 0, index });
+    if (name.startsWith(needle))
+      return scored.push({ match: { command, ranges: [[0, needle.length]] }, score: 0, index });
     const word = wordStart(name, needle);
     if (word >= 0) return scored.push({ match: { command, ranges: [[word, word + needle.length]] }, score: 1, index });
     const ranges = subsequence(name, needle);

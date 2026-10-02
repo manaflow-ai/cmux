@@ -45,26 +45,29 @@ const promptSchema = new Schema({
       group: "inline",
       draggable: false,
       selectable: false,
-      toDOM: (node) => mentionDom({
-        text: node.attrs.label,
-        iconNode: folderMentionIcon(),
-        dataAttributes: {
-          "at-mention-label": node.attrs.label,
-          "at-mention-path": node.attrs.path,
-          "at-mention-fs-path": node.attrs.fsPath,
+      toDOM: (node) =>
+        mentionDom({
+          text: node.attrs.label,
+          iconNode: folderMentionIcon(),
+          dataAttributes: {
+            "at-mention-label": node.attrs.label,
+            "at-mention-path": node.attrs.path,
+            "at-mention-fs-path": node.attrs.fsPath,
+          },
+        }),
+      parseDOM: [
+        {
+          tag: "span[at-mention-label][at-mention-path]",
+          getAttrs: (node) => {
+            const element = node as HTMLElement;
+            return {
+              label: element.getAttribute("at-mention-label"),
+              path: element.getAttribute("at-mention-path"),
+              fsPath: element.getAttribute("at-mention-fs-path") ?? "",
+            };
+          },
         },
-      }),
-      parseDOM: [{
-        tag: "span[at-mention-label][at-mention-path]",
-        getAttrs: (node) => {
-          const element = node as HTMLElement;
-          return {
-            label: element.getAttribute("at-mention-label"),
-            path: element.getAttribute("at-mention-path"),
-            fsPath: element.getAttribute("at-mention-fs-path") ?? "",
-          };
-        },
-      }],
+      ],
     },
     agentMention: {
       attrs: {
@@ -87,18 +90,20 @@ const promptSchema = new Schema({
           },
         });
       },
-      parseDOM: [{
-        tag: "span[agent-mention-name][agent-mention-path]",
-        getAttrs: (node) => {
-          const element = node as HTMLElement;
-          const name = element.getAttribute("agent-mention-name") ?? "";
-          return {
-            name,
-            displayName: element.getAttribute("agent-mention-display-name") ?? name,
-            path: element.getAttribute("agent-mention-path") ?? "",
-          };
+      parseDOM: [
+        {
+          tag: "span[agent-mention-name][agent-mention-path]",
+          getAttrs: (node) => {
+            const element = node as HTMLElement;
+            const name = element.getAttribute("agent-mention-name") ?? "";
+            return {
+              name,
+              displayName: element.getAttribute("agent-mention-display-name") ?? name,
+              path: element.getAttribute("agent-mention-path") ?? "",
+            };
+          },
         },
-      }],
+      ],
     },
     skillMention: {
       attrs: {
@@ -124,19 +129,21 @@ const promptSchema = new Schema({
           title: node.attrs.description,
         });
       },
-      parseDOM: [{
-        tag: "span[skill-mention-name][skill-mention-path]",
-        getAttrs: (node) => {
-          const element = node as HTMLElement;
-          const name = element.getAttribute("skill-mention-name") ?? "";
-          return {
-            name,
-            displayName: element.getAttribute("skill-mention-display-name") ?? name,
-            path: element.getAttribute("skill-mention-path") ?? "",
-            description: element.getAttribute("title") ?? "",
-          };
+      parseDOM: [
+        {
+          tag: "span[skill-mention-name][skill-mention-path]",
+          getAttrs: (node) => {
+            const element = node as HTMLElement;
+            const name = element.getAttribute("skill-mention-name") ?? "";
+            return {
+              name,
+              displayName: element.getAttribute("skill-mention-display-name") ?? name,
+              path: element.getAttribute("skill-mention-path") ?? "",
+              description: element.getAttribute("title") ?? "",
+            };
+          },
         },
-      }],
+      ],
     },
   },
   marks: {},
@@ -166,43 +173,44 @@ type PromptEditorProps = {
   value: string;
 };
 
-export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorProps>(
-  function PromptEditor(
-    {
-      ariaLabel,
-      className,
-      minHeight = "2.75rem",
-      onAutocompleteChange,
-      onAutocompleteKeyDown,
-      onPlanModeShortcut,
-      onSubmit,
-      onTextChange,
-      onTriggerToken,
-      placeholder,
-      singleLine = false,
-      value,
-    },
-    ref,
-  ) {
-    const hostRef = useRef<HTMLDivElement | null>(null);
-    const viewRef = useRef<EditorView | null>(null);
-    const latestSubmitRef = useRef(onSubmit);
-    const latestAutocompleteChangeRef = useRef(onAutocompleteChange);
-    const latestAutocompleteKeyDownRef = useRef(onAutocompleteKeyDown);
-    const latestPlanModeShortcutRef = useRef(onPlanModeShortcut);
-    const latestTextChangeRef = useRef(onTextChange);
-    const latestTriggerTokenRef = useRef(onTriggerToken);
-    const latestTextRef = useRef(value);
-    const latestSingleLineRef = useRef(singleLine);
-    latestSubmitRef.current = onSubmit;
-    latestAutocompleteChangeRef.current = onAutocompleteChange;
-    latestAutocompleteKeyDownRef.current = onAutocompleteKeyDown;
-    latestPlanModeShortcutRef.current = onPlanModeShortcut;
-    latestTextChangeRef.current = onTextChange;
-    latestTriggerTokenRef.current = onTriggerToken;
-    latestSingleLineRef.current = singleLine;
+export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorProps>(function PromptEditor(
+  {
+    ariaLabel,
+    className,
+    minHeight = "2.75rem",
+    onAutocompleteChange,
+    onAutocompleteKeyDown,
+    onPlanModeShortcut,
+    onSubmit,
+    onTextChange,
+    onTriggerToken,
+    placeholder,
+    singleLine = false,
+    value,
+  },
+  ref,
+) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const latestSubmitRef = useRef(onSubmit);
+  const latestAutocompleteChangeRef = useRef(onAutocompleteChange);
+  const latestAutocompleteKeyDownRef = useRef(onAutocompleteKeyDown);
+  const latestPlanModeShortcutRef = useRef(onPlanModeShortcut);
+  const latestTextChangeRef = useRef(onTextChange);
+  const latestTriggerTokenRef = useRef(onTriggerToken);
+  const latestTextRef = useRef(value);
+  const latestSingleLineRef = useRef(singleLine);
+  latestSubmitRef.current = onSubmit;
+  latestAutocompleteChangeRef.current = onAutocompleteChange;
+  latestAutocompleteKeyDownRef.current = onAutocompleteKeyDown;
+  latestPlanModeShortcutRef.current = onPlanModeShortcut;
+  latestTextChangeRef.current = onTextChange;
+  latestTriggerTokenRef.current = onTriggerToken;
+  latestSingleLineRef.current = singleLine;
 
-    useImperativeHandle(ref, () => ({
+  useImperativeHandle(
+    ref,
+    () => ({
       focus() {
         viewRef.current?.focus();
       },
@@ -230,164 +238,163 @@ export const PromptEditor = React.forwardRef<PromptEditorHandle, PromptEditorPro
         }
         insertPromptTextAtSelection(view, text);
       },
-    }), []);
+    }),
+    [],
+  );
 
-    useLayoutEffect(() => {
-      const host = hostRef.current;
-      if (!host) {
-        return;
-      }
-      const view = new EditorView(host, {
-        state: EditorState.create({
-          doc: docFromText(latestTextRef.current),
-          plugins: [placeholderPlugin("")],
-        }),
-        attributes: {
-          "aria-label": "",
-          "data-codex-composer": "true",
-          "data-virtualkeyboard": "true",
-          role: "textbox",
-          class: "ProseMirror prompt-editor-view",
-          style: "min-height: 2.75rem; font-size: var(--codex-chat-font-size); height: auto; resize: none;",
-        },
-        dispatchTransaction(transaction) {
-          const nextState = view.state.apply(transaction);
-          view.updateState(nextState);
-          const nextText = textFromDoc(nextState.doc);
-          const previousText = latestTextRef.current;
-          if (nextText !== previousText) {
-            latestTextRef.current = nextText;
-            const insertedTrigger = singleInsertedTrigger(previousText, nextText);
-            if (insertedTrigger) {
-              latestTriggerTokenRef.current?.(insertedTrigger);
-            }
-            latestTextChangeRef.current(nextText);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) {
+      return;
+    }
+    const view = new EditorView(host, {
+      state: EditorState.create({
+        doc: docFromText(latestTextRef.current),
+        plugins: [placeholderPlugin("")],
+      }),
+      attributes: {
+        "aria-label": "",
+        "data-codex-composer": "true",
+        "data-virtualkeyboard": "true",
+        role: "textbox",
+        class: "ProseMirror prompt-editor-view",
+        style: "min-height: 2.75rem; font-size: var(--codex-chat-font-size); height: auto; resize: none;",
+      },
+      dispatchTransaction(transaction) {
+        const nextState = view.state.apply(transaction);
+        view.updateState(nextState);
+        const nextText = textFromDoc(nextState.doc);
+        const previousText = latestTextRef.current;
+        if (nextText !== previousText) {
+          latestTextRef.current = nextText;
+          const insertedTrigger = singleInsertedTrigger(previousText, nextText);
+          if (insertedTrigger) {
+            latestTriggerTokenRef.current?.(insertedTrigger);
           }
-          latestAutocompleteChangeRef.current?.(autocompleteStateForSelection(view));
-        },
-        handleKeyDown(_view, event) {
-          if (isComposingEnter(event, _view.composing)) {
-            return false;
-          }
-          if (isPlanModeShortcut(event) && latestPlanModeShortcutRef.current) {
-            event.preventDefault();
-            latestPlanModeShortcutRef.current();
-            return true;
-          }
-          if (isAutocompleteKey(event.key) && latestAutocompleteKeyDownRef.current?.(event.key)) {
-            event.preventDefault();
-            return true;
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault();
-            latestSubmitRef.current();
-            return true;
-          }
-          if (event.key !== "Enter") {
-            return false;
-          }
-          if (event.shiftKey || event.altKey) {
-            event.preventDefault();
-            if (latestSingleLineRef.current) {
-              return true;
-            }
-            return splitBlock(_view.state, _view.dispatch, _view);
-          }
+          latestTextChangeRef.current(nextText);
+        }
+        latestAutocompleteChangeRef.current?.(autocompleteStateForSelection(view));
+      },
+      handleKeyDown(_view, event) {
+        if (isComposingEnter(event, _view.composing)) {
+          return false;
+        }
+        if (isPlanModeShortcut(event) && latestPlanModeShortcutRef.current) {
+          event.preventDefault();
+          latestPlanModeShortcutRef.current();
+          return true;
+        }
+        if (isAutocompleteKey(event.key) && latestAutocompleteKeyDownRef.current?.(event.key)) {
+          event.preventDefault();
+          return true;
+        }
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
           event.preventDefault();
           latestSubmitRef.current();
           return true;
-        },
-      });
-      viewRef.current = view;
-      return () => {
-        view.destroy();
-        viewRef.current = null;
-      };
-    }, []);
-
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view) {
-        return;
-      }
-      view.dispatch(view.state.tr.setMeta(placeholderKey, placeholder));
-    }, [placeholder]);
-
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view) {
-        return;
-      }
-      const nextLabel = ariaLabel ?? placeholder;
-      if (nextLabel) {
-        view.dom.setAttribute("aria-label", nextLabel);
-      } else {
-        view.dom.removeAttribute("aria-label");
-      }
-    }, [ariaLabel, placeholder]);
-
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view) {
-        return;
-      }
-      view.dom.style.minHeight = minHeight;
-    }, [minHeight]);
-
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view || value === latestTextRef.current) {
-        return;
-      }
-      latestTextRef.current = value;
-      replaceEditorText(view, value);
-    }, [value]);
-
-    const promptEditorClassName = [
-      "text-size-chat",
-      "[&_.ProseMirror]:focus-visible:outline-none",
-      "text-token-foreground",
-      singleLine
-        ? "flex h-9 max-h-none items-center overflow-hidden [&_.ProseMirror]:!h-5 [&_.ProseMirror]:!min-h-5 [&_.ProseMirror]:min-w-0 [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:whitespace-nowrap [&_.ProseMirror_p]:overflow-hidden [&_.ProseMirror_p]:text-ellipsis [&_.ProseMirror_p]:whitespace-nowrap"
-        : "h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem]",
-      "[&_.ProseMirror]:resize-none",
-      "[&_.ProseMirror_p]:m-0",
-      className,
-    ].filter(Boolean).join(" ");
-
-    return React.createElement("div", {
-      className: promptEditorClassName,
-      onMouseDown: (event: React.MouseEvent<HTMLDivElement>) => {
-        const view = viewRef.current;
-        if (!view) {
-          return;
         }
-        if (event.target instanceof Node && !view.dom.contains(event.target)) {
+        if (event.key !== "Enter") {
+          return false;
+        }
+        if (event.shiftKey || event.altKey) {
           event.preventDefault();
-          view.focus();
+          if (latestSingleLineRef.current) {
+            return true;
+          }
+          return splitBlock(_view.state, _view.dispatch, _view);
         }
+        event.preventDefault();
+        latestSubmitRef.current();
+        return true;
       },
-      ref: hostRef,
     });
-  },
-);
+    viewRef.current = view;
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    view.dispatch(view.state.tr.setMeta(placeholderKey, placeholder));
+  }, [placeholder]);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    const nextLabel = ariaLabel ?? placeholder;
+    if (nextLabel) {
+      view.dom.setAttribute("aria-label", nextLabel);
+    } else {
+      view.dom.removeAttribute("aria-label");
+    }
+  }, [ariaLabel, placeholder]);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) {
+      return;
+    }
+    view.dom.style.minHeight = minHeight;
+  }, [minHeight]);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view || value === latestTextRef.current) {
+      return;
+    }
+    latestTextRef.current = value;
+    replaceEditorText(view, value);
+  }, [value]);
+
+  const promptEditorClassName = [
+    "text-size-chat",
+    "[&_.ProseMirror]:focus-visible:outline-none",
+    "text-token-foreground",
+    singleLine
+      ? "flex h-9 max-h-none items-center overflow-hidden [&_.ProseMirror]:!h-5 [&_.ProseMirror]:!min-h-5 [&_.ProseMirror]:min-w-0 [&_.ProseMirror]:flex-1 [&_.ProseMirror]:overflow-hidden [&_.ProseMirror]:whitespace-nowrap [&_.ProseMirror_p]:overflow-hidden [&_.ProseMirror_p]:text-ellipsis [&_.ProseMirror_p]:whitespace-nowrap"
+      : "h-auto max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:min-h-[2rem]",
+    "[&_.ProseMirror]:resize-none",
+    "[&_.ProseMirror_p]:m-0",
+    className,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return React.createElement("div", {
+    className: promptEditorClassName,
+    onMouseDown: (event: React.MouseEvent<HTMLDivElement>) => {
+      const view = viewRef.current;
+      if (!view) {
+        return;
+      }
+      if (event.target instanceof Node && !view.dom.contains(event.target)) {
+        event.preventDefault();
+        view.focus();
+      }
+    },
+    ref: hostRef,
+  });
+});
 
 function singleInsertedTrigger(previous: string, next: string): "@" | "$" | null {
   if (next.length !== previous.length + 1) {
     return null;
   }
   let prefixLength = 0;
-  while (
-    prefixLength < previous.length &&
-    previous.charCodeAt(prefixLength) === next.charCodeAt(prefixLength)
-  ) {
+  while (prefixLength < previous.length && previous.charCodeAt(prefixLength) === next.charCodeAt(prefixLength)) {
     prefixLength += 1;
   }
   let suffixLength = 0;
   while (
     suffixLength < previous.length - prefixLength &&
-    previous.charCodeAt(previous.length - 1 - suffixLength) ===
-      next.charCodeAt(next.length - 1 - suffixLength)
+    previous.charCodeAt(previous.length - 1 - suffixLength) === next.charCodeAt(next.length - 1 - suffixLength)
   ) {
     suffixLength += 1;
   }
@@ -427,12 +434,12 @@ function placeholderPlugin(initialPlaceholder: string): Plugin {
 
 function docFromText(text: string) {
   const paragraphs = text.split("\n");
-  return promptSchema.nodes.doc.create(null, paragraphs.map((paragraph) => {
-    return promptSchema.nodes.paragraph.create(
-      null,
-      paragraph.length > 0 ? promptSchema.text(paragraph) : null,
-    );
-  }));
+  return promptSchema.nodes.doc.create(
+    null,
+    paragraphs.map((paragraph) => {
+      return promptSchema.nodes.paragraph.create(null, paragraph.length > 0 ? promptSchema.text(paragraph) : null);
+    }),
+  );
 }
 
 function textFromDoc(doc: ProseMirrorNode): string {
@@ -504,9 +511,9 @@ function insertPromptMentionAtSelection(view: EditorView, mention: PromptMention
   const { state } = view;
   const { from, to } = state.selection;
   const trigger = mention.kind === "skill" ? "$" : "@";
-  const insertFrom = autocompleteStateForSelection(view)?.anchorPos ?? (
-    state.doc.textBetween(Math.max(0, from - 1), from, "\n", "\n") === trigger ? from - 1 : from
-  );
+  const insertFrom =
+    autocompleteStateForSelection(view)?.anchorPos ??
+    (state.doc.textBetween(Math.max(0, from - 1), from, "\n", "\n") === trigger ? from - 1 : from);
   const before = state.doc.textBetween(Math.max(0, insertFrom - 2), insertFrom, "\n", "\n");
   const after = state.doc.textBetween(to, Math.min(state.doc.content.size, to + 2), "\n", "\n");
   const prefix = before.length > 0 && !/\s$/.test(before) ? " " : "";
