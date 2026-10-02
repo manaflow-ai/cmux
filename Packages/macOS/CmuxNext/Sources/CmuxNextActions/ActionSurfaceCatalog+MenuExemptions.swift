@@ -74,7 +74,7 @@ nonisolated extension ActionSurfaceCatalog {
             "fileExplorerCopyPath", "fileExplorerCopyRelativePath", "fileExplorerOpenWith", "vaultOpenSession",
             "vaultResumeInNewWorkspace", "vaultCopyResumeCommand", "vaultOpenPullRequest", "checklistEditItem",
             "checklistMarkInProgress", "checklistCompleteItem", "checklistRemoveItem", "checklistOpenAsPane",
-            "checklistAttachImages", "cloudExec",
+            "checklistAttachImages", "cloudExec", "cloudDomainList", "cloudPublicationList",
         ],
         .focusMove: [
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "nextSidebarTab", "prevSidebarTab",
