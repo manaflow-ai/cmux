@@ -65,6 +65,33 @@ final class AppOnboardingServices: OnboardingServices {
         }
     }
 
+    func scanAgentProjects() async -> [AgentProject] {
+        await Task.detached { AgentProjectScan.live().run() }.value
+    }
+
+    func chooseFolder() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        let response = await withCheckedContinuation { done in panel.begin { done.resume(returning: $0) } }
+        return response == .OK ? panel.url : nil
+    }
+
+    /// One workspace per folder, named after it, in the current window
+    /// (a new one when none is open). They are created one after another so
+    /// the sidebar keeps the list's order; any macOS privacy prompts for
+    /// Desktop or Documents come now, together, as the step said.
+    func openProjects(_ folders: [URL]) {
+        guard let windows = services.windows else { return }
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        Task {
+            for folder in folders {
+                _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: folder.lastPathComponent), into: target)
+            }
+        }
+    }
+
     func detectBrowsers() async -> [BrowserSource] {
         await Task.detached {
             let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }

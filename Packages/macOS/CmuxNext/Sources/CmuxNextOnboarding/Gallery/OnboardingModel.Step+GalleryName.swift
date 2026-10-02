@@ -5,6 +5,7 @@ extension OnboardingModel.Step {
     var galleryName: String {
         switch self {
         case .role: "Role"
+        case .projects: "Projects"
         case .defaultBrowser: "Default Browser"
         case .importData: "Import"
         case .theme: "Theme"

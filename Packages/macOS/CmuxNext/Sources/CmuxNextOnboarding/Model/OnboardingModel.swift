@@ -9,13 +9,14 @@ public import Observation
 @Observable
 public final class OnboardingModel {
     public enum Step: String, CaseIterable, Sendable {
-        case role, defaultBrowser, importData, theme, accounts
+        case role, projects, defaultBrowser, importData, theme, accounts
     }
 
     public private(set) var step: Step
     /// The steps of this flow (`accounts` only when the App supplies it).
     public let steps: [Step]
     public let role: RoleStepModel
+    public let projects: ProjectsStepModel
     public let theme: ThemeStepModel
     public let importer: ImportStepModel
     public let defaults: DefaultAppsStepModel
@@ -31,6 +32,7 @@ public final class OnboardingModel {
         self.steps = steps
         step = start.flatMap { steps.contains($0) ? $0 : nil } ?? steps[0]
         role = RoleStepModel(services: services)
+        projects = ProjectsStepModel(services: services)
         theme = ThemeStepModel(services: services)
         importer = ImportStepModel(services: services)
         defaults = DefaultAppsStepModel(services: services)
@@ -59,6 +61,7 @@ public final class OnboardingModel {
             importer.start()
             return
         case .role: role.commit()
+        case .projects: projects.commit()
         case .theme: theme.commit()
         default: break
         }
@@ -87,10 +90,12 @@ public final class OnboardingModel {
     /// Starts the step's lazy work (handler state, browser detection, theme files).
     public func stepDidAppear() {
         switch step {
+        // The role step starts the project scan, so its list is ready.
+        case .role, .projects: projects.scan()
         case .defaultBrowser: defaults.refresh()
         case .importData: importer.detect()
         case .theme: theme.load()
-        case .role, .accounts: break
+        case .accounts: break
         }
     }
 
@@ -99,6 +104,7 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        projects.stop()
         if !completed, !theme.isCommitted { theme.revert() }
         services.onboardingDidEnd(completed: completed)
         onEnd?(completed)

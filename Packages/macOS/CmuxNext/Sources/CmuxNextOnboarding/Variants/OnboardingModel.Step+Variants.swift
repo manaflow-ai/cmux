@@ -7,6 +7,7 @@ extension OnboardingModel.Step {
     public var variants: [any OnboardingScreenVariant.Type] {
         switch self {
         case .role: RoleVariants.all
+        case .projects: ProjectsVariants.all
         case .defaultBrowser: DefaultBrowserVariants.all
         case .importData: ImportVariants.all
         case .theme: ThemeVariants.all
