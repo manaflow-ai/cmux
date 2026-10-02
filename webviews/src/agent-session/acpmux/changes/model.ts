@@ -122,7 +122,10 @@ export function patchHunks(patch: string | undefined): DiffHunk[] {
   let newLine = 0;
   let oldLeft = 0;
   let newLeft = 0;
-  for (const raw of (patch ?? "").split("\n")) {
+  const rows = (patch ?? "").split("\n");
+  // The patch's final newline ends its last line; it does not start a blank one.
+  if (rows.at(-1) === "") rows.pop();
+  for (const raw of rows) {
     const line = raw.endsWith("\r") ? raw.slice(0, -1) : raw;
     const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
     if (header) {
