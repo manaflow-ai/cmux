@@ -6153,7 +6153,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拷貝機器連結"
+            "value": "在 Cloud 機器上執行指令…"
           }
         }
       }
@@ -6284,7 +6284,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "拷貝機器連結"
+            "value": "開啟 Cloud SSH 終端機"
           }
         }
       }

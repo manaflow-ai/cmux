@@ -1830,7 +1830,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 機器尚未連線。"
+            "value": "請提供要在 Cloud 機器上執行的指令。"
           }
         }
       }
