@@ -79,6 +79,25 @@ struct CloudTerminalAttachmentPlacementPolicyTests {
     }
 
     @Test
+    func catalogPlacementRemainsValidWithoutSavedWorkspace() throws {
+        let policy = CloudTerminalAttachmentPlacementPolicy(
+            expectedResource: resource,
+            expectedWorkspaceID: nil,
+            expectedTabID: "saved-tab",
+            allowsRepair: true
+        )
+        let catalogPlacement = SurfaceRemotePlacement(
+            workspaceID: "catalog-workspace", tabID: "catalog-tab"
+        )
+        #expect(try policy.validate(
+            resourceID: resource,
+            remoteTabID: "saved-tab",
+            catalogPlacement: catalogPlacement,
+            materializedPlacement: nil
+        ) == catalogPlacement)
+    }
+
+    @Test
     func resourceAndTabIdentityRemainStrictDuringRepair() {
         let policy = CloudTerminalAttachmentPlacementPolicy(
             expectedResource: resource,
