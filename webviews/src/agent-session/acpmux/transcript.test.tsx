@@ -1719,6 +1719,82 @@ describe("acpmux turn counts", () => {
   });
 });
 
+describe("acpmux docked permission asks", () => {
+  test("folder trust coexists with a group without duplicating its individual controls", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const priorActions = host.cmuxAcpmuxActions;
+    host.cmuxAcpmuxActions = { "acp.trust.get": async ({ cwd }) => ({ cwd, level: "unknown" }) };
+    const permission = {
+      permissionId: "p",
+      groupId: "g",
+      pending: true,
+      title: "Write app.ts",
+      options: [{ id: "yes", name: "Individual allow", allow: true }],
+    };
+    const snapshot = {
+      type: "snapshot",
+      protocolVersion: 1,
+      sessionId: "s",
+      summary: { sessionId: "s", cwd: "/repo/app", harness: "claude", turnCount: 1 },
+      rows: [
+        { id: "u", version: 1, at: 1, kind: "user", text: "fix it" },
+        { id: "p", version: 1, at: 2, kind: "permission", permission },
+      ],
+      sessions: [],
+      connection: "connected",
+      isWorking: true,
+      queue: [],
+      catalog: [],
+      canLoadOlder: false,
+      permission,
+      permissionGroups: {
+        supported: true,
+        ready: true,
+        chatAllowance: false,
+        busy: false,
+        loading: false,
+        groups: [
+          {
+            groupId: "g",
+            sessionId: "s",
+            turnId: "t",
+            revision: 1,
+            state: "pending",
+            decision: null,
+            decisions: ["allow_once", "allow_chat", "deny"],
+            items: [
+              { permissionId: "p", state: "pending", request: { toolCall: { title: "Write app.ts", kind: "edit" } } },
+            ],
+          },
+        ],
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot as never));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+      const buttons = () => [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
+      expect(buttons()).toContain("Allow for this chat");
+      expect(buttons()).not.toContain("Individual allow");
+      // An interactive request remains individually answerable beside both asks.
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          ...snapshot,
+          permission: { ...permission, permissionId: "interactive", groupId: undefined },
+        } as never),
+      );
+      expect(buttons()).toContain("Individual allow");
+      expect(buttons()).toContain("Allow for this chat");
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.cmuxAcpmuxActions = priorActions;
+    }
+  });
+});
+
 describe("acpmux new chat", () => {
   /// A new chat drew an empty transcript; it now names the project.
   test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {

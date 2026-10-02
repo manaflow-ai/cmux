@@ -134,10 +134,10 @@ export function handoffRecord(value: unknown): Handoff {
 
 export class AcpmuxRpcError extends Error {
   readonly reason?: string;
-  readonly code?: number;
+  readonly code?: unknown;
   readonly data?: unknown;
   readonly handoff?: Handoff;
-  constructor(error: { code?: number; message?: string; data?: unknown }) {
+  constructor(error: { code?: unknown; message?: string; data?: unknown }) {
     super(error.message ?? "acpmux request failed");
     this.code = error.code;
     this.data = error.data;

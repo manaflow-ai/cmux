@@ -1,3 +1,4 @@
+import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
 import { HANDOFF_OPS } from "./handoff/protocol";
@@ -14,6 +15,7 @@ import {
   type SeedStep,
 } from "./mockFixture";
 import { mockGitDiff, mockGitStatus } from "./mockGit";
+import { mockFileSearch } from "./mockFiles";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -150,6 +152,16 @@ export class MockAcpmuxSocket {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   private sessions: Record<string, any>[] = [];
+  /// Folder trust as acpmux would project it from Claude Code's and Codex's own files (read
+  /// only): the seeded projects the user has worked in are trusted by both, atlas-web only by
+  /// Codex so far; billing-service and dotfiles were never decided.
+  private agentTrust = new Map<string, HarnessTrust>([
+    ["~/code/cmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/acpmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/atlas-web", { claude: "unknown", codex: "trusted" }],
+  ]);
+  /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
+  private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
   private handoffs = new MockHandoffs(
     () => this.sessions,
     (source, harness) => {
@@ -254,8 +266,16 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error) =>
-        this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message, data: (error as any).data } }),
+      (error: Error & { code?: string; data?: unknown }) =>
+        this.deliver({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32000,
+            message: error.message,
+            data: error.data ?? (error.code ? { code: error.code } : undefined),
+          },
+        }),
     );
   }
 
@@ -339,6 +359,32 @@ export class MockAcpmuxSocket {
         this.queue = turn.catch(() => undefined);
         return turn;
       }
+      case "acp.trust.get": {
+        const cwd = String(params.cwd ?? "");
+        const harnesses: HarnessTrust = { claude: "unknown", codex: "unknown", ...this.agentTrust.get(cwd) };
+        // acpmux's own decision answers first; without one, the stricter of the agents' levels.
+        const level = this.trust.get(cwd) ?? stricterTrust(harnesses.claude!, harnesses.codex!);
+        return { cwd, level, harnesses };
+      }
+      case "acp.trust.set": {
+        const cwd = String(params.cwd ?? "");
+        // "unknown" forgets acpmux's record, so the agents' own levels answer again.
+        if (params.level === "unknown") {
+          this.trust.delete(cwd);
+          return { cwd, level: "unknown" };
+        }
+        const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
+        this.trust.set(cwd, level);
+        return { cwd, level };
+      }
+      case "file.search":
+        return mockFileSearch(
+          typeof params.path === "string"
+            ? params.path
+            : this.sessions.find((entry) => entry.sessionId === target)?.cwd,
+          params.query,
+          params.limit,
+        );
       case "git.diff":
         return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":
