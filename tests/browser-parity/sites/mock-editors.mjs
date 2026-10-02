@@ -171,7 +171,7 @@ function replaceIn(file, find, repl) {
   return n;
 }
 
-const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>
+const shell = (file, body) => `<!doctype html><html><head><meta charset="utf-8"><title>${esc(file.title)} - Google ${file.kind === "spreadsheets" ? "Sheets" : file.kind === "document" ? "Docs" : "Slides"}</title></head><body>${file.trashed ? '<div role="alert">File is in trash</div>' : ""}
 <div id="docs-titlebar"><input class="docs-title-input" value="${esc(file.title)}" aria-label="Rename">
 <div id="share-slot"></div><div role="button" aria-label="Share screen">Present</div>
 <div id="docs-file-menu" role="menuitem">File</div><div id="docs-edit-menu" role="menuitem">Edit</div></div>
@@ -278,7 +278,7 @@ export function createEditors() {
     const file = files.get(m[2]);
     // Files the editors do not hold are the other mock fixtures'.
     if (!file) return null;
-    if (file.kind !== m[1] || file.trashed) return { status: 404, html: "<p>Not found</p>" };
+    if (file.kind !== m[1]) return { status: 404, html: "<p>Not found</p>" };
     const op = m[3];
     if (op === "edit") {
       if (file.kind === "spreadsheets") return { html: sheetEditor(file) };

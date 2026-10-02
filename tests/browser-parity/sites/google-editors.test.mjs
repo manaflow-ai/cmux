@@ -44,7 +44,8 @@ test("googleSheets.append, write and clear on a private sheet run at once and ve
   assert.deepEqual((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows, [["a", "b"], ["1", "1"], ["2", "x"]]);
   assert.deepEqual(await s.value(`sites.googleSheets.clear(${JSON.stringify(f.url)}, "A3:B3")`), { status: "cleared", range: "A3:B3", verified: true });
   assert.equal((await s.value(`sites.googleSheets.read(${JSON.stringify(f.url)})`)).rows.length, 2);
-  assert.deepEqual(await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed" });
+  assert.deepEqual(await s.value(`sites.googleDrive.trash(${JSON.stringify(f.url)})`), { status: "trashed", verified: true });
+  assert.equal(files.get(f.id).trashed, true);
 });
 
 test("googleDocs.structure returns headings, paragraphs, lists and tables in order", async () => {
