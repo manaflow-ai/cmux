@@ -807,7 +807,7 @@
         if (page) params = Object.assign({}, params, { targetId: await this._materialize(page) });
       }
       if (!this.agentTools) return this.driver.call(method, params);
-      this.agentTools.beforeCall(method, params);
+      await this.agentTools.beforeCall(method, params);
       return this.agentTools.afterCall(method, params, this.driver.call(method, params));
     }
     lazyPage() {

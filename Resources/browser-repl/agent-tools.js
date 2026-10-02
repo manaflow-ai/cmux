@@ -514,16 +514,16 @@
         if (spec.length !== 1) throw new Error("page.extract: a list spec has one item: [\"selector\"] or [{ $: \"selector\", ... }]");
         const item = spec[0];
         if (typeof item === "string") return leaf(item, scope, true);
-        if (item && typeof item === "object" && typeof item.$ === "string") return run(item, scope);
+        if (item && typeof item === "object" && Array.isArray(item.__cmuxPairs) && item.__cmuxPairs.some(([k, v]) => k === "$" && typeof v === "string")) return run(item, scope);
         throw new Error("page.extract: a list spec has one item: [\"selector\"] or [{ $: \"selector\", ... }]");
       }
-      if (spec && typeof spec === "object") {
-        const fields = (s) => {
-          const o = {};
-          for (const [k, v] of Object.entries(spec)) if (k !== "$") o[k] = run(v, s);
-          return o;
-        };
-        if (typeof spec.$ === "string") return all(spec.$, scope).slice(0, limit).map(fields);
+      // Objects travel as key/value pairs both ways, so their key order
+      // survives drivers whose JSON does not keep it (the app's).
+      if (spec && typeof spec === "object" && Array.isArray(spec.__cmuxPairs)) {
+        const entries = spec.__cmuxPairs;
+        const each = entries.find(([k]) => k === "$");
+        const fields = (s) => ({ __cmuxPairs: entries.filter(([k]) => k !== "$").map(([k, v]) => [k, run(v, s)]) });
+        if (each && typeof each[1] === "string") return all(each[1], scope).slice(0, limit).map(fields);
         return fields(scope);
       }
       throw new Error(`page.extract: expected a selector string, [spec] or an object, got ${JSON.stringify(spec)}`);
@@ -946,15 +946,30 @@
     // ---- hooks -------------------------------------------------------------------
     const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
     const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
+    const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
     session.agentTools = {
       isSecret,
       resolveSecret,
       redactText,
       checkURL,
-      beforeCall(method, params) {
+      async beforeCall(method, params) {
         if ((method === "tab.navigate" || method === "tabs.open") && params && params.url) {
           checkURL(TITLES[method], params.url);
           if (method === "tab.navigate" && params.targetId) policy.navigating.set(params.targetId, (policy.navigating.get(params.targetId) || 0) + 1);
+          return;
+        }
+        // With a domain policy, nothing reads or acts on a tab before its live
+        // URL is checked: a link, redirect or script may have left the allowed
+        // domains without a navigation event reaching the runtime.
+        if (policyActive() && params && params.targetId && GUARDED.test(method)) {
+          const pending = policy.blocking.get(params.targetId);
+          if (pending) await pending;
+          const info = await session.driver.call("tab.info", { targetId: params.targetId }).catch(() => null);
+          const reason = info && info.url && urlReason(info.url);
+          if (reason) {
+            await blockPage(params.targetId, info.url, reason);
+            throw new Error(`${method === "frame.evaluate" ? "page" : method}: navigation to ${info.url} was blocked: ${reason}; the tab now shows about:blank`);
+          }
         }
       },
       afterCall(method, params, promise) {
@@ -1285,7 +1300,21 @@
       frame = r.frame;
       scope = r.handle;
     }
-    return agentCall(frame, extractInFrame, schema, { scope, limit: options.limit });
+    const unpair = (v) => {
+      if (Array.isArray(v)) return v.map(unpair);
+      if (v && typeof v === "object" && Array.isArray(v.__cmuxPairs)) {
+        const o = {};
+        for (const [k, x] of v.__cmuxPairs) o[k] = unpair(x);
+        return o;
+      }
+      return v;
+    };
+    const pair = (v) => {
+      if (Array.isArray(v)) return v.map(pair);
+      if (v && typeof v === "object") return { __cmuxPairs: Object.entries(v).map(([k, x]) => [k, pair(x)]) };
+      return v;
+    };
+    return unpair(await agentCall(frame, extractInFrame, pair(schema), { scope, limit: options.limit }));
   };
 
   // Text matches with surrounding context and the ref of the element each is
@@ -1354,6 +1383,10 @@
       const vp = await this._mainFrame._call("agent", "() => ({ w: innerWidth, h: innerHeight })", []);
       point = { x: vp.w / 2, y: vp.h / 2 };
     }
+    // A scroll position set by script (scrollIntoView, scrollToText) reaches
+    // WebKit's scrolling tree at the next rendering update; a wheel sent
+    // before it starts from the old position and is dropped.
+    await this._mainFrame._call("agent", "() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))", []);
     await this.mouse.move(point.x, point.y);
     await this.mouse.wheel(0, Math.round(pages * info.viewportHeight));
     let last = null;
