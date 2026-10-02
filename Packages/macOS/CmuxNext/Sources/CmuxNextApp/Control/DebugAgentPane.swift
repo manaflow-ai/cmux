@@ -16,9 +16,10 @@ import WebKit
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
 /// `reset_typing`, `acp_log` (the page's acpmux wire log and its stats;
 /// `limit` keeps the newest entries), `acp_log_export` (that log as JSON
-/// Lines), `pid` (the WebContent process, for profiling), or `full_rate`
+/// Lines), `pid` (the WebContent process, for profiling), `full_rate`
 /// (`enabled` turns full-rate rendering on or off on the live page; returns
-/// whether it is on). Every action first stops WebKit from
+/// whether it is on), or `inspector` (toggles the ACP inspector, or sets it
+/// with `open`, like Show ACP Inspector; returns whether it is open). Every action first stops WebKit from
 /// pausing the page while another window covers it, so a tagged build can
 /// be measured behind the user's windows.
 @MainActor
@@ -57,8 +58,11 @@ enum DebugAgentPane {
             if let enabled = params["enabled"]?.boolValue { view.rendersAtFullRate = enabled }
             return .object(["pane": .string(pane), "full_rate": .bool(view.rendersAtFullRate)])
         }
+        if action == "inspector" {
+            return await toggleInspector(view, open: params["open"]?.boolValue, pane: pane)
+        }
         guard let function = functions[action] else {
-            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, acp_log, acp_log_export, pid or full_rate")])
+            return .object(["error": .string("unknown action; use seed_rows, fling, fling_stats, perf_stats, typing_stats, reset_typing, acp_log, acp_log_export, pid, full_rate or inspector")])
         }
         do {
             let result = try await view.webView.callAsyncJavaScript(
@@ -72,6 +76,26 @@ enum DebugAgentPane {
             guard case .object(var members) = value else { return .object(["pane": .string(pane), "result": value]) }
             members["pane"] = .string(pane)
             return .object(members)
+        } catch {
+            return .object(["pane": .string(pane), "error": .string(String(describing: error))])
+        }
+    }
+
+    /// Calls the page bridge that Show ACP Inspector calls
+    /// (`AgentPaneView.toggleInspector`) and reads back whether it is open.
+    private static func toggleInspector(_ view: AgentPaneView, open: Bool?, pane: String) async -> JSONValue {
+        let script = """
+            const bridge = window.cmuxAcpmuxBridge;
+            return typeof bridge?.toggleInspector === "function" ? bridge.toggleInspector(open ?? undefined) : null;
+            """
+        do {
+            let result = try await view.webView.callAsyncJavaScript(
+                script, arguments: ["open": open.map { $0 as Any } ?? NSNull()], in: nil, contentWorld: .page
+            )
+            guard let isOpen = result as? Bool else {
+                return .object(["pane": .string(pane), "error": .string("the page has no cmuxAcpmuxBridge.toggleInspector")])
+            }
+            return .object(["pane": .string(pane), "inspector_open": .bool(isOpen)])
         } catch {
             return .object(["pane": .string(pane), "error": .string(String(describing: error))])
         }

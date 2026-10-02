@@ -7,7 +7,8 @@ import CmuxNextDaemon
 /// focused terminal (`TabModel.agent`, from `list-agents` state) and start
 /// `claude --resume <session> --fork-session` in a new terminal placed by
 /// daemon commands. New Agent Chat opens the React acpmux pane in a tab
-/// (CmuxNextAgentPane). Terminal-as-chat, Teams, and Computer Use are
+/// (CmuxNextAgentPane); Show ACP Inspector toggles that pane's inspector.
+/// Terminal-as-chat, Teams, and Computer Use are
 /// typed-unavailable.
 enum AgentHandlers {
     enum Placement {
@@ -28,6 +29,13 @@ enum AgentHandlers {
         registry.bindAgentPane { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
             pane.newAgentTab()
+        }
+        registry.bindAgentPaneInspector { invocation in
+            guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            guard let key = pane.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.noAgentPane)
+            }
+            view.toggleInspector()
         }
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))

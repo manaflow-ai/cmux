@@ -14,7 +14,7 @@ import { ScrollPacing } from "./pacing";
 import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows } from "./diff";
 import { DiffPanel } from "./DiffPanel";
-import { Inspector, InspectorToggle } from "./Inspector";
+import { Inspector, InspectorToggle, type ExportOutcome } from "./Inspector";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -28,6 +28,8 @@ declare global {
       receive(snapshot: AcpmuxSnapshot): void;
       applyTheme(theme: Record<string, unknown>): void;
       applyCustomization(customization: { themeCSS?: string; registryJS?: string; layout?: Record<string, unknown> }): void;
+      /** Opens (true), closes (false) or toggles (no argument) the ACP inspector; returns whether it is open. Show ACP Inspector calls it. */
+      toggleInspector(open?: boolean): boolean;
     };
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
     cmuxAcpmuxDebug?: AcpmuxDebug;
@@ -45,6 +47,15 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     if (!reply.ok) throw new Error(reply.error?.userMessage ?? "Request failed");
     return reply.value;
   });
+}
+
+/** Saves the inspector's export through the host's save panel (`pane.saveLog`): true is saved, false a cancelled panel. A host without it, or one that refuses the log, leaves the inspector to copy it. */
+export async function saveLogNatively(text: string, suggestedName: string): Promise<ExportOutcome> {
+  try {
+    return (await callNative<boolean>("pane.saveLog", { text, suggestedName })) === true ? "saved" : "cancelled";
+  } catch {
+    return "unavailable";
+  }
 }
 
 /// `measuredText` in model.ts mirrors this walk; keep them drawing and measuring the same text.
@@ -300,6 +311,9 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // The open changes view: a turn of one session, and the control that opened it.
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  // The bridge answers synchronously, before React re-renders with the new state.
+  const inspectorOpenRef = useRef(inspectorOpen);
+  inspectorOpenRef.current = inspectorOpen;
   const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
@@ -372,6 +386,7 @@ function AcpmuxPane() {
     window.cmuxAcpmuxBridge = {
       receive(next) { if (next.protocolVersion !== 1) return; const change = diffRows(rowsRef.current, next.rows); rowsRef.current = new Map(next.rows.map((row) => [row.id, row])); setSnapshot(next); void change; },
       applyTheme(theme) { applyAgentTheme(theme as never); },
+      toggleInspector(open) { const next = typeof open === "boolean" ? open : !inspectorOpenRef.current; inspectorOpenRef.current = next; setInspectorOpen(next); return next; },
       applyCustomization(customization) { if ("themeCSS" in customization) { let style = document.getElementById("acpmux-user-theme") as HTMLStyleElement | null; if (!style) { style = document.createElement("style"); style.id = "acpmux-user-theme"; document.head.append(style); } style.textContent = customization.themeCSS ?? ""; } if (customization.registryJS) { try { (0, eval)(customization.registryJS); setRegistry(currentRegistry()); } catch { /* a user renderer must not take down the transcript */ } } if (customization.layout) window.cmuxAcpmuxRegistry?.configure(customization.layout); },
     };
     window.cmuxAcpmuxDebug = createAcpmuxDebug({
@@ -450,5 +465,5 @@ function AcpmuxPane() {
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div><InspectorToggle open={inspectorOpen} onToggle={() => setInspectorOpen((open) => !open)} /></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}{inspectorOpen && <Inspector snapshot={snapshot} sessionEvents={sessionEvents} onClose={closeInspector} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button>{snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button>}</form></div></section>;
+  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div><InspectorToggle open={inspectorOpen} onToggle={() => setInspectorOpen((open) => !open)} /></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}{inspectorOpen && <Inspector snapshot={snapshot} sessionEvents={sessionEvents} onClose={closeInspector} onExport={saveLogNatively} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button>{snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button>}</form></div></section>;
 }

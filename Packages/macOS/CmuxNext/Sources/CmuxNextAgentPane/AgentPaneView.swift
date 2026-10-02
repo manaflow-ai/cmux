@@ -28,6 +28,8 @@ public final class AgentPaneView: NSView {
     private var crashReloads = AgentPaneCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     private var crashNotice: NSView?
+    /// Whether the inspector's save panel is up, so a second Export waits.
+    var isSavingLog = false
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -68,6 +70,9 @@ public final class AgentPaneView: NSView {
         #endif
         if renderRate == .adaptive {
             model.onFramePacing = { [weak self] intervals in self?.recordFramePacing(intervals) }
+        }
+        model.onSaveLog = { [weak self] text, suggestedName in
+            try await self?.saveLog(text, suggestedName: suggestedName) ?? false
         }
         navigation.view = self
         webView.navigationDelegate = navigation

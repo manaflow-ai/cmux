@@ -10,6 +10,12 @@ nonisolated extension ActionCatalog {
                 surfaces: [.palette, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
             ActionDescriptor(
+                id: "agentPane.toggleInspector",
+                title: String(localized: "action.agentPane.toggleInspector", defaultValue: "Show ACP Inspector", bundle: .module),
+                keywords: ["agent", "acp", "acpmux", "inspector", "log", "debug"], category: .agents, symbol: "list.bullet.rectangle",
+                surfaces: [.palette], targets: [.pane], cliName: "agent toggle-acp-inspector"
+            ),
+            ActionDescriptor(
                 id: "palette.openTerminalChatView",
                 title: String(localized: "action.palette.openTerminalChatView", defaultValue: "Open Terminal as Chat", bundle: .module),
                 keywords: ["agent", "chat"], category: .agents, symbol: "text.bubble", surfaces: [.palette],

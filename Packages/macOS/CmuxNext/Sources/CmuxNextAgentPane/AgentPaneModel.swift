@@ -17,6 +17,10 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onSessionChange: ((String) -> Void)?
     /// Gets each settled transcript scroll's frame intervals (milliseconds).
     @ObservationIgnored public var onFramePacing: (([Double]) -> Void)?
+    /// Saves the inspector's exported log (text, suggested file name) where
+    /// the user picks; true when saved, false when the user cancelled. Nil
+    /// leaves the page to copy the log instead.
+    @ObservationIgnored public var onSaveLog: (@MainActor (String, String) async throws -> Bool)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
 
@@ -49,6 +53,15 @@ public final class AgentPaneModel {
         case .framePacing(let intervals):
             onFramePacing?(intervals)
             return AgentPaneReply.success()
+        case .saveLog(let text, let suggestedName):
+            // The page copies the log instead on any failure, so these messages
+            // are diagnostics, like the unsupported one below.
+            guard let onSaveLog else { return AgentPaneReply.failure(code: "unsupported", message: "Saving the log is unavailable") }
+            do {
+                return AgentPaneReply.success(try await onSaveLog(text, suggestedName))
+            } catch {
+                return AgentPaneReply.failure(code: "save_failed", message: "Could not save the log: \(error.localizedDescription)")
+            }
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }
