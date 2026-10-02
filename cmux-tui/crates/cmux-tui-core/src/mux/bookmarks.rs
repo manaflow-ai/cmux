@@ -17,19 +17,18 @@ impl Mux {
     }
 
     /// Run one bookmark mutation under the registry lock. The mutation
-    /// returns the browser profile whose tree changed, or `None` when it
-    /// changed nothing; then journal readers and subscribers are notified.
+    /// returns the browser profile whose tree changed and the revision it
+    /// committed, or `None` when it changed nothing; then journal readers
+    /// and subscribers are notified.
     pub(crate) fn bookmarks_mutation<T>(
         &self,
-        mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, Option<String>)>,
+        mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, Option<(String, u64)>)>,
     ) -> anyhow::Result<(T, bool)> {
-        let (value, changed, revision) = {
+        let (value, changed) = {
             let mut registry = self.workspace_registry.lock().unwrap();
-            let (value, changed) = mutation(&mut registry)?;
-            let revision = registry.bookmarks_revision()?;
-            (value, changed, revision)
+            mutation(&mut registry)?
         };
-        let Some(browser_profile_id) = changed else {
+        let Some((browser_profile_id, revision)) = changed else {
             return Ok((value, false));
         };
         self.publish_journal_event();

@@ -4830,7 +4830,8 @@ profile. `index` is a dense 0-based position among the node's siblings.
 `title` is at most 4096 UTF-8 bytes without NUL and may be empty. `url` is
 required for a `url` node and refused for a folder: an absolute URL (it has a
 scheme), at most 65536 bytes, without control characters. `favicon_key` and
-`source_key` are at most 4096 bytes without control characters. Times are
+`source_key` are at most 4096 bytes without control characters; only a folder
+carries `source_key`. Times are
 milliseconds since the Unix epoch, at most `i64::MAX`. A node one level under
 a root has depth 1; no node is deeper than 64, and a profile holds at most
 100,000 nodes. Nodes never move between profiles. The browser profile must
@@ -4848,7 +4849,8 @@ before anything else and stores it with the op's result in the op's
 transaction. A retry with the same key and request returns the original
 result with `replayed:true`, writes nothing and emits nothing; the same key
 with another request is refused with `invalid_params`. The daemon keeps the
-replay records of the last 10,000 keyed ops. Every mutation result carries
+replay records of the last 10,000 keyed ops; a key older than that, or a
+key whose op was refused, runs as a new op. Every mutation result carries
 `replayed:bool`.
 
 Params: `browser_profile_id` (required).
@@ -4945,7 +4947,8 @@ With `replace:true`, `source_key` is required and `nodes[0]` must be a folder.
 When the profile has a folder carrying that `source_key`, the folder keeps its
 id, parent and position, takes `nodes[0]`'s title and children (its old
 subtree is deleted), and `nodes[1..]` are inserted right after it. Otherwise
-the import proceeds as without `replace`. The HTML import and the onboarding
+the import proceeds as without `replace`. When several folders carry the
+`source_key`, the oldest by `created_ms` is refilled. The HTML import and the onboarding
 import use this so a re-import replaces its folder.
 
 The request line is subject to the JSON nesting limit (128), which bounds one

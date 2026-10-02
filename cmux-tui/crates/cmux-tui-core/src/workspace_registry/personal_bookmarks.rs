@@ -58,6 +58,7 @@ pub(super) fn create_bookmark_schema(transaction: &Transaction<'_>) -> anyhow::R
          );
          CREATE INDEX IF NOT EXISTS bookmarks_parent
            ON bookmarks(browser_profile_id, parent_id, position);
+         CREATE INDEX IF NOT EXISTS bookmarks_parent_id ON bookmarks(parent_id);
          CREATE TABLE IF NOT EXISTS bookmark_mutations (
            seq INTEGER PRIMARY KEY,
            origin TEXT NOT NULL,
@@ -235,12 +236,13 @@ impl BookmarkOp {
     }
 }
 
-/// A committed (or replayed) op: the wire result, with `replayed`, and the
-/// browser profile whose tree changed, if any.
+/// A committed (or replayed) op: the wire result, with `replayed`, and,
+/// when it changed a tree, that browser profile and the committed
+/// `bookmarks_revision`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BookmarkOutcome {
     pub result: Value,
-    pub changed: Option<String>,
+    pub changed: Option<(String, u64)>,
 }
 
 // MARK: Validation
@@ -738,6 +740,10 @@ fn create_in(tx: &Transaction<'_>, input: BookmarkInput) -> anyhow::Result<(Book
     validate_title(&input.title)?;
     validate_key("favicon_key", input.favicon_key.as_deref())?;
     validate_key("source_key", input.source_key.as_deref())?;
+    ensure_valid!(
+        input.source_key.is_none() || input.kind == "folder",
+        "source_key marks an imported folder; a url has none"
+    );
     let created_ms = match input.created_ms {
         Some(value) => stored_ms("created_ms", value)?,
         None => now_ms()?,
@@ -1089,10 +1095,6 @@ fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Opti
 }
 
 impl WorkspaceRegistry {
-    pub fn bookmarks_revision(&self) -> anyhow::Result<u64> {
-        bookmarks_revision(&self.connection)
-    }
-
     /// The revision and every node of one profile's tree, in depth-first
     /// pre-order.
     pub fn list_bookmarks(&self, profile: &str) -> anyhow::Result<(u64, Vec<Bookmark>)> {
@@ -1111,7 +1113,11 @@ impl WorkspaceRegistry {
         op: BookmarkOp,
     ) -> anyhow::Result<BookmarkOutcome> {
         let operation = op.name();
-        let fingerprint = serde_json::to_string(&op)?;
+        let fingerprint = {
+            use sha2::{Digest, Sha256};
+            let digest = Sha256::digest(serde_json::to_vec(&op)?);
+            digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>()
+        };
         let tx = self.connection.transaction()?;
         if let Some(key) = key
             && let Some((stored_operation, stored_fingerprint, result)) = lookup_replay(&tx, key)?
@@ -1130,6 +1136,10 @@ impl WorkspaceRegistry {
         if let Some(key) = key {
             record_replay(&tx, key, operation, &fingerprint, &result)?;
         }
+        let changed = match changed {
+            Some(profile) => Some((profile, bookmarks_revision(&tx)?)),
+            None => None,
+        };
         tx.commit()?;
         result["replayed"] = json!(false);
         Ok(BookmarkOutcome { result, changed })

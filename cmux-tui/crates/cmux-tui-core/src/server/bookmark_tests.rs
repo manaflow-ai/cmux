@@ -587,3 +587,122 @@ fn bookmark_operations_replay_by_origin_and_mutation_id() {
         "invalid_params"
     );
 }
+
+/// A small seeded generator, so a failure reproduces from its seed.
+struct Seeded(u64);
+
+impl Seeded {
+    fn below(&mut self, bound: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % bound.max(1) as u64) as usize
+    }
+}
+
+/// The tree invariants over a `list-bookmarks` listing: dense sibling
+/// positions in order, every parent a root or an earlier folder, depth at
+/// most 64, at most 100,000 nodes.
+fn check_tree_invariants(listing: &Value, seed: u64, step: usize) {
+    let nodes = listing["bookmarks"].as_array().unwrap();
+    assert!(nodes.len() <= 100_000);
+    let mut depth = HashMap::<String, usize>::new();
+    let mut next_index = HashMap::<String, u64>::new();
+    for node in nodes {
+        let parent = node["parent"].as_str().unwrap().to_string();
+        let parent_depth = match parent.as_str() {
+            "bar" | "other" => 0,
+            folder => *depth
+                .get(folder)
+                .unwrap_or_else(|| panic!("seed {seed} step {step}: orphan {node}")),
+        };
+        if parent != "bar" && parent != "other" {
+            let folder = nodes.iter().find(|candidate| candidate["id"] == parent.as_str()).unwrap();
+            assert_eq!(folder["kind"], "folder", "seed {seed} step {step}");
+        }
+        assert!(parent_depth < 64, "seed {seed} step {step}: too deep");
+        let expected = next_index.entry(parent).or_insert(0);
+        assert_eq!(node["index"].as_u64(), Some(*expected), "seed {seed} step {step}: {node}");
+        *expected += 1;
+        depth.insert(node["id"].as_str().unwrap().to_string(), parent_depth + 1);
+    }
+}
+
+#[test]
+fn random_bookmark_ops_keep_the_tree_invariants_and_replays_change_nothing() {
+    for seed in [0x9e37_79b9_7f4a_7c15_u64, 0x2545_f491_4f6c_dd1d, 0xdead_beef_cafe_f00d] {
+        let mux = bookmarks_mux();
+        let mut random = Seeded(seed);
+        for step in 0..150 {
+            let before = listed(&mux, "default");
+            let nodes = before["bookmarks"].as_array().unwrap().clone();
+            let any_node = |random: &mut Seeded| {
+                nodes.get(random.below(nodes.len())).map(|node| node["id"].clone())
+            };
+            let folders = nodes
+                .iter()
+                .filter(|node| node["kind"] == "folder")
+                .map(|node| node["id"].clone())
+                .collect::<Vec<_>>();
+            let parent = |random: &mut Seeded| match random.below(folders.len() + 2) {
+                0 => json!("bar"),
+                1 => json!("other"),
+                n => folders[n - 2].clone(),
+            };
+            let index = json!(random.below(6));
+            let mut request = match random.below(6) {
+                0 => json!({"cmd":"create-bookmark","browser_profile_id":"default",
+                            "parent":parent(&mut random),"index":index,"kind":"folder",
+                            "title":format!("f{step}")}),
+                1 => json!({"cmd":"create-bookmark","browser_profile_id":"default",
+                            "parent":parent(&mut random),"kind":"url","title":format!("u{step}"),
+                            "url":format!("https://example.com/{step}")}),
+                2 => match any_node(&mut random) {
+                    Some(id) => json!({"cmd":"move-bookmark","bookmark":id,
+                                       "parent":parent(&mut random),"index":index}),
+                    None => continue,
+                },
+                3 => match any_node(&mut random) {
+                    Some(id) => json!({"cmd":"delete-bookmark","bookmark":id}),
+                    None => continue,
+                },
+                4 => match any_node(&mut random) {
+                    Some(id) => json!({"cmd":"update-bookmark","bookmark":id,
+                                       "title":format!("t{step}")}),
+                    None => continue,
+                },
+                _ => json!({"cmd":"import-bookmarks","browser_profile_id":"default",
+                            "parent":parent(&mut random),"index":index,
+                            "nodes":[{"kind":"folder","title":"i","children":[
+                                {"kind":"url","title":"a","url":"https://a.example"},
+                                {"kind":"folder","title":"b"}]}]}),
+            };
+            let keyed = random.below(3) == 0;
+            if keyed {
+                request["origin"] = json!("property");
+                request["mutation_id"] = json!(format!("{seed}-{step}"));
+            }
+            match run(&mux, request.clone()) {
+                Ok(result) => {
+                    let after = listed(&mux, "default");
+                    check_tree_invariants(&after, seed, step);
+                    if keyed {
+                        let replayed = run(&mux, request.clone()).unwrap();
+                        assert_eq!(replayed["replayed"], true, "seed {seed} step {step}");
+                        assert_eq!(without_replayed(&replayed), without_replayed(&result));
+                        assert_eq!(listed(&mux, "default"), after, "seed {seed} step {step}");
+                    }
+                }
+                Err(error) => {
+                    // A refused op is a cycle or a depth limit; it writes nothing.
+                    assert_eq!(
+                        response_error_code(&error).as_deref(),
+                        Some("invalid_params"),
+                        "seed {seed} step {step}: {request} {error}"
+                    );
+                    assert_eq!(listed(&mux, "default"), before, "seed {seed} step {step}");
+                }
+            }
+        }
+    }
+}
