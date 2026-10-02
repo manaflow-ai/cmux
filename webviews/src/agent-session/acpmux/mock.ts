@@ -62,6 +62,8 @@ export class MockAcpmuxSocket {
   private closed = false;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
+  /// Prompts sent and not yet finished; one sent while another runs is reported queued.
+  private pending = 0;
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)), private readonly script?: MockScript) {
@@ -104,7 +106,15 @@ export class MockAcpmuxSocket {
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
-        const turn = this.queue.then(() => this.prompt(target, String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId));
+        const text = String(params.prompt?.[0]?.text ?? "");
+        const promptId = params._meta?.acpmux?.promptId;
+        const queued = this.pending > 0 && promptId !== undefined;
+        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
+        this.pending += 1;
+        const turn = this.queue.then(() => {
+          if (queued) this.emit(target, { mux: "dequeued", msg: { promptId } });
+          return this.prompt(target, text, promptId);
+        }).finally(() => { this.pending -= 1; });
         this.queue = turn.catch(() => undefined);
         return turn;
       }

@@ -201,6 +201,10 @@ describe("acpmux composer queue", () => {
       expect(list.getAttribute("aria-label")).toBe("Queued prompts");
       expect([...list.querySelectorAll(".acpmux-queued-text")].map((node) => node.textContent)).toEqual(["first", "second\nline"]);
       expect(list.nextElementSibling!.classList.contains("acpmux-composer-box")).toBe(true);
+      // The slash menu anchors to the field, so the queue never pushes it up.
+      await act(async () => typeInto(doc.querySelector("textarea")!, "/"));
+      expect(doc.querySelector(".acpmux-composer-box > .acpmux-slash-menu")).not.toBeNull();
+      await act(async () => typeInto(doc.querySelector("textarea")!, ""));
       await render([]);
       expect(doc.querySelector(".acpmux-queue")).toBeNull();
     } finally {
