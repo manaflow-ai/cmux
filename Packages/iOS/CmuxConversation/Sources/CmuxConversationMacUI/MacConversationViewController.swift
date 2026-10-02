@@ -191,6 +191,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         if hasPositioned, isPinnedToBottom, !isLiveScrolling, !isSubmitting { scrollToBottom() }
     }
 
+    private func lastRowTrailingSpace() -> CGFloat {
+        guard let last = rows.last, case let .message(model) = last else { return 16.5 }
+        let layout = layoutCache.layout(model, width: transcriptWidth)
+        var bottom = layout.contentFrame.maxY
+        if let bubble = layout.bubbleFrame { bottom = max(bottom, bubble.maxY + MacConversationTheme.tailDrop) }
+        for frame in [layout.footerFrame, layout.editedFrame, layout.repliesFrame].compactMap({ $0 }) {
+            bottom = max(bottom, frame.maxY)
+        }
+        return max(0, layout.height - bottom)
+    }
+
     private func updateInsets(followingBottom: Bool = true) {
         // While a send is in flight the collapsing composer must not shrink the
         // inset yet: the clip would clamp and drop the transcript before the
@@ -198,11 +209,13 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         guard !isSubmitting else { return }
         // The toolbar and the composer accessory arrive as safe-area insets.
         let top = view.safeAreaInsets.top
-        // Measured: Messages leaves 60 pt from the window bottom to the newest
-        // bubble with a one-line composer (pill top + 17 pt); the last row
-        // already carries 16.5 pt of trailing space. It grows with the field.
+        // Measured: Messages keeps the lowest pixel of the newest row (a tail,
+        // footer or image edge) 10.5 pt above the one-line composer pill, i.e.
+        // 50 pt from the window bottom (the tail draws ~3.5 pt short of its
+        // nominal drop); rows carry their own trailing space,
+        // so the inset subtracts the last row's. It grows with the field.
         let composerGrowth = max(0, composer.fieldHeight - 32)
-        let bottom = 43.5 + composerGrowth + (replyBanner.isHidden ? 0 : 30)
+        let bottom = 50 - lastRowTrailingSpace() + composerGrowth + (replyBanner.isHidden ? 0 : 30)
         let content = tableView.bounds.height
         let visible = scrollView.bounds.height - top - bottom
         // Short transcripts sit at the bottom, like Messages.

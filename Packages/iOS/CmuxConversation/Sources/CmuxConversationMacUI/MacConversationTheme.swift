@@ -34,7 +34,8 @@ enum MacConversationTheme {
     static let maxImageHeight: CGFloat = 330
     static let reactionBadgeSize: CGFloat = 24
 
-    nonisolated(unsafe) static let senderNameFont = NSFont.systemFont(ofSize: 11)
+    /// Measured: "Austin Wang" inks 58.5 pt wide in Messages, 10 pt regular.
+    nonisolated(unsafe) static let senderNameFont = NSFont.systemFont(ofSize: 10)
     nonisolated(unsafe) static let footerFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     nonisolated(unsafe) static let editedFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     nonisolated(unsafe) static let timestampFont = NSFont.systemFont(ofSize: 11, weight: .medium)
