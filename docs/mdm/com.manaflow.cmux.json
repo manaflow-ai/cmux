@@ -76,6 +76,13 @@
       "title" : "Focused Pane",
       "type" : "string"
     },
+    "appearance.metrics.chromeFontSize" : {
+      "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
+      "maximum" : 16,
+      "minimum" : 10,
+      "title" : "Interface Size",
+      "type" : "number"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",
@@ -102,6 +109,7 @@
         "arc",
         "native",
         "dot",
+        "braille",
         "none"
       ],
       "title" : "Style",
@@ -123,6 +131,11 @@
         "darker"
       ],
       "title" : "Tab Bar Background",
+      "type" : "string"
+    },
+    "appearance.theme" : {
+      "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
+      "title" : "Theme",
       "type" : "string"
     },
     "browser.defaultEngine" : {
@@ -648,6 +661,18 @@
       "title" : "Notify Even When the Terminal Is Visible",
       "type" : "boolean"
     },
+    "terminal.fontFamily" : {
+      "description" : "A monospaced font installed on this Mac.",
+      "title" : "Font Family",
+      "type" : "string"
+    },
+    "terminal.fontSize" : {
+      "description" : "terminal.fontSize",
+      "maximum" : 96,
+      "minimum" : 4,
+      "title" : "Font Size",
+      "type" : "number"
+    },
     "ui.animationSpeed" : {
       "default" : "fast",
       "description" : "ui.animationSpeed",
@@ -670,7 +695,7 @@
     },
     "window.rail" : {
       "default" : "off",
-      "description" : "A column of buttons for new tabs, agent chats, notifications, history and accounts.",
+      "description" : "Shows the sidebar's pinned sections as a column of icons beside it.",
       "enum" : [
         "off",
         "leading",

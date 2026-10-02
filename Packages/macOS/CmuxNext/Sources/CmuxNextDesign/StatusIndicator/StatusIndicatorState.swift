@@ -53,6 +53,9 @@ public nonisolated enum StatusIndicatorStyle: String, Hashable, Sendable, CaseIt
     case native
     /// A small pulsing dot.
     case dot
+    /// The terminal's braille spinner (⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏), drawn in the terminal
+    /// font, so working states read like the CLI tools running in it.
+    case braille
     /// No loading indicator; waiting, error and success marks still show.
     case none
 }

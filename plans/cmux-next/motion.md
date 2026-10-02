@@ -81,7 +81,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
-| `theme` | 0.16 s | room, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
+| `theme` | 0.16 s | space, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
 
 | Loop | Period | Used by |
 | --- | --- | --- |

@@ -82,7 +82,7 @@ nonisolated enum AppPermissionsStrings {
 
     static var reach: String { t("reach.title", "Reach") }
     static var allWorkspaces: String { t("reach.allWorkspaces", "All workspaces") }
-    static var allRooms: String { t("reach.allRooms", "All rooms") }
+    static var allRooms: String { t("reach.allRooms", "All spaces") }
     static var allMachines: String { t("reach.allMachines", "All machines") }
     static func selectedCount(_ count: Int) -> String { String(format: t("reach.selected", "%lld selected"), count) }
 

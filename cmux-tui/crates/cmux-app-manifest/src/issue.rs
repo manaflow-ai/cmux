@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -20,7 +20,11 @@ impl Issue {
         Self { severity: Severity::Error, path: path.into(), code, message: message.into() }
     }
 
-    pub fn warning(path: impl Into<String>, code: &'static str, message: impl Into<String>) -> Self {
+    pub fn warning(
+        path: impl Into<String>,
+        code: &'static str,
+        message: impl Into<String>,
+    ) -> Self {
         Self { severity: Severity::Warning, path: path.into(), code, message: message.into() }
     }
 

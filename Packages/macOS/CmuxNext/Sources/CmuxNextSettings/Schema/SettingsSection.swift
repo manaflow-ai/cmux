@@ -16,7 +16,7 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
         case .keyboard: SettingsText.text("settings.section.keyboard", "Keyboard")
         case .notifications: SettingsText.text("settings.section.notifications", "Notifications")
         case .accounts: SettingsText.text("settings.section.accounts", "Accounts")
-        case .rooms: SettingsText.text("settings.section.rooms", "Rooms & Profiles")
+        case .rooms: SettingsText.text("settings.section.rooms", "Spaces & Profiles")
         case .machines: SettingsText.text("settings.section.machines", "Machines")
         case .advanced: SettingsText.text("settings.section.advanced", "Advanced")
         }

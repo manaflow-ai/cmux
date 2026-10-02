@@ -1,0 +1,95 @@
+import AppKit
+import CoreText
+
+/// The terminal braille spinner (`StatusIndicatorStyle.braille`): the frames
+/// CLI tools print while they work, rendered once per pixel size and font
+/// as alpha masks. The layer tints a mask and steps its `contents` through
+/// them in the render server (no text layout per frame, no timer).
+@MainActor
+enum BrailleSpinnerImage {
+    /// The frames in order. Static (Reduce Motion, loops off, occluded), the
+    /// indicator keeps the first.
+    static let frames: [Character] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+    private struct Key: Hashable {
+        var pixels: Int
+        var scale: Int
+        var family: String?
+    }
+
+    private static var cache: [Key: [CGImage]] = [:]
+
+    /// The frames for a `side`-point square at `scale`, in `family` (the
+    /// `terminal.fontFamily` override; nil or unknown falls back to the
+    /// system monospaced font, and Core Text falls back per glyph when a
+    /// font has no braille).
+    /// Empty when nothing could be drawn.
+    static func images(side: CGFloat, scale: CGFloat, family: String?) -> [CGImage] {
+        let pixels = Int((side * scale).rounded())
+        guard pixels > 0 else { return [] }
+        let key = Key(pixels: pixels, scale: Int(scale.rounded()), family: family)
+        if let cached = cache[key] { return cached }
+        let images = render(pixels: pixels, family: family)
+        guard images.count == frames.count else { return [] }
+        if cache.count > 16 { cache.removeAll() }
+        cache[key] = images
+        return images
+    }
+
+    /// The font the frames use at `size` points.
+    static func font(family: String?, size: CGFloat) -> NSFont {
+        if let family, let font = NSFont(name: family, size: size) ?? NSFontManager.shared.font(withFamily: family, traits: [], weight: 5, size: size) {
+            return font
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+    }
+
+    private static func render(pixels: Int, family: String?) -> [CGImage] {
+        // Size and place every frame from the six-dot cell (⠿), the rows
+        // the spinner uses, so the dots never shift between frames and they
+        // fill the indicator slot like the other styles' glyphs (fitting
+        // the eight-dot cell left them a faint smudge at 1x).
+        let reference: CGFloat = 100
+        let cell = CTLineGetImageBounds(line(fullCell, font: font(family: family, size: reference)), nil)
+        guard cell.width > 0, cell.height > 0 else { return [] }
+        let fit = CGFloat(pixels) / max(cell.width, cell.height)
+        let font = font(family: family, size: reference * fit)
+        let bounds = CTLineGetImageBounds(line(fullCell, font: font), nil)
+        // Whole pixels, so 1x dots land on the grid.
+        let origin = CGPoint(x: ((CGFloat(pixels) - bounds.width) / 2 - bounds.minX).rounded(),
+                             y: ((CGFloat(pixels) - bounds.height) / 2 - bounds.minY).rounded())
+        return frames.compactMap { frame in
+            guard let context = CGContext(data: nil, width: pixels, height: pixels, bitsPerComponent: 8, bytesPerRow: pixels,
+                                          space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            else { return nil }
+            context.setShouldAntialias(true)
+            context.textPosition = origin
+            CTLineDraw(line(String(frame), font: font), context)
+            return normalized(context)
+        }
+    }
+
+    /// The six-dot cell every frame fits in.
+    static let fullCell = "⠿"
+
+    /// Small dots antialias to partial alpha; scale the mask so the
+    /// strongest pixel is opaque and the tint reads at its full color, the
+    /// way `NativeSpinnerImage` treats the native spokes.
+    private static func normalized(_ context: CGContext) -> CGImage? {
+        guard let data = context.data else { return nil }
+        let count = context.width * context.height
+        let bytes = data.bindMemory(to: UInt8.self, capacity: count)
+        var peak: UInt8 = 0
+        for i in 0..<count { peak = max(peak, bytes[i]) }
+        guard peak > 0 else { return nil }
+        if peak < 255 {
+            let factor = 255 / Double(peak)
+            for i in 0..<count { bytes[i] = UInt8(min(255, (Double(bytes[i]) * factor).rounded())) }
+        }
+        return context.makeImage()
+    }
+
+    private static func line(_ text: String, font: NSFont) -> CTLine {
+        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: NSColor.black]))
+    }
+}

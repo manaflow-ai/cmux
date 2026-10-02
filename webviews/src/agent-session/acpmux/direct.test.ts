@@ -236,6 +236,17 @@ describe("direct client session state", () => {
     client.close();
   });
 
+  test("a new chat opens in the chosen project's folder, and without one leaves the folder to the daemon", async () => {
+    const client = await connect();
+    await client.create("codex", "/Users/me/code/notes");
+    await client.create();
+    const created = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(created.map((request) => request.params.cwd)).toEqual(["/Users/me/code/notes", undefined]);
+    expect(created.map((request) => "cwd" in request.params)).toEqual([true, false]);
+    expect(created[0]!.params._meta).toEqual({ acpmux: { harness: "codex" } });
+    client.close();
+  });
+
   test("connect attaches without waiting on the harness catalog, which the pane queries itself", async () => {
     ScriptedSocket.held = new Set(["_acpmux/harnesses"]);
     const client = await connect();
@@ -265,6 +276,25 @@ describe("direct client session state", () => {
     await client.create("codex");
     const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
     expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
+  });
+
+  test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
+    let created = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: `n${(created += 1)}` };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app" },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await client.create("claude", "/work/notes");
+    await client.create("claude");
+    await client.create("codex");
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params.cwd)).toEqual(["/work/notes", "/work/app", undefined]);
   });
 
   test("a turn that ends in the background is unread until its session is selected, and survives a reread", async () => {
