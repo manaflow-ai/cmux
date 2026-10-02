@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
 
 /// Native dictation for the composer. Swift owns the microphone and speech engine
 /// (CmuxNextAgentPane `AgentPaneDictation`); this splices its text at the prompt's cursor,
 /// keeps what the user typed, and draws the mic button. System dictation (Fn Fn) is untouched:
-/// the prompt stays a plain textarea and nothing here listens while idle.
+/// the prompt stays a plain textarea. While idle nothing runs: no timer, no key listener, only
+/// the bridge hook and the prompt's passive composition listeners.
 
 type Call = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
 
@@ -21,6 +22,20 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
   const dictation = layout?.dictation as { autoSend?: unknown } | undefined;
   autoSend = dictation?.autoSend === true;
 }
+
+/// The input level, read only by the mic button: the meter moves about 12 times a second
+/// without re-rendering the pane.
+const level = { value: 0, listeners: new Set<() => void>() };
+function setLevel(value: number): void {
+  if (level.value === value) return;
+  level.value = value;
+  for (const listener of level.listeners) listener();
+}
+const subscribeLevel = (listener: () => void) => {
+  level.listeners.add(listener);
+  return () => { level.listeners.delete(listener); };
+};
+const readLevel = () => level.value;
 
 const isActive = (state: DictationState) => state === "starting" || state === "listening" || state === "finalizing";
 
@@ -47,7 +62,6 @@ function writePrompt(node: HTMLTextAreaElement, value: string): void {
 
 export type Dictation = {
   state: DictationState;
-  level: number;
   /// The denied or failed state the composer shows until dismissed or the next start.
   notice: DictationUpdate | null;
   toggle(): void;
@@ -58,7 +72,6 @@ export type Dictation = {
 
 export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>, call: Call): Dictation {
   const [state, setState] = useState<DictationState>("idle");
-  const [level, setLevel] = useState(0);
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
   const anchor = useRef<DictationAnchor | null>(null);
   /// The latest update that arrived while an input method was composing; applied when it ends,
@@ -69,15 +82,21 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
 
   useEffect(() => {
     let composing = false;
+    /// The last update spliced; a repeat (a level-only tick) leaves the prompt and caret alone.
+    let applied: DictationUpdate | null = null;
     const apply = (update: DictationUpdate) => {
       const node = prompt.current;
       if (!node) return;
+      if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
+      applied = isActive(update.state) ? update : null;
+      // A session the shortcut started writes where the user will type, as undoable edits.
+      if (update.state === "starting" && node.ownerDocument.hasFocus() && node.ownerDocument.activeElement !== node) node.focus();
       const splice = applyDictation({ value: node.value, selectionStart: node.selectionStart, selectionEnd: node.selectionEnd }, anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
       writePrompt(node, splice.value);
       node.setSelectionRange(splice.selectionStart, splice.selectionEnd);
-      if (update.state === "idle" && !update.cancelled && autoSend && update.text.trim()) node.form?.requestSubmit();
+      if (update.state === "idle" && !update.cancelled && autoSend && splice.placed) node.form?.requestSubmit();
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
@@ -128,7 +147,6 @@ export function useDictation(prompt: React.RefObject<HTMLTextAreaElement | null>
 
   return {
     state,
-    level,
     notice,
     toggle() {
       if (!active) prompt.current?.focus();
@@ -148,7 +166,7 @@ const METER_BARS = [0.55, 0.85, 1, 0.7];
 
 /// The mic next to Send: a microphone while idle, a live level meter while listening.
 export function DictationButton({ dictation }: { dictation: Dictation }) {
-  const { state, level } = dictation;
+  const { state } = dictation;
   const listening = state === "listening" || state === "finalizing";
   const label = isActive(state) ? "Stop dictation" : "Dictate";
   return <button
@@ -163,9 +181,14 @@ export function DictationButton({ dictation }: { dictation: Dictation }) {
     onClick={dictation.toggle}
   >
     {listening
-      ? <span className="acpmux-mic-meter" aria-hidden="true">{METER_BARS.map((weight, index) => <span key={index} style={{ transform: `scaleY(${Math.max(0.18, Math.min(1, level * weight * 1.4))})` }} />)}</span>
+      ? <LevelMeter />
       : <svg aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><rect x="5.5" y="1.5" width="5" height="8.5" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>}
   </button>;
+}
+
+function LevelMeter() {
+  const value = useSyncExternalStore(subscribeLevel, readLevel);
+  return <span className="acpmux-mic-meter" aria-hidden="true">{METER_BARS.map((weight, index) => <span key={index} style={{ transform: `scaleY(${Math.max(0.18, Math.min(1, value * weight * 1.4))})` }} />)}</span>;
 }
 
 /// Why dictation did not run, with a way to fix it.

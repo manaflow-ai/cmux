@@ -96,10 +96,41 @@ describe("dictation text", () => {
     expect(prompt.selectionStart).toBe(2);
   });
 
-  test("editing inside the words hands them over and continues at the caret", () => {
+  test("editing inside the words hands them over and continues where they ended", () => {
     const { prompt } = run(caretAt(""), [update("listening", "hello"), update("listening", "hello world"), update("idle", "hello world")], (index, current) =>
       index === 1 ? caretAt("Hello") : current);
     expect(prompt.value).toBe("Hello world");
+  });
+
+  test("an edit while a word is still being spelled continues that word", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "hello wor"), update("listening", "hello world"), update("idle", "hello world")], (index, current) =>
+      index === 1 ? { value: "Hello wor", selectionStart: 1, selectionEnd: 1 } : current);
+    expect(prompt.value).toBe("Hello world");
+    // The caret stays where the user edited.
+    expect(prompt.selectionStart).toBe(1);
+  });
+
+  test("a revision of words the user took over keeps theirs and adds only the new ones", () => {
+    const { prompt } = run(caretAt(""), [update("listening", "I scream for"), update("listening", "ice cream for you"), update("idle", "ice cream for you")], (index, current) =>
+      index === 1 ? { value: "We scream for", selectionStart: 2, selectionEnd: 2 } : current);
+    expect(prompt.value).toBe("We scream for you");
+  });
+
+  test("a session that ends with nothing new after a send leaves the new draft and caret alone", () => {
+    const start = caretAt("");
+    let anchor: DictationAnchor | null = applyDictation(start, null, update("listening", "first message"))!.anchor;
+    // Send cleared the prompt; the user starts typing the next message.
+    const typing = caretAt("typing new");
+    const end = applyDictation(typing, anchor, update("idle", "first message"));
+    anchor = end?.anchor ?? null;
+    expect(end).toMatchObject({ value: "typing new", selectionStart: 10, selectionEnd: 10, placed: false });
+    expect(anchor).toBeNull();
+  });
+
+  test("typing before any words arrive puts the words after the typing", () => {
+    const { prompt } = run(caretAt(""), [update("starting"), update("listening", "hi"), update("idle", "hi")], (index, current) =>
+      index === 1 ? caretAt("abc") : current);
+    expect(prompt.value).toBe("abc hi");
   });
 
   test("the final text replaces the partial without duplicates or lost words", () => {

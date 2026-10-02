@@ -188,6 +188,37 @@ describe("composer dictation", () => {
     }
   });
 
+  test("level ticks move the meter without moving the caret out of the words", async () => {
+    const pane = await mountPane();
+    try {
+      await pane.send({ state: "listening", text: "fix the bug now", level: 0.2 });
+      pane.prompt.setSelectionRange(4, 4);
+      await pane.send({ state: "listening", text: "fix the bug now", level: 0.7 });
+      await pane.send({ state: "listening", text: "fix the bug now", level: 0.5 });
+      expect(pane.prompt.selectionStart).toBe(4);
+      expect(pane.prompt.value).toBe("fix the bug now");
+      const bar = pane.mic().querySelector<HTMLElement>(".acpmux-mic-meter span")!;
+      expect(bar.style.transform).toBe(`scaleY(${0.5 * 0.55 * 1.4})`);
+    } finally {
+      await pane.unmount();
+    }
+  });
+
+  test("auto-send does not send a draft typed after the dictated words were sent", async () => {
+    const pane = await mountPane();
+    try {
+      await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: { dictation: { autoSend: true } } }));
+      await pane.send({ state: "listening", text: "first message" });
+      pane.prompt.value = "typing new";
+      await pane.send({ state: "idle", text: "first message" });
+      expect(pane.methods()).not.toContain("chat.send");
+      expect(pane.prompt.value).toBe("typing new");
+      await act(async () => dom.window.cmuxAcpmuxBridge!.applyCustomization({ layout: {} }));
+    } finally {
+      await pane.unmount();
+    }
+  });
+
   test("a refused toggle shows the host's reason", async () => {
     const pane = await mountPane({ refuse: "Dictation is busy in another window." });
     try {
