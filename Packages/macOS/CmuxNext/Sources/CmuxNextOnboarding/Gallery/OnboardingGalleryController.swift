@@ -64,7 +64,7 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
     // MARK: State
 
     var step: OnboardingModel.Step { OnboardingModel.Step(rawValue: store.review.step) ?? OnboardingModel.Step.allCases[0] }
-    var variants: [any OnboardingScreenVariant.Type] { OnboardingVariantRegistry.variants(for: step) }
+    var variants: [any OnboardingScreenVariant.Type] { step.variants }
     var index: Int { min(max(store.review.index, 0), variants.count - 1) }
     var variant: any OnboardingScreenVariant.Type { variants[index] }
 
