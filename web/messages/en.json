@@ -7071,9 +7071,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Sign in to cmux",
-    "signInSubtitle": "One account for the app, Cloud and the dashboard.",
+    "signInSubtitle": "One account for the app, cloud and the dashboard.",
     "signUpTitle": "Create your cmux account",
-    "signUpSubtitle": "One account for the app, Cloud and the dashboard.",
+    "signUpSubtitle": "One account for the app, cloud and the dashboard.",
     "continueWithProvider": "Continue with {provider}",
     "signInWithPasskey": "Sign in with a passkey",
     "orContinueWith": "Or continue with",

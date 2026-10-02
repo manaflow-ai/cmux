@@ -6981,9 +6981,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "cmux にサインイン",
-    "signInSubtitle": "アプリ、Cloud、ダッシュボードを 1 つのアカウントで。",
+    "signInSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
     "signUpTitle": "cmux アカウントを作成",
-    "signUpSubtitle": "アプリ、Cloud、ダッシュボードを 1 つのアカウントで。",
+    "signUpSubtitle": "アプリ、cloud、ダッシュボードを 1 つのアカウントで。",
     "continueWithProvider": "{provider} で続行",
     "signInWithPasskey": "パスキーでサインイン",
     "orContinueWith": "または、次の方法で続行",

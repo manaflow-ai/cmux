@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "登录 cmux",
-    "signInSubtitle": "一个账号即可使用应用、Cloud 和控制台。",
+    "signInSubtitle": "一个账号即可使用应用、cloud 和控制台。",
     "signUpTitle": "创建 cmux 账号",
-    "signUpSubtitle": "一个账号即可使用应用、Cloud 和控制台。",
+    "signUpSubtitle": "一个账号即可使用应用、cloud 和控制台。",
     "continueWithProvider": "使用 {provider} 继续",
     "signInWithPasskey": "使用通行密钥登录",
     "orContinueWith": "或继续使用",

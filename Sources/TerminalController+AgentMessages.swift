@@ -2,83 +2,6 @@ import CmuxAgentJournal
 import CmuxControlSocket
 import Foundation
 
-/// Owns the app's agent message store and publishes its receipts on the
-/// event bus (`cmux events --category agent`).
-enum AgentMessageCenter {
-    static let store = AgentMessageStore(
-        fileURL: defaultFileURL(),
-        onChange: { change in
-            let message = change.message
-            CmuxEventBus.shared.publish(
-                name: "agent.message.\(change.state.rawValue)",
-                category: "agent",
-                source: "agent.message",
-                workspaceId: message.recipientWorkspaceId,
-                surfaceId: message.recipientSurfaceId,
-                payload: [
-                    "id": message.id,
-                    "thread_id": message.threadId,
-                    "sender_name": message.senderName,
-                    "sender_surface_id": message.senderSurfaceId ?? NSNull(),
-                    "state": change.state.rawValue,
-                    "delivered_via": message.deliveredVia ?? NSNull(),
-                    "body_length": message.body.count,
-                ]
-            )
-        }
-    )
-
-    /// `CMUX_AGENT_MESSAGES_PATH`, else a per-install file next to the agent
-    /// journal. In-memory under automated tests.
-    static func defaultFileURL(
-        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
-        isRunningUnderAutomatedTests: Bool = SessionRestorePolicy.isRunningUnderAutomatedTests()
-    ) -> URL? {
-        if let override = ProcessInfo.processInfo.environment["CMUX_AGENT_MESSAGES_PATH"],
-           !override.isEmpty {
-            return URL(fileURLWithPath: override)
-        }
-        if isRunningUnderAutomatedTests {
-            return nil
-        }
-        guard let appSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first else {
-            return nil
-        }
-        let bundleID = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let resolvedBundleID = bundleID?.isEmpty == false ? bundleID! : "com.cmuxterm.app"
-        let safeBundleID = resolvedBundleID.replacingOccurrences(
-            of: "[^A-Za-z0-9._-]",
-            with: "_",
-            options: .regularExpression
-        )
-        return appSupport
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("agent-messages-\(safeBundleID).jsonl", isDirectory: false)
-    }
-
-    static func payload(_ message: AgentMessage) -> [String: Any] {
-        [
-            "id": message.id,
-            "thread_id": message.threadId,
-            "sender_name": message.senderName,
-            "sender_surface_id": message.senderSurfaceId ?? NSNull(),
-            "sender_workspace_id": message.senderWorkspaceId ?? NSNull(),
-            "recipient_surface_id": message.recipientSurfaceId,
-            "recipient_workspace_id": message.recipientWorkspaceId ?? NSNull(),
-            "body": message.body,
-            "created_at": message.createdAt.timeIntervalSince1970,
-            "in_reply_to": message.inReplyTo ?? NSNull(),
-            "state": message.state.rawValue,
-            "delivered_at": message.deliveredAt?.timeIntervalSince1970 ?? NSNull(),
-            "delivered_via": message.deliveredVia ?? NSNull(),
-            "read_at": message.readAt?.timeIntervalSince1970 ?? NSNull(),
-        ]
-    }
-}
-
 /// Where a message goes, resolved on the main actor.
 struct AgentMessageRecipient: Sendable {
     let surfaceId: UUID
@@ -109,6 +32,8 @@ extension TerminalController {
             result = agentMessageMarkRead(params: params)
         case "agent.message.poll":
             result = await agentMessagePoll(params: params)
+        case "agent.message.settings":
+            result = await agentMessageSettings(params: params)
         default:
             result = .err(
                 code: "method_not_found",
@@ -135,6 +60,11 @@ extension TerminalController {
             params[WorkspaceRemoteRelayCommandRewriter.connectionIDKey]
         ).flatMap(UUID.init(uuidString:))
         let store = AgentMessageCenter.store
+        // Checked before resolving the target so the reason is the switch,
+        // not a lookup failure. The store checks again when it appends.
+        guard AgentMessageCenter.isEnabled() else {
+            return Self.agentMessageBlockedResult(.messagesDisabled, recipient: nil)
+        }
 
         let targetString: String
         if let replyTo {
@@ -223,6 +153,8 @@ extension TerminalController {
             payload["recipient_workspace_title"] = recipient.workspaceTitle
             payload["recipient_has_agent"] = recipient.hasAgent
             return .ok(payload)
+        } catch let error as AgentMessageBlockedError {
+            return Self.agentMessageBlockedResult(error.block, recipient: recipient)
         } catch let error as AgentMessageValidationError {
             return .err(code: "invalid_params", message: Self.agentMessageValidationMessage(error), data: nil)
         } catch let error as AgentMessagePersistenceError {
@@ -298,7 +230,7 @@ extension TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "socket.agentMessage.error.invalidState",
-                        defaultValue: "State must be queued, delivered or read."
+                        defaultValue: "State must be queued, delivered, read or failed."
                     ),
                     data: nil
                 )
@@ -419,7 +351,7 @@ extension TerminalController {
         }
     }
 
-    private nonisolated static func agentMessageMainHopFailure(_ error: Error) -> V2CallResult {
+    nonisolated static func agentMessageMainHopFailure(_ error: Error) -> V2CallResult {
         if let timeout = error as? SocketMainActorHopTimeout {
             let message = timeout.retryable
                 ? String(
@@ -561,7 +493,7 @@ extension TerminalController {
 
     // MARK: - Helpers
 
-    private nonisolated static func agentMessageTrimmed(_ raw: Any?) -> String? {
+    nonisolated static func agentMessageTrimmed(_ raw: Any?) -> String? {
         guard let string = raw as? String else { return nil }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -569,7 +501,7 @@ extension TerminalController {
 
     /// Hooks pass the surface UUID from `CMUX_SURFACE_ID`; stored ids use the
     /// canonical uppercase form.
-    private nonisolated static func agentMessageSurfaceUUID(_ raw: Any?) -> String? {
+    nonisolated static func agentMessageSurfaceUUID(_ raw: Any?) -> String? {
         guard let string = agentMessageTrimmed(raw), let uuid = UUID(uuidString: string) else { return nil }
         return uuid.uuidString
     }

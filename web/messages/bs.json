@@ -5273,9 +5273,9 @@
   },
   "cmuxSignIn": {
     "signInTitle": "Prijavi se na cmux",
-    "signInSubtitle": "Jedan račun za aplikaciju, Cloud i kontrolnu ploču.",
+    "signInSubtitle": "Jedan račun za aplikaciju, cloud i kontrolnu ploču.",
     "signUpTitle": "Napravi cmux račun",
-    "signUpSubtitle": "Jedan račun za aplikaciju, Cloud i kontrolnu ploču.",
+    "signUpSubtitle": "Jedan račun za aplikaciju, cloud i kontrolnu ploču.",
     "continueWithProvider": "Nastavi putem {provider}",
     "signInWithPasskey": "Prijavi se pristupnim ključem",
     "orContinueWith": "Ili nastavi putem",

@@ -16,7 +16,6 @@ nonisolated private let mobileShellNotificationFeedSubtitleByteLimit = 512
 nonisolated private let mobileShellNotificationFeedBodyByteLimit = 2_048
 nonisolated private let mobileShellNotificationFeedMetadataByteLimit = 512
 nonisolated private let mobileShellNotificationFeedMaximumImmediateRefreshAttempts = 2
-nonisolated private let mobileShellNotificationFeedRequestTimeoutNanoseconds: UInt64 = 15_000_000_000
 
 @MainActor
 extension MobileShellComposite {
@@ -940,10 +939,7 @@ extension MobileShellComposite {
                 method: "notification.feed.list",
                 params: [:]
             )
-            let data = try await client.sendRequest(
-                request,
-                timeoutNanoseconds: mobileShellNotificationFeedRequestTimeoutNanoseconds
-            )
+            let data = try await client.sendRequest(request)
             let stringLimits = mobileShellNotificationFeedListStringLimits()
             let maxNotifications = MobileNotificationFeedAggregation.maxItemCount
             let decoderTask = Task.detached(priority: .userInitiated) {
