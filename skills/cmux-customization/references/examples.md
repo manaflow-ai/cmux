@@ -164,9 +164,9 @@ Agent buttons alongside the default terminal and browser buttons.
 }
 ```
 
-## Prompt Snippets
+### Prompt Snippets
 
-Reusable text pasted into the focused terminal, iTerm2-snippet style. `type: "text"` never runs anything on its own: the text lands in the shell line editor or agent composer verbatim (newlines and indentation preserved) and waits for you. Add `"submit": true` to press Enter afterwards. Snippets defined in a project-local config go through the same trust prompt as a project `type: "command"`, whether or not they submit; snippets in the global config never prompt.
+Text actions paste reusable prompts into the focused terminal, preserving newlines and indentation. Add `"submit": true` to send Enter afterwards. The receiving shell or agent controls how pasted newlines behave. Snippets defined in a project-local config go through the same trust prompt as a project `type: "command"`, whether or not they submit; snippets in the global config never prompt.
 
 ```json
 {
