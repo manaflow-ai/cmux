@@ -41,6 +41,7 @@ members = [
     "crates/cmux-tasks",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
 ]
 default-members = [
     "crates/cmux-cloud-cli",
@@ -67,6 +68,7 @@ default-members = [
     "crates/cmux-tasks",
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
+    "crates/cmux-app-manifest",
 ]
 exclude = ["vendor/crossterm"]
 
