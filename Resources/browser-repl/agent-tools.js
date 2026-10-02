@@ -1042,6 +1042,58 @@
       fs.appendFileSync(recorder.trace, JSON.stringify(redactValue(entry)) + "\n");
     }
 
+    // ---- secrets in captures ---------------------------------------------------------
+    // Screenshots, recordings and PDFs show pixels, so a secret typed into a
+    // text field (or echoed in page text) would be readable in them. For the
+    // length of one capture, every field whose value holds a registered
+    // secret, and every element whose own text holds one, renders with
+    // -webkit-text-security: disc, as a password field does.
+    const CAPTURES = new Set(["tab.screenshot", "tab.pdf"]);
+    const masked = new WeakMap(); // params -> page
+    const MASK_SOURCE = `(values, on) => {
+      const key = Symbol.for("cmux.browserRepl.secretMask");
+      const prop = "-webkit-text-security";
+      if (!on) {
+        for (const [el, value, priority] of globalThis[key] || []) {
+          if (value) el.style.setProperty(prop, value, priority);
+          else el.style.removeProperty(prop);
+        }
+        globalThis[key] = null;
+        return 0;
+      }
+      const hits = new Set();
+      const has = (text) => typeof text === "string" && values.some((v) => text.includes(v));
+      const visit = (root) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
+        for (let n = walker.currentNode; n; n = walker.nextNode()) {
+          if (n.nodeType === 3) {
+            if (n.parentElement && has(n.data)) hits.add(n.parentElement);
+            continue;
+          }
+          if ((n instanceof HTMLInputElement && n.type !== "password") || n instanceof HTMLTextAreaElement) {
+            if (has(n.value)) hits.add(n);
+          }
+          if (n.shadowRoot) visit(n.shadowRoot);
+        }
+      };
+      visit(document.documentElement || document);
+      const saved = [];
+      for (const el of hits) {
+        saved.push([el, el.style.getPropertyValue(prop), el.style.getPropertyPriority(prop)]);
+        el.style.setProperty(prop, "disc", "important");
+      }
+      globalThis[key] = saved;
+      return saved.length;
+    }`;
+    async function maskSecretsInCapture(page, on) {
+      const values = [...secretStore.values()].filter((s) => !s.totp && s.value).map((s) => s.value);
+      if (!values.length && on) return;
+      for (const frame of [page._mainFrame, ...page._frames.values()]) {
+        if (frame._detached) continue;
+        await frame._call("agent", MASK_SOURCE, [values, on]).catch(() => {});
+      }
+    }
+
     // ---- hooks -------------------------------------------------------------------
     const BINARY = new Set(["tab.screenshot", "tab.pdf", "clipboard.read"]);
     const TITLES = { "tab.navigate": "page.goto", "tabs.open": "tabs.open" };
@@ -1053,6 +1105,13 @@
       checkURL,
       async beforeCall(method, params) {
         if (policySync && method !== "session.configure") await policySync;
+        if (CAPTURES.has(method) && secretStore.size && params && params.targetId) {
+          const page = session.pages.get(params.targetId);
+          if (page && !page._closed) {
+            masked.set(params, page);
+            await maskSecretsInCapture(page, true);
+          }
+        }
         if ((method === "tab.navigate" || method === "tabs.open") && params && params.url) {
           checkURL(TITLES[method], params.url);
           if (method === "tab.navigate" && params.targetId) policy.navigating.set(params.targetId, (policy.navigating.get(params.targetId) || 0) + 1);
@@ -1073,6 +1132,11 @@
         }
       },
       afterCall(method, params, promise) {
+        const maskedPage = params && masked.get(params);
+        if (maskedPage) {
+          masked.delete(params);
+          promise = promise.finally(() => maskSecretsInCapture(maskedPage, false));
+        }
         const nav = method === "tab.navigate" && params && params.url && params.targetId;
         const done = () => {
           if (!nav) return;
