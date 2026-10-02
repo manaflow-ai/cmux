@@ -28,12 +28,12 @@ mod apps {
         assert!(dirs.len() >= 3, "expected the samples, found {dirs:?}");
         for dir in dirs {
             // Samples still on manifest v1 are checked by the v1 TS validator
-        // until they move; this test covers every v2 sample.
-        let raw = std::fs::read_to_string(dir.join("cmux-app.json")).expect("manifest");
-        if serde_json::from_str::<Value>(&raw).expect("json")["manifestVersion"] == 1 {
-            continue;
-        }
-        let report = validate_package(&dir);
+            // until they move; this test covers every v2 sample.
+            let raw = std::fs::read_to_string(dir.join("cmux-app.json")).expect("manifest");
+            if serde_json::from_str::<Value>(&raw).expect("json")["manifestVersion"] == 1 {
+                continue;
+            }
+            let report = validate_package(&dir);
             assert!(report.is_valid(), "{}: {:?}", dir.display(), report.issues);
             let manifest = report.manifest.expect("manifest");
             assert_eq!(manifest["manifestVersion"], 2, "{}", dir.display());
