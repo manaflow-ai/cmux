@@ -10,8 +10,19 @@ public final class MockTabSearchSource: TabSearchSource {
     public private(set) var reopened: [String] = []
     public private(set) var forgotten: [String] = []
 
+    private var continuations: [AsyncStream<Void>.Continuation] = []
+
     public init(entries: [TabSearchEntry]? = nil, now: Date = Date()) {
         self.entries = entries ?? Self.sample(now: now)
+    }
+
+    public func changes() -> AsyncStream<Void> {
+        AsyncStream { continuation in continuations.append(continuation) }
+    }
+
+    /// Announces a change to the entries, as an owner's event would.
+    public func emitChange() {
+        for continuation in continuations { continuation.yield() }
     }
 
     public func tabSearchEntries() -> [TabSearchEntry] { entries }
