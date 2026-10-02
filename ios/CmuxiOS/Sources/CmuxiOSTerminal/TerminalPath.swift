@@ -1,3 +1,4 @@
-public import Foundation
-
-/// A terminal the user can open from the phone: owned by the session host on
+/// How the bytes reach the phone; shown as a badge (spec sync-and-transport 6.5).
+public enum TerminalPath: String, Hashable, Sendable {
+    case directLAN, directWAN, relayed, durableObjectRelay, viaCloudRegion
+}
