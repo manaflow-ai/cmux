@@ -52,6 +52,20 @@ test("domain patterns: browser-use's syntax, with ports and refusals", () => {
   for (const bad of ["*.*.example.com", "example.*", "ex*ample.com", "", "  "]) assert.throws(() => T.parsePattern(bad, "t"), /t:/, bad);
 });
 
+test("domain patterns: hosts compare without case, trailing dots or Unicode spelling", () => {
+  const m = (url, pattern, secure = false) => T.urlMatches(url, T.parsePattern(pattern, "t"), secure);
+  // A trailing dot names the same host; it must not slip past a pattern.
+  assert.equal(m("https://example.com./a", "example.com"), true);
+  assert.equal(m("https://www.example.com./a", "example.com"), true);
+  assert.equal(m("https://a.example.com./a", "*.example.com"), true);
+  assert.equal(m("https://example.com./a", "example.com."), true);
+  assert.equal(m("https://EXAMPLE.COM/a", "Example.Com"), true);
+  // Internationalized names match in either spelling.
+  assert.equal(m("https://xn--bcher-kva.de/", "bücher.de"), true);
+  assert.equal(m("https://bücher.de/", "xn--bcher-kva.de"), true);
+  assert.equal(m("https://bucher.de/", "bücher.de"), false);
+});
+
 // A w x h RGBA PNG filled with one color.
 function png(w, h, rgba) {
   const crcTable = new Uint32Array(256).map((_, n) => {

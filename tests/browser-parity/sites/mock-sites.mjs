@@ -689,6 +689,8 @@ function login(req, url) {
     html: html(`<form id="f" onsubmit="event.preventDefault(); document.getElementById('out').textContent = 'submitted as ' + this.email.value + ' with a ' + this.password.value.length + '-character password';">
       <label>Email <input name="email" type="email" autocomplete="username"></label>
       <label>Password <input name="password" type="password" autocomplete="current-password"></label>
+      <label>Note <input id="note" name="note" type="text"></label>
+      <label>Comment <textarea id="comment" name="comment"></textarea></label>
       <button type="submit">Sign in</button></form><p id="out"></p>
       <script>
         // A React-style controlled field: the framework reads values through input events.

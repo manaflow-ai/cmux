@@ -82,6 +82,17 @@ test("browserAuth.request: cancel, wrong origin, bad selectors, and no native sh
   assert.equal(await s.value("page.evaluate(() => document.querySelectorAll('[data-cmux-auth]').length)"), 0);
 });
 
+test("browserAuth.request: only credential fields (password, username, one-time code) are filled", async () => {
+  await s.run('await page.goto("https://login.example/")');
+  globalThis.__authAnswer = fillLike({ note: "correct horse", comment: "correct horse" });
+  const count = s.auth.length;
+  for (const [id, selector] of [["note", "#note"], ["comment", "#comment"]]) {
+    assert.deepEqual(await s.value(`sites.browserAuth.request({ origin: "https://login.example", fields: [{ id: "${id}", label: "Password", type: "text", selector: "${selector}" }] })`), { status: "locator_invalid", locator_error: { field_id: id, reason: "not_credential_field" } });
+  }
+  assert.equal(s.auth.length, count);
+  assert.equal(await s.value('page.evaluate(() => [document.getElementById("note").value, document.getElementById("comment").value])').then(JSON.stringify), JSON.stringify(["", ""]));
+});
+
 test("sites.list names every tool; help lists methods; drafts list", async () => {
   const names = (await s.value("sites.list()")).map((t) => t.name);
   assert.deepEqual(names, ["googleAccounts", "googleDocs", "googleSheets", "googleSlides", "googleDrive", "gmail", "googleCalendar", "googleSearch", "youtube", "slack", "notion", "linkedin", "x", "github", "linear", "jira", "pageAssets", "webmcp", "browserAuth"]);

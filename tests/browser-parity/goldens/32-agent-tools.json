@@ -270,6 +270,10 @@
       "maskedLikeAnySecret": true,
       "textHidden": true,
       "restored": true
+    },
+    "secret-screenshot-concurrent": {
+      "masked": true,
+      "restored": true
     }
   }
 }
