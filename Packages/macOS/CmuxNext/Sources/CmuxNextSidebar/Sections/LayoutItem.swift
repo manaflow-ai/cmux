@@ -10,6 +10,8 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case history
     case bookmarks
     case appStore = "app_store"
+    /// The appearance studio (Customize Appearance).
+    case customize
 }
 
 /// What an item points at: a kind and a string value. Kinds this client

@@ -19,10 +19,10 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
+    @Test func defaultBandsAreHomeAboveSettingsCustomizeAndAccountBelow() {
         let bands = defaults.bands(room: nil)
         #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
