@@ -1,0 +1,136 @@
+import Darwin
+import Foundation
+import XCTest
+
+extension CLINotifyProcessIntegrationRegressionTests {
+    /// `cmux notify --desktop false` must reach the app as `effects: {"desktop":
+    /// false}` on the create request, the same shape a hook emits, and the key
+    /// must stay absent when the caller did not pass the flag so the app keeps
+    /// its policy default. The raw line is checked because a typed `Bool` read
+    /// cannot tell JSON `false` from `0`.
+    func testNotifyDesktopFlagTravelsAsAnEffectsOverride() throws {
+        let socketPath = makeSocketPath("desktop")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let home = makeNotifyHome("desktop")
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
+        }
+        let state = MockSocketServerState()
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.notifyMockResponse(line: line)
+        }
+        let cliPath = try bundledCLIPath()
+
+        let disabled = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Panel only", "--desktop", "false"])
+        XCTAssertEqual(disabled.status, 0, disabled.stderr + disabled.stdout)
+        let disabledLine = try XCTUnwrap(createRequestLines(in: state).last, "no notification.create* request was sent")
+        XCTAssertTrue(disabledLine.contains(#""effects":{"desktop":false}"#), disabledLine)
+        XCTAssertTrue(disabledLine.contains(#""title":"Panel only""#), disabledLine)
+
+        let inline = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Inline", "--desktop=true"])
+        XCTAssertEqual(inline.status, 0, inline.stderr + inline.stdout)
+        let inlineLine = try XCTUnwrap(createRequestLines(in: state).last)
+        XCTAssertTrue(inlineLine.contains(#""effects":{"desktop":true}"#), inlineLine)
+
+        let unchanged = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Default"])
+        XCTAssertEqual(unchanged.status, 0, unchanged.stderr + unchanged.stdout)
+        let defaultLine = try XCTUnwrap(createRequestLines(in: state).last)
+        XCTAssertTrue(defaultLine.contains(#""title":"Default""#), defaultLine)
+        XCTAssertFalse(defaultLine.contains(#""effects""#), "an absent flag must not send an effects override: \(defaultLine)")
+
+        let requestsBeforeRejection = createRequestLines(in: state).count
+        let rejected = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Bad", "--desktop", "maybe"])
+        XCTAssertNotEqual(rejected.status, 0, "an unrecognizable --desktop value must be a usage error")
+        XCTAssertTrue(rejected.stderr.contains("--desktop must be true|false"), rejected.stderr)
+        XCTAssertEqual(createRequestLines(in: state).count, requestsBeforeRejection, "a rejected flag must not post anything")
+
+        let requestsBeforeMissingValue = createRequestLines(in: state).count
+        let missingValue = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--title", "Missing", "--desktop"])
+        XCTAssertNotEqual(missingValue.status, 0, "a missing --desktop value must be a usage error")
+        XCTAssertEqual(
+            createRequestLines(in: state).count,
+            requestsBeforeMissingValue,
+            "a missing --desktop value must not post anything"
+        )
+    }
+
+    /// `--desktop` has no effect with `--clear`, so its value is not validated
+    /// there: `cmux notify --clear --desktop maybe` clears and succeeds.
+    func testNotifyClearIgnoresTheDesktopValue() throws {
+        let socketPath = makeSocketPath("desktop-clear")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let home = makeNotifyHome("desktop-clear")
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: home)
+        }
+        let state = MockSocketServerState()
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            self.notifyMockResponse(line: line)
+        }
+        let cliPath = try bundledCLIPath()
+
+        let cleared = runNotify(cliPath: cliPath, socketPath: socketPath, home: home, arguments: ["--clear", "--desktop", "maybe"])
+        XCTAssertEqual(cleared.status, 0, cleared.stderr + cleared.stdout)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertTrue(methods.contains("notification.clear"), "\(methods)")
+        XCTAssertTrue(createRequestLines(in: state).isEmpty, "a clear must not post a notification")
+    }
+
+    /// A fresh home directory for one test's CLI runs; the caller removes it.
+    private func makeNotifyHome(_ name: String) -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent("cmux-notify-\(name)-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Runs `cmux notify` with `arguments` against the mock socket, with a caller workspace and surface in the environment.
+    private func runNotify(cliPath: String, socketPath: String, home: URL, arguments: [String]) -> ProcessRunResult {
+        runProcess(
+            executablePath: cliPath,
+            arguments: ["notify"] + arguments,
+            environment: [
+                "HOME": home.path,
+                "CFFIXED_USER_HOME": home.path,
+                // The usage error is localized; the assertion reads English.
+                "AppleLanguages": "(en)",
+                "AppleLocale": "en_US",
+                "LANG": "en_US.UTF-8",
+                "LC_ALL": "en_US.UTF-8",
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": "11111111-1111-1111-1111-111111111111",
+                "CMUX_SURFACE_ID": "22222222-2222-2222-2222-222222222222",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 10
+        )
+    }
+
+    /// The raw request lines of every `notification.create*` call the CLI sent, in order.
+    private func createRequestLines(in state: MockSocketServerState) -> [String] {
+        state.snapshot().filter { line in
+            guard let payload = jsonObject(line), let method = payload["method"] as? String else { return false }
+            return method.hasPrefix("notification.create")
+        }
+    }
+
+    /// Answers every create request with a fixed delivery and every other request with an empty success.
+    private func notifyMockResponse(line: String) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        if method.hasPrefix("notification.create") {
+            return v2Response(id: id, ok: true, result: [
+                "workspace_id": "11111111-1111-1111-1111-111111111111",
+                "surface_id": "22222222-2222-2222-2222-222222222222",
+                "id": "33333333-3333-3333-3333-333333333333",
+            ])
+        }
+        return v2Response(id: id, ok: true, result: [:])
+    }
+}
