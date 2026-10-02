@@ -211,7 +211,8 @@ export class FakeDaemon {
     const existing = this.createKeys.get(key);
     if (existing) return { conversation: this.get(existing).summary, replayed: true };
     const now = new Date().toISOString();
-    const id = `conv_${String(this.nextConv++).padStart(26, "0")}`;
+    // Owner-assigned ids are unique across daemon restarts (a counter plus a random tail).
+    const id = `conv_${String(this.nextConv++).padStart(4, "0")}${randomTail(22)}`;
     const summary: Summary = {
       id,
       owner: "local",
@@ -249,7 +250,7 @@ export class FakeDaemon {
         if (op.parts.length < 1 || op.parts.length > 16) throw new Reject("invalid_parts");
         seq = c.summary.last_seq + 1;
         const message: Message = {
-          id: `msg_${this.nextMsg++}`,
+          id: `msg_${this.nextMsg++}_${randomTail(10)}`,
           conversation: c.summary.id,
           seq,
           client_msg_id: op.client_msg_id,
@@ -296,4 +297,11 @@ export class FakeDaemon {
     this.publish({ event: "conversation-changed", conversation: c.summary.id, rev: c.summary.rev, change: structuredClone(change) });
     return { ...result, replayed: false };
   }
+}
+
+function randomTail(length: number): string {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  let out = "";
+  for (let i = 0; i < length; i++) out += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return out;
 }
