@@ -453,6 +453,9 @@ impl Supervisor {
             FromHost::Done { cb, ok, body } => {
                 let host = inner.hosts.get_mut(key).expect("host");
                 let Some(respond) = host.runs.remove(&cb) else { return vec![] };
+                if let Some(token) = host.run_gestures.remove(&cb) {
+                    inner.gestures.revoke(&token);
+                }
                 let result = if ok {
                     Ok(json!({ "value": body.get("value").cloned().unwrap_or(Value::Null) }))
                 } else {
@@ -609,6 +612,7 @@ pub(super) fn new_host() -> Host {
         grant: Grant::default(),
         subs: HashMap::new(),
         runs: HashMap::new(),
+        run_gestures: HashMap::new(),
         queued_runs: Vec::new(),
         next_cb: 1,
         idle: None,
