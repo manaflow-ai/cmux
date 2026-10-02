@@ -24,6 +24,13 @@ struct HiddenHistoryTests {
         #expect(decoded.hides("local/claude/x", activeAt: Self.now.addingTimeInterval(1e6)))
     }
 
+    @Test func aKindedClearHidesOnlyThatKind() {
+        var hidden = HiddenHistory()
+        hidden.hide(since: nil, now: Self.now, kind: "command")
+        #expect(hidden.hides("c", activeAt: Self.now.addingTimeInterval(-5), kind: "command"))
+        #expect(!hidden.hides("a", activeAt: Self.now.addingTimeInterval(-5), kind: "agent"))
+    }
+
     @Test func mergeKeepsEveryClear() {
         var a = HiddenHistory()
         a.hide(entry: "one")

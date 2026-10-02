@@ -1,6 +1,6 @@
 # Brief for cmux-next feature agents
 
-- Read plans/cmux-next/REWRITE.md (goals, visual rules, decisions), plans/cmux-next/architecture.md (binding: state ownership, AppKit-first, RAM/CPU budgets), and the design doc named in your task.
+- Read plans/cmux-next/OWNERSHIP-PRINCIPLES.md (binding for any state, daemon, store, protocol or CLI work), plans/cmux-next/REWRITE.md (goals, visual rules, decisions), plans/cmux-next/architecture.md (binding: state ownership, AppKit-first, RAM/CPU budgets), and the design doc named in your task.
 - Setup: `git -C /Users/lawrence/fun/cmuxterm-hq/worktrees/feat-cmux-next worktree add /Users/lawrence/fun/cmuxterm-hq/worktrees/feat-cmux-next-<slug> -b feat-cmux-next-<slug> origin/feat-cmux-next` (fetch first). Work only there. Never edit the feat-cmux-next worktree itself.
 - Own only your module under Packages/macOS/CmuxNext/Sources/<Module> and its Tests dir. Do not edit Package.swift unless you must add a dependency to your own target (say so in your reply). Do not edit other modules; if you need something from another module, define a small protocol in your own module.
 - Feature UI modules never import CmuxNextDaemon. Expose an @Observable @MainActor view-model / input protocol that the App layer will fill from daemon state. Include a mock data source so the module can be demoed alone.
@@ -59,3 +59,11 @@ The nightly builds the app in Release (-O, whole-module) with Xcode 26.6 (Swift 
 ## Build load (added 2026-09-30, load 400+)
 
 Pass `-j 4` to every `swift build` and `swift test`. Run focused test filters while you iterate and the full package tests once, right before you land. Never run two builds at the same time yourself.
+
+## CLI freeze and cross-agent coordination (added 2026-10-01)
+
+- Swift CLI freeze: do not change `CLI/`, the app compat layer (`CmuxNextControl/Compat`), `cmuxCLITests` or `Resources/bin` agent wrappers. Session feat-cmux-next-99 is moving the whole `cmux` CLI to the Rust cmux-tui binary (https://github.com/manaflow-ai/cmux/pull/16174, branch feat-cmux-next-acpmux) and deletes those paths. If your feature needs a CLI verb, add the app action (with `cli: true`) or daemon command, and send the CLI request to that session: `SendMessage` to `uds:/tmp/cc-socks/18283.sock` with the verb, flags, output and exit codes. The freeze ends when #16174 merges; then all CLI work is Rust.
+- Ids in the Rust CLI are daemon public ids (`ws_…`, `tab_…`, `term_…`, unique prefix; qualified `<session>:ws_…`), not numeric `workspace:1` refs.
+  Mapping: `workspace:N` -> `ws_…` (any unique prefix), exact workspace name, or `current`; `pane:N` -> `pane_…`; `surface:N`/`tab:N` -> `tab_…` (tab) or `term_…` (its terminal); own terminal -> `$CMUX_TUI_TERMINAL_ID`; `window:N` -> `win_…`; `build-box:workspace:N` -> `build-box:ws_…`. Discover ids with `cmux workspace list`, `cmux tab list`, `cmux pane list` (`--json`). No numeric aliases (Lawrence: every object has a unique stable id).
+- Daemon state ops: #16174 adds v2 state operations in `cmux-tui-core` behind a `state` module with no PTY/session code. The ownership rewrite (plans/cmux-next/ownership.md, in design) splits cmux-tui into a session host (PTYs, transcripts, geometry, input, presence) and a workspace store (layout document, pins, tab groups, rooms, browser tab records), plus client view state. New shared or personal state goes into the workspace-store side, never into PTY/session code.
+- Before you change a shared surface (daemon protocol, layout ops, store/projection code, CLI grammar), read plans/cmux-next/COORDINATION.md and add one line there when you land.

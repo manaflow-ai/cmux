@@ -477,6 +477,9 @@ class GeneratedClientMixin:
     def set_tab_pinned(self, surface: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-tab-pinned', SetTabPinnedRequest(surface=surface, pinned=pinned))
 
+    def set_terminal_command_history(self, enabled: bool) -> TerminalCommandHistoryResult:
+        return self._invoke_command('set-terminal-command-history', SetTerminalCommandHistoryRequest(enabled=enabled))
+
     def set_terminal_idle_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, idle_close_seconds: Union[int, None, MissingType] = MISSING) -> SetTerminalIdlePolicyResult:
         return self._invoke_command('set-terminal-idle-policy', SetTerminalIdlePolicyRequest(surface=surface, terminal_id=terminal_id, idle_close_seconds=idle_close_seconds))
 
@@ -732,6 +735,7 @@ GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-count
 GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']
 GeneratedClientMixin.set_tab_pinned.__cmux_command__ = COMMANDS['set-tab-pinned']
+GeneratedClientMixin.set_terminal_command_history.__cmux_command__ = COMMANDS['set-terminal-command-history']
 GeneratedClientMixin.set_terminal_idle_policy.__cmux_command__ = COMMANDS['set-terminal-idle-policy']
 GeneratedClientMixin.set_terminal_keep.__cmux_command__ = COMMANDS['set-terminal-keep']
 GeneratedClientMixin.set_viewport_pane_width.__cmux_command__ = COMMANDS['set-viewport-pane-width']

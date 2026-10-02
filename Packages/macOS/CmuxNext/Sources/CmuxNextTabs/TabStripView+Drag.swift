@@ -212,7 +212,7 @@ extension TabStripView {
             context.setFillColor(Palette.windowBackground.cgColor)
         }
         let radius = metrics.cornerRadius
-        context.addPath(CGPath(roundedRect: CGRect(origin: .zero, size: size).insetBy(dx: metrics.tabBackgroundInset, dy: 0), cornerWidth: radius, cornerHeight: radius, transform: nil))
+        context.addPath(CGPath(roundedRect: metrics.pillFrame(slotWidth: size.width, height: size.height), cornerWidth: radius, cornerHeight: radius, transform: nil))
         context.fillPath()
         for layer in layers {
             context.saveGState()

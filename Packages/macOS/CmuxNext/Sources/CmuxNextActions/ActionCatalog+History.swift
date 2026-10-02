@@ -40,6 +40,11 @@ nonisolated extension ActionCatalog {
                 mainMenu: .window
             ),
             ActionDescriptor(
+                id: "history.commands", title: t("action.history.commands", "Command History…"),
+                keywords: ["history", "commands", "shell", "terminal", "run again"], category: .window, symbol: "terminal",
+                surfaces: [.palette, .keyboard, .menu], cliName: "history commands", mainMenu: .window
+            ),
+            ActionDescriptor(
                 id: "history.show", title: t("action.history.show", "Show History"),
                 keywords: ["history", "pages", "visited", "cmux://history", "timeline"], category: .window,
                 symbol: "clock.fill", surfaces: [.palette, .keyboard, .menu], cliName: "history show", mainMenu: .window

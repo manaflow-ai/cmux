@@ -24,6 +24,7 @@
     "@chenglou/pretext": "0.0.9",
     "@pierre/diffs": "1.2.7",
     "@pierre/trees": "1.0.0-beta.4",
+    "@tanstack/react-query": "5.104.0",
     "@tanstack/react-router": "1.170.11",
     "@vitejs/plugin-react": "^5.1.2",
     "marked": "17.0.5",
