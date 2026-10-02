@@ -16,6 +16,9 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
     case theme
+    /// A Settings row found by search or a deep link: its highlight fades
+    /// out over this long (held this long, then removed, under Reduce Motion).
+    case highlight
     /// The launch mark resolving on the window glass (`LaunchMarkView`).
     case launch
 
