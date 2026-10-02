@@ -97,7 +97,7 @@ extension TabStripView {
         buttonGroup.hoveredIndex = nil
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
         if closingModeWidth != nil, drag == nil {
-            // Chrome's deferred relayout: tabs resize once the pointer leaves.
+            // Deferred relayout: tabs resize once the pointer leaves.
             closingModeWidth = nil
             relayout(animated: !reduceMotion)
         }
@@ -136,7 +136,7 @@ extension TabStripView {
                 beginInlineRename(id)
                 return
             }
-            // Chrome selects on mouse down.
+            // Select on mouse down.
             if model.selectedID != id { model.send(.select(id)) }
             press = Press(id: id, start: point)
             return
@@ -250,7 +250,7 @@ extension TabStripView {
     public override func scrollWheel(with event: NSEvent) {
         guard result.isOverflowing else { return super.scrollWheel(with: event) }
         var delta = event.scrollingDeltaX
-        // Vertical wheels scroll the strip too, as in Chrome.
+        // Vertical wheels scroll the strip too.
         if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
         scroll.snap(to: TabScrollMath.clamp(scroll.value - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth))
@@ -259,7 +259,7 @@ extension TabStripView {
     }
 
     /// Mouse-up after a press on +. Returns whether the press was on +.
-    /// Chrome: a click opens a tab at once; a hold already showed the menu
+    /// A click opens a tab at once; a hold already showed the menu
     /// and must not also open a tab.
     @discardableResult
     func endNewTabPress(at point: CGPoint) -> Bool {
@@ -273,7 +273,7 @@ extension TabStripView {
         return true
     }
 
-    /// Holding + opens the new tab menu, like Safari's back button history.
+    /// Holding + opens the new tab menu, as a long press on a back button opens history.
     func startNewTabHold() {
         newTabHoldTask?.cancel()
         newTabHoldOpenedMenu = false
@@ -327,7 +327,7 @@ extension TabStripView {
         }
     }
 
-    /// Closes a tab. Mouse closes enter Chrome's closing mode first.
+    /// Closes a tab. Mouse closes enter closing mode first.
     func close(_ id: TabID, source: TabCloseSource) {
         if source.entersClosingMode {
             closingModeWidth = TabLayoutEngine.closingModeWidth(afterClosing: id, in: result, current: closingModeWidth)

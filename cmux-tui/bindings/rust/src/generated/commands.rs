@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0.
+// cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -431,6 +431,94 @@ pub struct CloseWorkspaceRequest {
 pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAgentTokenRequest {
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationAgentTokenResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationBindRequest {
+    pub participant: String,
+    pub token: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationBindResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationCreateRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub idempotency_key: String,
+    pub participants: Nullable<T::JsonValue>,
+    pub title: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationCreateResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationHistoryRequest {
+    pub before_seq: u64,
+    pub conversation: String,
+    pub limit: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ConversationListRequest {
+}
+
+#[rustfmt::skip]
+pub type ConversationListResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationOpRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub conversation: String,
+    pub idempotency_key: String,
+    pub op: Nullable<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ConversationOpResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSnapshotRequest {
+    pub conversation: String,
+    pub tail: u32,
+}
+
+#[rustfmt::skip]
+pub type ConversationSnapshotResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationTypingRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
+    pub conversation: String,
+    pub on: bool,
+}
+
+#[rustfmt::skip]
+pub type ConversationTypingResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CopyRequestMode {
     #[serde(rename = "screen")]
@@ -447,6 +535,34 @@ pub struct CopyRequest {
     pub mode: CopyRequestMode,
     pub surface: T::Id,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CreateBookmarkRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub bookmark: Optional<String>,
+    pub browser_profile_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub created_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub favicon_key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub parent: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source_key: Optional<String>,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type CreateBookmarkResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -656,6 +772,19 @@ pub type CreateWorkspaceGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeleteBookmarkRequest {
+    pub bookmark: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type DeleteBookmarkResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DeleteBrowserProfileRequest {
     pub browser_profile: String,
 }
@@ -828,6 +957,27 @@ pub struct IdsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImportBookmarksRequest {
+    pub browser_profile_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    pub nodes: Vec<T::JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub parent: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub replace: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub source_key: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type ImportBookmarksResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImportSessionOrganizationRequest {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub groups: Option<Vec<T::JsonValue>>,
@@ -859,6 +1009,15 @@ pub struct ListAgentsRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub surface: Optional<T::Id>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ListBookmarksRequest {
+    pub browser_profile_id: String,
+}
+
+#[rustfmt::skip]
+pub type ListBookmarksResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -968,6 +1127,21 @@ pub struct MintTerminalRendererByTerminalRequest {
 
 #[rustfmt::skip]
 pub type MintTerminalRendererByTerminalResult = T::MintTerminalRendererResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MoveBookmarkRequest {
+    pub bookmark: String,
+    pub index: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    pub parent: String,
+}
+
+#[rustfmt::skip]
+pub type MoveBookmarkResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2321,6 +2495,27 @@ pub type UnsaveTabGroupResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateBookmarkRequest {
+    pub bookmark: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub favicon_key: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub last_used_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub mutation_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub title: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub url: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type UpdateBookmarkResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UpdateBrowserProfileRequest {
     pub browser_profile: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -2680,8 +2875,44 @@ impl CmuxClient {
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
+    pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
+        self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_bind(&mut self, request: ConversationBindRequest) -> Result<ConversationBindResult> {
+        self.execute(&CONVERSATION_BIND_METADATA, &request)
+    }
+
+    pub fn conversation_create(&mut self, request: ConversationCreateRequest) -> Result<ConversationCreateResult> {
+        self.execute(&CONVERSATION_CREATE_METADATA, &request)
+    }
+
+    pub fn conversation_history(&mut self, request: ConversationHistoryRequest) -> Result<ConversationHistoryResult> {
+        self.execute(&CONVERSATION_HISTORY_METADATA, &request)
+    }
+
+    pub fn conversation_list(&mut self, request: ConversationListRequest) -> Result<ConversationListResult> {
+        self.execute(&CONVERSATION_LIST_METADATA, &request)
+    }
+
+    pub fn conversation_op(&mut self, request: ConversationOpRequest) -> Result<ConversationOpResult> {
+        self.execute(&CONVERSATION_OP_METADATA, &request)
+    }
+
+    pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
+        self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn conversation_typing(&mut self, request: ConversationTypingRequest) -> Result<ConversationTypingResult> {
+        self.execute(&CONVERSATION_TYPING_METADATA, &request)
+    }
+
     pub fn copy(&mut self, request: CopyRequest) -> Result<T::CopyResult> {
         self.execute(&COPY_METADATA, &request)
+    }
+
+    pub fn create_bookmark(&mut self, request: CreateBookmarkRequest) -> Result<CreateBookmarkResult> {
+        self.execute(&CREATE_BOOKMARK_METADATA, &request)
     }
 
     pub fn create_browser_profile(&mut self, request: CreateBrowserProfileRequest) -> Result<CreateBrowserProfileResult> {
@@ -2736,6 +2967,10 @@ impl CmuxClient {
 
     pub fn create_workspace_group(&mut self, request: CreateWorkspaceGroupRequest) -> Result<CreateWorkspaceGroupResult> {
         self.execute(&CREATE_WORKSPACE_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_bookmark(&mut self, request: DeleteBookmarkRequest) -> Result<DeleteBookmarkResult> {
+        self.execute(&DELETE_BOOKMARK_METADATA, &request)
     }
 
     pub fn delete_browser_profile(&mut self, request: DeleteBrowserProfileRequest) -> Result<DeleteBrowserProfileResult> {
@@ -2822,6 +3057,10 @@ impl CmuxClient {
         self.execute(&IDS_METADATA, &request)
     }
 
+    pub fn import_bookmarks(&mut self, request: ImportBookmarksRequest) -> Result<ImportBookmarksResult> {
+        self.execute(&IMPORT_BOOKMARKS_METADATA, &request)
+    }
+
     pub fn import_session_organization(&mut self, request: ImportSessionOrganizationRequest) -> Result<ImportSessionOrganizationResult> {
         self.execute(&IMPORT_SESSION_ORGANIZATION_METADATA, &request)
     }
@@ -2832,6 +3071,10 @@ impl CmuxClient {
 
     pub fn list_agents(&mut self, request: ListAgentsRequest) -> Result<T::ListAgentsResult> {
         self.execute(&LIST_AGENTS_METADATA, &request)
+    }
+
+    pub fn list_bookmarks(&mut self, request: ListBookmarksRequest) -> Result<ListBookmarksResult> {
+        self.execute(&LIST_BOOKMARKS_METADATA, &request)
     }
 
     pub fn list_clients(&mut self, request: ListClientsRequest) -> Result<ListClientsResult> {
@@ -2888,6 +3131,10 @@ impl CmuxClient {
 
     pub fn mint_terminal_renderer_by_terminal(&mut self, request: MintTerminalRendererByTerminalRequest) -> Result<MintTerminalRendererByTerminalResult> {
         self.execute(&MINT_TERMINAL_RENDERER_BY_TERMINAL_METADATA, &request)
+    }
+
+    pub fn move_bookmark(&mut self, request: MoveBookmarkRequest) -> Result<MoveBookmarkResult> {
+        self.execute(&MOVE_BOOKMARK_METADATA, &request)
     }
 
     pub fn move_browser_profile(&mut self, request: MoveBrowserProfileRequest) -> Result<MoveBrowserProfileResult> {
@@ -3506,6 +3753,10 @@ impl CmuxClient {
 
     pub fn unsave_tab_group(&mut self, request: UnsaveTabGroupRequest) -> Result<UnsaveTabGroupResult> {
         self.execute(&UNSAVE_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn update_bookmark(&mut self, request: UpdateBookmarkRequest) -> Result<UpdateBookmarkResult> {
+        self.execute(&UPDATE_BOOKMARK_METADATA, &request)
     }
 
     pub fn update_browser_profile(&mut self, request: UpdateBrowserProfileRequest) -> Result<UpdateBrowserProfileResult> {

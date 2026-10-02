@@ -14,7 +14,7 @@ public protocol ExtensionMenuHandling: AnyObject {
     func perform(_ operation: ExtensionMenuOperation, extensionID: String?)
 }
 
-/// Chrome's Extensions (puzzle) menu: one row per installed extension
+/// The Extensions (puzzle) menu: one row per installed extension
 /// (click runs its action, a pin toggle, a "more" button with the
 /// per-extension menu), then Manage Extensions, Chrome Web Store and Load
 /// Unpacked. Enabled extensions come first, in Chromium's name order.
@@ -68,7 +68,7 @@ public struct ExtensionsMenu {
                 menu?.cancelTracking()
                 afterClose { handler?.perform(info.isEnabled && info.hasAction ? .run : .siteAccess, extensionID: info.id) }
             }
-            // Pinning keeps the menu open, as in Chrome.
+            // Pinning keeps the menu open.
             row.onPin = { [weak handler] in handler?.perform(info.isPinned ? .unpin : .pin, extensionID: info.id) }
             row.onMore = { [weak handler, weak menu] in
                 menu?.cancelTracking()

@@ -24,7 +24,7 @@ extension AppActions {
         registry.bind("focusBrowserAddressBar", isEnabled: { chrome() != nil }, invoke: { invocation in
             guard let pane = scope(services, invocation).pane, case .browser(let entry) = pane.currentContent,
                   let window = services.windowController(showing: pane) else { return }
-            // Chrome `OmniboxViewViews::SetFocus(is_user_initiated=true)`:
+            // Chromium `OmniboxViewViews::SetFocus(is_user_initiated=true)`:
             // Cmd-L while the omnibar already has focus shows the full URL
             // and selects all again. The responder stays; focusing the pane
             // first would hand focus to the page and back.

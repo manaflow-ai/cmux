@@ -3,7 +3,10 @@ import Foundation
 public import Observation
 
 /// Import step: detect browsers, check the profiles to bring and which of
-/// bookmarks, history and sign-ins (cookies). Import runs it in place, row
+/// bookmarks, history, sign-ins (cookies) and passwords. With passwords
+/// checked, Import first asks for consent (`confirmingPasswords`): it names
+/// each browser profile and the Keychain item macOS will ask about, and
+/// nothing is read until the user confirms. Import then runs it in place, row
 /// by row, then says what came over; Continue never waits for it, and an
 /// import still running keeps going (off the main thread, cancellable)
 /// after the window moves on. Each source profile becomes its own cmux
@@ -15,6 +18,8 @@ public final class ImportStepModel {
         case idle
         case detecting
         case ready
+        /// Waiting for the user to agree to the password import (or skip it).
+        case confirmingPasswords
         case importing(ImportProgress?)
         case finished(ImportSummary)
         case cancelled
@@ -44,18 +49,25 @@ public final class ImportStepModel {
     @ObservationIgnored private var running: ImportPlan?
     @ObservationIgnored private var bases: [String: ImportCounts] = [:]
     public private(set) var rowCounts: [String: ImportCounts] = [:]
-    /// When the last import started (a second click on Import must not also skip the step).
+    /// When the last import or consent screen started (a second click on Import must not also skip the step or the consent).
     @ObservationIgnored private var startedAt: ContinuousClock.Instant?
 
     /// True just after Import was clicked: the same click repeated (a double
     /// click, a held Return) is not a Continue.
     public var justStarted: Bool {
-        guard isImporting, let startedAt else { return false }
+        guard isImporting || isConfirmingPasswords, let startedAt else { return false }
         return ContinuousClock.now - startedAt < .milliseconds(600)
     }
+    /// Whether this build can save passwords (asked once, after detection).
+    public private(set) var passwordStore = false
+    /// Profiles whose passwords the user agreed to import, on the consent screen.
+    public private(set) var passwordConsent: Set<String> = []
 
-    /// The kinds offered in the one line of checkboxes.
+    /// The kinds every profile row is shown for.
     public static let offeredKinds: [ImportDataKind] = [.bookmarks, .history, .cookies]
+
+    /// The one line of checkboxes: passwords too when this build can save them.
+    public var kindChoices: [ImportDataKind] { passwordStore ? Self.offeredKinds + [.passwords] : Self.offeredKinds }
 
     init(services: any OnboardingServices) {
         self.services = services
@@ -82,8 +94,14 @@ public final class ImportStepModel {
         phase = .detecting
         task = Task { [weak self, services] in
             let found = await services.detectBrowsers()
+            let chromiumPasswords = found.contains { $0.profiles.contains { $0.availability(of: .passwords).isImportable } }
+            let store = chromiumPasswords ? await services.canImportPasswords() : false
             guard let self, !Task.isCancelled else { return }
             sources = Self.edgeFirst(found)
+            // Checked like the rest the first time it is offered; Import asks before anything is read.
+            if store, !passwordStore { kinds.insert(.passwords) }
+            if !store { kinds.remove(.passwords) }
+            passwordStore = store
             // Everything is checked to start with: the common case is "bring it all".
             selectedProfiles = Set(profiles.map(\.id))
             phase = .ready
@@ -131,7 +149,7 @@ public final class ImportStepModel {
     }
 
     public func toggle(_ kind: ImportDataKind) {
-        guard canEditSelection, Self.offeredKinds.contains(kind) else { return }
+        guard canEditSelection, kindChoices.contains(kind) else { return }
         if kinds.remove(kind) == nil { kinds.insert(kind) }
     }
 
@@ -142,20 +160,55 @@ public final class ImportStepModel {
         }
     }
 
+    /// The checked profiles and kinds; passwords only from profiles the
+    /// user agreed to on the consent screen.
     public var plan: ImportPlan {
-        ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { ImportPlan.Item(profile: $0, kinds: kinds) })
+        ImportPlan(items: profiles.filter { selectedProfiles.contains($0.id) }.map { profile in
+            ImportPlan.Item(profile: profile, kinds: passwordConsent.contains(profile.id) ? kinds : kinds.subtracting([.passwords]))
+        })
     }
 
-    public var canStart: Bool { canEditSelection && !plan.items.isEmpty }
+    /// Checked profiles with passwords to bring: the consent screen's list.
+    public var passwordProfiles: [BrowserSourceProfile] {
+        guard kinds.contains(.passwords) else { return [] }
+        return profiles.filter { selectedProfiles.contains($0.id) && $0.availability(of: .passwords).isImportable }
+    }
+
+    /// The Keychain items macOS will ask about ("Microsoft Edge Safe Storage"), one per browser, in list order.
+    public var passwordKeychainItems: [String] {
+        var items: [String] = []
+        for profile in passwordProfiles where !items.contains(profile.browser.safeStorageService ?? "") {
+            if let service = profile.browser.safeStorageService { items.append(service) }
+        }
+        return items
+    }
+
+    public var isConfirmingPasswords: Bool { phase == .confirmingPasswords }
+
+    public var canStart: Bool {
+        (canEditSelection && !plan.items.isEmpty) || isConfirmingPasswords
+    }
 
     public var isImporting: Bool {
         if case .importing = phase { return true }
         return false
     }
 
-    /// Starts the import of the checked profiles; does nothing when none is checked.
+    /// Starts the import of the checked profiles; does nothing when none is
+    /// checked. With passwords to bring, the first call only shows the
+    /// consent screen (every profile agreed to); the next one, from there, imports.
     public func start() {
         guard canStart else { return }
+        if canEditSelection, !passwordProfiles.isEmpty {
+            passwordConsent = Set(passwordProfiles.map(\.id))
+            phase = .confirmingPasswords
+            startedAt = .now
+            return
+        }
+        guard !plan.items.isEmpty else {
+            phase = .ready
+            return
+        }
         let plan = plan
         running = plan
         bases = [:]
@@ -176,6 +229,26 @@ public final class ImportStepModel {
                 self?.phase = .failed(error.localizedDescription)
             }
         }
+    }
+
+    /// On the consent screen: agree or not for one profile.
+    public func toggleConsent(_ profile: BrowserSourceProfile) {
+        guard isConfirmingPasswords, passwordProfiles.contains(profile) else { return }
+        if passwordConsent.remove(profile.id) == nil { passwordConsent.insert(profile.id) }
+    }
+
+    /// On the consent screen: import everything else, no passwords.
+    public func skipPasswords() {
+        guard isConfirmingPasswords else { return }
+        passwordConsent = []
+        start()
+    }
+
+    /// Leaves the consent screen for the list, nothing read.
+    public func backFromConsent() {
+        guard isConfirmingPasswords else { return }
+        passwordConsent = []
+        phase = .ready
     }
 
     private func record(_ progress: ImportProgress) {

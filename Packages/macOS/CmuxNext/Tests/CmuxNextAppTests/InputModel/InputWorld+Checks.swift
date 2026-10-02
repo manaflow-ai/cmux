@@ -34,7 +34,7 @@ extension InputWorld {
         case 4: .visibility(!machine.visible)
         case 5: pendingAttach.map { .opened(link, attempt: $0.attempt - 1) }
         case 6: .focused
-        // Another client sized the terminal (tmux "latest" geometry).
+        // Another client sized the terminal (the latest active client holds geometry).
         case 7: machine.liveLink.map { .gridAnnounced($0, CellSize(cols: 7 + Int(chunk % 50), rows: 5)) }
         default: (machine.liveLink ?? pendingAttach?.link).map { .ended($0, .surfaceGone) }
         }

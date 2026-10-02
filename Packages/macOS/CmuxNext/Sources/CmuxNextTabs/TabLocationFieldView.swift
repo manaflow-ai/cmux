@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// The selected browser tab's page address, in the strip's free space after
-/// the tabs (Arc/Edge style). Quiet on purpose: it sits on the strip's own
+/// the tabs. Quiet on purpose: it sits on the strip's own
 /// background with no fill or stroke (only the standard hover fill under the
 /// pointer), never animates and never shows load progress (the tab icon
 /// does). The host reads in primary text, the path, query and fragment are

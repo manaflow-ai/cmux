@@ -1,7 +1,7 @@
 public import Foundation
 
-/// The app-wide "where was I" list with one cursor: Vim's jumplist, VS
-/// Code's Go Back, Xcode's history arrows (plans/cmux-next/history.md 4.2).
+/// The app-wide "where was I" list with one cursor, for Back and
+/// Forward through recent locations (plans/cmux-next/history.md 4.2).
 ///
 /// Pure value type. The App feeds it each settled location (`record`) and
 /// asks it where Back and Forward go; `isAvailable` tells it which entries

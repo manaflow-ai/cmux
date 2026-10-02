@@ -35,7 +35,7 @@ public nonisolated protocol TerminalIO: Sendable {
 
     /// The surface gained keyboard focus. Ordered with `write` and `resize`.
     /// A daemon IO takes canonical geometry back if another client took it
-    /// (tmux "window-size latest").
+    /// (the latest active client holds geometry).
     func focusGained() async
 
     /// The user clicked a disconnected terminal (``TerminalConnectionStatus``).

@@ -104,6 +104,7 @@ pub(super) fn migrate_personal_v1(
     let tx = connection.unchecked_transaction()?;
     create_personal_schema(&tx)?;
     super::personal_browser_profiles::create_browser_profile_schema(&tx)?;
+    super::personal_bookmarks::create_bookmark_schema(&tx)?;
     tx.execute("INSERT OR IGNORE INTO meta(key, value) VALUES(?1, '0')", [REVISION_META_KEY])?;
     let migrated = tx
         .query_row("SELECT 1 FROM meta WHERE key = ?1", [MIGRATED_META_KEY], |_| Ok(()))
@@ -231,7 +232,7 @@ pub struct PersonalSnapshot {
     pub workspaces: Vec<PersonalWorkspace>,
     pub terminals: Vec<PersonalTerminal>,
     /// Browser profile records (`browser-profiles-v1`), `default` included.
-    pub browser_profiles: Vec<super::PersonalBrowserProfile>,
+    pub browser_profiles: Vec<super::personal_browser_profiles::PersonalBrowserProfile>,
 }
 
 // MARK: Validation

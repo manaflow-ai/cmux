@@ -174,6 +174,19 @@ mirror. Target, decided by the store inside the commit that causes it:
 | `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
 | Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
 
+Restart of a host-lost tab (user decision 2026-10-02): a dead tab shows one-click
+Restart (same cwd and command); the setting `terminal.restartLostTerminals` (default
+false) restarts automatically. Ownership: the store owns the decision and the record; the
+client only shows the action. The op is `tab.restart {tab, idempotency_key}`: the session
+host starts a new terminal with the dead terminal's cwd and argv (from its registry
+record), and the store swaps the tab's terminal reference in the same commit (the tab id,
+placement, name, pin and group stay; the dead terminal is tombstoned). A second restart
+with the same key replays; a restart of a tab that is not dead is a typed reject. The
+automatic policy is a setting the app sends as an op field on reconnect
+(`tab.restart` per dead tab with a key derived from the dead terminal id), never a store
+read of client config. Surfaces: the dead-tab overlay button, tab right-click, palette
+action `tab.restart`, and `cmux tab <id> restart`.
+
 The app deletes `EmptyWorkspaceRepair`, `EmptiedWorkspaceCause`, the `isDead` membership
 pruning and `claimClosing`; the window rule (a window exists only while it holds a
 workspace) reacts to the store's `workspace-closed` event.

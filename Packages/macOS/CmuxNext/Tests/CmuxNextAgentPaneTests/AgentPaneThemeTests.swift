@@ -7,7 +7,15 @@ import Testing
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
                          "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "highlight", "highlightText",
-                         "shadow", "palette"])
+                         "shadow", "palette", "borders"])
+    }
+
+    /// appearance.borders reaches the page as its mode, beside the transparent
+    /// border colors, so the page's own edges follow it too.
+    @Test func sendsTheBorderMode() {
+        let values = AgentPaneTheme.values(.fallback)
+        #expect(values["borders"] as? String == Borders.current.mode.rawValue)
+        #expect((values["border"] as? String == "transparent") == !Borders.drawsLines)
     }
 
     /// The composer's full-access chip needs a caution color that is not
@@ -28,7 +36,7 @@ import Testing
     }
 
     /// Code blocks color their syntax from the terminal's ANSI colors, so a theme's
-    /// code looks like its terminal (Catppuccin Mocha's mauve keywords, not Codex's).
+    /// code looks like its terminal (Catppuccin Mocha's mauve keywords, not the built-in dark hues).
     @Test func sendsTheSixteenANSIColorsInOrder() {
         let mocha = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), palette: [
             0x45475A, 0xF38BA8, 0xA6E3A1, 0xF9E2AF, 0x89B4FA, 0xF5C2E7, 0x94E2D5, 0xA6ADC8,

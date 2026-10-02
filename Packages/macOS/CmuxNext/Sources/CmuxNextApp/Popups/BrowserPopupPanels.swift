@@ -37,6 +37,9 @@ final class BrowserPopupPanels {
 
     func openerKey(of page: any BrowserTab) -> String? { entries[ObjectIdentifier(page)]?.openerKey }
 
+    /// The popup pages tab `key` opened, at any depth (a popup's popups keep its opener key).
+    func pages(openedBy key: String) -> [any BrowserTab] { entries.values.filter { $0.openerKey == key }.map(\.panel.page) }
+
     var panels: [BrowserPopupPanel] { entries.values.map(\.panel) }
 
     /// The panel that is `window` or holds it (a Chromium page window is a
@@ -121,6 +124,8 @@ final class BrowserPopupPanels {
                 child.close()
                 return true
             }
+            // A popup an agent drives passes that on, as a tab does (BrowserPageRequests).
+            if page.isAgentDriven { child.markAgentDriven() }
             open(child, request: request, over: parent, openerKey: entry.openerKey)
         case .contextMenu(let request):
             contextMenus.present(request, in: page.contentView)

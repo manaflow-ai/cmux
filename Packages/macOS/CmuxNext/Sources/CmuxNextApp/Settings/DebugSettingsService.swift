@@ -1,10 +1,14 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentActivity
+import CmuxNextApps
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextPalette
 import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextTasks
 import Foundation
 
 /// Every tunable the app declares, by module. One list, so the window, the
@@ -12,6 +16,7 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+            + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PaletteTunables.all
     }
 }
 

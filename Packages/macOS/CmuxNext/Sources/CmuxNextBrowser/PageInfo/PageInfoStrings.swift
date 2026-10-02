@@ -1,7 +1,7 @@
 import Foundation
 
 /// Page Info strings (table `PageInfo`). English follows Chromium's
-/// `components/page_info_strings.grdp` with "Chrome" replaced by cmux.
+/// `components/page_info_strings.grdp` with the product name replaced by cmux.
 nonisolated enum PageInfoStrings {
     // Omnibar chip
     static var viewSiteInformation: String { String(localized: "pageInfo.chip.tooltip", defaultValue: "View site information", table: "PageInfo", bundle: .module) }
@@ -90,7 +90,7 @@ nonisolated enum PageInfoStrings {
     static var close: String { String(localized: "pageInfo.close", defaultValue: "Close", table: "PageInfo", bundle: .module) }
     static var back: String { String(localized: "pageInfo.back", defaultValue: "Back", table: "PageInfo", bundle: .module) }
 
-    // Prompt bar (Chrome's permission prompt buttons)
+    // Prompt bar (permission prompt buttons)
     static var promptAllowWhileVisiting: String { String(localized: "pageInfo.prompt.allowWhileVisiting", defaultValue: "Allow while visiting the site", table: "PageInfo", bundle: .module) }
     static var promptAllowThisTime: String { String(localized: "pageInfo.prompt.allowThisTime", defaultValue: "Allow this time", table: "PageInfo", bundle: .module) }
     static var promptNeverAllow: String { String(localized: "pageInfo.prompt.neverAllow", defaultValue: "Never allow", table: "PageInfo", bundle: .module) }

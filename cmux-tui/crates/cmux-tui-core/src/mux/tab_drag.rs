@@ -1,5 +1,5 @@
 //! Tab drag outcomes that create a pane: drop a tab on a pane edge (a new
-//! split) or between niri columns (a new column).
+//! split) or between strip columns (a new column).
 //!
 //! Each outcome is one atomic resource commit. The mutation runs on a clone
 //! of the live [`State`] with the same in-memory helpers the existing split
@@ -15,6 +15,7 @@
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{LayoutColumn, LayoutUndoTabRestore};
+use cmux_layout_reducer::{Edge, LayoutOpKind};
 
 /// The pane edge a tab was dropped on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,16 +56,46 @@ pub enum TabDragDestination {
     /// A new pane beside `pane` on `edge`. `ratio` is the new pane's share
     /// of the split (default one half).
     Split { pane: PaneId, edge: TabDropEdge, ratio: Option<f32> },
-    /// A new niri column on the screen containing `pane`, after the column
+    /// A new strip column on the screen containing `pane`, after the column
     /// `after_column` (default: after the last column), `width` wide as a
     /// fraction of the frontend viewport.
     Column { pane: PaneId, after_column: Option<SplitId>, width: f32 },
+}
+
+impl From<TabDropEdge> for Edge {
+    fn from(edge: TabDropEdge) -> Self {
+        match edge {
+            TabDropEdge::Left => Self::Left,
+            TabDropEdge::Right => Self::Right,
+            TabDropEdge::Top => Self::Top,
+            TabDropEdge::Bottom => Self::Bottom,
+        }
+    }
 }
 
 impl TabDragDestination {
     fn pane(self) -> PaneId {
         match self {
             Self::Split { pane, .. } | Self::Column { pane, .. } => pane,
+        }
+    }
+
+    /// The reducer op for this drag, with the ids the daemon reserved.
+    pub(super) fn layout_op(self, tab: SurfaceId, ids: &TabDragIds) -> LayoutOpKind {
+        match self {
+            Self::Split { pane, edge, .. } => {
+                LayoutOpKind::MoveTabToSplit { tab, pane, edge: edge.into(), new_pane: ids.pane }
+            }
+            Self::Column { pane, after_column, width } => LayoutOpKind::MoveTabToColumn {
+                tab,
+                anchor: pane,
+                after_column,
+                // `move_tab_to_column` validated the width range.
+                width_permille: (width * 1000.0).round() as u16,
+                new_pane: ids.pane,
+                new_column: ids.split,
+                base_column: ids.base_column,
+            },
         }
     }
 
@@ -135,7 +166,7 @@ impl Mux {
         self.commit_tab_drag(surface, TabDragDestination::Split { pane, edge, ratio }, transaction)
     }
 
-    /// Move a tab into a new niri column on the screen containing `pane`.
+    /// Move a tab into a new strip column on the screen containing `pane`.
     pub fn move_tab_to_column(
         self: &Arc<Self>,
         surface: SurfaceId,
@@ -210,12 +241,13 @@ impl Mux {
                     retarget_terminal_workspace(&mut projection.patch, terminal, &target_key);
                 }
                 committed = Some((outcome, target_key));
-                Ok(ResourceMutationPlan::new(
+                Ok(ResourceMutationPlan::replacing(
                     projection.patch,
                     projection.result,
                     projection.changes,
-                    move |state| *state = projected,
-                ))
+                    projected,
+                )
+                .with_layout_op(destination.layout_op(surface, &ids)))
             },
         )?;
         let (outcome, target_key) = committed.context("tab drag committed no outcome")?;
@@ -460,6 +492,79 @@ pub(super) fn apply_tab_drag(
         workspace: target_workspace,
         undoable,
     })
+}
+
+/// Undo one same-screen tab drag: move the tab back to its origin pane and
+/// index, and remove the pane the drag created. Every precondition is
+/// checked first, so a stale entry fails without changing anything.
+pub(super) fn restore_dragged_tab(
+    mux: &Mux,
+    state: &mut State,
+    workspace_index: usize,
+    screen_index: usize,
+    restore: LayoutUndoTabRestore,
+) -> anyhow::Result<()> {
+    let stale = |message: &str| anyhow::Error::new(LayoutUndoError::Stale(message.to_string()));
+    let screen_panes = state.workspaces[workspace_index].screens[screen_index].root.pane_ids_vec();
+    let current = state.pane_of(restore.surface).ok_or_else(|| stale("the dragged tab closed"))?;
+    if !screen_panes.contains(&restore.origin_pane)
+        || !state.panes.contains_key(&restore.origin_pane)
+    {
+        return Err(stale("the dragged tab's origin pane closed"));
+    }
+    if !screen_panes.contains(&current) {
+        return Err(stale("the dragged tab left its screen"));
+    }
+    match restore.created_pane {
+        Some(created) => {
+            let alone = state
+                .panes
+                .get(&created)
+                .is_some_and(|pane| pane.tabs.as_slice() == [restore.surface]);
+            if current != created || !alone {
+                return Err(stale("the pane created by the drag changed"));
+            }
+        }
+        None if current == restore.origin_pane => {
+            return Err(stale("the dragged tab is already in its origin pane"));
+        }
+        // The pane the tab moved into existed before the move and is part
+        // of the layout being restored. If its other tabs have left since,
+        // moving the tab back would leave that pane empty (I3).
+        None if state.panes.get(&current).is_some_and(|pane| pane.tabs.len() == 1) => {
+            return Err(stale("the dragged tab is the last tab of its pane"));
+        }
+        None => {}
+    }
+    {
+        let pane = state.panes.get_mut(&current).expect("checked current pane");
+        let old = pane
+            .tabs
+            .iter()
+            .position(|candidate| *candidate == restore.surface)
+            .expect("checked tab membership");
+        pane.tabs.remove(old);
+        if !pane.tabs.is_empty() && pane.active_tab >= old && pane.active_tab > 0 {
+            pane.active_tab -= 1;
+        }
+    }
+    if restore.created_pane == Some(current) {
+        state.remove_pane(current);
+    }
+    let origin = state.panes.get_mut(&restore.origin_pane).expect("checked origin pane");
+    let index = restore.origin_index.min(origin.tabs.len());
+    origin.tabs.insert(index, restore.surface);
+    origin.active_tab = index;
+    state.resource_indexes.tab_pane.insert(restore.surface, restore.origin_pane);
+    let workspace = state.workspaces[workspace_index].id;
+    let screen = state.workspaces[workspace_index].screens[screen_index].id;
+    mux.subscribers.update_surface_session_path(
+        restore.surface,
+        workspace,
+        screen,
+        restore.origin_pane,
+    );
+    Ok(())
 }
 
 #[cfg(test)]

@@ -58,6 +58,18 @@ final class SidebarDecorationView: NSView {
         move(pill, to: frame, animated: animated, spring: .selection)
     }
 
+    /// Moves the pill and gap by `dy` at once, from where they show now,
+    /// with the rows and the scroll offset (the sidebar keeping what the
+    /// user sees after a close; close-focus.md): no visible change.
+    func shift(by dy: CGFloat) {
+        for layer in [pill, gap] {
+            let current = layer.presentation()?.frame ?? layer.frame
+            layer.removeAnimation(forKey: "position")
+            layer.removeAnimation(forKey: "bounds")
+            Motion.transaction(nil) { layer.frame = current.offsetBy(dx: 0, dy: dy) }
+        }
+    }
+
     /// Shows the drag gap placeholder (nil hides it).
     func setGap(_ frame: CGRect?, animated: Bool) {
         move(gap, to: frame, animated: animated, spring: .move)

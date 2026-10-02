@@ -7,7 +7,7 @@ public import CoreGraphics
 ///
 /// The window is non-opaque for every material other than
 /// ``WindowMaterial/opaque``, with a white background at alpha 0.001 (not
-/// clear, as in Terminal.app and Ghostty, so it keeps its shadow and hit
+/// clear, so it keeps its shadow and hit
 /// testing). The material view blurs by itself, so the CGS radius blur
 /// (`ghostty_set_window_background_blur`) is never applied on top of it.
 ///

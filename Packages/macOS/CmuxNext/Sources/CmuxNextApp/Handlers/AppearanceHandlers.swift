@@ -13,22 +13,23 @@ enum AppearanceHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("appearance.density.compact", run: { _ in setDensity(.compact, context) })
-        registry.bind("appearance.density.comfortable", run: { _ in setDensity(.comfortable, context) })
+        registry.bind("appearance.density.compact", run: { _ in try setDensity(.compact, context) })
+        registry.bind("appearance.density.comfortable", run: { _ in try setDensity(.comfortable, context) })
         for speed in MotionSpeed.allCases {
-            registry.bind(ActionID(rawValue: "appearance.animationSpeed.\(speed.rawValue)"), run: { _ in setAnimationSpeed(speed, context) })
+            registry.bind(ActionID(rawValue: "appearance.animationSpeed.\(speed.rawValue)"), run: { _ in try setAnimationSpeed(speed, context) })
         }
         for mode in CenterFocusedColumn.allCases {
             let id = mode == .onOverflow ? "onOverflow" : mode.rawValue
-            registry.bind(ActionID(rawValue: "layout.centerFocusedColumn.\(id)"), run: { _ in setCenterFocusedColumn(mode, context) })
+            registry.bind(ActionID(rawValue: "layout.centerFocusedColumn.\(id)"), run: { _ in try setCenterFocusedColumn(mode, context) })
         }
-        registry.bind("appearance.interfaceSize.increase", run: { _ in stepInterfaceSize(by: 1, context) })
-        registry.bind("appearance.interfaceSize.decrease", run: { _ in stepInterfaceSize(by: -1, context) })
-        registry.bind("appearance.paneBorder.toggle", run: { _ in togglePaneBorder(context) })
-        registry.bind("appearance.panePadding.toggle", run: { _ in togglePanePadding(context) })
-        registry.bind("appearance.paneCorners.toggle", run: { _ in togglePaneCorners(context) })
-        registry.bind("appearance.paneBorderWidth.toggle", run: { _ in togglePaneBorderWidth(context) })
+        registry.bind("appearance.interfaceSize.increase", run: { _ in try stepInterfaceSize(by: 1, context) })
+        registry.bind("appearance.interfaceSize.decrease", run: { _ in try stepInterfaceSize(by: -1, context) })
+        registry.bind("appearance.paneBorder.toggle", run: { _ in try togglePaneBorder(context) })
+        registry.bind("appearance.panePadding.toggle", run: { _ in try togglePanePadding(context) })
+        registry.bind("appearance.paneCorners.toggle", run: { _ in try togglePaneCorners(context) })
+        registry.bind("appearance.paneBorderWidth.toggle", run: { _ in try togglePaneBorderWidth(context) })
         registry.bind("appearance.paneBorderColor.reset", run: { _ in
+            try requireUnmanaged(["layout", "paneBorderColor"], context)
             let design = DesignSettings.shared
             var chrome = design.paneChrome
             chrome.borderColor = nil
@@ -36,9 +37,10 @@ enum AppearanceHandlers {
             write(context, "reset pane border color") { try await $0.setPaneBorderColor(nil) }
         })
         for style in TitlebarStyle.allCases {
-            registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in setTitlebar(style, context) })
+            registry.bind(ActionID(rawValue: "appearance.titlebar.\(style.rawValue)"), run: { _ in try setTitlebar(style, context) })
         }
         registry.bind("appearance.interfaceSize.reset", run: { _ in
+            try requireUnmanaged(fontSizePath, context)
             DesignSettings.shared.setOverride(.chromeFontSize, nil)
             write(context, "reset interface size") { try await $0.file.remove(fontSizePath) }
         })
@@ -46,14 +48,16 @@ enum AppearanceHandlers {
 
     private static let fontSizePath = ["appearance", "metrics", MetricKey.chromeFontSize.rawValue]
 
-    private static func setDensity(_ density: Density, _ context: AppActionContext) {
+    private static func setDensity(_ density: Density, _ context: AppActionContext) throws {
+        try requireUnmanaged(["appearance", "density"], context)
         DesignSettings.shared.density = density
         write(context, "set density") { try await $0.setDensity(density) }
     }
 
     /// Subtle border on or off. Subtle is the default, so turning it back
     /// on removes the key instead of writing it.
-    private static func togglePaneBorder(_ context: AppActionContext) {
+    private static func togglePaneBorder(_ context: AppActionContext) throws {
+        try requireUnmanaged(["layout", "paneBorder"], context)
         let design = DesignSettings.shared
         // The configured border, not the drawn one (appearance.borders none draws none).
         let next: PaneBorderStyle = (design.paneChrome.border ?? .subtle) == .subtle ? .none : .subtle
@@ -65,7 +69,8 @@ enum AppearanceHandlers {
     }
 
     /// Padding off (0) or back to the density default.
-    private static func togglePanePadding(_ context: AppActionContext) {
+    private static func togglePanePadding(_ context: AppActionContext) throws {
+        try requireUnmanaged(["layout", "panePadding"], context)
         let design = DesignSettings.shared
         var chrome = design.paneChrome
         chrome.padding = Metrics.panePadding > 0 ? 0 : nil
@@ -77,7 +82,8 @@ enum AppearanceHandlers {
     /// Square corners (0) or back to the default radius. With no padding and
     /// no border the default is square, so "rounded" writes the density
     /// radius explicitly.
-    private static func togglePaneCorners(_ context: AppActionContext) {
+    private static func togglePaneCorners(_ context: AppActionContext) throws {
+        try requireUnmanaged(["layout", "paneCornerRadius"], context)
         let design = DesignSettings.shared
         var chrome = design.paneChrome
         if Metrics.paneCornerRadius > 0 {
@@ -93,7 +99,8 @@ enum AppearanceHandlers {
     }
 
     /// Border width: one device pixel (the default, key removed) or 2 pt.
-    private static func togglePaneBorderWidth(_ context: AppActionContext) {
+    private static func togglePaneBorderWidth(_ context: AppActionContext) throws {
+        try requireUnmanaged(["layout", "paneBorderWidth"], context)
         let design = DesignSettings.shared
         var chrome = design.paneChrome
         chrome.borderWidth = Metrics.paneBorderWidth == nil ? 2 : nil
@@ -103,19 +110,22 @@ enum AppearanceHandlers {
     }
 
     /// `window.titlebar`: applied at once, then written to cmux.json.
-    private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) {
+    private static func setTitlebar(_ style: TitlebarStyle, _ context: AppActionContext) throws {
+        try requireUnmanaged(WindowTitlebarSetting.configPath, context)
         DesignSettings.shared.titlebar = style
         write(context, "set titlebar") { try await $0.setTitlebar(style) }
     }
 
     /// `ui.animationSpeed`: applied at once, then written to cmux.json.
-    private static func setAnimationSpeed(_ speed: MotionSpeed, _ context: AppActionContext) {
+    private static func setAnimationSpeed(_ speed: MotionSpeed, _ context: AppActionContext) throws {
+        try requireUnmanaged(AnimationSpeedSetting.configPath, context)
         DesignSettings.shared.animationSpeed = speed
         write(context, "set animation speed") { try await $0.setAnimationSpeed(speed) }
     }
 
     /// `layout.centerFocusedColumn`: applied at once, then written to cmux.json.
-    private static func setCenterFocusedColumn(_ mode: CenterFocusedColumn, _ context: AppActionContext) {
+    private static func setCenterFocusedColumn(_ mode: CenterFocusedColumn, _ context: AppActionContext) throws {
+        try requireUnmanaged(CenterFocusedColumnSetting.configPath, context)
         DesignSettings.shared.centerFocusedColumn = mode
         write(context, "set center focused column") {
             try await $0.set(.string(mode.rawValue), at: CenterFocusedColumnSetting.configPath)
@@ -127,11 +137,21 @@ enum AppearanceHandlers {
         Double(design.overrides[.chromeFontSize] ?? (design.density == .compact ? 12 : 13))
     }
 
-    private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) {
+    private static func stepInterfaceSize(by delta: Double, _ context: AppActionContext) throws {
+        try requireUnmanaged(fontSizePath, context)
         let design = DesignSettings.shared
         design.setOverride(.chromeFontSize, CGFloat(interfaceSize(design) + delta))
         let size = interfaceSize(design)
         write(context, "set interface size") { try await $0.set(.number(size), at: fontSizePath) }
+    }
+
+    /// Refuses before anything is applied when an MDM profile or the team
+    /// policy manages the key (the file write would be refused too, but the
+    /// live value would already have changed for the session).
+    static func requireUnmanaged(_ path: [String], _ context: AppActionContext) throws {
+        if let managed = context.services.settings?.managedKey(forPath: path) {
+            throw ActionFailure.invalidTarget(RefusalStrings.settingManaged(managed.key))
+        }
     }
 
     private static func write(_ context: AppActionContext, _ label: String,
@@ -140,6 +160,8 @@ enum AppearanceHandlers {
         Task {
             do { try await body(settings) } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                // The live value was applied first; reload so the file (and managed layers) win again.
+                await settings.reload()
             }
         }
     }

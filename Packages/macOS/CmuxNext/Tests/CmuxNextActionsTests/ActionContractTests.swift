@@ -20,11 +20,16 @@ import Testing
         }
     }
 
-    @Test func everyActionIsInThePaletteUnlessPaletteInternal() {
+    /// The palette lists every action except palette-internal navigation
+    /// and the ones whose surface plan names another reason (New Browser
+    /// Tab on Chromium duplicates the default New Browser Tab row).
+    @Test func everyActionIsInThePaletteUnlessExempt() {
         for descriptor in catalog where !descriptor.isPaletteVisible {
-            #expect(descriptor.requires.contains(.paletteOpen), "\(descriptor.id) is hidden from the palette")
+            let reason = descriptor.surfacePlan.palette.exemption
+            #expect(reason != nil, "\(descriptor.id) is hidden from the palette without a reason")
+            #expect((reason == .paletteInternal) == descriptor.requires.contains(.paletteOpen), "\(descriptor.id)")
         }
-        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id) == ["commandPaletteNext", "commandPalettePrevious"])
+        #expect(catalog.filter { !$0.isPaletteVisible }.map(\.id) == ["commandPaletteNext", "commandPalettePrevious", "openBrowser.chromium"])
     }
 
     @Test func shortcutIDsAreUniqueAndDefaultsDoNotCollide() {

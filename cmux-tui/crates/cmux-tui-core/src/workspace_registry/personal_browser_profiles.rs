@@ -67,11 +67,15 @@ pub struct BrowserProfileUpdate {
     pub icon: Option<Option<String>>,
 }
 
-/// Result of `delete-browser-profile`: the defaults it cleared.
+/// Result of `delete-browser-profile`: the defaults it cleared and the
+/// bookmarks it deleted (`bookmarks-v1`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrowserProfileDeletion {
     pub cleared_workspaces: Vec<(String, String)>,
     pub cleared_rooms: Vec<String>,
+    pub deleted_bookmarks: usize,
+    /// The new `bookmarks_revision` when bookmarks were deleted.
+    pub bookmarks_revision: Option<u64>,
 }
 
 pub(super) fn read_browser_profiles(
@@ -247,8 +251,9 @@ impl WorkspaceRegistry {
         Ok((profile, changed))
     }
 
-    /// Delete a browser profile (never `default`) and clear every workspace
-    /// and room default that names it. The app removes the engine data.
+    /// Delete a browser profile (never `default`), clear every workspace
+    /// and room default that names it, and delete its bookmarks. The app
+    /// removes the engine data.
     pub fn delete_browser_profile(&mut self, id: &str) -> anyhow::Result<BrowserProfileDeletion> {
         validate_browser_profile_ref(id)?;
         anyhow::ensure!(
@@ -283,6 +288,8 @@ impl WorkspaceRegistry {
             [id],
         )?;
         tx.execute("DELETE FROM browser_profiles WHERE browser_profile_id = ?1", [id])?;
+        let (deleted_bookmarks, bookmarks_revision) =
+            super::personal_bookmarks::delete_profile_bookmarks(&tx, id)?;
         let ids = order(&tx)?;
         write_order(&tx, "browser_profiles", "browser_profile_id", &ids)?;
         commit_personal(
@@ -290,9 +297,14 @@ impl WorkspaceRegistry {
             "personal.browser_profile.deleted",
             vec![subject("browser_profile", id)],
             &json!({"browser_profile_id": id, "cleared_workspaces": cleared_workspaces,
-                    "cleared_rooms": cleared_rooms}),
+                    "cleared_rooms": cleared_rooms, "deleted_bookmarks": deleted_bookmarks}),
         )?;
         tx.commit()?;
-        Ok(BrowserProfileDeletion { cleared_workspaces, cleared_rooms })
+        Ok(BrowserProfileDeletion {
+            cleared_workspaces,
+            cleared_rooms,
+            deleted_bookmarks,
+            bookmarks_revision,
+        })
     }
 }

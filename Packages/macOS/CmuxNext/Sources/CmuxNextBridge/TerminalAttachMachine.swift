@@ -28,7 +28,7 @@ public import Foundation
 ///   sent, after the replay, followed by the geometry claim when visible.
 /// - Every link that was opened is detached exactly once: on overflow, on
 ///   close, or when its open completes after the machine moved on.
-/// - Geometry follows tmux "window-size latest": the most recently active
+/// - Geometry follows the latest active client: the most recently active
 ///   client holds it. A visible view claims when it is shown, on every
 ///   settled resize, and, after the stream announced a grid other than the
 ///   one it reported (another client sized the terminal), on its next key

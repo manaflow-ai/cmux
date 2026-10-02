@@ -18,6 +18,7 @@ nonisolated enum ActionSurfaceCatalog {
                 plan.cli = cliNamed.contains(id) ? .offered : cliExemption[id].map(SurfaceDecision.exempt)
             }
             if plan.mcpExemption == nil { plan.mcpExemption = mcpExemption[id] }
+            if plan.palette.isOffered, let reason = paletteExemption[id] { plan.palette = .exempt(reason) }
             descriptor.surfacePlan = plan
             return descriptor
         }

@@ -122,7 +122,9 @@ def _rust_enum_body(source: str, name: str) -> str:
 
 
 def _rust_struct_fields(source: str, name: str) -> dict[str, RuntimeField]:
-    match = re.search(rf"(?m)^struct {re.escape(name)} \{{\n", source)
+    match = re.search(
+        rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(name)} \{{\n", source
+    )
     if not match:
         fail(f"cannot find Rust struct {name}")
     start = match.end()
@@ -164,7 +166,6 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
     except (OSError, UnicodeError) as error:
         fail(f"cannot read {SERVER.relative_to(ROOT)}: {error}")
     body = _rust_enum_body(source, "Command")
-    mutation_fields = _rust_struct_fields(source, "MutationRequest")
     commands: dict[str, dict[str, RuntimeField]] = {}
     lines = body.splitlines()
     index = 0
@@ -182,6 +183,26 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
         if boxed:
             variant, request_type = boxed.groups()
             commands[camel_to_kebab(variant)] = _rust_struct_fields(source, request_type)
+            index += 1
+            continue
+        # A request struct in a handler module: `Variant(module::Params)`
+        # reads `server/<module>.rs`.
+        external = re.fullmatch(
+            r"    ([A-Z][A-Za-z0-9]*)\(([a-z_]+)::([A-Z][A-Za-z0-9]*)\),",
+            line,
+        )
+        if external:
+            variant, module, request_type = external.groups()
+            module_path = SERVER.with_suffix("") / f"{module}.rs"
+            try:
+                module_source = module_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as error:
+                fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
+            commands[camel_to_kebab(variant)] = _expand_flattened(
+                module_source,
+                _rust_struct_fields(module_source, request_type),
+                f"Command::{variant}",
+            )
             index += 1
             continue
         structured = re.fullmatch(r"    ([A-Z][A-Za-z0-9]*) \{", line)
@@ -202,26 +223,36 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             "\n".join(variant_lines),
             f"Rust Command::{variant}",
         )
-        expanded: dict[str, RuntimeField] = {}
-        for field_name, field in parsed.items():
-            if any(re.search(r"\bflatten\b", value) for value in field.attributes):
-                if field.rust_type != "MutationRequest":
-                    fail(
-                        f"unsupported flattened Rust request type "
-                        f"{field.rust_type!r} in Command::{variant}"
-                    )
-                for mutation_name, mutation_field in mutation_fields.items():
-                    if mutation_name in expanded:
-                        fail(
-                            f"duplicate flattened request field {mutation_name!r} "
-                            f"in Command::{variant}"
-                        )
-                    expanded[mutation_name] = mutation_field
-            else:
-                expanded[field_name] = field
-        commands[camel_to_kebab(variant)] = expanded
+        commands[camel_to_kebab(variant)] = _expand_flattened(
+            source, parsed, f"Command::{variant}"
+        )
         index += 1
     return commands
+
+
+def _expand_flattened(
+    source: str, parsed: dict[str, RuntimeField], label: str
+) -> dict[str, RuntimeField]:
+    """Replace each `#[serde(flatten)]` field by the fields of its struct,
+    which must be declared in the same Rust source."""
+
+    expanded: dict[str, RuntimeField] = {}
+    for field_name, field in parsed.items():
+        if any(re.search(r"\bflatten\b", value) for value in field.attributes):
+            if not re.fullmatch(r"[A-Z][A-Za-z0-9]*", field.rust_type) or not re.search(
+                rf"(?m)^(?:pub(?:\([a-z:]+\))? )?struct {re.escape(field.rust_type)} \{{",
+                source,
+            ):
+                fail(f"unsupported flattened Rust request type {field.rust_type!r} in {label}")
+            for flat_name, flat_field in _rust_struct_fields(source, field.rust_type).items():
+                if flat_name in expanded:
+                    fail(f"duplicate flattened request field {flat_name!r} in {label}")
+                expanded[flat_name] = flat_field
+        else:
+            if field_name in expanded:
+                fail(f"duplicate request field {field_name!r} in {label}")
+            expanded[field_name] = field
+    return expanded
 
 
 def _unwrap_rust_option(rust_type: str) -> tuple[str, bool]:

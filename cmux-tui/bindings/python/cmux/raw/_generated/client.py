@@ -102,8 +102,35 @@ class GeneratedClientMixin:
     def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING) -> WorkspaceMutationResult:
         return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals))
 
+    def conversation_agent_token(self, participant: str) -> JsonValue:
+        return self._invoke_command('conversation-agent-token', ConversationAgentTokenRequest(participant=participant))
+
+    def conversation_bind(self, participant: str, token: str) -> JsonValue:
+        return self._invoke_command('conversation-bind', ConversationBindRequest(participant=participant, token=token))
+
+    def conversation_create(self, idempotency_key: str, participants: Union[JsonValue, None], title: str, *, actor: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('conversation-create', ConversationCreateRequest(idempotency_key=idempotency_key, participants=participants, title=title, actor=actor))
+
+    def conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
+        return self._invoke_command('conversation-history', ConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
+
+    def conversation_list(self) -> JsonValue:
+        return self._invoke_command('conversation-list', ConversationListRequest())
+
+    def conversation_op(self, conversation: str, idempotency_key: str, op: Union[JsonValue, None], *, actor: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('conversation-op', ConversationOpRequest(conversation=conversation, idempotency_key=idempotency_key, op=op, actor=actor, transaction=transaction))
+
+    def conversation_snapshot(self, conversation: str, tail: int) -> JsonValue:
+        return self._invoke_command('conversation-snapshot', ConversationSnapshotRequest(conversation=conversation, tail=tail))
+
+    def conversation_typing(self, conversation: str, on: bool, *, actor: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('conversation-typing', ConversationTypingRequest(conversation=conversation, on=on, actor=actor))
+
     def copy(self, surface: Id, mode: Literal['screen', 'selection', 'scrollback']) -> CopyResult:
         return self._invoke_command('copy', CopyRequest(surface=surface, mode=mode))
+
+    def create_bookmark(self, browser_profile_id: str, kind: str, parent: str, title: str, *, bookmark: Union[str, None, MissingType] = MISSING, created_ms: Union[int, None, MissingType] = MISSING, favicon_key: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('create-bookmark', CreateBookmarkRequest(browser_profile_id=browser_profile_id, kind=kind, parent=parent, title=title, bookmark=bookmark, created_ms=created_ms, favicon_key=favicon_key, index=index, mutation_id=mutation_id, origin=origin, source_key=source_key, url=url))
 
     def create_browser_profile(self, name: str, *, browser_profile: Union[str, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, source: Union[JsonValue, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-browser-profile', CreateBrowserProfileRequest(name=name, browser_profile=browser_profile, color=color, icon=icon, index=index, source=source))
@@ -131,6 +158,9 @@ class GeneratedClientMixin:
 
     def create_workspace_group(self, name: str, *, collapsed: Union[bool, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('create-workspace-group', CreateWorkspaceGroupRequest(name=name, collapsed=collapsed, color=color, group=group, index=index))
+
+    def delete_bookmark(self, bookmark: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('delete-bookmark', DeleteBookmarkRequest(bookmark=bookmark, mutation_id=mutation_id, origin=origin))
 
     def delete_browser_profile(self, browser_profile: str) -> JsonValue:
         return self._invoke_command('delete-browser-profile', DeleteBrowserProfileRequest(browser_profile=browser_profile))
@@ -186,6 +216,9 @@ class GeneratedClientMixin:
     def ids(self, *, kind: Union[Literal['workspace', 'screen', 'pane', 'surface'], None, MissingType] = MISSING) -> IdsResult:
         return self._invoke_command('ids', IdsRequest(kind=kind))
 
+    def import_bookmarks(self, browser_profile_id: str, nodes: List[JsonValue], parent: str, *, index: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, replace: Union[bool, MissingType] = MISSING, source_key: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('import-bookmarks', ImportBookmarksRequest(browser_profile_id=browser_profile_id, nodes=nodes, parent=parent, index=index, mutation_id=mutation_id, origin=origin, replace=replace, source_key=source_key))
+
     def import_session_organization(self, session_id: str, *, groups: Union[List[JsonValue], MissingType] = MISSING, workspaces: Union[List[JsonValue], MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('import-session-organization', ImportSessionOrganizationRequest(session_id=session_id, groups=groups, workspaces=workspaces))
 
@@ -194,6 +227,9 @@ class GeneratedClientMixin:
 
     def list_agents(self, surface: Union[Id, None, MissingType] = MISSING, *, state: Union[AgentState, None, MissingType] = MISSING) -> ListAgentsResult:
         return self._invoke_command('list-agents', ListAgentsRequest(surface=surface, state=state))
+
+    def list_bookmarks(self, browser_profile_id: str) -> JsonValue:
+        return self._invoke_command('list-bookmarks', ListBookmarksRequest(browser_profile_id=browser_profile_id))
 
     def list_clients(self) -> List[ClientInfo]:
         return self._invoke_command('list-clients', ListClientsRequest())
@@ -236,6 +272,9 @@ class GeneratedClientMixin:
 
     def mint_terminal_renderer_by_terminal(self, terminal: str, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer-by-terminal', MintTerminalRendererByTerminalRequest(terminal=terminal, ttl_ms=ttl_ms))
+
+    def move_bookmark(self, bookmark: str, index: int, parent: str, *, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('move-bookmark', MoveBookmarkRequest(bookmark=bookmark, index=index, parent=parent, mutation_id=mutation_id, origin=origin))
 
     def move_browser_profile(self, browser_profile: str, index: int) -> JsonValue:
         return self._invoke_command('move-browser-profile', MoveBrowserProfileRequest(browser_profile=browser_profile, index=index))
@@ -540,6 +579,9 @@ class GeneratedClientMixin:
     def unsave_tab_group(self, group: str) -> JsonValue:
         return self._invoke_command('unsave-tab-group', UnsaveTabGroupRequest(group=group))
 
+    def update_bookmark(self, bookmark: str, *, favicon_key: Union[str, None, MissingType] = MISSING, last_used_ms: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-bookmark', UpdateBookmarkRequest(bookmark=bookmark, favicon_key=favicon_key, last_used_ms=last_used_ms, mutation_id=mutation_id, origin=origin, title=title, url=url))
+
     def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))
 
@@ -613,7 +655,16 @@ GeneratedClientMixin.close_tab_group.__cmux_command__ = COMMANDS['close-tab-grou
 GeneratedClientMixin.close_tabs.__cmux_command__ = COMMANDS['close-tabs']
 GeneratedClientMixin.close_terminal.__cmux_command__ = COMMANDS['close-terminal']
 GeneratedClientMixin.close_workspace.__cmux_command__ = COMMANDS['close-workspace']
+GeneratedClientMixin.conversation_agent_token.__cmux_command__ = COMMANDS['conversation-agent-token']
+GeneratedClientMixin.conversation_bind.__cmux_command__ = COMMANDS['conversation-bind']
+GeneratedClientMixin.conversation_create.__cmux_command__ = COMMANDS['conversation-create']
+GeneratedClientMixin.conversation_history.__cmux_command__ = COMMANDS['conversation-history']
+GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation-list']
+GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
+GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
+GeneratedClientMixin.conversation_typing.__cmux_command__ = COMMANDS['conversation-typing']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
+GeneratedClientMixin.create_bookmark.__cmux_command__ = COMMANDS['create-bookmark']
 GeneratedClientMixin.create_browser_profile.__cmux_command__ = COMMANDS['create-browser-profile']
 GeneratedClientMixin.create_personal_group.__cmux_command__ = COMMANDS['create-personal-group']
 GeneratedClientMixin.create_profile.__cmux_command__ = COMMANDS['create-profile']
@@ -623,6 +674,7 @@ GeneratedClientMixin.create_tab_group.__cmux_command__ = COMMANDS['create-tab-gr
 GeneratedClientMixin.create_terminal.__cmux_command__ = COMMANDS['create-terminal']
 GeneratedClientMixin.create_workspace.__cmux_command__ = COMMANDS['create-workspace']
 GeneratedClientMixin.create_workspace_group.__cmux_command__ = COMMANDS['create-workspace-group']
+GeneratedClientMixin.delete_bookmark.__cmux_command__ = COMMANDS['delete-bookmark']
 GeneratedClientMixin.delete_browser_profile.__cmux_command__ = COMMANDS['delete-browser-profile']
 GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-personal-group']
 GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
@@ -641,9 +693,11 @@ GeneratedClientMixin.get_frontend_projection.__cmux_command__ = COMMANDS['get-fr
 GeneratedClientMixin.get_size_state.__cmux_command__ = COMMANDS['get-size-state']
 GeneratedClientMixin.identify.__cmux_command__ = COMMANDS['identify']
 GeneratedClientMixin.ids.__cmux_command__ = COMMANDS['ids']
+GeneratedClientMixin.import_bookmarks.__cmux_command__ = COMMANDS['import-bookmarks']
 GeneratedClientMixin.import_session_organization.__cmux_command__ = COMMANDS['import-session-organization']
 GeneratedClientMixin.journal_frontend_event.__cmux_command__ = COMMANDS['journal-frontend-event']
 GeneratedClientMixin.list_agents.__cmux_command__ = COMMANDS['list-agents']
+GeneratedClientMixin.list_bookmarks.__cmux_command__ = COMMANDS['list-bookmarks']
 GeneratedClientMixin.list_clients.__cmux_command__ = COMMANDS['list-clients']
 GeneratedClientMixin.list_notifications.__cmux_command__ = COMMANDS['list-notifications']
 GeneratedClientMixin.list_personal.__cmux_command__ = COMMANDS['list-personal']
@@ -658,6 +712,7 @@ GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
+GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']
 GeneratedClientMixin.move_browser_profile.__cmux_command__ = COMMANDS['move-browser-profile']
 GeneratedClientMixin.move_personal_group.__cmux_command__ = COMMANDS['move-personal-group']
 GeneratedClientMixin.move_profile.__cmux_command__ = COMMANDS['move-profile']
@@ -759,6 +814,7 @@ GeneratedClientMixin.unpin_workspace.__cmux_command__ = COMMANDS['unpin-workspac
 GeneratedClientMixin.unregister_browser_provider.__cmux_command__ = COMMANDS['unregister-browser-provider']
 GeneratedClientMixin.unsave_screen_group.__cmux_command__ = COMMANDS['unsave-screen-group']
 GeneratedClientMixin.unsave_tab_group.__cmux_command__ = COMMANDS['unsave-tab-group']
+GeneratedClientMixin.update_bookmark.__cmux_command__ = COMMANDS['update-bookmark']
 GeneratedClientMixin.update_browser_profile.__cmux_command__ = COMMANDS['update-browser-profile']
 GeneratedClientMixin.update_frontend_browser_tab.__cmux_command__ = COMMANDS['update-frontend-browser-tab']
 GeneratedClientMixin.update_personal_group.__cmux_command__ = COMMANDS['update-personal-group']

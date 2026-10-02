@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentActivity
 import CmuxNextBookmarks
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -102,13 +103,20 @@ extension TabContentCache {
         swapPage(tab.id, with: page)
     }
 
-    static func isAppPage(_ url: URL?) -> Bool { HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) }
+    static func isAppPage(_ url: URL?) -> Bool {
+        HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+    }
 
     private func makeAppPage(_ url: URL?, for tab: TabModel) -> (any BrowserTab)? {
         guard Self.isAppPage(url), let services = pageRequests.services else { return nil }
         let key = tab.id
         let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit
         let profile = browserProfile?(key) ?? .default
+        if AgentActivityPageAddress.matches(url) {
+            let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
+            page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            return page
+        }
         if BookmarkPageAddress.matches(url) {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }

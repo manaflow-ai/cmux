@@ -73,7 +73,8 @@ public struct BrowserSourceDetector: Sendable {
             .history: present("History") ? .available : .absent,
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
-            .passwords: present("Login Data") ? .unsupported(.exportFromSource) : .absent,
+            // Read only after the consent step (PasswordImporter).
+            .passwords: present("Login Data") ? .available : .absent,
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,
         ]
     }

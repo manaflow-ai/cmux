@@ -6,15 +6,19 @@
 #   tests/browser-parity/gate.sh                 # unit, sites, cmux-dev, oracle
 #   PARITY_CMUX_CLI=<tagged cli> CMUX_SOCKET_PATH=/tmp/cmux-debug-<tag>.sock \
 #     tests/browser-parity/gate.sh --app [--app-runs N]   # plus the real app
+#   PARITY_HOST_BIN=<cmux-browser-host> tests/browser-parity/gate.sh \
+#     --host headless [--host webkit --host cef] [--app-runs N]  # the Rust host per engine
 set -uo pipefail
 cd "$(dirname "$0")/../.."
 
 app=0
 app_runs=1
+hosts=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --app) app=1 ;;
     --app-runs) app_runs="$2"; shift ;;
+    --host) hosts+=("$2"); shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -37,6 +41,12 @@ if [ "$app" = 1 ]; then
     step "app run $i/$app_runs" node tests/browser-parity/run.mjs check --backend cmux
   done
 fi
+
+for engine in ${hosts[@]+"${hosts[@]}"}; do
+  for i in $(seq 1 "$app_runs"); do
+    step "host-$engine run $i/$app_runs" node tests/browser-parity/run.mjs check --backend "host-$engine"
+  done
+done
 
 if [ ${#failed[@]} -gt 0 ]; then
   echo "gate FAILED: ${failed[*]}"

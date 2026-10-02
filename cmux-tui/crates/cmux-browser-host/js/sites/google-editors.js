@@ -8,8 +8,8 @@
 //
 // Rule for writes: a file whose Share button says "Private to only me" is
 // edited at once (nobody else sees it); any other file, or one whose
-// sharing cannot be read, gets a draft first (ChatGPT's confirmation
-// taxonomy, [9]: edits others can see).
+// sharing cannot be read, gets a draft first (edits that others can see
+// need confirmation).
 (function (root) {
   "use strict";
   const S = root.CmuxBrowserRepl && root.CmuxBrowserRepl.sites;

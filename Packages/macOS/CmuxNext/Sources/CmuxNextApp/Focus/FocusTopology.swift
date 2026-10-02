@@ -41,12 +41,44 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
         var selectedTab: Tab? { selected.flatMap(tab) }
     }
 
+    /// One column of a screen: its stable id (the layout column id; a split
+    /// screen's one column uses the screen id) and its pane ids in layout
+    /// order. The id says whether a pane is still in the same column after
+    /// a change (close-focus.md), not merely alive.
+    struct Column: Hashable, Sendable, Codable {
+        var id: String
+        var panes: [String]
+
+        init(id: String, panes: [String]) {
+            self.id = id
+            self.panes = panes
+        }
+    }
+
     var workspace: String?
     var panes: [Pane]
+    /// Every screen's columns in visual order (left sticky, strip, right
+    /// sticky; a split screen is one column). The close-focus rule reads
+    /// them (close-focus.md). Empty means one screen with one column
+    /// holding `panes` in order.
+    var screens: [[Column]]
 
-    init(workspace: String? = nil, panes: [Pane] = []) {
+    init(workspace: String? = nil, panes: [Pane] = [], screens: [[Column]] = []) {
         self.workspace = workspace
         self.panes = panes
+        self.screens = screens
+    }
+
+    /// The columns of the screen that holds `pane`.
+    func columns(containing pane: String) -> [Column]? {
+        if screens.isEmpty { return panes.contains { $0.id == pane } ? [Column(id: "", panes: panes.map(\.id))] : nil }
+        return screens.first { $0.contains { $0.panes.contains(pane) } }
+    }
+
+    /// Column id -> panes, over every screen.
+    var columnsByID: [String: [String]] {
+        if screens.isEmpty { return ["": panes.map(\.id)] }
+        return Dictionary(screens.flatMap { $0 }.map { ($0.id, $0.panes) }, uniquingKeysWith: { first, _ in first })
     }
 
     func pane(_ id: String) -> Pane? { panes.first { $0.id == id } }
