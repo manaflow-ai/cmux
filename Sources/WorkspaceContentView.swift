@@ -48,6 +48,7 @@ private struct WorkspacePanelContentHostView: View {
     let isFocused: Bool
     let isSelectedInPane: Bool
     let isVisibleInUI: Bool
+    let isWorkspaceInputActive: Bool
     let allowsPointerInput: Bool
     let portalPriority: Int
     let isSplit: Bool
@@ -303,6 +304,7 @@ struct WorkspaceContentView: View {
                         isFocused: isFocused,
                         isSelectedInPane: isSelectedInPane,
                         isVisibleInUI: isVisibleInUI,
+                        isWorkspaceInputActive: isWorkspaceInputActive,
                         allowsPointerInput: isWorkspaceInputActive
                             && isWorkspaceVisible
                             && isSelectedInPane,
