@@ -139,6 +139,21 @@
       "pattern": "^auto_[a-z0-9]{20}$",
       "description": "An automation definition, owned by its team's SchedulerDO."
     },
+    "AutomationSettings": {
+      "kind": "object",
+      "fields": {
+        "agent_run_default_seconds": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      }
+    },
     "Body": {
       "kind": "union",
       "variants": [
@@ -4979,6 +4994,200 @@
               "finished_at",
               "error",
               "outcome"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.settings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "AutomationSettings"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "automation settings",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "automation"
+      },
+      "docs": "Read the team's automation settings (default limit of agent runs).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AutomationSettings",
+        "$defs": {
+          "AutomationSettings": {
+            "type": "object",
+            "properties": {
+              "agent_run_default_seconds": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 2592000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent_run_default_seconds"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "automation.settings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "AutomationSettings"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "team.roles_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation settings set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "automation"
+      },
+      "docs": "Change the team's automation settings (team admins). Each automation can still override with budget.wall_clock_seconds.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "$ref": "#/$defs/AutomationSettings",
+        "$defs": {
+          "AutomationSettings": {
+            "type": "object",
+            "properties": {
+              "agent_run_default_seconds": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 2592000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent_run_default_seconds"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/AutomationSettings",
+        "$defs": {
+          "AutomationSettings": {
+            "type": "object",
+            "properties": {
+              "agent_run_default_seconds": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 2592000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "agent_run_default_seconds"
             ],
             "additionalProperties": true
           }

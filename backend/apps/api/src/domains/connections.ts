@@ -8,7 +8,8 @@ import {
   type Connection,
   type TeamIntegrationPolicy
 } from "@cmux/protocol"
-import { admit, decodeParams, reject } from "./common.ts"
+import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
+import { personalTeamIdFor } from "./user.ts"
 
 /**
  * ConnectionDO's reducer (spec integrations.md): the integration connections
@@ -160,8 +161,9 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!d.ok) return d
         const owner = state.owner ?? p.team
         if (!owner || !p.user) return reject("auth.forbidden", "needs a user in a team")
-        // Phase 1 teams are personal (the user is the admin); Stack team roles arrive with TeamDO membership.
         if (owner !== p.team) return reject("auth.forbidden", "only a team admin may change the policy")
+        const notAdmin = requirePersonalTeamAdmin(p, personalTeamIdFor)
+        if (notAdmin) return { ok: false, ...notAdmin }
         const cur = policyOf(state)
         if (cur.locked) return reject("policy.locked", `the policy is managed by ${cur.source} and cannot be changed here`)
         const next = merged(cur, d.value, "admin", p.user, ctx.now)

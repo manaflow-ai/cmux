@@ -3,6 +3,7 @@ import {
   AutomationCreate,
   AutomationDelete,
   AutomationRunNow,
+  AutomationSettingsSet,
   AutomationUpdate,
   schedulerInternalOps,
   type Automation,
@@ -12,7 +13,8 @@ import {
   type TriggerInput
 } from "@cmux/protocol"
 import { checkCron, nextFire } from "../cron.ts"
-import { admit, decodeParams, reject } from "./common.ts"
+import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
+import { personalTeamIdFor } from "./user.ts"
 
 /**
  * SchedulerDO's reducer (spec cloud-and-automations.md, decision D13): the
@@ -59,6 +61,8 @@ export interface SchedulerState {
   readonly runs: Readonly<Record<string, RunRecord>>
   /** Continue triggers: runs fired in the current chain (reset when another trigger starts a run). */
   readonly chains: Readonly<Record<string, number>>
+  /** Team automation settings; absent in objects created before settings. */
+  readonly settings?: { readonly agent_run_default_seconds: number | null }
 }
 
 export const MAX_AUTOMATIONS = 100
@@ -227,7 +231,12 @@ const startRun = (
     outcome: null,
     dispatched: false,
     body: a.body,
-    ...(a.budget.wall_clock_seconds !== undefined ? { wall_clock_seconds: a.budget.wall_clock_seconds } : {})
+    // The run's limit: the automation's own budget, else (agent runs) the team default, else the built-in default.
+    ...(a.budget.wall_clock_seconds !== undefined
+      ? { wall_clock_seconds: a.budget.wall_clock_seconds }
+      : a.body.type === "agent_prompt" && state.settings?.agent_run_default_seconds
+        ? { wall_clock_seconds: state.settings.agent_run_default_seconds }
+        : {})
   }
   // A run from any trigger other than continue starts a new continue chain.
   const continueTrigger = a.triggers.find((t) => t.spec.type === "continue")
@@ -452,6 +461,17 @@ export const schedulerDomain: Domain<SchedulerState> = {
           outbox.push(...c.outbox)
         }
         return { ok: true, state: s, value: publicRun(next), outbox }
+      }
+
+      case "automation.settings.set": {
+        const d = decodeParams<{ agent_run_default_seconds: number | null }>(AutomationSettingsSet, params)
+        if (!d.ok) return d
+        const notAdmin = requirePersonalTeamAdmin(p, personalTeamIdFor)
+        if (notAdmin) return { ok: false, ...notAdmin }
+        const owner = ownerOf(state, p)
+        const next = { agent_run_default_seconds: d.value.agent_run_default_seconds }
+        if (canonicalJson(next) === canonicalJson(state.settings ?? { agent_run_default_seconds: null })) return { ok: true, state, value: next, changed: false }
+        return { ok: true, state: { ...state, owner, settings: next }, value: next }
       }
 
       default:

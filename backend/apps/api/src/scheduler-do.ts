@@ -84,6 +84,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
           .map(publicRun)
         return { ok: true, value: { runs }, revision: "" }
       }
+      case "automation.settings.get":
+        return { ok: true, value: state.settings ?? { agent_run_default_seconds: null }, revision: "" }
       case "automation.webhook.get": {
         const params2 = (params ?? {}) as { automation?: unknown; trigger?: unknown }
         const a = typeof params2.automation === "string" ? state.automations[params2.automation] : undefined

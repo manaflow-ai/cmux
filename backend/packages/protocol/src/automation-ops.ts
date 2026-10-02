@@ -147,6 +147,41 @@ export const AutomationWebhookGet = def({
   mcp: { expose: "never", group: "automation" }
 })
 
+export const AutomationSettings = Schema.Struct({
+  /** Limit of an agent_prompt run whose automation sets no wall-clock budget (seconds); null = the default 24 h. */
+  agent_run_default_seconds: Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 60, maximum: 30 * 24 * 3600 })))
+}).annotate({ identifier: "AutomationSettings" })
+
+export const AutomationSettingsGet = def({
+  name: "automation.settings.get",
+  owner: "cloud:SchedulerDO",
+  class: "read",
+  risk: "read",
+  target: "automation",
+  principals: ["session", "install"],
+  params: Schema.Struct({}),
+  result: AutomationSettings,
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "Read the team's automation settings (default limit of agent runs).",
+  cli: { path: "automation settings", visible: true },
+  mcp: { expose: "opt_in", group: "automation" }
+})
+
+export const AutomationSettingsSet = def({
+  name: "automation.settings.set",
+  owner: "cloud:SchedulerDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "automation",
+  principals: ["session"],
+  params: AutomationSettings,
+  result: AutomationSettings,
+  errors: [...mutationErrors, "team.roles_required"],
+  docs: "Change the team's automation settings (team admins). Each automation can still override with budget.wall_clock_seconds.",
+  cli: { path: "automation settings set", visible: true },
+  mcp: { expose: "never", group: "automation" }
+})
+
 export const automationOps = [
   AutomationCreate,
   AutomationUpdate,
@@ -155,7 +190,9 @@ export const automationOps = [
   AutomationList,
   AutomationGet,
   AutomationRunsList,
-  AutomationWebhookGet
+  AutomationWebhookGet,
+  AutomationSettingsGet,
+  AutomationSettingsSet
 ] as const
 
 const internal = (name: string, params: Schema.Top, docs: string): CloudOpDef =>
