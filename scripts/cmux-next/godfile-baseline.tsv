@@ -112,7 +112,7 @@ rust-file	cmux-tui/crates/cmux-tui/src/ui/graphics.rs	2302	107
 rust-file	cmux-tui/crates/cmux-tui/src/ui/terminal_grid.rs	1115	43
 rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	4679	131
 rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5846	118
-rust-file	cmux-tui/crates/cmux-wg/src/net.rs	1092	46
+rust-file	cmux-tui/crates/cmux-wg/src/net.rs	1063	45
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	5941	287
 swift-type	CmuxNextApp/WindowManager	1163	0
