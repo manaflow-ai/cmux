@@ -29,7 +29,7 @@ public final class HomeMockActions: HomeActions {
     }
 
     /// Adds a conversation and its summary row.
-    public func add(_ source: HomeMockSource, title: String, ownerLabel: String? = HomeLabels.thisMacOnly) {
+    public func add(_ source: HomeMockSource, title: String, ownerLabel: String? = HomeConversationSummary.thisMacOnlyOwnerLabel) {
         sources[source.conversationID] = source
         let summary = HomeConversationSummary(id: source.conversationID, title: title, participants: source.participants,
                                               lastMessagePreview: "", updatedAt: Date(), ownerLabel: ownerLabel)
