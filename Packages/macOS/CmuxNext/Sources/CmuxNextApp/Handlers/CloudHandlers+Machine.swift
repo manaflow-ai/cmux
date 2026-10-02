@@ -20,8 +20,10 @@ extension CloudHandlers {
                 let anchor = try await terminalAnchor(on: session, context)
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.id, options: SpawnOptions(workspace: anchor.key))
-                context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
-                show(anchor.id, context)
+                if invocation.allowsViewChange {
+                    context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
+                    show(anchor.id, context)
+                }
             }
         }
         bind("cloudExec", registry, reason: reason) { invocation in
@@ -33,8 +35,10 @@ extension CloudHandlers {
                 guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
                 let created = try await connection.newTab(in: anchor.pane.id, options: SpawnOptions(workspace: anchor.key))
                 try await connection.send(created.surface, text: command + "\n")
-                context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
-                show(anchor.id, context)
+                if invocation.allowsViewChange {
+                    context.services.paneController(for: anchor.pane)?.pendingSelectSurface = created.surface
+                    show(anchor.id, context)
+                }
             }
         }
         bind("cloudNewTerminal", registry, reason: reason) { invocation in
