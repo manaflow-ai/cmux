@@ -11355,6 +11355,20 @@
                       "kind": "primitive",
                       "name": "string"
                     }
+                  },
+                  "prompt_schema": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "json"
+                    }
+                  },
+                  "answer_schema": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "json"
+                    }
                   }
                 }
               }
@@ -11388,7 +11402,7 @@
         "expose": "default",
         "group": "feed"
       },
-      "docs": "The built-in request kinds; custom kinds x-<publisher>.<name> carry their own answer_schema.",
+      "docs": "The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.",
       "since": "cloud-1",
       "input_json_schema": {
         "not": {
@@ -11415,13 +11429,17 @@
                 },
                 "docs": {
                   "type": "string"
-                }
+                },
+                "prompt_schema": {},
+                "answer_schema": {}
               },
               "required": [
                 "kind",
                 "priority",
                 "needs_mac",
-                "docs"
+                "docs",
+                "prompt_schema",
+                "answer_schema"
               ],
               "additionalProperties": true
             }

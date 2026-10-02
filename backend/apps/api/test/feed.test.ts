@@ -95,7 +95,9 @@ describe("feed end to end (workerd)", () => {
     expect(got.json.value.item.answer.value).toEqual({ decision: "allow", scope: "session" })
     expect((await read(s.session, "feed.list", { state: "closed" })).json.value.items.map((i: any) => i.id)).toEqual([id])
     expect((await read(s.session, "feed.counts")).json.value).toMatchObject({ open_requests: 0 })
-    expect((await read(s.session, "feed.kinds")).json.value.kinds.map((k: any) => k.kind)).toContain("passkey")
+    const kinds = (await read(s.session, "feed.kinds")).json.value.kinds
+    expect(kinds.map((k: any) => k.kind)).toContain("passkey")
+    expect(kinds.find((k: any) => k.kind === "approve").answer_schema).toMatchObject({ type: "object", required: ["decision"] })
     wire.ws.close()
   })
 

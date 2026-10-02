@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import { feedKinds, FeedList, type FeedItem } from "@cmux/protocol"
+import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
@@ -53,11 +53,7 @@ export class FeedDO extends OwnerDO<FeedState> {
         if (!isUserClient(principal)) return { ok: false, code: "auth.forbidden", message: "counts are for the user's own clients" }
         return { ok: true, value: feedCounts(state, Date.now()), revision: "" }
       case "feed.kinds":
-        return {
-          ok: true,
-          value: { kinds: Object.entries(feedKinds).map(([kind, k]) => ({ kind, priority: k.priority, needs_mac: k.needsMac, docs: k.docs })) },
-          revision: ""
-        }
+        return { ok: true, value: { kinds: feedKindSchemas() }, revision: "" }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     }

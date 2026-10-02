@@ -364,9 +364,13 @@ export const FeedKinds = def({
   target: "feed",
   principals: ["session", "install"],
   params: Schema.Struct({}),
-  result: Schema.Struct({ kinds: Schema.Array(Schema.Struct({ kind: Schema.String, priority: FeedPriority, needs_mac: Schema.Boolean, docs: Schema.String })) }),
+  result: Schema.Struct({
+    kinds: Schema.Array(
+      Schema.Struct({ kind: Schema.String, priority: FeedPriority, needs_mac: Schema.Boolean, docs: Schema.String, prompt_schema: Schema.Unknown, answer_schema: Schema.Unknown })
+    )
+  }),
   errors: ["auth.unauthenticated"],
-  docs: "The built-in request kinds; custom kinds x-<publisher>.<name> carry their own answer_schema.",
+  docs: "The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema.",
   cli: { path: "feed kinds", visible: true },
   mcp: { expose: "default", group: "feed" }
 })

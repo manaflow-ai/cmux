@@ -220,6 +220,25 @@ export const checkAnswer = (kind: string, prompt: unknown, answerSchema: unknown
   return def.checkAnswer ? def.checkAnswer(p.value, a.value) : ok
 }
 
+const toJsonSchema = (schema: Schema.Top): unknown => {
+  const doc = Schema.toJsonSchemaDocument(schema as never) as unknown as { schema: Record<string, unknown>; definitions?: Record<string, unknown> }
+  const defs = doc.definitions ?? {}
+  return Object.keys(defs).length === 0 ? doc.schema : { ...doc.schema, $defs: defs }
+}
+
+let kindSchemas: ReadonlyArray<{ kind: string; priority: string; needs_mac: boolean; docs: string; prompt_schema: unknown; answer_schema: unknown }> | undefined
+
+/** The registry as published by `feed.kinds`: JSON Schema 2020-12 of each kind's prompt and answer (computed once). */
+export const feedKindSchemas = () =>
+  (kindSchemas ??= Object.entries(feedKinds).map(([kind, k]) => ({
+    kind,
+    priority: k.priority,
+    needs_mac: k.needsMac,
+    docs: k.docs,
+    prompt_schema: toJsonSchema(k.prompt),
+    answer_schema: toJsonSchema(k.answer)
+  })))
+
 export const kindNeedsMac = (kind: string) => feedKinds[kind]?.needsMac ?? false
 export const kindDefaultPriority = (kind: string): "low" | "normal" | "high" | "urgent" => feedKinds[kind]?.priority ?? "normal"
 export const builtinKindNames = Object.keys(feedKinds)
