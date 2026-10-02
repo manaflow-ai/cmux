@@ -56,9 +56,9 @@ struct CloudTreeCategoryCreateActionTests {
         })
         let machineCell = try fixture.cell(for: newMachine)
         machineCell.setHovered(true)
-        #expect(machineCell.isPersistentActionHoverVisible)
+        #expect(!machineCell.persistentActionHover.isHidden)
         machineCell.setHovered(false)
-        #expect(!machineCell.isPersistentActionHoverVisible)
+        #expect(machineCell.persistentActionHover.isHidden)
 
         fixture.apply(machines: [fixture.machine])
         let workspaces = try #require(fixture.machineNode?.children.first { node in
@@ -66,12 +66,12 @@ struct CloudTreeCategoryCreateActionTests {
             return false
         })
         let newWorkspace = try #require(workspaces.children.last { node in
-            if case .createAction(.newWorkspaceOnResolvedMachine) = node.kind { return true }
+            if case .createAction(.newWorkspace(.cloud(fixture.machineID))) = node.kind { return true }
             return false
         })
         let workspaceCell = try fixture.cell(for: newWorkspace)
         workspaceCell.setHovered(true)
-        #expect(workspaceCell.isPersistentActionHoverVisible)
+        #expect(!workspaceCell.persistentActionHover.isHidden)
 
         let connectingPlaceholder = CloudTreeNode(
             id: "connecting-placeholder",
@@ -87,7 +87,7 @@ struct CloudTreeCategoryCreateActionTests {
             nodeActions: fixture.nodeActions
         )
         placeholderCell.setHovered(true)
-        #expect(!placeholderCell.isPersistentActionHoverVisible)
+        #expect(placeholderCell.persistentActionHover.isHidden)
 
         #expect(CloudTreeCellView.isPersistentActionRow(.placeholder(
             machine: .cloud("empty"),

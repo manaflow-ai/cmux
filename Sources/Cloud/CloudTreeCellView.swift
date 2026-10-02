@@ -29,7 +29,7 @@ final class CloudTreeCellView: NSTableCellView {
     /// Persistent create rows use the same inset hover treatment as inline
     /// device actions. The outline owns hover tracking, so this remains
     /// visible even though ordinary row content passes pointer events through.
-    private let persistentActionHover = NSView()
+    let persistentActionHover = NSView()
     private var portsStatus: CloudPortsStatusContent?
     private var portsStatusTrailingConstraint: NSLayoutConstraint?
     private var portAction: @MainActor (CloudPortsStatusAction, SurfaceMachineID) -> Void = { _, _ in }
@@ -304,12 +304,6 @@ final class CloudTreeCellView: NSTableCellView {
 
     private func updatePersistentActionHover() {
         persistentActionHover.isHidden = !(showsPersistentActionHover && hovered)
-    }
-
-    /// Exposed for the focused cell-level regression test. The outline still
-    /// owns hover tracking in production through `setHovered`.
-    var isPersistentActionHoverVisible: Bool {
-        !persistentActionHover.isHidden
     }
 
     static func isPersistentActionRow(_ kind: CloudTreeNode.Kind) -> Bool {
