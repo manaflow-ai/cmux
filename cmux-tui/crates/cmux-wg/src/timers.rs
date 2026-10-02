@@ -35,6 +35,9 @@ pub(crate) const ACTIVE_WINDOW: Duration = Duration::from_secs(20);
 /// REJECT_AFTER_TIME * 3 (540 s) plus margin: one tick after this zeroes
 /// the session keys.
 pub(crate) const EXPIRY_SWEEP: Duration = Duration::from_secs(541);
+/// A session younger than REKEY_AFTER_TIME (120 s) is used as it is after a
+/// network change; an older one is replaced by a handshake at once.
+pub(crate) const SESSION_FRESH: Duration = Duration::from_secs(120);
 /// Resolution of a persistent keepalive on an otherwise idle tunnel.
 pub(crate) const KEEPALIVE_TICK: Duration = Duration::from_secs(1);
 
