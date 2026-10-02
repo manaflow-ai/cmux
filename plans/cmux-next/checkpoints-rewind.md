@@ -137,7 +137,7 @@ The coordinator approved these trigger, retention and untracked defaults. They s
 
 | Setting | Proposed default | Rule |
 | --- | --- | --- |
-| Checkpoint triggers | on demand first; automatically before every handoff and every agent turn that can edit files when automation lands | Integrate with owner-side prompt admission before execution. Without a reliable pre-turn barrier, report unavailable coverage and do not claim automatic protection. No keystroke/tool-event capture. |
+| Checkpoint triggers | on demand first; automatically before every handoff and every agent turn that can edit files when automation lands | Integrate with owner-side prompt admission before execution. Without a reliable pre-turn barrier or on capture failure, block protected start by default; only explicit user continuation may proceed with unavailable coverage. No keystroke/tool-event capture. |
 | Untracked selection | explicitly approved, not ignored, each file strictly below 10 MB (10,000,000 bytes) | Saved project selection requires user choice. Ignore/exclusion rules and size are rechecked each capture. No silent count cap. |
 | Unpinned retention | 50 checkpoints per repository, 7 days | Either bound makes old records eligible across its worktrees; pins remain. |
 | Repository logical snapshot budget | 512 MiB | Fail capture if projected usage exceeds policy after eligible pruning. Pinned records can prevent pruning. |
