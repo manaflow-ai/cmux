@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { canonicalJson, LEDGER_RETENTION_MS, type OwnerFrame, type Principal, type RejectFrame } from "@cmux/ownership"
 import { cloudOpByName, PENDING_CONNECTION_TTL_MS, type Connection, type IntegrationProvider } from "@cmux/protocol"
-import { connectionsDomain, githubRepoAllowed, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
+import { connectionsDomain, expiredForgets, githubRepoAllowed, mayUse, pendingExpiries, policyOf, providerAllowed, type ConnectionsState } from "./domains/connections.ts"
 import { decodeParams } from "./domains/common.ts"
 import type { Env } from "./env.ts"
 import { aadFor, open, seal, type SealedSecret } from "./integrations/crypto.ts"
@@ -63,6 +63,7 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       identity TEXT NOT NULL, idempotency_key TEXT NOT NULL, op TEXT NOT NULL, params_hash TEXT NOT NULL,
       status TEXT NOT NULL, reply TEXT, created_at INTEGER NOT NULL, PRIMARY KEY (identity, idempotency_key))`)
     sql.exec(`CREATE INDEX IF NOT EXISTS external_calls_created ON external_calls (created_at)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS refused_system_ops (key TEXT PRIMARY KEY, code TEXT NOT NULL, at INTEGER NOT NULL)`)
   }
 
   protected read(state: ConnectionsState, op: string, _params: unknown, principal: Principal): ReadResult {
@@ -83,23 +84,52 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** The external-effect ledger keeps the same 7-day replay window as the op ledger. */
   protected override onPrune(before: number): void {
     this.ctx.storage.sql.exec(`DELETE FROM external_calls WHERE created_at < ?`, before)
+    // A refused op's target connection is gone or no longer pending by then.
+    const ids = new Set(Object.keys(this.boundEngine?.currentState.connections ?? {}))
+    for (const r of this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops WHERE at < ?`, before).toArray()) {
+      if (!ids.has(r.key.slice(r.key.indexOf(":") + 1))) this.ctx.storage.sql.exec(`DELETE FROM refused_system_ops WHERE key = ?`, r.key)
+    }
   }
 
-  /** The earlier of: the oldest pending connection's expiry, and the external-call ledger's next prune. */
+  /** The earliest of: a pending connection's expiry, an expired one leaving state, the external-call ledger's prune. */
   protected override nextWakeAt(state: ConnectionsState, _now: number): number | null {
     const oldest = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(created_at) AS at FROM external_calls`).toArray()[0]?.at
-    const prune = oldest === null || oldest === undefined ? null : Number(oldest) + LEDGER_RETENTION_MS
-    const expiry = pendingExpiries(state)[0]?.at ?? null
-    return prune === null ? expiry : expiry === null ? prune : Math.min(prune, expiry)
+    const times: Array<number> = []
+    if (oldest !== null && oldest !== undefined) times.push(Number(oldest) + LEDGER_RETENTION_MS)
+    const skip = this.skipped()
+    const expiry = pendingExpiries(state).find((p) => !skip.has(`expire:${p.connection}`))
+    if (expiry) times.push(expiry.at)
+    const forget = expiredForgets(state).find((p) => !skip.has(`forget:${p.connection}`))
+    if (forget) times.push(forget.at)
+    return times.length === 0 ? null : Math.min(...times)
   }
 
-  /** Expires pending connections whose lifetime ended; the key makes a repeated alarm a replay. */
+  /** System ops that were refused: never retried, so a refusal cannot spin the alarm. Logged loudly. */
+  private skipped(): Set<string> {
+    return new Set(this.ctx.storage.sql.exec<{ key: string }>(`SELECT key FROM refused_system_ops`).toArray().map((r) => r.key))
+  }
+
+  private runSystem(op: string, params: unknown, key: string) {
+    const res = this.submitSystem(op, params, key)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) {
+      this.ctx.storage.sql.exec(`INSERT OR IGNORE INTO refused_system_ops (key, code, at) VALUES (?, ?, ?)`, key, rej.code, Date.now())
+      console.error(JSON.stringify({ msg: "connection system op refused", key, code: rej.code }))
+    }
+  }
+
+  /** Expires pending connections whose lifetime ended and drops long-expired ones; keys make repeated alarms replays. */
   protected override async onWake(now: number): Promise<void> {
     const engine = this.boundEngine
     if (!engine) return
+    const skip = this.skipped()
     for (const p of pendingExpiries(engine.currentState)) {
       if (p.at > now) break
-      this.submitSystem("connection.expire", { connection: p.connection, at: now }, `expire:${p.connection}`)
+      if (!skip.has(`expire:${p.connection}`)) this.runSystem("connection.expire", { connection: p.connection, at: now }, `expire:${p.connection}`)
+    }
+    for (const p of expiredForgets(engine.currentState)) {
+      if (p.at > now) break
+      if (!skip.has(`forget:${p.connection}`)) this.runSystem("connection.forget", { connection: p.connection, at: now }, `forget:${p.connection}`)
     }
   }
 
@@ -226,6 +256,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
         ...(approved.resources ? { resources: { repos: approved.resources.repos === null ? null : [...approved.resources.repos] } } : {})
       }, `activate:${c.id}:${sha256(canonicalJson([approved.account.key, approved.scopes_granted, approved.resources ?? null])).slice(0, 43)}`)
     const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    // An exchange that began inside the lifetime and finished after it still activates when the
+    // expiry alarm has not run yet: the provider code is already spent, so refusing would only strand it.
     if (rej) {
       this.ctx.storage.sql.exec(`DELETE FROM credentials WHERE connection = ?`, c.id)
       await this.index(approved.account.key).remove(c.owner, c.id).catch(() => undefined)

@@ -426,6 +426,31 @@ describe("connections end to end (workerd)", () => {
     const listed = (await read(token, "integration.list")).json.value.connections
     expect(listed.find((c: any) => c.id === pendingId).status).toBe("expired")
     expect(listed.find((c: any) => c.id === activeId).status).toBe("active")
+    // A day later the expired attempt leaves owner state (the projection keeps its row); the active one stays.
+    await inDO(connections, async (instance) => {
+      const expiredAt = instance.boundEngine.currentState.connections[pendingId].updated_at
+      expect(instance.nextWakeAt(instance.boundEngine.currentState, Date.now())).toBe(expiredAt + 24 * 3600_000)
+      await instance.onWake(expiredAt + 24 * 3600_000)
+      expect(instance.boundEngine.currentState.connections[pendingId]).toBeUndefined()
+      expect(instance.boundEngine.currentState.connections[activeId].status).toBe("active")
+    })
+  })
+
+  it("a refused expiry is recorded and never retried, so it cannot spin the alarm", async () => {
+    const { token, team } = await signedIn("conn-expire-2")
+    const p = await op(token, "integration.connect", { provider: "slack" })
+    const id = p.json.value.connection.id as string
+    const connections = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team))
+    await inDO(connections, async (instance, state) => {
+      const created = instance.boundEngine.currentState.connections[id].created_at
+      // Burn the key with other params so the real expire is refused (idempotency.conflict).
+      instance.submitSystem("connection.expire", { connection: id, at: 0 }, `expire:${id}`)
+      await instance.onWake(created + 30 * 60_000)
+      expect(instance.boundEngine.currentState.connections[id].status).toBe("pending")
+      expect(state.storage.sql.exec("SELECT key FROM refused_system_ops").toArray().map((r: any) => r.key)).toEqual([`expire:${id}`])
+      const next = instance.nextWakeAt(instance.boundEngine.currentState, Date.now())
+      expect(next === null || next > created + 30 * 60_000).toBe(true)
+    })
   })
 
   it("refuses forged provider webhooks and answers Slack URL verification", async () => {

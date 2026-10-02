@@ -5,6 +5,7 @@ import {
   IntegrationConnect,
   IntegrationPolicySet,
   IntegrationRevoke,
+  EXPIRED_CONNECTION_RETENTION_MS,
   PENDING_CONNECTION_TTL_MS,
   type Connection,
   type TeamIntegrationPolicy
@@ -169,6 +170,15 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         return { ok: true, state: { ...state, connections: { ...state.connections, [c.id]: next } }, value: next, outbox: [outbox(next)] }
       }
 
+      case "connection.forget": {
+        const d = decodeParams<{ connection: string; at: number }>(internalByName.get(op)!, params)
+        if (!d.ok) return d
+        const c = state.connections[d.value.connection]
+        if (!c || c.status !== "expired" || Math.max(ctx.now, d.value.at) < c.updated_at + EXPIRED_CONNECTION_RETENTION_MS) return { ok: true, state, value: null, changed: false }
+        const { [c.id]: _gone, ...rest } = state.connections
+        return { ok: true, state: { ...state, connections: rest }, value: { connection: c.id } }
+      }
+
       case "integration.policy.set": {
         const d = decodeParams<PolicyFields>(IntegrationPolicySet, params)
         if (!d.ok) return d
@@ -202,4 +212,11 @@ export const pendingExpiries = (s: ConnectionsState): Array<{ connection: string
   Object.values(s.connections)
     .filter((c) => c.status === "pending")
     .map((c) => ({ connection: c.id, at: c.created_at + PENDING_CONNECTION_TTL_MS }))
+    .sort((a, b) => a.at - b.at)
+
+/** Expired connections, oldest first, with the instant each leaves owner state. */
+export const expiredForgets = (s: ConnectionsState): Array<{ connection: string; at: number }> =>
+  Object.values(s.connections)
+    .filter((c) => c.status === "expired")
+    .map((c) => ({ connection: c.id, at: c.updated_at + EXPIRED_CONNECTION_RETENTION_MS }))
     .sort((a, b) => a.at - b.at)

@@ -27,6 +27,9 @@ export const ConnectionStatus = Schema.Literals(["pending", "active", "needs_rea
  */
 export const PENDING_CONNECTION_TTL_MS = 30 * 60_000
 
+/** Expired connections leave the owner's state this long after they expired (the projection keeps the row). */
+export const EXPIRED_CONNECTION_RETENTION_MS = 24 * 3600_000
+
 export const Connection = Schema.Struct({
   id: ConnectionId,
   owner: TeamId,
@@ -315,5 +318,6 @@ export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
     Schema.Struct({ connection: ConnectionId, at: Schema.Int }),
     "Internal: a pending connection outlived PENDING_CONNECTION_TTL_MS."
   ),
+  internal("connection.forget", Schema.Struct({ connection: ConnectionId, at: Schema.Int }), "Internal: drop an expired connection from owner state after EXPIRED_CONNECTION_RETENTION_MS."),
   internal("integration.policy.apply_managed", PolicyApplyManagedParams, "Internal: an SSO-provisioned or MDM-managed policy replaces and locks the team policy.")
 ]
