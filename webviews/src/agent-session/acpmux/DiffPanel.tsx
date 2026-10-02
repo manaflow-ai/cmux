@@ -220,7 +220,14 @@ export function DiffPanel({
   return (
     <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
       <header className="acpmux-diff-header">
-        <button ref={back} type="button" className="acpmux-diff-back" aria-label="Back to transcript" onClick={onClose}>
+        <button
+          ref={back}
+          type="button"
+          className="acpmux-diff-back"
+          aria-label="Back to transcript"
+          title="Back to transcript (Esc)"
+          onClick={onClose}
+        >
           <ChevronLeft />
         </button>
         <ScopeMenu
