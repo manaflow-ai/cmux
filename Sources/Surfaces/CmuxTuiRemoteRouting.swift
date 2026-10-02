@@ -24,7 +24,8 @@ enum CmuxTuiRemoteRouting {
         raw?.lowercased() == "agent"
     }
 
-    /// Builds the fork metadata passed to a detached Codex monitor.
+    /// Builds the fork metadata passed to a detached Codex monitor. Keep this
+    /// shared so the app-host tests and CLI use one argument contract.
     static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
         guard let forkParent = environment["CMUX_AGENT_FORK_PARENT_SESSION_ID"], !forkParent.isEmpty else { return [] }
         var arguments = ["--fork-parent", forkParent]
