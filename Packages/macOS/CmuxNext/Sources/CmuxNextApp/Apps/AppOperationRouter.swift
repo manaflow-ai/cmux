@@ -17,7 +17,7 @@ import Foundation
 /// - `app.storage.*` to a per-app JSON file; `net.fetch` via URLSession
 ///   (hosts already limited to the app's `net:` scopes; credentials stripped);
 /// - anything else `operation.unsupported`.
-final class AppOperationRouter: AppOperationSink, Sendable {
+nonisolated final class AppOperationRouter: AppOperationSink, Sendable {
     let router: ControlRouter
     let storage: AppStorageStore
     let ledger: @Sendable () async throws -> [ListNotificationsRequest.Entry]
@@ -90,7 +90,7 @@ final class AppOperationRouter: AppOperationSink, Sendable {
     }
 }
 
-extension AppJSON {
+nonisolated extension AppJSON {
     /// Settings/control JSON to app JSON (same shape).
     init(_ value: CmuxNextSettings.JSONValue) {
         switch value {

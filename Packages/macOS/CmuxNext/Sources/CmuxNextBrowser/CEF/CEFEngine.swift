@@ -121,7 +121,7 @@ public final class CEFEngine: BrowserEngine {
     }
 
     /// An incognito request from Chromium ("Open Link in Incognito Window",
-    /// Chrome's New Incognito Window): open `url` (nil: a new tab page) in a
+    /// New Incognito Window): open `url` (nil: a new tab page) in a
     /// cmux incognito window, or in the incognito window of `source` when
     /// that page is incognito. Chromium opens nothing.
     public var openOffTheRecord: ((URL?, (any BrowserTab)?) -> Void)? {

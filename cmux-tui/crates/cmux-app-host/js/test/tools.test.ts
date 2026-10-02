@@ -78,3 +78,20 @@ describe("generator", () => {
     expect(scopeFor("team.directory", { class: "read", risk: "read" })).toBe("team:read")
   })
 })
+
+describe("native code tiers", () => {
+  const dir = (manifest: object) => {
+    const d = mkdtempSync(join(tmpdir(), "cmux-app-native-"))
+    writeFileSync(join(d, "cmux-app.json"), JSON.stringify(manifest))
+    return d
+  }
+  const base = { manifestVersion: 1, version: "1.0.0", name: "N", description: "d", engines: { cmux: "^1.0" } }
+  test("third-party native server and native pane are refused", () => {
+    const r = validatePackage(dir({ ...base, id: "octo/n", repository: "https://github.com/octo/n", server: { kind: "native", binary: "x", hosts: ["local"] }, contributes: { paneKinds: [{ id: "p", title: "P", renderer: "native", nativeView: "x.view" }] } }))
+    expect(r.errors.filter((e) => e.code === "tier.native").map((e) => e.path)).toEqual(["/server/kind", "/contributes/paneKinds/0/renderer"])
+  })
+  test("first-party native server is accepted", () => {
+    const d = dir({ ...base, id: "cmux/tasks", repository: "https://github.com/manaflow-ai/cmux", server: { kind: "native", binary: "cmux-tasks", args: ["serve"], hosts: ["team-vm", "local"], data: "durable" }, contributes: { paneKinds: [{ id: "board", title: "Tasks", renderer: "native", nativeView: "tasks.board" }] } })
+    expect(validatePackage(d).errors).toEqual([])
+  })
+})

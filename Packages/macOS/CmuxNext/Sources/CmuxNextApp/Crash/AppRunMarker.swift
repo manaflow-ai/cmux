@@ -7,12 +7,12 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 
 /// Writes the signal number ("11\n") with one async-signal-safe write(2),
 /// then lets the signal end the process with its default action:
-/// - a fault (SEGV, BUS, ILL, FPE, TRAP from the CPU): return, so the
-///   faulting instruction runs again under SIG_DFL and macOS writes its
-///   crash report (re-raising here made the end a plain signal with no
-///   report);
-/// - a signal sent by a process or by raise/abort (SIGTERM, abort's
-///   SIGABRT): re-raise it, or it would be lost.
+/// - a fault (SEGV, BUS, ILL, FPE, TRAP from the CPU, SYS from a bad system
+///   call): return, so the faulting instruction runs again under SIG_DFL
+///   and macOS writes its crash report (re-raising here made the end a
+///   plain signal with no report);
+/// - any other signal, or one sent by a process or by raise/abort (SIGTERM,
+///   SIGINT, SIGHUP, abort's SIGABRT): re-raise it, or it would be lost.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, _ in
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
@@ -24,18 +24,22 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
     }
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
-    if sentBySoftware || signal == SIGTERM || signal == SIGABRT { _ = raise(signal) }
+    let fault = signal == SIGSEGV || signal == SIGBUS || signal == SIGILL || signal == SIGFPE || signal == SIGTRAP || signal == SIGSYS
+    if sentBySoftware || !fault { _ = raise(signal) }
 }
 
 /// Marks this run as live, so the next launch can tell a crash from a
 /// normal quit (`LaunchRecovery`). Per bundle id, so tagged builds never
 /// read each other's marker.
 ///
-/// - `run.json`: pid, launch time, whether this run is a restart, and
-///   whether it lived past the quick-crash window.
+/// - `run.json`: pid, launch time, whether this run is a restart, whether
+///   it lived past the quick-crash window, and whether a requested quit had
+///   begun (`markQuitting`).
 /// - `run.signal`: empty until a fatal signal handler writes its number.
 ///
-/// A normal quit removes both. SIGTERM counts as a quit that was asked for.
+/// A normal quit removes both. A quit that had begun, or a requested-quit
+/// signal (`LaunchRecovery.requestedQuitSignals`), counts as a quit that
+/// was asked for, even when the process is then killed before it ends.
 @MainActor
 final class AppRunMarker {
     private let directory: URL
@@ -90,10 +94,11 @@ final class AppRunMarker {
     /// Chromium resets these signals to their default action at start.
     func installHandlers() {
         guard fatalSignalDescriptor >= 0 else { return }
-        // SIGTERM is a requested quit: `QuitSignal` turns it into "Quit, keep
-        // sessions" once installed; until then this handler records it.
-        let signals = QuitSignal.isInstalled ? [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS]
-            : [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS, SIGTERM]
+        // SIGTERM, SIGINT and SIGHUP are requested quits: `QuitSignal` turns
+        // them into "Quit, keep sessions" once installed; until then this
+        // handler records them.
+        let fatal = [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS]
+        let signals = QuitSignal.isInstalled ? fatal : fatal + LaunchRecovery.requestedQuitSignals.sorted()
         for signal in signals {
             var action = sigaction()
             action.__sigaction_u.__sa_sigaction = fatalSignalHandler
@@ -101,12 +106,24 @@ final class AppRunMarker {
             sigemptyset(&action.sa_mask)
             sigaction(signal, &action, nil)
         }
-        QuitSignal.ignoreProcessSignal()
+        QuitSignal.reclaim()
     }
 
     private func markSurvived() {
         marker.survived = true
         try? writeMarker()
+    }
+
+    /// A requested quit has begun (`QuitCoordinator`): the next launch is
+    /// clean even if this process is killed before the quit finishes, for
+    /// example by dev tooling's SIGKILL after its bounded wait while
+    /// Chromium shuts down.
+    func markQuitting() {
+        guard marker.quitting != true else { return }
+        marker.quitting = true
+        do { try writeMarker() } catch {
+            logger.error("run marker quit write failed: \(String(describing: error), privacy: .public)")
+        }
     }
 
     /// A normal quit: the next launch is clean.

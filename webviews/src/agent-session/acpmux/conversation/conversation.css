@@ -1,11 +1,10 @@
-/* Codex transcript Markdown, ported from manaflow-ai/codex-atlas-clone
-   (src/conversation/conversation.css), whose metrics were measured on native Codex captures.
+/* Transcript Markdown, ported from the agent-pane reference prototype
+   (src/conversation/conversation.css).
 
-   No literal colors: Codex's dark palette is its foreground over its background at fixed
+   No literal colors: the dark palette is a foreground over a background at fixed
    strengths, so each color here is the theme's foreground at that strength over
-   transparent (fills and rules) or one of the theme's text tokens. The default dark
-   theme comes out near Codex; other themes keep their own cast. Percentages are measured
-   against Codex's #f8f8f3 on #272823. */
+   transparent (fills and rules) or one of the theme's text tokens. Other themes keep
+   their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
   --cv-text: var(--agent-text);
@@ -24,7 +23,7 @@
   --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
-  /* Type and column: Codex's type exactly (system-ui at 14px on 22.75px lines, 13px code; atlas
+  /* Type and column: system-ui at 14px on 22.75px lines, 13px code (reference
      shell/tokens.css and conversation.css), in the taste bar's 720px column. */
   --cv-font-size: 14px;
   --cv-line-height: 22.75px;
@@ -226,6 +225,11 @@
   background: var(--cv-check-fill);
   box-shadow: inset 0 0 0 1px var(--cv-check-ring);
 }
+/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+:root[data-borders="none"] .cv-checkbox {
+  box-shadow: none;
+  background: var(--cv-check-fill);
+}
 
 .cv-quote {
   margin: 0 0 21.5px;
@@ -245,7 +249,7 @@
 .cv-quote > :last-child {
   margin-bottom: 0;
 }
-/* Codex draws a quote's paragraphs as consecutive lines ("“…”" then "— Design notebook"). */
+/* A quote's paragraphs draw as consecutive lines ("“…”" then "— Design notebook"). */
 .cv-quote > .cv-p {
   margin-top: 0;
   margin-bottom: 0;
@@ -444,6 +448,12 @@
   --cv-card-ring: color-mix(in srgb, var(--cv-fg) 10%, transparent);
   --cv-card-fill: color-mix(in srgb, var(--cv-fg) 4%, transparent);
 }
+/* appearance.borders none (data-borders on the root, applyAgentTheme): code and tool cards keep
+   their fill and lose the ring. */
+:root[data-borders="none"] {
+  --cv-codeblock-ring: transparent;
+  --cv-card-ring: transparent;
+}
 
 /* "Worked for 15s ›": one muted disclosure line over a hairline. */
 .cv-worked {
@@ -513,7 +523,7 @@
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
 }
-/* An opened run's calls; past nine 26px rows the list scrolls, as Codex's does. */
+/* An opened run's calls; past nine 26px rows the list scrolls. */
 .cv-tool-run {
   max-height: 234px;
   overflow-y: auto;
@@ -631,7 +641,7 @@
   word-break: break-word;
 }
 
-/* Copy under an answer; Codex reserves the row's height. */
+/* Copy under an answer; the row's height is reserved. */
 .cv-turn-actions {
   display: flex;
   align-items: center;

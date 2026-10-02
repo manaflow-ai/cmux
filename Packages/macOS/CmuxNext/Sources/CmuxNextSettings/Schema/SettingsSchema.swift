@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + browser + notifications
+        general + columnLayout + appearance + sidebarSections + browser + notifications
     }
 
     /// The descriptors of one section, in order.
@@ -98,7 +98,7 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.text("settings.layout.fixedColumnWidth", "Fixed Column Width"),
                 help: SettingsText.text("settings.layout.fixedColumnWidth.help", "A share of the window width, for Fixed Width new columns."),
                 kind: .number(SettingNumber(DefaultColumnWidthSetting.range, step: 0.05, unit: .fraction)),
-                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["niri", "width"]
+                default: .number(DefaultColumnWidthSetting.fallback), keywords: ["width"]
             ),
             SettingDescriptor(
                 CenterFocusedColumnSetting.configPath, section: .general, group: columns,
@@ -108,7 +108,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(CenterFocusedColumn.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(CenterFocusedColumn.onOverflow.rawValue, SettingsText.text("settings.choice.onOverflow", "When It Does Not Fit")),
                 ]),
-                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["niri", "scroll"]
+                default: .string(CenterFocusedColumnSetting.fallback.rawValue), keywords: ["scroll"]
             ),
             SettingDescriptor(
                 StripScrollbarSetting.configPath, section: .general, group: columns,
@@ -119,7 +119,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StripScrollbarMode.always.rawValue, SettingsText.text("settings.choice.always", "Always")),
                     SettingChoice(StripScrollbarMode.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
                 ]),
-                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
+                default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["scroll", "scrollbar", "minimap"]
             ),
             SettingDescriptor(
                 CloseFocusSetting.configPath, section: .general, group: columns,
@@ -306,6 +306,25 @@ public nonisolated enum SettingsSchema {
                 path + ["color"], section: .appearance, group: group,
                 title: SettingsText.text("settings.statusIndicator.color", "Color"),
                 kind: .color, default: nil, defaultLabel: SettingsText.text("settings.default.theme", "Theme")
+            ),
+            SettingDescriptor(
+                path + ["honorStatusStyle"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
+                help: SettingsText.text("settings.statusIndicator.honorStatusStyle.help",
+                                        "A status that asks for a style (cmux status set --style) uses it."),
+                kind: .toggle, default: .bool(true)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusy", "Show Running Commands"),
+                help: SettingsText.text("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
+                kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusyAfter"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusyAfter", "Show After"),
+                kind: .number(SettingNumber(StatusBehaviorSettings.inferAfterRange, step: 1, unit: .seconds)),
+                default: .number(StatusBehaviorSettings().inferCommandBusyAfter)
             ),
         ]
     }

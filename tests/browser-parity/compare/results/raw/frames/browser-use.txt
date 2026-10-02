@@ -1,9 +1,0 @@
-Frames
-|scroll element[18]<iframe id=same title=Same origin /> (scroll)
-	[33]<button id=inner-btn />
-		Inside frame
-	|SHADOW(open)|[5]<input id=inner-input aria-label=Frame field />
-|scroll element[20]<iframe id=cross title=Cross origin /> (scroll)
-	[3]<button id=inner-btn />
-		Inside frame
-	|SHADOW(open)|[1]<input id=inner-input aria-label=Frame field />

@@ -50,7 +50,16 @@ Settings (`cmux.json`, Settings > Appearance > Loading Indicator): `appearance.s
 (`arc|native|dot|none`), `.size` (0.5...1.5 of the slot), `.thickness` (0.5...4 pt), `.color` (`#RRGGBB` or
 `theme`). Debug Settings > Status Indicators: style override (compare variants live), arc length, ring track
 opacity, dot size, pulse low opacity, native steps. Style precedence: Debug override, then the reporter's
-hint (`--style`), then the setting.
+hint (`--style`) when its source is honored (`appearance.statusIndicator.honorStatusStyle`: true by default,
+false, or a list of sources such as `["explicit", "run"]`), then the setting.
+
+Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
+`status.inferCommandBusy` (true) and `status.inferCommandBusyAfter` (3 s): a plain shell command shows as busy
+once it has run that long (the client arms one one-shot timer per running command, never a poll);
+`status.runNotifyMinimumSeconds` (10) and `status.runNotifyWhenVisible` (false): a finished `cmux status run`
+notifies when it took at least that long and its terminal is not visible. Visible means all of: its tab is the
+selected tab of its pane, the pane is on screen, the window is key or not occluded, cmux is the active app
+(client view state, `StatusPolicies` in CmuxNextBridge).
 
 ## 3. Stacking (client; landed)
 
@@ -135,11 +144,25 @@ Live switching: Debug Settings > Status Indicators > Style override. Recommendat
    decoding of `workspace_status` and `terminal-activity-v1` into `StatusMapping` reports after the pin cut.
 3. Pane header and Home adoption; hover card detail list; sections items (sidebar-sections lead).
 
-## 8. Open decisions for Lawrence
+## 8. Decisions (Lawrence, 2026-10-02)
 
-- Default style: arc (recommended), native or dot.
-- Reporter style hints beat the user's setting (current). Alternative: the setting always wins and hints are
-  ignored.
-- `none` hides loading but keeps waiting/error/done marks (current). Alternative: hide everything.
-- Inferred busy for plain shell commands: on after 3 s (proposed), or off by default.
-- `status run` notification threshold: 10 s (proposed).
+- Arc and native are both first-class styles, arc is the default, configurable. The same indicator is used for
+  every tab loading state (browser page loading, agent working, terminal busy, any tab kind) and every surface
+  (sidebar rows, sections, pane headers, Home): one component, one setting.
+- A status may request its own style and wins by default; the user can turn that off, per source
+  (`honorStatusStyle`).
+- Automatic busy for plain shell commands: on after 3 s, customizable (on/off, threshold).
+- `status run` notifies when the run took 10 s or more and the terminal is not visible; both customizable.
+- "Make literally everything customizable."
+
+Open: `none` hides loading but keeps waiting/error/done marks (current); alternative hide everything.
+
+## 9. Implementation state
+
+- Rust (PR into feat-cmux-next-acpmux, branch feat-cmux-next-status-rust): `workspace_status.set` loading fields
+  and owners, daemon auto-clear (TTL, owner terminal exit, owner process exit with start-time identity),
+  `terminal-activity-v1` busy facts, `cmux status set|clear|list|run`. Not built yet: `cmux status wait` and
+  `cmux terminal <term> wait --until idle|prompt` (need a new connection-owned wait op; `exit` and `output` exist
+  as `terminal <term> process wait` and `terminal <term> screen wait --pattern`).
+- Swift: renders agent states today; reading `workspace_status` loading fields and `extra.busy` / `extra.progress`
+  waits for the cmux-tui pin cut that carries the Rust PR.

@@ -5,7 +5,7 @@ import Testing
 
 /// The focus ring follows every resize in the same layout pass that places
 /// the panes: after the pass that moves the panes (a window resize, the
-/// sidebar resizing the layout root, a niri column scroll), the ring's
+/// sidebar resizing the layout root, a strip column scroll), the ring's
 /// stroke rect equals the focused pane's rounded content rect, with the
 /// overlay plane in the root and with the plane adopted by a window overlay
 /// above Chromium pages (a second window whose layout pass is not this one).

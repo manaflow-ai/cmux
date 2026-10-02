@@ -1186,6 +1186,19 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SplitRespawn:
+    __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
@@ -1702,6 +1715,67 @@ class CloseWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationAgentTokenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
+    participant: str
+
+
+@dataclass(frozen=True)
+class ConversationBindRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
+    participant: str
+    token: str
+
+
+@dataclass(frozen=True)
+class ConversationCreateRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/request'
+    idempotency_key: str
+    participants: Union[JsonValue, None]
+    title: str
+    actor: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-history/request'
+    before_seq: int
+    conversation: str
+    limit: int
+
+
+@dataclass(frozen=True)
+class ConversationListRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-list/request'
+    pass
+
+
+@dataclass(frozen=True)
+class ConversationOpRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-op/request'
+    conversation: str
+    idempotency_key: str
+    op: Union[JsonValue, None]
+    actor: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ConversationSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
+    conversation: str
+    tail: int
+
+
+@dataclass(frozen=True)
+class ConversationTypingRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-typing/request'
+    conversation: str
+    on: bool
+    actor: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2225,6 +2299,7 @@ class MoveTabToSplitRequest:
     pane: Id
     edge: str
     ratio: Union[float, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -3235,6 +3310,27 @@ class ConfigReloadRequestedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class ConversationChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-changed/payload'
+    change: Union[JsonValue, None]
+    conversation: str
+    event: Literal['conversation-changed']
+    rev: int
+    transaction: Union[str, None]
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ConversationTypingEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/conversation-typing/payload'
+    conversation: str
+    event: Literal['conversation-typing']
+    on: bool
+    participant: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class DaemonShutdownEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
     event: Literal['daemon-shutdown']
@@ -3769,7 +3865,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -3897,6 +3993,7 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SplitRespawn',
     'SurfaceResult',
     'Tab',
     'TerminalColorOverrides',
@@ -3953,6 +4050,14 @@ __all__ = [
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'ConversationAgentTokenRequest',
+    'ConversationBindRequest',
+    'ConversationCreateRequest',
+    'ConversationHistoryRequest',
+    'ConversationListRequest',
+    'ConversationOpRequest',
+    'ConversationSnapshotRequest',
+    'ConversationTypingRequest',
     'CopyRequest',
     'CreateBookmarkRequest',
     'CreateBrowserProfileRequest',
@@ -4132,6 +4237,8 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
+    'ConversationChangedEvent',
+    'ConversationTypingEvent',
     'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',

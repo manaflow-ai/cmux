@@ -1,4 +1,4 @@
-// browser-use parity (plans/cmux-next/browser-repl/browser-use-parity.md): Markdown and
+// Agent tools (cmux-tui/crates/cmux-browser-host/js/agent-tools.js): Markdown and
 // selector extraction, page text search, scrolling, drop-down options,
 // highlights, search result parsing, custom tools, downloads, recording,
 // secrets and the domain policy.

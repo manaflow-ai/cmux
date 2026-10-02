@@ -7,11 +7,11 @@
 //!
 //! The model abstracts split geometry: a screen is an ordered list of
 //! columns, and a column is the ordered list of panes in its split tree. An
-//! ordinary screen (no niri columns) is one column with `columns_active`
+//! ordinary screen (no strip columns) is one column with `columns_active`
 //! false.
 //!
-//! Invariants, checked by [`apply`] on every result and by the property
-//! tests:
+//! Invariants, checked by [`apply`] on every result, by the property tests
+//! and by an exhaustive check of every small layout (`exhaustive_tests.rs`):
 //!
 //! - **I1, tab conservation.** A move, split drop, column drop, reorder or
 //!   tear-off never changes the set of tabs or the content behind a tab.
@@ -23,7 +23,10 @@
 //!   without panes.
 //! - **I4, own position.** Moving a tab onto its own position is a no-op
 //!   (`Ok` without events); splitting a pane's only tab out of that pane is
-//!   [`Reject::OnlyTabSplitOutOfOwnPane`].
+//!   [`Reject::OnlyTabSplitOutOfOwnPane`], unless the split respawns a new
+//!   tab in that pane ([`LayoutOpKind::MoveTabToSplit`] `respawn`). The
+//!   respawned tab is an explicit creation of the op, the only tab I1 lets
+//!   appear.
 //! - **Runtime death (invariant 3 of OWNERSHIP-PRINCIPLES).** A terminal
 //!   host's death ([`LayoutOpKind::RuntimeExited`]) never closes a workspace
 //!   or removes a tab; it only marks the tab dead.
@@ -81,7 +84,7 @@ pub struct Workspace {
 pub struct Screen {
     pub id: ScreenId,
     pub columns: Vec<Column>,
-    /// Whether the columns are niri columns. When false the screen has one
+    /// Whether the columns are strip columns. When false the screen has one
     /// column, its split tree, whose id is not a column id.
     pub columns_active: bool,
 }
@@ -122,8 +125,17 @@ pub enum LayoutOpKind {
     /// Move `tab` to insertion `index` of `pane`. Within its own pane an
     /// index after the tab counts the tab itself, as in a drag.
     MoveTab { tab: TabId, pane: PaneId, index: usize },
-    /// Move `tab` into a new pane `new_pane` beside `pane` on `edge`.
-    MoveTabToSplit { tab: TabId, pane: PaneId, edge: Edge, new_pane: PaneId },
+    /// Move `tab` into a new pane `new_pane` beside `pane` on `edge`. With
+    /// `respawn`, `pane` must be the tab's own pane holding only `tab`: the
+    /// new tab is created in it first, so the pane never empties (a split
+    /// of a pane's only tab that keeps a fresh tab of the same kind there).
+    MoveTabToSplit {
+        tab: TabId,
+        pane: PaneId,
+        edge: Edge,
+        new_pane: PaneId,
+        respawn: Option<NewTab>,
+    },
     /// Move `tab` into a new column `new_column` (holding `new_pane`) on
     /// `anchor`'s screen, after `after_column` (default: the last column),
     /// `width_permille` thousandths of the viewport wide. A screen without
@@ -163,6 +175,14 @@ pub enum LayoutOpKind {
     RuntimeExited { runtime: u64 },
 }
 
+/// A tab an op creates explicitly (a respawn), with caller-chosen id and
+/// content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewTab {
+    pub tab: TabId,
+    pub content: TabContent,
+}
+
 /// Narrowest and widest column, in thousandths of the viewport.
 pub const COLUMN_WIDTH_PERMILLE: std::ops::RangeInclusive<u16> = 100..=1000;
 
@@ -174,12 +194,21 @@ impl LayoutOpKind {
             _ => BTreeSet::new(),
         }
     }
+
+    /// The tabs this op creates explicitly.
+    pub fn created_tabs(&self) -> BTreeSet<TabId> {
+        match self {
+            Self::MoveTabToSplit { respawn: Some(respawn), .. } => BTreeSet::from([respawn.tab]),
+            _ => BTreeSet::new(),
+        }
+    }
 }
 
 /// What an applied op changed, in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LayoutEvent {
     TabMoved { tab: TabId, from: PaneId, to: PaneId, index: usize },
+    TabCreated { tab: TabId, pane: PaneId },
     TabClosed { tab: TabId, pane: PaneId },
     TabDied { tab: TabId },
     PaneCreated { pane: PaneId, screen: ScreenId },
@@ -208,6 +237,9 @@ pub enum Reject {
     InvalidWidth(u16),
     /// A pane's only tab cannot be split or columned out of that pane.
     OnlyTabSplitOutOfOwnPane,
+    /// A respawn applies only to a split of the tab's own pane that holds
+    /// only that tab.
+    RespawnNotNeeded,
     /// A caller-chosen id for a new entity is already in use.
     IdInUse(u64),
     /// The key was already used for a different op.
@@ -229,6 +261,9 @@ impl fmt::Display for Reject {
             Self::InvalidWidth(width) => write!(f, "column width {width}\u{2030} is out of range"),
             Self::OnlyTabSplitOutOfOwnPane => {
                 write!(f, "a pane's only tab cannot be split out of that pane")
+            }
+            Self::RespawnNotNeeded => {
+                write!(f, "a respawn applies only to a split of the pane's only tab")
             }
             Self::IdInUse(id) => write!(f, "id {id} is already in use"),
             Self::IdempotencyConflict(key) => {
@@ -363,6 +398,17 @@ pub fn check_conservation(
     after: &LayoutState,
     closed: &BTreeSet<TabId>,
 ) -> BTreeSet<Violation> {
+    check_conservation_creating(before, after, closed, &BTreeSet::new())
+}
+
+/// I1 from `before` to `after`, where exactly the tabs in `closed` close
+/// and exactly the tabs in `created` appear (an op's explicit creations).
+pub fn check_conservation_creating(
+    before: &LayoutState,
+    after: &LayoutState,
+    closed: &BTreeSet<TabId>,
+    created: &BTreeSet<TabId>,
+) -> BTreeSet<Violation> {
     let mut violations = BTreeSet::new();
     for (tab, content) in &before.tabs {
         match (closed.contains(tab), after.tabs.get(tab)) {
@@ -379,8 +425,13 @@ pub fn check_conservation(
         }
     }
     for tab in after.tabs.keys() {
-        if !before.tabs.contains_key(tab) {
+        if !before.tabs.contains_key(tab) && !created.contains(tab) {
             violations.insert(Violation::TabAdded { tab: *tab });
+        }
+    }
+    for tab in created {
+        if !after.tabs.contains_key(tab) {
+            violations.insert(Violation::TabLost { tab: *tab });
         }
     }
     violations
@@ -394,7 +445,17 @@ pub fn introduced_violations(
     after: &LayoutState,
     closed: &BTreeSet<TabId>,
 ) -> BTreeSet<Violation> {
-    let mut violations = check_conservation(before, after, closed);
+    introduced_violations_creating(before, after, closed, &BTreeSet::new())
+}
+
+/// [`introduced_violations`] where exactly the tabs in `created` may appear.
+pub fn introduced_violations_creating(
+    before: &LayoutState,
+    after: &LayoutState,
+    closed: &BTreeSet<TabId>,
+    created: &BTreeSet<TabId>,
+) -> BTreeSet<Violation> {
+    let mut violations = check_conservation_creating(before, after, closed, created);
     let existing = check_state(before);
     violations.extend(check_state(after).into_iter().filter(|v| !existing.contains(v)));
     violations
@@ -491,7 +552,12 @@ pub fn apply(
     let mut next = state.clone();
     let mut events = Vec::new();
     apply_kind(&mut next, &op.kind, &mut events)?;
-    let violations = introduced_violations(state, &next, &op.kind.closed_tabs());
+    let violations = introduced_violations_creating(
+        state,
+        &next,
+        &op.kind.closed_tabs(),
+        &op.kind.created_tabs(),
+    );
     if !violations.is_empty() {
         return Err(Reject::Invariant(violations.into_iter().collect()));
     }
@@ -684,13 +750,22 @@ fn apply_kind(
             state.require_pane(*pane)?;
             state.move_tab(*tab, source, *pane, *index, events);
         }
-        LayoutOpKind::MoveTabToSplit { tab, pane, edge, new_pane } => {
+        LayoutOpKind::MoveTabToSplit { tab, pane, edge, new_pane, respawn } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             let slot = state.require_pane(*pane)?;
-            if source == *pane && state.panes[&source].len() == 1 {
-                return Err(Reject::OnlyTabSplitOutOfOwnPane);
+            let only = source == *pane && state.panes[&source].len() == 1;
+            match respawn {
+                None if only => return Err(Reject::OnlyTabSplitOutOfOwnPane),
+                None => state.ensure_fresh(&[*new_pane])?,
+                Some(_) if !only => return Err(Reject::RespawnNotNeeded),
+                Some(respawn) => {
+                    state.ensure_fresh(&[*new_pane, respawn.tab])?;
+                    // The fresh tab first: the pane keeps a tab throughout.
+                    state.tabs.insert(respawn.tab, respawn.content.clone());
+                    state.panes.get_mut(&source).expect("source pane exists").push(respawn.tab);
+                    events.push(LayoutEvent::TabCreated { tab: respawn.tab, pane: source });
+                }
             }
-            state.ensure_fresh(&[*new_pane])?;
             let screen = state.screen_mut(slot);
             let at = if edge.before() { slot.pane } else { slot.pane + 1 };
             screen.columns[slot.column].panes.insert(at, *new_pane);
@@ -838,3 +913,9 @@ fn single_pane_screen(screen: ScreenId, pane: PaneId) -> Screen {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod exhaustive_tests;
+
+#[cfg(kani)]
+mod proofs;

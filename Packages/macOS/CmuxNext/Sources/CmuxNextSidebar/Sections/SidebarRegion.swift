@@ -18,6 +18,11 @@ public nonisolated enum SidebarRegion: String, Hashable, Sendable, Codable, Case
 public nonisolated enum SectionLook: String, Hashable, Sendable, Codable, CaseIterable {
     case builtIn = "built_in"
     case list
+
+    /// An unknown look (from a newer app) reads as list (L5).
+    public init(from decoder: any Decoder) throws {
+        self = SectionLook(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .list
+    }
 }
 
 /// What a section holds: its own items, or the workspace list (exactly

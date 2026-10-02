@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextActions
 import Testing
 
-/// Lawrence (2026-10-01): Chrome and WebKit are both first class; Chrome is
-/// the default. The palette has one New Browser Tab row (`openBrowser`,
+/// Lawrence (2026-10-01): Chromium and WebKit are both first class; Chromium
+/// is the default. The palette has one New Browser Tab row (`openBrowser`,
 /// Cmd-Shift-L, the default engine). WebKit is reachable only from the
 /// palette, the CLI and MCP: New WebKit Tab and Reopen in WebKit are in no
 /// right-click menu.

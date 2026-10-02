@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'a6c370d3f0c40c3536f6c97a6cc45900a5d6366aef17a1f4f4f13b02e4ca064a'
+IR_SHA256 = '714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b'
 
 
 @dataclass(frozen=True)
@@ -436,6 +436,106 @@ COMMANDS = {
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-agent-token': CommandMetadata(
+        'conversation-agent-token',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-bind': CommandMetadata(
+        'conversation-bind',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'participant': CommandFieldMetadata(None, None),
+            'token': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-create': CommandMetadata(
+        'conversation-create',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'participants': CommandFieldMetadata(None, None),
+            'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-history': CommandMetadata(
+        'conversation-history',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'before_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-list': CommandMetadata(
+        'conversation-list',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'conversation-op': CommandMetadata(
+        'conversation-op',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-snapshot': CommandMetadata(
+        'conversation-snapshot',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'conversation': CommandFieldMetadata(None, None),
+            'tail': CommandFieldMetadata(None, None),
+        },
+    ),
+    'conversation-typing': CommandMetadata(
+        'conversation-typing',
+        'local-admin',
+        12,
+        'local-conversations-v1',
+        ('local-admin',),
+        None,
+        {
+            'actor': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'on': CommandFieldMetadata(None, None),
         },
     ),
     'copy': CommandMetadata(
@@ -1254,6 +1354,7 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+            'respawn': CommandFieldMetadata(12, 'tab-split-respawn-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2669,6 +2770,8 @@ EVENTS = {
     'client-list-invalidated': EventMetadata('client-list-invalidated', 9, None, ('subscribe',), 'serialized-never-emitted'),
     'colors-changed': EventMetadata('colors-changed', 6, None, ('attach-byte',), 'emitted'),
     'config-reload-requested': EventMetadata('config-reload-requested', 6, None, ('subscribe',), 'emitted'),
+    'conversation-changed': EventMetadata('conversation-changed', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
+    'conversation-typing': EventMetadata('conversation-typing', 12, 'local-conversations-v1', ('subscribe',), 'emitted'),
     'daemon-shutdown': EventMetadata('daemon-shutdown', 12, None, ('control',), 'emitted'),
     'detached': EventMetadata('detached', 5, None, ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'empty': EventMetadata('empty', 5, None, ('subscribe',), 'emitted'),

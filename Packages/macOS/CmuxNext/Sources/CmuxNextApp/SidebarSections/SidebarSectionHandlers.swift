@@ -35,11 +35,24 @@ enum SidebarSectionHandlers {
                 let section = try SidebarSectionResolve.section(sectionName, in: doc)
                 return .itemAdd(LayoutItem(id: .mint(), ref: ref), section: section.id, index: Int.max)
             }
-            return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc)
+            // The account shows as its avatar (no label) by default.
+            return SidebarLayoutPlanner.add(ref, to: builtIn == .settings || builtIn == .account ? .bottom : .top, in: doc,
+                                            showsLabel: builtIn != .account)
         }
         bind("sidebar.item.remove") { invocation, doc in
             .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
         }
+        bind("sidebar.item.removeEverywhere") { invocation, doc in
+            .itemRemoveRef(try SidebarSectionResolve.item(invocation.target, in: doc).ref)
+        }
+        // Hide is app-level state owned by the app platform (D55): the
+        // sidebar forwards to its `app.hide` action and changes no layout.
+        registry.bind("sidebar.item.hideApp", run: { [weak registry] invocation in
+            let item = try SidebarSectionResolve.item(invocation.target, in: layout.document)
+            guard item.ref.kind == LayoutItemRef.appKind else { throw ActionFailure(message: SidebarSectionStrings.notAnApp) }
+            guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
+            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(item.ref.value)], origin: invocation.origin))
+        })
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
             let title = invocation["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
@@ -64,6 +77,35 @@ enum SidebarSectionHandlers {
             bind(id) { invocation, doc in
                 .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(look: look))
             }
+        }
+        let layouts: [(ActionID, SectionArrangement.Layout)] = [("sidebar.section.layoutList", .list),
+                                                                ("sidebar.section.layoutInline", .inline), ("sidebar.section.layoutGrid", .grid)]
+        for (id, kind) in layouts {
+            bind(id) { invocation, doc in
+                .sectionUpdate(try SidebarSectionResolve.section(invocation.target, in: doc).id, SectionPatch(layout: kind))
+            }
+        }
+        bind("sidebar.section.setAlignment") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            let align = invocation["align"]?.stringValue.flatMap(SectionArrangement.Alignment.init(rawValue:)) ?? .leading
+            return .sectionUpdate(section.id, SectionPatch(align: align))
+        }
+        bind("sidebar.section.setGap") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            return .sectionUpdate(section.id, SectionPatch(gap: invocation["gap"]?.intValue.map(OptionalUpdate.set) ?? .clear))
+        }
+        bind("sidebar.section.setColumns") { invocation, doc in
+            let section = try SidebarSectionResolve.section(invocation.target, in: doc)
+            let columns = invocation["columns"]?.intValue ?? 0
+            return .sectionUpdate(section.id, SectionPatch(columns: columns == 0 ? .clear : .set(columns)))
+        }
+        bind("sidebar.item.toggleLabel") { invocation, doc in
+            let item = try SidebarSectionResolve.item(invocation.target, in: doc)
+            // Labels can be hidden only on a line (inline arrangement).
+            guard let (s, _) = doc.locate(item.id), doc.sections[s].arrangement.layout == .inline else {
+                throw ActionFailure(message: SidebarSectionStrings.labelsOnlyOnALine)
+            }
+            return .itemUpdate(item.id, showsLabel: !item.showsLabel)
         }
         bind("sidebar.section.toggleTitle") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)

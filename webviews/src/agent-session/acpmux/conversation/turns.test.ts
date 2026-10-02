@@ -158,7 +158,7 @@ describe("turn view", () => {
     expect(opened[1]!.version).not.toBe(before[1]!.version);
   });
 
-  test("durations read as Codex writes them", () => {
+  test("durations read as short units", () => {
     expect([0, 999, 15_000, 76_000, 3_780_000].map(formatDuration)).toEqual(["0s", "0s", "15s", "1m 16s", "1h 3m"]);
   });
 });
@@ -206,7 +206,7 @@ describe("timestamp lines", () => {
     expect(dated(rows, start + 5 * HOUR)).toEqual([]);
   });
 
-  test("the wording follows Codex: Today, Yesterday, the weekday, then the date with ' at '", () => {
+  test("the wording is Today, Yesterday, the weekday, then the date with ' at '", () => {
     const clock = { now: Date.UTC(2026, 8, 22, 19), timeZone: "America/Los_Angeles", locale: "en-US" };
     const text = (at: number) => timestampText(at, clock).replace(/\u202f/g, " ");
     expect(text(Date.UTC(2026, 8, 22, 16, 5))).toBe("Today 9:05 AM");

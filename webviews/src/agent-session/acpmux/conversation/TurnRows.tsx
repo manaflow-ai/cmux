@@ -1,7 +1,7 @@
-// Codex's turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
-// footer under an answer. Markup and metrics from codex-atlas-clone (messages.tsx,
+// Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
+// footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
-import { useMemo, useState, type ReactNode } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { copyText } from "./clipboard";
@@ -9,8 +9,9 @@ import { EditDiff } from "./EditDiff";
 import { ShellBlock } from "./ShellBlock";
 import { ToolRun } from "./ToolRun";
 import { isFoldedRun } from "./toolRunSummary";
+import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronRight, Copy, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
+import { ChevronRight, Copy, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup, TurnFork } from "./icons";
 
 /// The "Worked for 15s" line; it opens the turn's commentary and tool calls.
 export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expanded: boolean; onToggle: () => void }) {
@@ -26,7 +27,7 @@ export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expande
   );
 }
 
-/// ACP tool kinds (`ToolKind`) to Codex's row glyphs.
+/// ACP tool kinds (`ToolKind`) to row glyphs.
 function toolIcon(kind?: string): ReactNode {
   switch (kind) {
     case "read":
@@ -47,7 +48,7 @@ function toolIcon(kind?: string): ReactNode {
   }
 }
 
-/// One tool call. A call with output opens it below, as Codex's command and tool rows do; a
+/// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
 function ToolRow({ item }: { item: AcpmuxActivity }) {
@@ -122,12 +123,14 @@ export function ToolRows({ row }: { row: AcpmuxRow }) {
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
 
-/// The quiet row under an answer: copy, the time, and why the turn ended when it did not
-/// complete. A turn without a "Worked for" line (history paged in mid-turn) says its time
+/// The quiet row under an answer: copy, fork from here (when acpmux serves forks), the time,
+/// and why the turn ended when it did not complete. A turn without a "Worked for" line (history paged in mid-turn) says its time
 /// and count here instead.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const [copied, setCopied] = useState(false);
+  const { fork } = useContext(TurnActionsContext);
   const text = row.text;
+  const seq = row.seq;
   const failed = row.status === "failed" || row.status === "error";
   return (
     <div className="cv-turn-actions">
@@ -146,6 +149,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           }
         >
           <Copy />
+        </button>
+      )}
+      {fork && seq !== undefined && (
+        <button
+          type="button"
+          className="cv-iconbtn"
+          aria-label="Fork from here"
+          title="Fork from here"
+          onClick={() => fork(seq)}
+        >
+          <TurnFork />
         </button>
       )}
       {failed && <span className="cv-turn-note">{row.error || "The turn failed"}</span>}

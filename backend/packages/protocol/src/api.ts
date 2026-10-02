@@ -13,6 +13,8 @@ export interface CurrentPrincipalShape {
   readonly grant?: string
   readonly stack_user_id: string
   readonly email?: string | null
+  /** Stack asserted the email as verified (claim `email_verified === true`). */
+  readonly email_verified?: boolean
   readonly display_name?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}

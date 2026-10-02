@@ -138,7 +138,7 @@ nonisolated enum CatalogArgument {
             ActionEnumCase(value: "cmux", title: String(localized: "argument.value.keymap.cmux", defaultValue: "cmux (Default)", bundle: .module)),
             ActionEnumCase(value: "iterm2", title: String(localized: "argument.value.keymap.iterm2", defaultValue: "iTerm2", bundle: .module)),
             ActionEnumCase(value: "terminal", title: String(localized: "argument.value.keymap.terminal", defaultValue: "Terminal.app", bundle: .module)),
-            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "tmux-style (Ctrl-B Prefix)", bundle: .module)),
+            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "Prefix chords (Ctrl-B)", bundle: .module)),
         ]))
     }
 
@@ -151,6 +151,12 @@ nonisolated enum CatalogArgument {
     }
 
     /// Optional page to open (`openBrowser`).
+    /// Optional search text (`tab.search`): the page opens with it typed.
+    static var queryString: ActionArgument {
+        ActionArgument(name: "query", title: String(localized: "argument.query", defaultValue: "Search", bundle: .module), kind: .string,
+                       isRequired: false)
+    }
+
     static var urlString: ActionArgument {
         ActionArgument(name: "url", title: String(localized: "argument.url", defaultValue: "URL", bundle: .module), kind: .string, isRequired: false)
     }

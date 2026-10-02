@@ -68,11 +68,16 @@ test("typing filters, arrows move, Enter opens, Escape closes", async () => {
   const input = document.querySelector<HTMLInputElement>(".acpmux-search-input")!;
   const key = (init: KeyboardEventInit) =>
     act(async () => void input.dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, ...init })));
+  // React decides when react-dom loads whether the page has input events; a test file that
+  // loads it before any DOM exists leaves it without them, so call the change handler directly
+  // (as composer.test.tsx does).
   const type = (value: string) =>
     act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
-      setter.call(input, value);
-      input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      input.value = value;
+      const props = (input as unknown as Record<string, { onChange(event: { target: HTMLInputElement }): void }>)[
+        Object.keys(input).find((key) => key.startsWith("__reactProps$"))!
+      ]!;
+      props.onChange({ target: input });
     });
   expect(document.querySelectorAll(".acpmux-search-row")).toHaveLength(10);
   await key({ key: "ArrowDown" });

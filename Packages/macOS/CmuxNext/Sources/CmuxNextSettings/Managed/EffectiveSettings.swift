@@ -7,14 +7,28 @@ public nonisolated struct TeamPolicyLayer: Sendable, Equatable {
     public var teamName: String
     public var defaults: [String: JSONValue]
     public var enforced: [String: JSONValue]
+    /// The managing team's id and the policy version these values come from (status reports).
+    public var teamID: String
+    public var version: Int
 
-    public init(teamName: String = "", defaults: [String: JSONValue] = [:], enforced: [String: JSONValue] = [:]) {
+    public init(teamName: String = "", defaults: [String: JSONValue] = [:], enforced: [String: JSONValue] = [:], teamID: String = "", version: Int = 0) {
         self.teamName = teamName
         self.defaults = defaults
         self.enforced = enforced
+        self.teamID = teamID
+        self.version = version
     }
 
     public static let none = TeamPolicyLayer()
+
+    /// Only keys the settings catalog lists.
+    public func limitedToCatalog() -> TeamPolicyLayer {
+        let ids = Set(SettingsSchema.all.map(\.id))
+        var copy = self
+        copy.defaults = defaults.filter { ids.contains($0.key) }
+        copy.enforced = enforced.filter { ids.contains($0.key) }
+        return copy
+    }
 }
 
 /// The effective settings document and what manages it.
@@ -25,7 +39,7 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     public var fileRoot: JSONValue
     /// Dotted key -> manager, for keys a forced layer sets.
     public var managedKeys: [String: ManagedSource]
-    /// Managed policy keys that are not settings (`EnrollmentToken`, ...), forced and recommended merged, forced first.
+    /// Managed policy keys that are not settings (`EnrollmentToken`, ...), from forced values only.
     public var policy: [String: JSONValue]
     /// The user's file sets a key a policy overrides.
     public var diagnostics: [SettingsDiagnostic]
@@ -36,6 +50,9 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
     /// setting" is the first three; the rest keeps unmanaged keys customizable.
     public static func merge(file: JSONValue, managed: ManagedPreferences, team: TeamPolicyLayer) -> EffectiveSettings {
         var root = file.objectValue == nil ? JSONValue.object([:]) : file
+        // The team layer may only set catalog settings (never a whole object,
+        // shortcuts or custom actions); MDM keys are limited by the reader.
+        let team = team.limitedToCatalog()
         var managedKeys: [String: ManagedSource] = [:]
         var policy: [String: JSONValue] = [:]
         var diagnostics: [SettingsDiagnostic] = []
@@ -56,12 +73,19 @@ public nonisolated struct EffectiveSettings: Sendable, Equatable {
             root = root.setting(value, at: path(key))
             managedKeys[key] = .device
         }
+        for key in team.enforced.keys.sorted() {
+            if let device = managed.forced[key], device != team.enforced[key] {
+                diagnostics.append(SettingsDiagnostic(kind: .managedConflict, path: key,
+                                                      message: "the team policy value is ignored: the MDM profile manages this key"))
+            }
+        }
         for key in managedKeys.keys.sorted() {
             if let mine = file.value(at: path(key)), mine != root.value(at: path(key)) {
                 diagnostics.append(SettingsDiagnostic(kind: .managedOverride, path: key, message: "managed by your organization; the value in cmux.json is ignored"))
             }
         }
-        for (key, value) in managed.recommended where !ManagedPreferences.isSettingKey(key) { policy[key] = value }
+        // Policy keys come from forced values only: non-forced values in the
+        // domain can be written by any local user (`defaults write`).
         for (key, value) in managed.forced where !ManagedPreferences.isSettingKey(key) { policy[key] = value }
         return EffectiveSettings(root: root, fileRoot: file, managedKeys: managedKeys, policy: policy, diagnostics: diagnostics)
     }

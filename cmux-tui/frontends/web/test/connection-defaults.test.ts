@@ -8,8 +8,8 @@ describe("WebSocket URL defaults", () => {
   });
 
   it("uses the documented secure port beside a remotely hosted frontend", () => {
-    expect(defaultWebSocketUrl("lawrences-macbook-pro-2.tail137216.ts.net")).toBe(
-      "wss://lawrences-macbook-pro-2.tail137216.ts.net:8443",
+    expect(defaultWebSocketUrl("my-mac.tail0000.ts.net")).toBe(
+      "wss://my-mac.tail0000.ts.net:8443",
     );
   });
 

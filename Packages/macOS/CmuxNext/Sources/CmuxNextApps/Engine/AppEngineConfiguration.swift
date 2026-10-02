@@ -5,9 +5,8 @@ public nonisolated struct AppEngineConfiguration: Sendable {
     public var manifest: AppManifest
     /// The unpacked bundle (holds `cmux-app.json` and `main`).
     public var bundleDirectory: URL
-    /// Scopes the user granted (prototype: the manifest's required scopes
-    /// for first-party and `local/` apps).
-    public var grantedScopes: Set<String>
+    /// Scopes the user granted and the sandbox switch, read per call.
+    public var grants: AppGrants
     /// `cmux.app.settings()`: manifest defaults overlaid with the user's values.
     public var settings: AppJSON
     public var sink: any AppOperationSink
@@ -21,13 +20,13 @@ public nonisolated struct AppEngineConfiguration: Sendable {
     public var maxTimers = 200
     public var output: @Sendable (AppEngineOutput) -> Void
 
-    public init(manifest: AppManifest, bundleDirectory: URL, grantedScopes: Set<String>, settings: AppJSON? = nil,
+    public init(manifest: AppManifest, bundleDirectory: URL, grants: AppGrants, settings: AppJSON? = nil,
                 sink: any AppOperationSink, events: AppEventHub = AppEventHub(), clock: any AppEngineClock = ContinuousAppEngineClock(),
                 scopes: AppScopeTable = .bundled, runtimeScript: URL = AppPlatformResources.runtimeScript,
                 output: @escaping @Sendable (AppEngineOutput) -> Void) {
         self.manifest = manifest
         self.bundleDirectory = bundleDirectory
-        self.grantedScopes = grantedScopes
+        self.grants = grants
         self.settings = settings ?? .object(manifest.contributes.settingsDefaults)
         self.sink = sink
         self.events = events

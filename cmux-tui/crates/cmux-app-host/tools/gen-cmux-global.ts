@@ -160,7 +160,7 @@ declare namespace Cmux {
 ${typeDecls.join("\n")}
 }
 
-interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string }
+interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string }
 type CmuxOp<P, R> = ((params?: P, options?: CmuxCallOptions) => Promise<R>) & { readonly opName: string }
 type CmuxSignal<T> = () => T
 interface CmuxLive<T> { (): T | undefined; error(): CmuxError | null; loading(): boolean; refresh(): void }
@@ -179,7 +179,11 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; settings(): Record<string, unknown> }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> } }
+  /** The current user-gesture token: only inside a user event handler before its first await; pass it as options.gesture later. */
+  gesture(): string | null
+  /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
+  t(key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>): string
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
@@ -188,6 +192,7 @@ declare const cmux: CmuxGlobal
 declare function signal<T>(initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]
 declare function computed<T>(fn: () => T): CmuxSignal<T>
 declare function effect(fn: () => void): () => void
+declare function onCleanup(fn: () => void): void
 type Bindable<T> = T | (() => T)
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this

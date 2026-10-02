@@ -63,8 +63,8 @@ public nonisolated enum StickyStripGeometry {
         public var clipMaxX: CGFloat
     }
 
-    /// S3. A sticky column's width is a fraction of the whole viewport (as
-    /// niri computes column widths), at least its panes' minimum width and
+    /// S3. A sticky column's width is a fraction of the whole viewport (computed
+    /// like every column width), at least its panes' minimum width and
     /// at most `maxShare` of the viewport. It sits one gap from its edge.
     /// Docked: the strip starts (or ends) at the column's inner edge; the
     /// strip's own leading gap separates them. Overlay: the strip keeps the

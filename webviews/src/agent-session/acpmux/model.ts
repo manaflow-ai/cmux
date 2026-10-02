@@ -5,6 +5,8 @@ export type AcpmuxRow = {
   version: number;
   at: number;
   kind: string;
+  /// The acpmux event a turn summary came from, where a fork through that turn ends.
+  seq?: number;
   text?: string;
   streaming?: boolean;
   pending?: boolean;
@@ -90,6 +92,8 @@ export type AcpmuxSnapshot = {
   connection: string;
   sessionId?: string;
   isWorking: boolean;
+  /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
+  canFork?: boolean;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
   catalog: { id: string; name: string; models: { id: string; name?: string }[] }[];

@@ -93,7 +93,7 @@ enum TerminalHostActionRoute {
         switch target {
         case .previous: Route(id: "prevSurface")
         case .next: Route(id: "nextSurface")
-        // selectSurfaceByNumber treats 9 as "last", like Chrome.
+        // selectSurfaceByNumber treats 9 as "last".
         case .last: Route(id: "selectSurfaceByNumber", arguments: ["index": .int(9)])
         case .index(let number): Route(id: "selectSurfaceByNumber", arguments: ["index": .int(max(1, number))])
         }

@@ -31,10 +31,29 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarBackground, .create, 310, folder: .new), p(.sidebarSection, .create, 110)])
             ),
             ActionDescriptor(
-                id: "sidebar.item.remove", title: t("action.sidebar.item.remove", "Remove from Sidebar"),
-                keywords: ["sidebar", "section", "unpin", "remove", "hide"], category: .sidebar, symbol: "minus.circle",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-item",
+                id: "sidebar.item.removeEverywhere", title: t("action.sidebar.item.removeEverywhere", "Remove from Sidebar"),
+                keywords: ["sidebar", "unpin", "remove", "hide", "home"], category: .sidebar, symbol: "minus.circle",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-from-sidebar",
                 surfacePlan: plan(menus: [p(.sidebarItem, .close, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.item.remove", title: t("action.sidebar.item.removeFromSection", "Remove from Section"),
+                keywords: ["sidebar", "section", "unpin", "remove"], category: .sidebar, symbol: "minus.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-item",
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 110)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.item.hideApp", title: t("action.sidebar.item.hideApp", "Hide"),
+                keywords: ["sidebar", "app", "hide", "extension"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar hide-app",
+                // Offered on app items only (SidebarBridge filters the menu).
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show or Hide Label"),
+                keywords: ["sidebar", "item", "label", "icon", "title"], category: .sidebar, symbol: "textformat",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar toggle-item-label",
+                surfacePlan: plan(menus: [p(.sidebarItem, .identity, 100)])
             ),
         ]
     }
@@ -86,6 +105,42 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 210, folder: .appearance)])
             ),
             ActionDescriptor(
+                id: "sidebar.section.layoutList", title: t("action.sidebar.section.layoutList", "Show as List"),
+                keywords: ["sidebar", "section", "layout", "list", "rows"], category: .sidebar, symbol: "list.bullet",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar section-layout-list",
+                surfacePlan: plan(menus: [p(.sidebarSection, .identity, 230, folder: .appearance)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.layoutInline", title: t("action.sidebar.section.layoutInline", "Show on One Line"),
+                keywords: ["sidebar", "section", "layout", "inline", "line", "row", "icons", "flex"], category: .sidebar,
+                symbol: "rectangle.split.3x1", surfaces: [.palette, .keyboard, .contextMenu], targets: section,
+                cliName: "sidebar section-layout-inline", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 240, folder: .appearance)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.layoutGrid", title: t("action.sidebar.section.layoutGrid", "Show as Grid"),
+                keywords: ["sidebar", "section", "layout", "grid", "tiles", "favorites"], category: .sidebar, symbol: "square.grid.2x2",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar section-layout-grid",
+                surfacePlan: plan(menus: [p(.sidebarSection, .identity, 250, folder: .appearance)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.setAlignment", title: t("action.sidebar.section.setAlignment", "Set Section Alignment…"),
+                keywords: ["sidebar", "section", "align", "center", "spread", "flex"], category: .sidebar, symbol: "align.horizontal.center",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [alignArgument], targets: section,
+                cliName: "sidebar set-section-alignment", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 260, folder: .appearance)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.setGap", title: t("action.sidebar.section.setGap", "Set Section Spacing…"),
+                keywords: ["sidebar", "section", "gap", "spacing", "flex"], category: .sidebar, symbol: "arrow.left.and.right",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [gapArgument], targets: section,
+                cliName: "sidebar set-section-gap", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 270, folder: .appearance)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.section.setColumns", title: t("action.sidebar.section.setColumns", "Set Grid Columns…"),
+                keywords: ["sidebar", "section", "grid", "columns", "tiles"], category: .sidebar, symbol: "square.grid.3x2",
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [columnsArgument], targets: section,
+                cliName: "sidebar set-section-columns", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 280, folder: .appearance)])
+            ),
+            ActionDescriptor(
                 id: "sidebar.section.toggleTitle", title: t("action.sidebar.section.toggleTitle", "Show or Hide Section Title"),
                 keywords: ["sidebar", "section", "title", "label", "header", "hide", "show"], category: .sidebar, symbol: "textformat",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-title",
@@ -135,6 +190,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("notifications", t("argument.sidebar.builtin.notifications", "Notifications")),
             ("history", t("argument.sidebar.builtin.history", "History")),
             ("bookmarks", t("argument.sidebar.builtin.bookmarks", "Bookmarks")),
+            ("app_store", t("argument.sidebar.builtin.appStore", "App Store")),
         ]
         return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"),
                               kind: .enumeration(cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))
@@ -155,6 +211,24 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionEnumCase(value: "bottom", title: t("argument.sidebar.region.bottom", "Bottom")),
         ]
         return ActionArgument(name: "region", title: t("argument.sidebar.region", "Place"), kind: .enumeration(cases), isRequired: false)
+    }
+
+    private static var alignArgument: ActionArgument {
+        let cases = [
+            ActionEnumCase(value: "leading", title: t("argument.sidebar.align.leading", "Leading")),
+            ActionEnumCase(value: "center", title: t("argument.sidebar.align.center", "Center")),
+            ActionEnumCase(value: "trailing", title: t("argument.sidebar.align.trailing", "Trailing")),
+            ActionEnumCase(value: "fill", title: t("argument.sidebar.align.fill", "Spread Out")),
+        ]
+        return ActionArgument(name: "align", title: t("argument.sidebar.align", "Alignment"), kind: .enumeration(cases))
+    }
+
+    private static var gapArgument: ActionArgument {
+        ActionArgument(name: "gap", title: t("argument.sidebar.gap", "Spacing (points)"), kind: .int(0...32))
+    }
+
+    private static var columnsArgument: ActionArgument {
+        ActionArgument(name: "columns", title: t("argument.sidebar.columns", "Columns (0 = as many as fit)"), kind: .int(0...12))
     }
 
     private static var rowsArgument: ActionArgument {

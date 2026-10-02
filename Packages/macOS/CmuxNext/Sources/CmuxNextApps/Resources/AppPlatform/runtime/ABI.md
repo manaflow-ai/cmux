@@ -6,7 +6,7 @@ Spec: cmux-next-spec `spec/app-platform.md` section 5.3. Runtime: `dist/cmux-app
 1. Define `globalThis.__cmuxAppNative` (below).
 2. Evaluate `dist/cmux-app-runtime.js`.
 3. Evaluate the app's `main` (a classic script from `tools/pack.ts`; it sets `globalThis.__cmuxAppExports`).
-4. Call `__cmuxAppInit(JSON.stringify({app: {id, version}, settings, apiVersion, ops?}))`. `ops`, when given, is the list of op names the app's grant allows; other calls reject locally with `scope.missing` (the host must still check every call: the VM is untrusted).
+4. Call `__cmuxAppInit(JSON.stringify({app: {id, version}, settings, apiVersion, ops?, knownOps?, locale?, strings?}))`. `knownOps` lists every op this cmux version has (others reject locally with `operation.unsupported`); `ops` lists the ops the app's grant allows (known but not granted reject with `scope.missing`). The host must still check every call: the VM is untrusted. `locale` and `strings` (the app's `strings/<locale>.json`, falling back to English) feed `cmux.t()`.
 
 ## Host functions (`__cmuxAppNative`)
 | Function | Notes |
@@ -18,7 +18,10 @@ Spec: cmux-next-spec `spec/app-platform.md` section 5.3. Runtime: `dist/cmux-app
 | `log(level, message)` | `debug|info|warn|error` |
 | `commandDone(cbId, ok, json)` | Completion of `__cmuxAppRunCommand`; ok body `{"value"}`, error body `{"code","message","details"}` |
 
-Host-provided op names beyond the catalog: `action.run {id, args}`, `action.list`, `app.storage.get|set|delete|keys`, `net.fetch {url, method, headers, body}` -> `{status, headers, body}`, `integration.request {provider, method, path, body?}`. Scopes: `generated/scopes.json`.
+Host-provided op names beyond the catalog: `action.run {id, args}`, `action.list`, `app.storage.get|set|delete|keys`, `app.settings.set {values}` (writes the app's settings in cmux.json after schema validation), `net.fetch {url, method, headers, body}` -> `{status, headers, body}`, `integration.request {provider, method, path, body?}`. Scopes: `generated/scopes.json`.
+
+## Gesture tokens
+The host attaches `gesture` (an opaque token) to the payload of every user event it dispatches (`tap`, `menu`, `submit`, ...). While the handler runs synchronously, every call carries `options.gesture`; after its first `await` only calls that pass `{gesture: cmux.gesture()}` captured earlier do. A mutation that presents a live token (10 s window, that app only) runs with origin `user` and uses the token up, so one user event allows one focus or selection change; reads may present it without spending it.
 
 ## Runtime entry points
 `__cmuxAppInit(json)`, `__cmuxAppSetSettings(json)`, `__cmuxAppMount(mountId, exportName, ctxJSON) -> "" | error`, `__cmuxAppUnmount(mountId)`, `__cmuxAppDispatch(mountId, nodeId, event, payloadJSON)` (`tap`, `move {id,index,extra}`, `dragChange {state}`, `submit {text}`, `edit {text}`, `cancel`, `menu {path:[int]}`), `__cmuxAppRunCommand(exportName, argsJSON, cbId)`, `__cmuxAppResolve`, `__cmuxAppEvent`, `__cmuxAppTimer`, `__cmuxAppFlush()` (hosts whose engine needs an explicit microtask drain, such as QuickJS `JS_ExecutePendingJob`, drain jobs and then call this). `__cmuxAppRuntimeVersion` is a string.

@@ -153,7 +153,8 @@ struct QuitPolicyTests {
                 await QuitCompletion.run(choice, remember: remember, QuitSteps(
                     remember: { log.steps.append("remember:\($0.rawValue)") },
                     prepareWindows: { log.steps.append("windows") },
-                    endLocalSessions: { log.steps.append($0 == .endEverything ? "end+delete-workspaces" : "end") }
+                    endLocalSessions: { log.steps.append($0 == .endEverything ? "end+delete-workspaces" : "end") },
+                    stopBrowserEngines: { log.steps.append("engines") }
                 ))
                 var expected = remember ? ["remember:\(choice.rawValue)"] : []
                 expected.append("windows")
@@ -162,6 +163,10 @@ struct QuitPolicyTests {
                 case .endKeepLayout: expected.append("end")
                 case .endEverything: expected.append("end+delete-workspaces")
                 }
+                // Chromium's teardown is last: its own 10 s watchdog can end the
+                // process with code 2 mid-CefShutdown, which must not skip
+                // ending the local sessions.
+                expected.append("engines")
                 #expect(log.steps == expected, "\(choice) remember=\(remember)")
             }
         }

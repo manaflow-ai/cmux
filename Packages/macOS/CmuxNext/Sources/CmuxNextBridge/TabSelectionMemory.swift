@@ -1,7 +1,7 @@
 import CmuxNextDesign
 
 /// Client-local tab selection per pane (the daemon's `active_tab` is only a
-/// shared default). When the selected tab disappears, Chrome's rule applies:
+/// shared default). When the selected tab disappears, the selection goes to
 /// the tab that took its slot, else the new last tab.
 public struct TabSelectionMemory: Sendable, Equatable {
     private var selected: [String: String] = [:]

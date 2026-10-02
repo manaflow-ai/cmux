@@ -1,4 +1,0 @@
-<input node_id=1 type="file" />
-<input node_id=2 type="file" multiple="true" />
-<button node_id=3>Choose via button</button>
-<a node_id=4 href="/download.txt">Download file</a>

@@ -2,7 +2,7 @@
 
 Measurement window: 2026-09-25 through 2026-09-30 UTC. The baseline is the
 read-only Actions and owned-mini sample from `cx-ci-regime.report.md`, hq #1078,
-and `/Users/leoli/Projects/.tmp-ci-regime/mini/*.jsonl`.
+and `$HOME/Projects/.tmp-ci-regime/mini/*.jsonl`.
 
 ## Baseline and attribution
 
