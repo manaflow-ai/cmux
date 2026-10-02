@@ -26,16 +26,40 @@ public nonisolated enum ActionValue: Sendable, Hashable {
     }
 }
 
+/// Who started an action run (plans/cmux-next/OWNERSHIP-PRINCIPLES.md):
+/// only a user in this client may change this client's focus, selection
+/// or scroll, unless the run asks for it (`focus: true`).
+public nonisolated enum ActionOrigin: String, Sendable, Hashable, CaseIterable {
+    /// Palette, menu, keyboard, click, drag in this app.
+    case user
+    case cli
+    case mcp
+    case script
+    /// Another client (a phone, another Mac).
+    case remote
+}
+
 /// Everything a handler needs for one run: the target (right-clicked object,
 /// CLI `--target`, or nil for "the focused one") and the collected arguments.
 public nonisolated struct ActionInvocation: Sendable, Hashable {
     public var target: ActionTargetRef?
     public var arguments: [String: ActionValue]
+    /// In-app runs are the user's; the control socket sets its caller's.
+    public var origin: ActionOrigin
+    /// The run asked to change this client's view (`action.run` `focus: true`).
+    public var focusRequested: Bool
 
-    public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:]) {
+    public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
+                focusRequested: Bool = false) {
         self.target = target
         self.arguments = arguments
+        self.origin = origin
+        self.focusRequested = focusRequested
     }
+
+    /// Whether the run may change this client's focus, selection, shown
+    /// workspace or key window.
+    public var allowsViewChange: Bool { origin == .user || focusRequested }
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]

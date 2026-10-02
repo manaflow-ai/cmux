@@ -147,17 +147,19 @@ extension WindowManager {
     /// Workspace), even before the daemon reports them.
     /// A workspace of an incognito window never moves into a normal one,
     /// nor the reverse: refused with a message.
-    func claim(workspaceID: String, in state: WindowState) {
+    /// `select` false files it into the window without showing it
+    /// (Option on a drop, or a move this client's user did not start).
+    func claim(workspaceID: String, in state: WindowState, select shows: Bool = true) {
         if registry.value.crossesIncognito([workspaceID], to: state.id) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return
         }
         protectIfUnknown([workspaceID], window: state.id)
         if registry.value.owner(of: workspaceID) == state.id {
-            select(workspaceID, in: state)
+            if shows { select(workspaceID, in: state) }
             return
         }
-        transition(select: [state.id: [workspaceID]]) { $0.move([workspaceID], to: state.id) }
+        transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
     }
 
     /// Moves workspaces into an existing window and selects the first there;

@@ -5,7 +5,7 @@ public import Foundation
 /// view state, applied by the client that started the move after the
 /// owner's echo (plans/cmux-next/OWNERSHIP-PRINCIPLES.md: focus, selection
 /// and scroll change only from user-initiated actions; Option on drop files
-/// the tab away) (stub).
+/// the tab away).
 public nonisolated struct DropReveal: Hashable, Sendable {
     /// Focus the moved tab in the window it landed in (reveals its pane:
     /// a new column scrolls into view).
@@ -57,5 +57,25 @@ public nonisolated enum DropRevealPolicy {
     }
 
     /// The view change for `facts`, or nil for none.
-    public static func decide(_ facts: Facts) -> DropReveal? { nil }
+    public static func decide(_ facts: Facts) -> DropReveal? {
+        guard facts.landed, !facts.filesAway, facts.userInitiated || facts.focusRequested else { return nil }
+        let showsWorkspace: Bool
+        let newWindow: Bool
+        switch facts.outcome {
+        case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
+            // No tab moved (the window or workspace itself did).
+            return nil
+        case .strip, .newSplit, .newColumn:
+            showsWorkspace = false
+            newWindow = false
+        case .newWorkspace, .workspace:
+            showsWorkspace = true
+            newWindow = false
+        case .tearOff:
+            showsWorkspace = true
+            newWindow = true
+        }
+        let keyable = facts.appActive && !facts.noActivate && facts.landingOnActiveSpace
+        return DropReveal(focusesTab: true, showsWorkspace: showsWorkspace, makesKey: (newWindow || facts.crossesWindows) && keyable)
+    }
 }

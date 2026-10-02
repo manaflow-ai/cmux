@@ -21,27 +21,37 @@ extension TabHandlers {
             case "down": .bottom
             default: .right
             }
+            let reveal = revealer(ctx, tab: tab, outcome: .newSplit(paneID: pane.id, edge: .right), workspaceID: nil)
             TabMoves.toNewSplit(tab, pane: pane, edge: edge, services: ctx.services) { ok in
                 if !ok { ctx.services.restoreDetachedTab(tab.id) }
+                reveal(ok)
             }
         })
         registry.bind("tab.moveToNewColumn", invoke: { invocation in
             guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
-            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services)
+            let reveal = revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
+            TabMoves.toNewColumn(tab, anchor: pane, services: ctx.services, completion: reveal)
         })
         registry.bind("tab.moveToWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), let workspace = ctx.workspaceArgument(invocation) else { return }
-            TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services)
+            let reveal = revealer(ctx, tab: tab, outcome: .workspace(id: workspace.id), workspaceID: workspace.id)
+            TabMoves.toWorkspace(tab, workspace: workspace, services: ctx.services, completion: reveal)
         })
         registry.bind("palette.moveTabToNewWorkspace", invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
             let windows = ctx.services.windows!
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
+            // Read before the await: whether this run may change the view.
+            let allowed = ctx.services.viewChangeAllowed
             ctx.registry.track(Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
                     return "move-tab-to-new-workspace failed (see the app log)"
                 }
-                windows.placeMoved(key.rawValue, from: origin, preferred: windows.active?.state, newWindow: false)
+                windows.placeMoved(key.rawValue, from: origin, preferred: windows.active?.state, newWindow: false, select: allowed)
+                if let reveal = ctx.services.actionReveal(.newWorkspace(groupID: nil, index: nil), allowed: allowed, landed: true,
+                                                          window: windows.active) {
+                    ctx.services.applyReveal(reveal, tab: tab.id, workspaceID: key.rawValue, fallback: windows.active)
+                }
                 return nil
             })
         })
@@ -101,5 +111,23 @@ extension TabHandlers {
     private static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+extension TabHandlers {
+    /// The view change after a tab move an action started, captured before
+    /// any await (`viewChangeAllowed`): call the result with whether the
+    /// move landed. A run this client's user did not start changes nothing.
+    @MainActor
+    static func revealer(_ ctx: AppActionContext, tab: TabModel, outcome: TabDragOutcome,
+                         workspaceID: String?) -> @MainActor (Bool) -> Void {
+        let allowed = ctx.services.viewChangeAllowed
+        let window = ctx.services.windows.active
+        let source = ctx.services.locateTab(tab.id)?.1
+        if allowed, let source, let controller = window { controller.focus.followMovedTab(tab.id, from: source.id) }
+        return { landed in
+            guard let reveal = ctx.services.actionReveal(outcome, allowed: allowed, landed: landed, window: window) else { return }
+            ctx.services.applyReveal(reveal, tab: tab.id, workspaceID: workspaceID, fallback: window)
+        }
     }
 }
