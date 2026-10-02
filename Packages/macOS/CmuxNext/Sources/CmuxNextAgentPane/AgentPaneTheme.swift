@@ -27,6 +27,7 @@ enum AgentPaneTheme {
             "accentSoft": css(tokens.selectionFill),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
+            "warning": css(tokens.attention),
             "shadow": css(tokens.shadow),
         ]
     }

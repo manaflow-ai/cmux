@@ -1326,6 +1326,8 @@ def is_macos_neutral(
             "ios/",
             "web/",
             "webviews/",
+            # Lint and format settings for webviews/ and cmux-tui web only.
+            "config/vite-plus/",
             "cmux-tui/",
             "cmux-browser/",
             "daemon/remote/",

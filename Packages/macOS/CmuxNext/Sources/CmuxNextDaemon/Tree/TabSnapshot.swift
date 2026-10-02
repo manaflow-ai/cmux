@@ -36,6 +36,9 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var tabGroup: TabGroupID?
     /// The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`).
     public var remote: RemoteTerminalRef?
+    /// The workspace store's keep-layout record of a dead kept tab
+    /// (`end-terminals-keep-layout-v1`).
+    public var relaunch: TabRelaunch?
 
     public init(
         surface: SurfaceID,
@@ -97,7 +100,7 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -147,5 +150,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         browserProfileID = try c.decodeIfPresent(String.self, forKey: .browserProfileID)
         tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
         remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
+        relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
     }
 }

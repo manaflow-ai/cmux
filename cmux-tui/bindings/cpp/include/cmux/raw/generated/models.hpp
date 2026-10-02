@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1";
+inline constexpr std::string_view kProtocolIrSha256 = "775c143e40049003fdc122b643a0f7d56fee06b3e9c46dff2d40bf7fc9767faa";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -3203,6 +3203,7 @@ struct ShutdownDaemonRequest {
     std::optional<bool> end_terminals{};
     std::optional<bool> force{};
     std::string generation{};
+    std::optional<bool> keep_layout{};
     std::uint32_t pid{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
 };

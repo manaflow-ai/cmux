@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextControl
+import CmuxNextDaemon
 
 // Input verification wiring (plans/cmux-next/input-spec.md): the journal
 // policy, the app-wide event tap into the journal, and the invariant
@@ -20,6 +21,9 @@ extension AppServices {
             }
         }
         observeWindowGeometry(journal: journal, monitor: monitor)
+        // M1: a mirror write outside daemon apply and the intent overlay is
+        // checked (and reported) once input settles.
+        daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
         let surfaces = surfaceInvariant
         cache.onPresentationChange = {
             surfaces.noteChange()

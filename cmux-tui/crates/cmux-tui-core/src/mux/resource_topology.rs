@@ -3215,6 +3215,11 @@ impl Mux {
             return Ok(false);
         };
         let mut state = self.state.lock().unwrap();
+        // Tabs the workspace store keeps (`kept_tabs`, keep-layout) survive
+        // the terminal's exit and owner restarts; a frontend relaunches them.
+        if Self::terminal_tabs_kept_locked(&registry, &state, &terminal_public_id)? {
+            return Ok(false);
+        }
         // A keep-policy terminal retains its views while the runtime screen
         // surface is alive; reconciliation must not force-detach it out from
         // under a live daemon. Without a runtime (a daemon restart dropped

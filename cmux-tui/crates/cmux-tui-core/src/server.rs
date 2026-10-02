@@ -168,6 +168,11 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
+/// every terminal ends but the placed ones keep their tabs, so the next
+/// owner shows the same screens, splits and tabs, each dead until a
+/// frontend starts a new shell in it.
+pub const END_TERMINALS_KEEP_LAYOUT_CAPABILITY: &str = "end-terminals-keep-layout-v1";
 /// Advertises `close-tabs` and `end_terminals` on `close-pane`,
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
@@ -384,6 +389,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -1057,6 +1063,10 @@ enum Command {
         /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
         #[serde(default)]
         end_terminals: bool,
+        /// With `end_terminals`, keep the tabs of placed terminals so the
+        /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
+        #[serde(default)]
+        keep_layout: bool,
     },
     Ping,
     SetClientInfo {
@@ -11588,9 +11598,12 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart; its identity is the index's.
             let tab_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| &identity.tab_id);
+                .map(|identity| &identity.tab_id)
+                .or_else(|| state.resource_indexes.tab_ids.get(sid));
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
@@ -11606,11 +11619,21 @@ fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
+            // ended, to restart a shell in.
+            let relaunch = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
+                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
+                .map(|kept| json!({"cwd": kept.cwd}));
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
                 "git_detached": directory.is_some_and(|directory| directory.git_detached),
@@ -13324,7 +13347,11 @@ fn handle_command_with_cancellation(
                 "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+            anyhow::ensure!(
+                end_terminals || !keep_layout,
+                "bad request: keep_layout requires end_terminals"
+            );
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
@@ -13333,7 +13360,12 @@ fn handle_command_with_cancellation(
             // can start while the hosts end. A failure releases it and keeps
             // this daemon serving.
             let ended_terminals = if end_terminals {
-                match mux.end_all_terminals() {
+                let ended = if keep_layout {
+                    mux.end_all_terminals_keeping_layout()
+                } else {
+                    mux.end_all_terminals()
+                };
+                match ended {
                     Ok(ended) => Some(ended.len()),
                     Err(error) => {
                         mux.cancel_daemon_handoff(client);
@@ -15292,7 +15324,11 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
-            get_surface(mux, surface)?;
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart but is still a placed tab.
+            if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
+                anyhow::bail!("unknown surface {surface}");
+            }
             if !mux.close_surface(surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
@@ -24394,6 +24430,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
@@ -24416,6 +24453,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )

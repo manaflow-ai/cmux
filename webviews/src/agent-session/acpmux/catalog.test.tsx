@@ -1,10 +1,21 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
-const dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, virtualConsole: new VirtualConsole() });
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
 const globals = globalThis as Record<string, unknown>;
-const saved = Object.fromEntries(["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]));
-Object.assign(globals, { window: dom.window, document: dom.window.document, navigator: dom.window.navigator, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true });
+const saved = Object.fromEntries(
+  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+);
+Object.assign(globals, {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  IS_REACT_ACT_ENVIRONMENT: true,
+});
 afterAll(() => Object.assign(globals, saved));
 
 const { act, createElement } = await import("react");
@@ -15,21 +26,50 @@ type Catalog = import("./catalog").HarnessCatalog;
 
 const codex: Catalog = [{ id: "codex", name: "Codex", models: [{ id: "gpt-6-astra" }] }];
 const claude: Catalog = [{ id: "claude", name: "Claude", models: [{ id: "claude-sonnet" }] }];
-const settle = () => act(async () => { for (let pass = 0; pass < 5; pass += 1) await new Promise((resolve) => setTimeout(resolve, 0)); });
+const settle = () =>
+  act(async () => {
+    for (let pass = 0; pass < 5; pass += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 /// A fake direct client that counts catalog requests.
 function source(id: number, catalog: Catalog | Error) {
-  const client = { calls: 0, harnesses: async () => { client.calls += 1; if (catalog instanceof Error) throw catalog; return catalog; } };
+  const client = {
+    calls: 0,
+    harnesses: async () => {
+      client.calls += 1;
+      if (catalog instanceof Error) throw catalog;
+      return catalog;
+    },
+  };
   return { id, client };
 }
 
 /// Renders `count` pickers that read the catalog and returns what each one saw last.
 function mount(queryClient: InstanceType<typeof QueryClient>, count = 1) {
   const seen: Catalog[] = [];
-  const Picker = ({ index, input, fallback }: { index: number; input: ReturnType<typeof source> | undefined; fallback: Catalog }) => { seen[index] = useHarnessCatalog(input, fallback); return null; };
+  const Picker = ({
+    index,
+    input,
+    fallback,
+  }: {
+    index: number;
+    input: ReturnType<typeof source> | undefined;
+    fallback: Catalog;
+  }) => {
+    seen[index] = useHarnessCatalog(input, fallback);
+    return null;
+  };
   const root = createRoot(dom.window.document.getElementById("root")!);
   const render = (input: ReturnType<typeof source> | undefined, fallback: Catalog = []) =>
-    act(async () => root.render(createElement(QueryClientProvider, { client: queryClient }, ...Array.from({ length: count }, (_, index) => createElement(Picker, { key: index, index, input, fallback })))));
+    act(async () =>
+      root.render(
+        createElement(
+          QueryClientProvider,
+          { client: queryClient },
+          ...Array.from({ length: count }, (_, index) => createElement(Picker, { key: index, index, input, fallback })),
+        ),
+      ),
+    );
   return { seen, render, unmount: () => act(async () => root.unmount()) };
 }
 

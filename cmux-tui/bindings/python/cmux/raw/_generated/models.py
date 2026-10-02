@@ -2840,6 +2840,7 @@ class ShutdownDaemonRequest:
     generation: str
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    keep_layout: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

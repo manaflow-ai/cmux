@@ -16,7 +16,8 @@ public import Foundation
 /// Path: ``LaunchIdentity/socketPath`` (the bundle/tag convention, or
 /// `CMUX_NEXT_SOCKET_PATH`). Inherited `CMUX_*` variables never choose it.
 /// Access mode: `CMUX_NEXT_SOCKET_MODE`, else cmux.json
-/// `automation.socketControlMode`, else `cmuxOnly`. Password mode checks
+/// `automation.socketControlMode`, else `automation` (any process of this
+/// user; see ``defaultAccessMode``). Password mode checks
 /// `CMUX_NEXT_SOCKET_PASSWORD` unless the App passes its own verifier.
 @MainActor
 public final class ControlService {
@@ -45,10 +46,7 @@ public final class ControlService {
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let configuredMode = settings?.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
-        let mode = explicitMode
-            ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
-            ?? configuredMode.flatMap(parseAccessMode)
-            ?? .cmuxOnly
+        let mode = resolveAccessMode(explicit: explicitMode, environment: environment, configured: configuredMode)
         var verifier = passwordVerifier
         if verifier == nil, let expected = environment["CMUX_NEXT_SOCKET_PASSWORD"], !expected.isEmpty {
             verifier = { @Sendable candidate in candidate == expected }
@@ -92,6 +90,26 @@ public final class ControlService {
     public func stop() {
         server.stop()
         bridge.detach()
+    }
+
+    /// The mode when nothing chooses one. The socket file is 0600 in a
+    /// directory only this user can read, so the kernel already limits it to
+    /// this user; descent from the app adds no boundary and refuses this
+    /// app's own terminals (their daemon is launchd's child) and agents run
+    /// by other supervisors (acpmux). `cmuxOnly`, `password` and `off` stay
+    /// available in cmux.json.
+    public nonisolated static let defaultAccessMode: ControlAccessMode = .automation
+
+    /// `explicit`, else `CMUX_NEXT_SOCKET_MODE`, else cmux.json, else the default.
+    public nonisolated static func resolveAccessMode(
+        explicit: ControlAccessMode?,
+        environment: [String: String],
+        configured: String?
+    ) -> ControlAccessMode {
+        explicit
+            ?? environment["CMUX_NEXT_SOCKET_MODE"].flatMap(parseAccessMode)
+            ?? configured.flatMap(parseAccessMode)
+            ?? defaultAccessMode
     }
 
     /// Maps cmux.json / environment mode strings, including the old app's

@@ -325,8 +325,8 @@ into theirs once.
 
 | Level | Colors | Reason |
 | --- | --- | --- |
-| Room | the whole window: sidebar, titlebar, tab strips, pane chrome, floating cards, and every terminal without an override | a window shows one room and chrome is continuous with the terminal background, so the room owns the chrome; the recolor on a switch is the clearest cue of the current room |
-| Workspace | only its content area (terminals, pane tab strips, pane chrome, the screen bar); its sidebar row shows its color | recoloring the sidebar on every selection would flash the window and hide the room cue; the seam is the intended signal ("prod is red") |
+| Room | every workspace and terminal without an override, and the window chrome (sidebar, titlebar, floating cards) unless the shown workspace has a theme of the same light/dark mode | a window shows one room and chrome is continuous with the terminal background; the recolor on a switch is the clearest cue of the current room |
+| Workspace | its content area (terminals, pane tab strips, pane chrome, the screen bar) and, while shown, the window chrome when it is as light or dark as the room; its sidebar row shows its color | the sidebar background equals the content background beside it (Lawrence, 2026-10-01): a seam read as a wrong color, not as a signal. The window top never flips light in a dark room or dark in a light one (Leo, 2026-10-01), so a workspace of the other mode keeps the room's chrome. The chrome switches with the content in one frame |
 | Terminal | only its surface (`terminal-color-overrides-v1`) | a pane-level cue, such as ssh to prod |
 
 Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
@@ -346,7 +346,10 @@ name, an absolute path, or `light:A,dark:B`.
 Stage 5 (landed): `ThemeScope` in CmuxNextDesign is a tree under
 `ThemeScope.app` (the Ghostty config): each window adopts a room scope, each
 workspace content view roots a workspace scope, each terminal host view a
-terminal scope. A scope recomputes only when its theme or an ancestor's
+terminal scope. A room scope `show`s its window's current workspace scope:
+its own views and window draw in that scope's tokens when they share the
+room's light/dark mode, while children keep inheriting the room's own theme
+(`ownTokens`). A scope recomputes only when its theme or an ancestor's
 changes and repaints only what it roots, behind a `Motion` `theme`
 crossfade. Views resolve `Palette` inside `performWithTheme` (the nearest
 scope); `scripts/cmux-next/check-theme-scope.sh` refuses any other color

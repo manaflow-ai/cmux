@@ -33,6 +33,7 @@ use crate::terminal_host_runtime::TerminalHostLiveness;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod kept_tab_store;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 pub(crate) mod personal_store;
@@ -67,6 +68,7 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
+pub use kept_tab_store::KeptTabRecord;
 pub use personal_browser_profiles::{
     BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
 };
@@ -4053,6 +4055,7 @@ fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> 
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
     crate::state::store::create_state_schema(transaction)?;
+    kept_tab_store::create_kept_tab_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,

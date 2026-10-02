@@ -41,7 +41,7 @@ extension SidebarListView {
     }
 
     func beginDrag(_ press: Press) {
-        hoverCard.hide()
+        hoverCards.dismiss(.click)
         guard let row = displayed.row(for: press.key) else { return }
         let payload: DragPayload
         var hidden: Set<SidebarRowKey>

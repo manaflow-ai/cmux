@@ -153,7 +153,7 @@ struct QuitPolicyTests {
                 await QuitCompletion.run(choice, remember: remember, QuitSteps(
                     remember: { log.steps.append("remember:\($0.rawValue)") },
                     prepareWindows: { log.steps.append("windows") },
-                    endLocalSessions: { log.steps.append($0 ? "end+delete-workspaces" : "end") }
+                    endLocalSessions: { log.steps.append($0 == .endEverything ? "end+delete-workspaces" : "end") }
                 ))
                 var expected = remember ? ["remember:\(choice.rawValue)"] : []
                 expected.append("windows")

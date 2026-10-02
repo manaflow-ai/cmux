@@ -123,18 +123,18 @@ extension TabStripView {
     func refreshHoverCard() {
         if let hoveredID {
             if let item = model.tab(hoveredID) {
-                hoverCard.refresh(.tab(item))
+                hoverCard.refresh(item.id)
             } else {
+                hoverCards.targetRemoved(TabHoverCardController.targetID(hoveredID))
                 setHovered(nil)
-                hoverCard.hide()
             }
         }
         if let chip = groups.hoveredChip {
             if let group = groups.byID[chip] {
-                hoverCard.refresh(groupHoverContent(group))
+                hoverCard.refresh(.groupChip(group.id))
             } else {
+                hoverCards.targetRemoved(TabHoverCardController.targetID(.groupChip(chip)))
                 setHoveredChip(nil)
-                hoverCard.hide()
             }
         }
         if let shown = groupEditor.shownGroupID {
