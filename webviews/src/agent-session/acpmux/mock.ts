@@ -7,7 +7,7 @@ import type { AcpmuxHostConfig, EventRecord } from "./direct";
 // turn goes through the same reducer and renderers as a real agent's.
 
 const sessionId = "mock-session";
-const harnesses = [{ id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
+const harnesses = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
 const session = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle" };
 
 /// The host config the page connects with in mock mode.
