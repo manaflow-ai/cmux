@@ -84,8 +84,9 @@ public final class FakeAppsTransport: AppsTransport {
         var next = change.applied(to: records[index])
         if change.installed == true, next.source == .bundled { next.source = .user }
         if change.installed == true, next.tier != .unverified { next.grants = Set(next.manifest.scopes.map(\.scope)) }
-        records[index] = next
         revision += 1
+        next.revision = revision
+        records[index] = next
         let revision = revision
         // task-owner: the commit's apps-changed event, after the reply like the daemon's event stream
         Task { @MainActor [weak self] in self?.onEvent?(.changed(revision: revision)) }
@@ -121,6 +122,13 @@ public final class FakeAppsTransport: AppsTransport {
     public func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
         try requireAvailable()
         return [AppLogLine(id: 1, date: nil, level: "info", message: "started"), AppLogLine(id: 2, date: nil, level: "info", message: "mounted")]
+    }
+
+    /// The supervisor restarted the app host (crash, grant change) and
+    /// re-mounted `mountID`: its first scene batch resets the tree (tests).
+    public func restartHost(mountID: String) {
+        guard let mount = mounted[mountID], let record = records.first(where: { $0.id == mount.app }) else { return }
+        onEvent?(.scene(mountID: mountID, ops: FakeAppScenes.scene(for: record, interface: mount.interface, preview: false), reset: true))
     }
 
     /// Pushes an event as the daemon would (tests).

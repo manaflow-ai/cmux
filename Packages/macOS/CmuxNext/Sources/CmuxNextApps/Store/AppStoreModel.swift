@@ -40,9 +40,10 @@ public final class AppStoreModel {
     public var canChange: Bool { client.isAvailable }
 
     /// Every app the supervisor knows, as listings, filtered by the search
-    /// and category. `local/` development apps are never listed.
+    /// and category. `local/` development apps and apps whose package the
+    /// daemon does not have are never listed.
     public var listings: [AppStoreListing] {
-        client.apps.filter { !$0.manifest.isLocal }.map(AppStoreListing.init(record:))
+        client.apps.filter { !$0.manifest.isLocal && $0.available }.map(AppStoreListing.init(record:))
             .filter { (category == nil || $0.categories.contains(category!)) && $0.matches(query) }
     }
 

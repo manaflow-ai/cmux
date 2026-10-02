@@ -41,7 +41,21 @@ struct AppsWireTests {
         #expect(AppsEventDecoding.event(name: "apps-host", payload: host) == .host(app: "cmux/x", state: .crashed, reason: "oom"))
         let changed = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"event":"apps-changed","revision":7,"transaction":"t"}"#.utf8))
         #expect(AppsEventDecoding.event(name: "apps-changed", payload: changed) == .changed(revision: 7))
+        let reset = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"event":"apps-scene","mount_id":"m1","reset":true,"ops":[]}"#.utf8))
+        #expect(AppsEventDecoding.event(name: "apps-scene", payload: reset) == .scene(mountID: "m1", ops: [], reset: true))
         #expect(AppsEventDecoding.event(name: "apps-unknown-future", payload: .null) == nil)
+    }
+
+    @Test func recordsReadBundleDirAvailabilityAndRevision() throws {
+        let record = try #require(FakeAppsTransport.sampleRecords().first)
+        guard case .object(var json) = record.json else { return }
+        json["bundle_dir"] = "/tmp/apps/x"
+        json["available"] = false
+        json["revision"] = 12
+        let decoded = try #require(AppRecord(json: .object(json)))
+        #expect(decoded.bundleDirectory?.path == "/tmp/apps/x")
+        #expect(!decoded.available)
+        #expect(decoded.revision == 12)
     }
 
     @Test func listReplyReadsRecords() throws {

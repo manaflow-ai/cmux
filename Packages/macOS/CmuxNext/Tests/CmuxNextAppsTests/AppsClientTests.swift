@@ -141,4 +141,18 @@ struct AppsClientTests {
         #expect(transport.records.first { $0.id == id }?.hidden == true)
         #expect(transport.seenKeys.count == 1)
     }
+
+    @Test func aHostRestartResetsTheMountsTree() async throws {
+        let (client, transport) = await TestClient.make()
+        let record = try #require(client.app("cmux/agent-status"))
+        let mount = client.mount(record.id, implementation: try #require(record.manifest.implementations.first), surface: "statusItem")
+        #expect(await eventually { await MainActor.run { mount.model.status == .ready } })
+        // A node the restarted host no longer has must not survive the reset.
+        mount.model.apply([.create(id: "stale", type: "Text", props: ["text": "old"])])
+        #expect(mount.model.scene["stale"] != nil)
+        transport.restartHost(mountID: mount.id)
+        #expect(mount.model.scene["stale"] == nil)
+        #expect(mount.model.scene.root != nil)
+        #expect(mount.model.status == .ready)
+    }
 }
