@@ -138,6 +138,9 @@ final class StripScrollbarView: NSView {
         return super.hitTest(point)
     }
 
+    /// A click on a window that is not key still scrolls, like a divider.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let trackingArea { removeTrackingArea(trackingArea) }
