@@ -308,6 +308,8 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
     /// Rows as shown: newest conversation first, narrowed by the search query.
     private var visible: [MacConversationEntry] = []
     private var selectedID: String?
+    /// Newest seq each conversation had while it was on screen.
+    private var seenSeq: [String: Int] = [:]
     private let table = NSTableView()
     private let search = NSSearchField()
     private let searchPill = MacFlippedView()
@@ -393,6 +395,23 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         return matching.sorted { lastActivity($0) > lastActivity($1) }
     }
 
+    private func newestIncomingSeq(_ entry: MacConversationEntry) -> Int {
+        entry.store.messages.last { $0.seq != nil && $0.senderID != entry.store.meID }?.seq ?? 0
+    }
+
+    private func isUnread(_ entry: MacConversationEntry) -> Bool {
+        if entry.id == selectedID {
+            seenSeq[entry.id] = newestIncomingSeq(entry)
+            return false
+        }
+        guard let seen = seenSeq[entry.id] else {
+            // Conversations never opened in this window start read.
+            seenSeq[entry.id] = newestIncomingSeq(entry)
+            return false
+        }
+        return newestIncomingSeq(entry) > seen
+    }
+
     private func refresh(changed entry: MacConversationEntry? = nil) {
         let next = ordered()
         if next.map(\.id) == visible.map(\.id), let entry, let index = visible.firstIndex(where: { $0 === entry }) {
@@ -433,6 +452,10 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
 
     func markSelected(_ id: String) {
         selectedID = id
+        if let index = visible.firstIndex(where: { $0.id == id }) {
+            seenSeq[id] = newestIncomingSeq(visible[index])
+            table.reloadData(forRowIndexes: IndexSet(integer: index), columnIndexes: IndexSet(integer: 0))
+        }
         guard let index = visible.firstIndex(where: { $0.id == id }) else { return }
         table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
     }
@@ -443,6 +466,7 @@ final class MacConversationListViewController: NSViewController, NSTableViewData
         let view = tableView.makeView(withIdentifier: .init("r"), owner: nil) as? MacConversationListRow ?? MacConversationListRow()
         view.identifier = .init("r")
         view.configure(store: visible[row].store)
+        view.isUnread = isUnread(visible[row])
         view.hidesSeparator = tableView.selectedRow == row || tableView.selectedRow == row + 1 || row == visible.count - 1
         return view
     }
@@ -466,6 +490,8 @@ final class MacConversationListRow: MacFlippedView {
     private let preview = makeMacLabel()
     private let separator = NSBox()
     private let clusterDisc = MacFlippedView()
+    private let unreadDot = MacFlippedView()
+    var isUnread = false { didSet { unreadDot.isHidden = !isUnread } }
     var hidesSeparator = false { didSet { separator.isHidden = hidesSeparator } }
 
     override init(frame: NSRect) {
@@ -475,6 +501,12 @@ final class MacConversationListRow: MacFlippedView {
         clusterDisc.wantsLayer = true
         clusterDisc.layer?.cornerRadius = 20
         addSubview(clusterDisc)
+        unreadDot.wantsLayer = true
+        unreadDot.layer?.cornerRadius = 5
+        unreadDot.layer?.backgroundColor = NSColor.systemBlue.cgColor
+        unreadDot.isHidden = true
+        unreadDot.setAccessibilityLabel(String(localized: "conversation.sidebar.unread", defaultValue: "Unread", bundle: .module))
+        addSubview(unreadDot)
         title.font = .systemFont(ofSize: 13, weight: .bold)
         title.maximumNumberOfLines = 1
         time.font = .systemFont(ofSize: 12)
@@ -532,6 +564,8 @@ final class MacConversationListRow: MacFlippedView {
         // from the row's leading edge, text column at 56 pt, 2-line preview.
         let disc = CGRect(x: 12, y: (bounds.height - 40) / 2 - 1, width: 40, height: 40)
         avatar.frame = disc
+        // Measured: a 10 pt dot centered 30 pt left of the avatar's center.
+        unreadDot.frame = CGRect(x: disc.midX - 30 - 5, y: disc.midY - 5, width: 10, height: 10)
         clusterDisc.frame = disc
         let frames = [
             CGRect(x: disc.midX - 6 - 9, y: disc.midY - 6 - 9, width: 18, height: 18),

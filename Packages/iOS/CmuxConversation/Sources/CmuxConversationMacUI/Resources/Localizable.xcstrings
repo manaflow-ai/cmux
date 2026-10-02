@@ -816,6 +816,22 @@
           }
         }
       }
+    },
+    "conversation.sidebar.unread": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unread"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未読"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
