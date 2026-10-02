@@ -358,8 +358,14 @@ with:
   record, stop closes the oldest running child (FIFO). The `agent_id` field is
   not read; only `_opencode_request_id` can correlate a stop event to a child.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
-  `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
-  `dirty`, `ports` (array of Int).
+  `focused` (Bool), `pinned` (Bool), `hasUnread` (Bool, whether that surface
+  has an unread notification). It is named differently from the workspace-level
+  `unread`, which is a count, so that `w.unread > 0` and `t.hasUnread` cannot be
+  confused for one another. When available: `directory`, `branch` +
+  `dirty`, `ports` (array of Int), `latestPrompt` (the prompt last submitted in
+  that surface, not a pending state) + `latestAt` (epoch). Pair `latestPrompt`
+  with `hasUnread` to show which of a workspace's agents is waiting, instead of
+  collapsing every surface into the workspace-level `latestPrompt`.
 - `workspaceCount` — Int. `selectedTitle` — active workspace's title.
   `selectedId` — its id. `unreadTotal` — total unread notifications.
 - `clock` — `{ time ("HH:mm:ss"), hour, minute, second, weekday, epoch }`. The
