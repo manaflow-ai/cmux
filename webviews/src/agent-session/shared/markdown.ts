@@ -8,17 +8,7 @@ declare global {
   }
 }
 
-const unsafeElementNames = new Set([
-  "base",
-  "embed",
-  "form",
-  "iframe",
-  "link",
-  "meta",
-  "object",
-  "script",
-  "style",
-]);
+const unsafeElementNames = new Set(["base", "embed", "form", "iframe", "link", "meta", "object", "script", "style"]);
 
 const passiveFetchAttributeNames = new Set(["poster", "src", "srcset", "xlink:href"]);
 

@@ -100,7 +100,7 @@ export function shouldAssertMissingLabels(): boolean {
 
 export function createDiffViewerLabelResolver(
   labels: Record<string, string> | undefined,
-  options: LabelResolverOptions = {}
+  options: LabelResolverOptions = {},
 ): DiffViewerLabelResolver {
   const missingKeys = new Set<DiffViewerLabelKey>();
   return (key) => {

@@ -32,7 +32,7 @@ final class OnboardingHostView: NSView {
         guard step != shownStep else { return }
         shownStep = step
         let chosen = forcedVariant.flatMap { $0.step == step ? $0 : nil }
-            ?? OnboardingVariantRegistry.chosen(for: step, id: model.services.variantID(for: step))
+            ?? step.chosenVariant(id: model.services.variantID(for: step))
         variant = chosen
         let content = chosen.makeContent(OnboardingStepContext(model: model))
         let surface = OnboardingSurfaceView(surface: chosen.surface, content: content)

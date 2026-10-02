@@ -95,7 +95,7 @@ enum DebugOnboarding {
             "index": .number(Double(store.review.index)),
             "summary": .string(GalleryReviewStore.summary(store.review)),
             "variants": .object(Dictionary(uniqueKeysWithValues: OnboardingModel.Step.allCases.map { step in
-                (step.rawValue, JSONValue.array(OnboardingVariantRegistry.variants(for: step).map { .string($0.id) }))
+                (step.rawValue, JSONValue.array(step.variants.map { .string($0.id) }))
             })),
         ])
     }

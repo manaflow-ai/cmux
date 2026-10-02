@@ -45,9 +45,9 @@ export function planPierreFileTreeRefresh(
 
   const previousPathCount = previousSource.pathCount ?? previousSource.paths?.length ?? 0;
   const sourcePathCount = source.pathCount ?? paths.length;
-  const sourceFollowsPrevious = source.previousSource === previousSource || (
-    previousSource.revision != null && source.previousRevision === previousSource.revision
-  );
+  const sourceFollowsPrevious =
+    source.previousSource === previousSource ||
+    (previousSource.revision != null && source.previousRevision === previousSource.revision);
   const canAppend = sourceFollowsPrevious || isPathPrefix(previousSource, source);
 
   if (!canAppend || sourcePathCount < previousPathCount) {

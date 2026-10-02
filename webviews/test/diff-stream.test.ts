@@ -22,10 +22,11 @@ test("streamPatch replaces already-flushed repeated-path items immutably", async
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
-  (globalThis as any).fetch = () => Promise.resolve({
-    ok: true,
-    text: () => Promise.resolve("patch"),
-  });
+  (globalThis as any).fetch = () =>
+    Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve("patch"),
+    });
   dom.window.document.hasFocus = () => false;
 
   const label = createDiffViewerLabelResolver(undefined);
@@ -41,12 +42,14 @@ test("streamPatch replaces already-flushed repeated-path items immutably", async
     onMetrics: () => {},
     onRename: (rename) => renames.push(rename),
     onTreeSource: () => {},
-    parsePatchFiles: () => [{
-      files: [
-        { name: "README.md", type: "modified", hunks: [] },
-        { name: "README.md", type: "modified", hunks: [] },
-      ],
-    }],
+    parsePatchFiles: () => [
+      {
+        files: [
+          { name: "README.md", type: "modified", hunks: [] },
+          { name: "README.md", type: "modified", hunks: [] },
+        ],
+      },
+    ],
     patchURL: "/patch.diff",
     processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
   });
@@ -61,10 +64,11 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
-  (globalThis as any).fetch = () => Promise.resolve({
-    ok: true,
-    text: () => Promise.resolve("patch"),
-  });
+  (globalThis as any).fetch = () =>
+    Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve("patch"),
+    });
   dom.window.document.hasFocus = () => false;
 
   const label = createDiffViewerLabelResolver({ untitled: "Localized untitled" });
@@ -83,11 +87,11 @@ test("streamPatch uses localized fallback for unnamed file tree paths", async ()
       treePaths.push(source.paths);
       treeSources.push(source);
     },
-    parsePatchFiles: () => [{
-      files: [
-        { type: "modified", hunks: [] },
-      ],
-    }],
+    parsePatchFiles: () => [
+      {
+        files: [{ type: "modified", hunks: [] }],
+      },
+    ],
     patchURL: "/patch.diff",
     processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
   });
@@ -104,7 +108,9 @@ test("streamPatch stops callbacks after its abort signal fires", async () => {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      controller.enqueue(encoder.encode("diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\ndiff --git a/b.ts b/b.ts\n"));
+      controller.enqueue(
+        encoder.encode("diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\ndiff --git a/b.ts b/b.ts\n"),
+      );
       setTimeout(() => {
         controller.enqueue(encoder.encode("--- a/b.ts\n+++ b/b.ts\n"));
         controller.close();
@@ -124,7 +130,9 @@ test("streamPatch stops callbacks after its abort signal fires", async () => {
       batches += 1;
       controller.abort();
     },
-    onComplete: () => { completed += 1; },
+    onComplete: () => {
+      completed += 1;
+    },
     onMetrics: () => {},
     onRename: () => {},
     onTreeSource: () => {},
@@ -145,10 +153,11 @@ test("streamPatch publishes revision-stable tree snapshots", async () => {
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
-  (globalThis as any).fetch = () => Promise.resolve({
-    ok: true,
-    text: () => Promise.resolve("patch"),
-  });
+  (globalThis as any).fetch = () =>
+    Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve("patch"),
+    });
   dom.window.document.hasFocus = () => false;
 
   const treeSources: any[] = [];
@@ -161,13 +170,15 @@ test("streamPatch publishes revision-stable tree snapshots", async () => {
     onMetrics: () => {},
     onRename: () => {},
     onTreeSource: (source) => treeSources.push(source),
-    parsePatchFiles: () => [{
-      files: [
-        { name: "a.ts", type: "new", hunks: [] },
-        { name: "b.ts", type: "deleted", hunks: [] },
-        { name: "c.ts", type: "change", hunks: [] },
-      ],
-    }],
+    parsePatchFiles: () => [
+      {
+        files: [
+          { name: "a.ts", type: "new", hunks: [] },
+          { name: "b.ts", type: "deleted", hunks: [] },
+          { name: "c.ts", type: "change", hunks: [] },
+        ],
+      },
+    ],
     patchURL: "/patch.diff",
     processFile: (patchText) => ({ name: patchText, type: "modified", hunks: [] }),
   });
@@ -193,10 +204,11 @@ test("streamPatch grows batches after first paint for large diffs", async () => 
   const dom = new JSDOM("<!doctype html><html><body></body></html>");
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
-  (globalThis as any).fetch = () => Promise.resolve({
-    ok: true,
-    text: () => Promise.resolve("patch"),
-  });
+  (globalThis as any).fetch = () =>
+    Promise.resolve({
+      ok: true,
+      text: () => Promise.resolve("patch"),
+    });
   dom.window.document.hasFocus = () => false;
   const files = Array.from({ length: 10_000 }, (_, index) => ({
     name: `src/file-${index}.ts`,
@@ -249,7 +261,9 @@ test("streamPatch replaces many repeated paths by stable file order", async () =
     onMetrics: () => {},
     onRename: () => {},
     onTreeSource: () => {},
-    parsePatchFiles: () => [{ files: Array.from({ length: 2_000 }, () => ({ name: "repeat.ts", type: "change", hunks: [] })) }],
+    parsePatchFiles: () => [
+      { files: Array.from({ length: 2_000 }, () => ({ name: "repeat.ts", type: "change", hunks: [] })) },
+    ],
     patchURL: "/patch.diff",
     processFile: () => ({ name: "unused", type: "change", hunks: [] }),
   });
@@ -263,8 +277,10 @@ test("streamed file diffs carry a patch fingerprint and patch size for viewed st
   (globalThis as any).document = dom.window.document;
   (globalThis as any).window = dom.window;
   dom.window.document.hasFocus = () => false;
-  const fileA = "diff --git a/a.txt b/a.txt\nindex 1111111..2222222 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,3 @@\n one\n+two\n three\n";
-  const fileB = "diff --git a/b.txt b/b.txt\nnew file mode 100644\nindex 0000000..3333333\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+hello\n";
+  const fileA =
+    "diff --git a/a.txt b/a.txt\nindex 1111111..2222222 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,2 +1,3 @@\n one\n+two\n three\n";
+  const fileB =
+    "diff --git a/b.txt b/b.txt\nnew file mode 100644\nindex 0000000..3333333\n--- /dev/null\n+++ b/b.txt\n@@ -0,0 +1 @@\n+hello\n";
   (globalThis as any).fetch = () => Promise.resolve(new Response(fileA + fileB, { status: 200 }));
 
   const items: any[] = [];
@@ -279,7 +295,13 @@ test("streamed file diffs carry a patch fingerprint and patch size for viewed st
     onTreeSource: () => {},
     parsePatchFiles: () => [],
     patchURL: "http://127.0.0.1/p.patch",
-    processFile: (text) => ({ name: /b\/(\S+)/.exec(text)?.[1] ?? "", type: "change", hunks: [], additionLines: [], deletionLines: [] }),
+    processFile: (text) => ({
+      name: /b\/(\S+)/.exec(text)?.[1] ?? "",
+      type: "change",
+      hunks: [],
+      additionLines: [],
+      deletionLines: [],
+    }),
   });
 
   expect(items).toHaveLength(2);

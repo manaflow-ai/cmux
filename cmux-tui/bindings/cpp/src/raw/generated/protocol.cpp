@@ -18696,6 +18696,11 @@ Result<Json> Codec<ShutdownDaemonRequest>::encode(const ShutdownDaemonRequest& v
     auto encoded_generation = encode_value(value.generation);
     if (!encoded_generation) return std::move(encoded_generation).error();
     object.emplace("generation", std::move(encoded_generation).value());
+    if (value.keep_layout) {
+        auto encoded = encode_value(*value.keep_layout);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("keep_layout", std::move(encoded).value());
+    }
     auto encoded_pid = encode_value(value.pid);
     if (!encoded_pid) return std::move(encoded_pid).error();
     object.emplace("pid", std::move(encoded_pid).value());
@@ -18726,6 +18731,12 @@ Result<ShutdownDaemonRequest> Codec<ShutdownDaemonRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_generation);
         if (!decoded) return std::move(decoded).error();
         result.generation = std::move(decoded).value();
+    }
+    const Json* field_keep_layout = value.find("keep_layout");
+    if (field_keep_layout) {
+        auto decoded = decode_value<bool>(*field_keep_layout);
+        if (!decoded) return std::move(decoded).error();
+        result.keep_layout = std::move(decoded).value();
     }
     const Json* field_pid = value.find("pid");
     if (!field_pid) {
@@ -25737,9 +25748,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand160FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand161FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand161FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
+    {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 5> kCommand163FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},

@@ -99,6 +99,8 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     func paneFrameInWindowDidChange() {
         stripView.updateWindowControlsAvoidance()
+        // The pane moved under a possibly still pointer (column scroll, split resize).
+        stripView.paneMovedInWindow()
     }
 
     private func reportHeaderIfChanged() {

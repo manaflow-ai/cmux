@@ -29,6 +29,8 @@ export type AgentSessionTheme = {
   /// Labels on the accent; the cmux-next pane sends it, others fall back to white.
   accentText?: string;
   danger: string;
+  /// Caution, softer than `danger` (ANSI yellow): the full-access mode chip.
+  warning?: string;
   shadow: string;
 };
 

@@ -10,7 +10,19 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of [
+  "window",
+  "document",
+  "navigator",
+  "Element",
+  "Node",
+  "HTMLElement",
+  "HTMLStyleElement",
+  "customElements",
+  "fetch",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -170,13 +182,40 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
           sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
           sourceLabel: "git branch",
           sourceOptions: [
-            { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "branch" },
-            { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
-            { label: "Last turn", selected: false, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
+            {
+              label: "Branch",
+              selected: true,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+              value: "branch",
+            },
+            {
+              label: "Unstaged",
+              selected: false,
+              sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+              value: "unstaged",
+            },
+            {
+              label: "Last turn",
+              selected: false,
+              sessionSource: { kind: "patch", path: "/last-turn.patch" },
+              value: "last-turn",
+            },
           ],
           repoOptions: [
-            { label: "repo", message: "/tmp/repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" }, value: "/tmp/repo" },
-            { label: "other-repo", message: "/tmp/other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
+            {
+              label: "repo",
+              message: "/tmp/repo",
+              selected: true,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/repo", baseRef: "main" },
+              value: "/tmp/repo",
+            },
+            {
+              label: "other-repo",
+              message: "/tmp/other-repo",
+              selected: false,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" },
+              value: "/tmp/other-repo",
+            },
           ],
           statusMessage: "Loading diff",
           title: "Branch diff",
@@ -207,40 +246,53 @@ test("custom-scheme pending pages stream exactly one typed Rust session", async 
   dom.window.document.getElementById("options-button")?.click();
   await waitFor(() => Boolean(copyGitApplyButton()));
   copyGitApplyButton()?.click();
-  await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.");
+  await waitFor(
+    () => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.",
+  );
   releaseSecondSession?.();
   await waitFor(() => fetched.length === 2);
-  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source)
-    .toEqual({ kind: "branch", repoRoot: "/tmp/other-repo" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source).toEqual({
+    kind: "branch",
+    repoRoot: "/tmp/other-repo",
+  });
 
   const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
   sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
   await waitFor(() => fetched.length === 3);
-  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
-    .toEqual({ kind: "unstaged", repoRoot: "/tmp/other-repo" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
+    kind: "unstaged",
+    repoRoot: "/tmp/other-repo",
+  });
 
   repoSelect.value = "/tmp/repo";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 4);
   await waitFor(() => fetched.length === 4);
-  expect(requests.filter((request) => request.method === "sessionOpen")[3].params.source)
-    .toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[3].params.source).toEqual({
+    kind: "unstaged",
+    repoRoot: "/tmp/repo",
+  });
 
   sourceSelect.value = "last-turn";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
   await waitFor(() => fetched.length === 5);
-  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
-    .toEqual({ kind: "patch", path: "/last-turn.patch" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source).toEqual({
+    kind: "patch",
+    path: "/last-turn.patch",
+  });
   const closeCountBeforePageHide = requests.filter((request) => request.method === "sessionClose").length;
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
-  await waitFor(() => requests.filter((request) => request.method === "sessionClose").length > closeCountBeforePageHide);
+  await waitFor(
+    () => requests.filter((request) => request.method === "sessionClose").length > closeCountBeforePageHide,
+  );
   flushSync(() => root?.unmount());
   root = null;
-  expect(requests.filter((request) => request.method === "sessionClose").length)
-    .toBeGreaterThan(closeCountBeforePageHide);
+  expect(requests.filter((request) => request.method === "sessionClose").length).toBeGreaterThan(
+    closeCountBeforePageHide,
+  );
 });
 
 test("typed Rust empty diffs keep the localized source-specific message", async () => {
@@ -281,7 +333,9 @@ test("typed Rust empty diffs keep the localized source-specific message", async 
     />,
   );
 
-  await waitFor(() => dom?.window.document.getElementById("status-text")?.textContent === "No unstaged changes to diff.");
+  await waitFor(
+    () => dom?.window.document.getElementById("status-text")?.textContent === "No unstaged changes to diff.",
+  );
   expect(fetched).toBe(false);
 });
 
@@ -341,13 +395,15 @@ test("typed source switching preserves the last resolved branch base", async () 
           if (request.method === "sessionClose") {
             return { id: request.id, version: 1, result: { type: "sessionClosed" }, error: null };
           }
-          const source = request.params.source.kind === "branch"
-            ? {
-                ...request.params.source,
-                baseRef: request.params.source.baseRef
-                  ?? (request.params.source.repoRoot === "/tmp/other-repo" ? "other-base" : "chosen-base"),
-              }
-            : request.params.source;
+          const source =
+            request.params.source.kind === "branch"
+              ? {
+                  ...request.params.source,
+                  baseRef:
+                    request.params.source.baseRef ??
+                    (request.params.source.repoRoot === "/tmp/other-repo" ? "other-base" : "chosen-base"),
+                }
+              : request.params.source;
           return {
             id: request.id,
             version: 1,
@@ -368,25 +424,49 @@ test("typed source switching preserves the last resolved branch base", async () 
 
   renderApp(
     <App
-      config={{ payload: {
-        capabilityToken: "0123456789abcdef",
-        sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
-        sourceOptions: [
-          { label: "Branch", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "branch" },
-          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
-        ],
-        repoOptions: [
-          { label: "repo", selected: true, sessionSource: { kind: "branch", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
-          { label: "other-repo", selected: false, sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" }, value: "/tmp/other-repo" },
-        ],
-        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
-      } }}
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+          sourceOptions: [
+            {
+              label: "Branch",
+              selected: true,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+              value: "branch",
+            },
+            {
+              label: "Unstaged",
+              selected: false,
+              sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+              value: "unstaged",
+            },
+          ],
+          repoOptions: [
+            {
+              label: "repo",
+              selected: true,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/repo" },
+              value: "/tmp/repo",
+            },
+            {
+              label: "other-repo",
+              selected: false,
+              sessionSource: { kind: "branch", repoRoot: "/tmp/other-repo" },
+              value: "/tmp/other-repo",
+            },
+          ],
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
       initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
     />,
   );
 
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
-  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true);
+  await waitFor(
+    () => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("chosen-base") === true,
+  );
   const sourceSelect = dom.window.document.getElementById("source-select") as HTMLSelectElement;
   sourceSelect.value = "unstaged";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
@@ -394,19 +474,27 @@ test("typed source switching preserves the last resolved branch base", async () 
   sourceSelect.value = "branch";
   sourceSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
-  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
-    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
+    kind: "branch",
+    repoRoot: "/tmp/repo",
+    baseRef: "chosen-base",
+  });
 
   const repoSelect = dom.window.document.getElementById("repo-select") as HTMLSelectElement;
   repoSelect.value = "/tmp/other-repo";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 4);
-  await waitFor(() => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("other-base") === true);
+  await waitFor(
+    () => dom?.window.document.querySelector(".base-picker-button")?.textContent?.includes("other-base") === true,
+  );
   repoSelect.value = "/tmp/repo";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 5);
-  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source)
-    .toEqual({ kind: "branch", repoRoot: "/tmp/repo", baseRef: "chosen-base" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[4].params.source).toEqual({
+    kind: "branch",
+    repoRoot: "/tmp/repo",
+    baseRef: "chosen-base",
+  });
 });
 
 test("pagehide cancels a typed session while its initial open is pending", async () => {
@@ -428,19 +516,22 @@ test("pagehide cancels a typed session while its initial open is pending", async
   };
   renderApp(
     <App
-      config={{ payload: {
-        capabilityToken: "0123456789abcdef",
-        sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
-        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
-      } }}
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
       initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
     />,
   );
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 1);
   dom.window.dispatchEvent(new dom.window.Event("pagehide"));
   await waitFor(() => requests.filter((request) => request.method === "sessionClose").length === 1);
-  expect(requests.find((request) => request.method === "sessionClose").params.sessionId)
-    .toBe("00000000-0000-0000-0000-000000000000");
+  expect(requests.find((request) => request.method === "sessionClose").params.sessionId).toBe(
+    "00000000-0000-0000-0000-000000000000",
+  );
 });
 
 test("Last Turn reveals repo selection after switching to a typed git source", async () => {
@@ -474,19 +565,41 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
   };
   renderApp(
     <App
-      config={{ payload: {
-        capabilityToken: "0123456789abcdef",
-        sessionSource: { kind: "patch", path: "/last-turn.patch" },
-        sourceOptions: [
-          { label: "Last turn", selected: true, sessionSource: { kind: "patch", path: "/last-turn.patch" }, value: "last-turn" },
-          { label: "Unstaged", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "unstaged" },
-        ],
-        repoOptions: [
-          { label: "repo", selected: true, sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" }, value: "/tmp/repo" },
-          { label: "other", selected: false, sessionSource: { kind: "unstaged", repoRoot: "/tmp/other" }, value: "/tmp/other" },
-        ],
-        transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
-      } }}
+      config={{
+        payload: {
+          capabilityToken: "0123456789abcdef",
+          sessionSource: { kind: "patch", path: "/last-turn.patch" },
+          sourceOptions: [
+            {
+              label: "Last turn",
+              selected: true,
+              sessionSource: { kind: "patch", path: "/last-turn.patch" },
+              value: "last-turn",
+            },
+            {
+              label: "Unstaged",
+              selected: false,
+              sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+              value: "unstaged",
+            },
+          ],
+          repoOptions: [
+            {
+              label: "repo",
+              selected: true,
+              sessionSource: { kind: "unstaged", repoRoot: "/tmp/repo" },
+              value: "/tmp/repo",
+            },
+            {
+              label: "other",
+              selected: false,
+              sessionSource: { kind: "unstaged", repoRoot: "/tmp/other" },
+              value: "/tmp/other",
+            },
+          ],
+          transport: { kind: "webKit", endpoint: "cmuxDiff", protocolVersion: 1 },
+        },
+      }}
       initialStatus={createDiffViewerStatus("Loading diff", { loading: true })}
     />,
   );
@@ -502,8 +615,10 @@ test("Last Turn reveals repo selection after switching to a typed git source", a
   repoSelect.value = "/tmp/other";
   repoSelect.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 3);
-  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source)
-    .toEqual({ kind: "unstaged", repoRoot: "/tmp/other" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[2].params.source).toEqual({
+    kind: "unstaged",
+    repoRoot: "/tmp/other",
+  });
 });
 
 test("App still starts diff rendering when statusMessage is an empty string", async () => {
@@ -554,7 +669,9 @@ test("App reports copy failure without replacing the current status screen", asy
   const copyButton = copyGitApplyButton();
   copyButton?.click();
 
-  await waitFor(() => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.");
+  await waitFor(
+    () => dom?.window.document.getElementById("copy-feedback")?.textContent === "Could not copy git apply command.",
+  );
   expect(dom.window.document.getElementById("status-text")?.textContent).toBe("Rendered diff");
 });
 
@@ -737,8 +854,9 @@ test("viewer preferences sync from the native bridge and persist option changes"
   await waitFor(() => Boolean(menuButton("Hide line numbers")));
   menuButton("Hide line numbers")?.click();
   await waitFor(() => prefsRequests.some((request) => request.method === "viewerPrefs.set"));
-  expect(prefsRequests.find((request) => request.method === "viewerPrefs.set").params)
-    .toEqual({ preferences: { lineNumbers: false } });
+  expect(prefsRequests.find((request) => request.method === "viewerPrefs.set").params).toEqual({
+    preferences: { lineNumbers: false },
+  });
 
   // Collapse state stays session-local.
   menuButton("Collapse all diffs")?.click();
@@ -816,8 +934,10 @@ test("refresh re-streams the typed session in place and keeps viewer options", a
   await waitFor(() => requests.filter((request) => request.method === "sessionOpen").length === 2);
   await waitFor(() => fetched.length === 2);
   expect(requests.filter((request) => request.method === "sessionClose").length).toBeGreaterThan(0);
-  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source)
-    .toEqual({ kind: "unstaged", repoRoot: "/tmp/repo" });
+  expect(requests.filter((request) => request.method === "sessionOpen")[1].params.source).toEqual({
+    kind: "unstaged",
+    repoRoot: "/tmp/repo",
+  });
   // The soft refresh never reloads the page, so layout and toggles survive.
   expect(dom.window.document.documentElement.dataset.layout).toBe("split");
   expect(dom.window.document.documentElement.dataset.wordWrap).toBe("true");
@@ -866,10 +986,12 @@ test("visible diff file follows the scroll position", () => {
 
   const manyItems = Array.from({ length: 4096 }, (_, index) => ({ id: `item-${index}` })) as any;
   let lookups = 0;
-  expect(visibleItemId(manyItems, 3000, (id) => {
-    lookups += 1;
-    return Number(id.slice("item-".length)) * 10;
-  })).toBe("item-300");
+  expect(
+    visibleItemId(manyItems, 3000, (id) => {
+      lookups += 1;
+      return Number(id.slice("item-".length)) * 10;
+    }),
+  ).toBe("item-300");
   expect(lookups).toBeLessThanOrEqual(13);
 });
 
@@ -894,7 +1016,9 @@ test("native viewer navigation remains installed after an unrelated render", asy
   expect(dom.window.__cmuxPerformDiffViewerNavigationAction).toBe(action);
   expect(action?.("diffViewerOpenFileSearch")).toBe(true);
   expect(action?.("unknown")).toBe(false);
-  await waitFor(() => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true");
+  await waitFor(
+    () => dom?.window.document.getElementById("file-search-toggle")?.getAttribute("aria-pressed") === "true",
+  );
 });
 
 test("files sidebar shows the viewed progress, path filter, and status toggles", async () => {
@@ -945,7 +1069,12 @@ test("viewed files load for the resolved typed session scope", async () => {
               type: "sessionOpened",
               value: {
                 sessionId: "01234567-89ab-cdef-0123-456789abcdef",
-                patch: { id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch", mediaType: "text/x-diff", byteLength: 128, revision: 1 },
+                patch: {
+                  id: "cmux-diff-viewer://0123456789abcdef/diff-session.patch",
+                  mediaType: "text/x-diff",
+                  byteLength: 128,
+                  revision: 1,
+                },
                 source: request.params.source,
                 generatedPaths: ["dist/bundle.js"],
               },
@@ -982,8 +1111,9 @@ test("viewed files load for the resolved typed session scope", async () => {
     />,
   );
   await waitFor(() => commentRequests.some((request) => request.method === "viewedFiles.list"));
-  expect(commentRequests.find((request) => request.method === "viewedFiles.list").params)
-    .toEqual({ scope: { repoRoot: "/tmp/repo", source: "unstaged" } });
+  expect(commentRequests.find((request) => request.method === "viewedFiles.list").params).toEqual({
+    scope: { repoRoot: "/tmp/repo", source: "unstaged" },
+  });
   await waitFor(() => dom?.window.document.body.dataset.generatedPathCount === "1");
 });
 
@@ -1018,7 +1148,8 @@ function installDomGlobals(nextDom: JSDOM, fetchImpl: FetchMock): void {
   (globalThis as any).HTMLStyleElement = nextDom.window.HTMLStyleElement;
   (globalThis as any).customElements = nextDom.window.customElements;
   (globalThis as any).fetch = fetchImpl;
-  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0);
+  (globalThis as any).requestAnimationFrame = (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(performance.now()), 0);
   (globalThis as any).cancelAnimationFrame = (handle: number) => clearTimeout(handle);
 }
 
@@ -1032,13 +1163,15 @@ function renderApp(element: React.ReactNode): void {
 }
 
 function menuButton(text: string): HTMLButtonElement | undefined {
-  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
-    .find((button) => button.textContent?.includes(text));
+  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? []).find((button) =>
+    button.textContent?.includes(text),
+  );
 }
 
 function copyGitApplyButton(): HTMLButtonElement | undefined {
-  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? [])
-    .find((button) => button.textContent?.includes("Copy git apply command"));
+  return Array.from(dom?.window.document.querySelectorAll<HTMLButtonElement>(".menu-item") ?? []).find((button) =>
+    button.textContent?.includes("Copy git apply command"),
+  );
 }
 
 function contentFilesWidth(): string | undefined {
