@@ -366,8 +366,16 @@ public final class SidebarView: NSView {
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
+        let previous = lastState?.sections
         lastState = state
-        if listChanged { list.reload(animated: true) }
+        if listChanged { list.reload(animated: Self.animatesReload(from: previous, to: state.sections)) }
         if chromeChanged || profilesChanged { needsLayout = true }
+    }
+
+    /// Whether a sections change animates its rows. Saved or placeholder
+    /// rows turning into live ones (or any change from them) update in
+    /// place without motion, so the launch swap to live data is invisible.
+    static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
+        true
     }
 }

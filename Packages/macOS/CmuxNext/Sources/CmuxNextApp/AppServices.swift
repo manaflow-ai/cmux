@@ -15,6 +15,8 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// Each window's last sidebar, drawn before the daemon answers.
+    let sidebarSnapshots: SidebarSnapshotStore
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -141,6 +143,7 @@ final class AppServices {
     private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)

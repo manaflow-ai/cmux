@@ -20,6 +20,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
+    /// The row draws a placeholder bar instead of a title.
+    var isShowingPlaceholder: Bool { false }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)

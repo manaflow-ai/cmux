@@ -21,6 +21,9 @@ final class SidebarBridge {
     private var profileObservation: Task<Void, Never>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: Task<Void, Never>?
+    /// True once the sidebar shows real content: saved rows, the first
+    /// live rows, or a settled empty or unavailable state (LaunchReveal).
+    private(set) var isReadyForReveal = false
 
     init(services: AppServices, state: WindowState) {
         self.services = services
