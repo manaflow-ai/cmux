@@ -107,11 +107,14 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
   // Pierre reports selection from clicks and keys; only file rows map to a diff.
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
     const file = filesRef.current.get(paths[paths.length - 1] ?? "");
-    if (file) onSelect(file.path);
+    if (file && file.path !== selected) onSelect(file.path);
   });
-  // Pierre reports no change when the selected row is clicked again, but that file may have
-  // been collapsed or scrolled away since, so the click reveals it.
-  const onRowClick = (event: React.MouseEvent) => {
+  // Pierre reports no change when the selected row is picked again, but that file may have
+  // been collapsed or scrolled away since, so a plain click, Enter or Space reveals it. A
+  // modified click changes the selection only.
+  const onRowPick = (event: React.MouseEvent | React.KeyboardEvent) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if ("key" in event && event.key !== "Enter" && event.key !== " ") return;
     const row = event.nativeEvent.composedPath().find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.itemPath !== undefined);
     const file = row && filesRef.current.get(row.dataset.itemPath!);
     if (file && file.path === selected) onSelect(file.path);
@@ -144,7 +147,7 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
   return <>
     <label className="acpmux-diff-filter"><Search width={14} height={14} /><input type="search" aria-label="Filter files" placeholder="Filter files…" value={filter} onChange={(event) => setFilter(event.target.value)} /></label>
     {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">No matching files</div>}
-    <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowClick} />
+    <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowPick} onKeyDown={onRowPick} />
   </>;
 }
 
