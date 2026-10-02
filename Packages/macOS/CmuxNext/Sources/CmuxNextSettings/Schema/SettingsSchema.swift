@@ -27,7 +27,7 @@ public nonisolated enum SettingsSchema {
     public static func actions(in section: SettingsSection) -> [ActionID] {
         switch section {
         case .general: ["palette.welcomeChecklist", "palette.makeDefaultTerminal", "palette.makeDefaultBrowser", "palette.checkForUpdates"]
-        case .appearance: ["room.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
+        case .appearance: ["appearance.customize", "room.setTheme", "workspace.setTheme", "terminal.setTheme", "palette.openGhosttySettings"]
         case .terminal: ["palette.openGhosttySettings", "reloadConfiguration"]
         case .browser: ["importFromBrowser", "browser.extensions.manage", "browser.extensions.webStore", "browser.extensions.loadUnpacked"]
         case .keyboard: ["palette.searchShortcuts"]
@@ -309,6 +309,7 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(StatusIndicatorStyle.arc.rawValue, SettingsText.text("settings.choice.thinArc", "Thin Arc")),
                     SettingChoice(StatusIndicatorStyle.native.rawValue, SettingsText.text("settings.choice.macSpinner", "macOS Spinner")),
                     SettingChoice(StatusIndicatorStyle.dot.rawValue, SettingsText.text("settings.choice.pulsingDot", "Pulsing Dot")),
+                    SettingChoice(StatusIndicatorStyle.braille.rawValue, SettingsText.text("settings.choice.brailleSpinner", "Braille Spinner")),
                     SettingChoice(StatusIndicatorStyle.none.rawValue, SettingsText.text("settings.choice.none", "None")),
                 ]),
                 default: .string(defaults.style.rawValue), keywords: ["spinner", "progress", "loading", "busy"]

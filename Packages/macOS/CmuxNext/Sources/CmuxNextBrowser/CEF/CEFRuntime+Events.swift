@@ -145,7 +145,7 @@ extension CEFRuntime {
 
     private func browserClosed(_ browser: Int32) {
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
-            tab.browserDidClose()
+            tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
             // Never registered: drop a pending adoption of it.
             orphans.closedUnregistered(browser)

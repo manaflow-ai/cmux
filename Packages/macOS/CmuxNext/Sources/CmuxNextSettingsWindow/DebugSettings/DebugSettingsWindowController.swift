@@ -70,7 +70,7 @@ final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.windowBackground }
+        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
     }
 }
 
