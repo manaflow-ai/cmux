@@ -110,6 +110,32 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
     }
 
+    @Test func cloudDomainsPublishLeavesAccessUnspecifiedForServerDefault() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-domains-publish-default-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            response: try cloudDomainsV2Response(result: ["publication": cloudDomainPublicationFixture()])
+        )
+        defer { responder.stop() }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["cloud", "domains", "publish", "vm-alpha", "3000"],
+            environment: cloudDomainsEnvironment(socketPath: socketPath),
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        let request = try cloudDomainsRequest(from: try #require(responder.receivedRequests.first))
+        let params = try #require(request["params"] as? [String: Any])
+        #expect(params["vmId"] as? String == "vm-alpha")
+        #expect(params["port"] as? Int == 3000)
+        #expect(params["accessMode"] == nil)
+        #expect(params["teamId"] == nil)
+    }
+
     @Test func cloudDomainMutationCommandsAddressDomainsByName() throws {
         let cliPath = try bundledCLIPath()
         let specs: [(
