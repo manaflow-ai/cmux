@@ -121,6 +121,7 @@ final class AgentTabStore {
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
         let model = AgentPaneModel(host: host, sessionId: sessions[key], newTab: newTabPages[key]?.page)
         model.onSessionChange = { [weak self] session in
+            self?.newTabPages[key]?.handler.becameChat()
             self?.sessions[key] = session
             self?.newTabPages[key] = nil
         }
@@ -205,7 +206,6 @@ final class AgentTabStore {
 extension PaneController {
     /// New Agent Chat: a new agent tab in this pane, selected.
     func newAgentTab() {
-        services.newTabKinds.record(.agent, folder: selectedTab?.cwd)
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store))
     }
 

@@ -293,3 +293,34 @@ test("the default toggle shows what Cmd-T opens and cycles through the choices",
   expect(picked).toEqual(["terminal", "browser"]);
   await act(async () => root.unmount());
 });
+
+test("Cmd-L brings the keyboard back to the field, and an untouched location is not ready to send", async () => {
+  const { FOCUS_LOCATION_EVENT } = await import("./NewTabPage");
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      createElement(NewTabPage, {
+        snapshot,
+        initialKind: "browser",
+        location: "https://vite.dev/guide/",
+        defaultKind: "same-kind",
+        onSetDefaultKind: () => {},
+        onSubmit: () => {},
+        onOpenSession: () => {},
+        onShowAll: () => {},
+      }),
+    ),
+  );
+  const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
+  const send = container.querySelector<HTMLButtonElement>(".acpmux-send")!;
+  expect(send.className).not.toContain("acpmux-send-ready");
+  container.querySelector<HTMLButtonElement>(".acpmux-newtab-default")!.focus();
+  expect(dom.window.document.activeElement).not.toBe(field);
+  await act(async () => {
+    dom.window.dispatchEvent(new dom.window.Event(FOCUS_LOCATION_EVENT));
+  });
+  expect(dom.window.document.activeElement).toBe(field);
+  expect([field.selectionStart, field.selectionEnd]).toEqual([0, field.value.length]);
+  await act(async () => root.unmount());
+});

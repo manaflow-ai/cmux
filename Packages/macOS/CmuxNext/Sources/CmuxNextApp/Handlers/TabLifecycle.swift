@@ -37,14 +37,18 @@ enum TabLifecycle {
             : controller?.stripModel.selectedID?.rawValue
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
         let tab = pane.tabs.first { $0.id == selectedID }
-        let sameKind = NewTabKind.resolve(
+        let user = invocation.origin == .user
+        // Agent tabs and pages count as a kind for the user only: a script's
+        // `tab new` always gets a terminal or browser it can drive.
+        let onAgentTab = user && controller != nil && selectedID?.hasPrefix(LocalAgentTab.prefix) == true
+        var sameKind = NewTabKind.resolve(
             selectedKind: tab?.kind, engine: tab?.browserEngine,
-            isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true,
-            isAgent: controller != nil && selectedID?.hasPrefix(LocalAgentTab.prefix) == true
+            isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
         )
+        if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
         let folder = controller?.selectedTab?.cwd ?? tab?.cwd
         var kind = sameKind
-        if invocation.origin == .user {
+        if user {
             let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabKindSetting.fallback
             kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
         }
@@ -59,6 +63,7 @@ enum TabLifecycle {
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation)
         case .agent:
+            ctx.services.newTabKinds.record(.agent, folder: folder)
             controller?.newAgentTab()
         case .page:
             controller?.newTabPage()

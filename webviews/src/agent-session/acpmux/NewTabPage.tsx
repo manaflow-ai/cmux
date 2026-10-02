@@ -16,6 +16,9 @@ import { projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
 export type TabKind = (typeof TAB_KINDS)[number];
 
+/// The event the host dispatches on `window` for Focus Location Bar (Cmd-L).
+export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
+
 /// What Cmd-T and + open (`tabs.newTabKind`), in the order the "default" toggle cycles.
 export const DEFAULT_KINDS = ["same-kind", "terminal", "browser", "agent", "page", "auto"] as const;
 export type DefaultKind = (typeof DEFAULT_KINDS)[number];
@@ -229,10 +232,16 @@ export function NewTabPage({
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](kind === "agent" ? agent : folder);
 
-  // The field takes the keyboard when the page appears, as a browser's new tab does.
+  // The field takes the keyboard when the page appears, as a browser's new tab does, and
+  // again on Cmd-L (the host's FOCUS_LOCATION_EVENT), wherever focus moved on the page.
   useEffect(() => {
-    field.current?.focus();
-    field.current?.select();
+    const focus = () => {
+      field.current?.focus();
+      field.current?.select();
+    };
+    focus();
+    window.addEventListener(FOCUS_LOCATION_EVENT, focus);
+    return () => window.removeEventListener(FOCUS_LOCATION_EVENT, focus);
   }, []);
   const choose = (next: TabKind) => {
     setKind(next);
@@ -395,7 +404,7 @@ export function NewTabPage({
           )}
           <button
             type="submit"
-            className={`acpmux-send${text.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
+            className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
             aria-label={NEW_TAB_LABELS.open}
             title={NEW_TAB_LABELS.open}
           >

@@ -21,6 +21,8 @@ struct NewTabPageHandler {
     var editShortcut: (AgentPaneTabKind) -> Void
     /// The page's "default: X" toggle wrote `tabs.newTabKind`.
     var setDefaultKind: (String) -> Void
+    /// The page started a chat in place (Agent, Ask, or a recent session).
+    var becameChat: () -> Void = {}
 }
 
 enum NewTabPage {
@@ -119,7 +121,8 @@ extension PaneController {
             },
             jump: { [weak self] target, id in self?.jumpFromNewTabPage(target, id: id) },
             editShortcut: { [weak self] kind in self?.editNewTabShortcut(kind) },
-            setDefaultKind: { [weak self] kind in self?.setNewTabDefaultKind(kind) }
+            setDefaultKind: { [weak self] kind in self?.setNewTabDefaultKind(kind) },
+            becameChat: { [weak self] in self?.services.newTabKinds.record(.agent, folder: cwd) }
         )
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler)))
@@ -133,6 +136,7 @@ extension PaneController {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
         } else if let key = currentTabKey, services.agentTabs.isNewTabPage(key) {
             services.windowController(showing: self)?.focus.send(.focusPane(paneKey, source: .intent))
+            services.agentTabs.view(for: key)?.focusLocation()
         } else {
             newTabPage()
         }
@@ -144,12 +148,13 @@ extension PaneController {
     /// leaves it, and what was typed, in place.
     private func replaceNewTabPage(_ key: String, with kind: AgentPaneTabKind, text: String, cwd: String?) {
         let closePage: @MainActor (SurfaceID) -> Void = { [weak self] _ in self?.close([StripTabID(key)]) }
-        services.newTabKinds.record(kind == .terminal ? .terminal : kind == .browser ? .browser(engine: nil) : .agent, folder: cwd)
         switch kind {
         case .terminal:
             guard let command = NewTabPage.command(text) else { return }
+            services.newTabKinds.record(.terminal, folder: cwd)
             newTerminalTab(cwd: cwd, typing: command, then: closePage)
         case .browser:
+            services.newTabKinds.record(.browser(engine: nil), folder: cwd)
             let url = services.cache.suggestionEngine.resolver.destination(for: text)?.url
             // A session-local browser tab is made and selected right away.
             if services.cache.browserTabs?.isAvailable() == true {
