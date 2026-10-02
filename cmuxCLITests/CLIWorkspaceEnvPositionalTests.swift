@@ -228,7 +228,7 @@ struct CLIWorkspaceEnvPositionalTests {
                 return
             }
             if count == 0 { return }
-            pending.append(buffer, count)
+            pending.append(contentsOf: buffer.prefix(count))
             while let newline = pending.firstRange(of: Data([0x0A])) {
                 let lineData = pending.subdata(in: 0..<newline.lowerBound)
                 pending.removeSubrange(0...newline.lowerBound)
