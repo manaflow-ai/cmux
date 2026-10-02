@@ -17,6 +17,8 @@ The 222-token roster is an author-supplied synthetic estimate, serialized compac
 
 The slice-B MCP server's live `tools/list` response was captured on 2026-10-02 from `cmux-tui/bindings/typescript/code-mode/mcp.mjs` (the same file bundled as `Resources/bin/cmux-code-mode-mcp`): the JSON-RPC result is 700 bytes and 164 cl100k tokens, with exactly two tools (`cmux_docs` and `cmux_exec`). The bundled current CUA helper was not built in this checkout, so its live response remains unverified; the repository smoke test reports `SKIP: cmux-cua binary not built`.
 
+The raw responses are checked in as [`code-mode-tools-list.jsonl`](code-mode-tools-list.jsonl), [`code-mode-docs-pane-split.jsonl`](code-mode-docs-pane-split.jsonl), and [`code-mode-docs-terminal-run.jsonl`](code-mode-docs-terminal-run.jsonl). Each file contains one newline-delimited JSON-RPC response from the source MCP entry point.
+
 ## Task coverage
 
 `cmux docs search` in slice A reads the 127-operation cmux-tui resource catalog. It covers panes, terminals, browser operations present in that catalog, sessions, workspaces and agent state. Cloud VM operations and the Swift app's broader browser command surface are documented by the existing Swift `cmux docs` and skills but are not yet merged into this catalog. The execute slice must consume a merged catalog before claiming coverage for cloud and CUA operations.

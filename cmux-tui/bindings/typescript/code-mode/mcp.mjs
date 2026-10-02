@@ -16,6 +16,7 @@ const MAX_FRAME_BYTES = 1024 * 1024;
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 const EXEC_TIMEOUT_MS = 30_000;
 const encoder = new TextEncoder();
+const activeExecutions = new Map();
 
 const tools = [
   {
@@ -61,7 +62,7 @@ function docs(query) {
   return JSON.stringify({ query, results });
 }
 
-async function execute(script) {
+async function execute(script, signal) {
   const path = `/tmp/cmux-code-mode-${randomUUID()}.ts`;
   await Bun.write(path, script);
   try {
@@ -71,6 +72,13 @@ async function execute(script) {
       stderr: "pipe",
     });
     let timedOut = false;
+    let cancelled = false;
+    const cancel = () => {
+      cancelled = true;
+      child.kill();
+    };
+    if (signal?.aborted) cancel();
+    else signal?.addEventListener("abort", cancel, { once: true });
     const timer = setTimeout(() => { timedOut = true; child.kill(); }, EXEC_TIMEOUT_MS);
     const read = async (stream) => {
       const reader = stream.getReader();
@@ -93,9 +101,10 @@ async function execute(script) {
     try {
       const [stdout, stderr] = await Promise.all([read(child.stdout), read(child.stderr)]);
       const exitCode = await child.exited;
-      return { exitCode, stdout, stderr, timedOut };
+      return { exitCode, stdout, stderr, timedOut, cancelled };
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
     }
   } finally {
     await unlink(path).catch(() => {});
@@ -108,18 +117,26 @@ function send(message) {
 }
 
 async function handle(message) {
-  const id = message.id;
+  const hasId = Object.hasOwn(message, "id");
+  const id = hasId ? message.id : undefined;
+  const respond = (payload) => {
+    if (hasId) send({ jsonrpc: "2.0", id, ...payload });
+  };
   if (message.method === "initialize") {
-    return send({ jsonrpc: "2.0", id, result: {
+    return respond({ result: {
       protocolVersion: "2025-06-18",
       capabilities: { tools: { listChanged: false } },
       serverInfo: { name: "cmux-code-mode", version: "0.1.0" },
     } });
   }
+  if (message.method === "notifications/cancelled") {
+    activeExecutions.get(message.params?.requestId)?.abort();
+    return;
+  }
   if (message.method?.startsWith("notifications/")) return;
-  if (message.method === "tools/list") return send({ jsonrpc: "2.0", id, result: { tools } });
+  if (message.method === "tools/list") return respond({ result: { tools } });
   if (message.method !== "tools/call") {
-    return send({ jsonrpc: "2.0", id, error: { code: -32601, message: "method not found" } });
+    return respond({ error: { code: -32601, message: "method not found" } });
   }
   const name = message.params?.name;
   const args = message.params?.arguments ?? {};
@@ -138,15 +155,29 @@ async function handle(message) {
       || encoder.encode(args.script).byteLength > 262144) {
       throw new Error("script must be a non-empty UTF-8 string of at most 262144 bytes");
     }
-    text = await execute(args.script);
+    const controller = new AbortController();
+    if (hasId) activeExecutions.set(id, controller);
+    try {
+      text = await execute(args.script, controller.signal);
+    } finally {
+      if (hasId) activeExecutions.delete(id);
+    }
   } else {
     throw new Error(`unknown tool: ${name}`);
   }
   const result = typeof text === "string" ? JSON.parse(text) : text;
-  send({ jsonrpc: "2.0", id, result: {
+  respond({ result: {
     content: [{ type: "text", text: JSON.stringify(result) }],
     ...(name === "cmux_exec" && result.exitCode !== 0 ? { isError: true } : {}),
   } });
+}
+
+function dispatch(message) {
+  handle(message).catch((error) => {
+    if (Object.hasOwn(message, "id")) {
+      send({ jsonrpc: "2.0", id: message.id, error: { code: -32602, message: String(error?.message ?? error) } });
+    }
+  });
 }
 
 let pending = Buffer.alloc(0);
@@ -177,10 +208,6 @@ for await (const chunk of process.stdin) {
       send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32600, message: "invalid JSON-RPC request" } });
       continue;
     }
-    try {
-      await handle(message);
-    } catch (error) {
-      send({ jsonrpc: "2.0", id: message?.id ?? null, error: { code: -32602, message: String(error?.message ?? error) } });
-    }
+    dispatch(message);
   }
 }
