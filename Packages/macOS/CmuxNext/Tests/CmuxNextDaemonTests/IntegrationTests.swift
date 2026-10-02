@@ -3,10 +3,12 @@ import Testing
 @testable import CmuxNextDaemon
 
 /// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
-/// artifact (scripts/cmux-next/cmux-tui.pin, fetched by
-/// scripts/cmux-next/pin-cmux-tui.sh), else the newest client that
-/// scripts/install-cmux-tui-client.sh cached. Cached slices are not
-/// executable, so they are copied into a temp dir first.
+/// artifact (scripts/cmux-next/cmux-tui.pin; fetched and sha256-checked
+/// with `scripts/cmux-next/pin-cmux-tui.sh fetch` on first use, as
+/// scripts/reload.sh does, so a fresh worktree tests the pinned daemon),
+/// else the newest client that scripts/install-cmux-tui-client.sh cached.
+/// Cached slices are not executable, so they are copied into a temp dir
+/// first.
 enum RealBinary {
     static let url: URL? = locate()
 
@@ -17,7 +19,8 @@ enum RealBinary {
         return url == pinned || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
     }
 
-    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, when downloaded.
+    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, fetched when
+    /// missing; nil when the pin is absent or the fetch failed (offline).
     static let pinned: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
@@ -26,8 +29,24 @@ enum RealBinary {
             return nil
         }
         let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
+        if !FileManager.default.isExecutableFile(atPath: binary.path) { fetchPinned(root: root) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
     }()
+
+    /// Runs `pin-cmux-tui.sh fetch` (public URL, no credentials; it keeps
+    /// the download only when its sha256 matches the pin).
+    private static func fetchPinned(root: URL) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path, "fetch"]
+        process.standardOutput = FileHandle.standardError
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return
+        }
+    }
 
     private static func locate() -> URL? {
         let fileManager = FileManager.default

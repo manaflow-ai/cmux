@@ -13,7 +13,7 @@ import QuartzCore
 /// drag image is a static snapshot. Here layout is a pure function
 /// (`SidebarLayout`), so every change is "compute new frames, animate to them",
 /// and only rows near the viewport get views (see `realizationRect`).
-final class SidebarListView: NSView, NSTextFieldDelegate {
+final class SidebarListView: NSView {
     let model: SidebarModel
 
     var displayed = SidebarLayout.empty
@@ -24,7 +24,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     /// Pill and gap CALayers, under the rows.
     let decorations = SidebarDecorationView()
     /// Recycled row views by class; only rows near the viewport have views.
-    var reusePool: [ObjectIdentifier: [SidebarRowView]] = [:]
+    var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
@@ -32,14 +32,10 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
-    var rename: Rename?
-    /// An inline rename ended; `byKeyboard` for Return, Escape or Tab (a
-    /// click elsewhere already moved focus).
-    var onRenameEnded: ((_ byKeyboard: Bool) -> Void)?
+    /// Inline rename of a workspace or group row.
+    let inlineRename = SidebarInlineRename()
     /// Drag autoscroll frames from the window's FrameScheduler.
-    lazy var autoscrollClient = FrameClient(owner: "Sidebar.autoscroll", view: self) { [weak self] tick in
-        self?.autoscrollTick(tick) ?? false
-    }
+    lazy var autoscroll = SidebarDragAutoscroll(list: self)
     var external: ExternalDrag?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
@@ -71,6 +67,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
+        inlineRename.list = self
     }
 
     @available(*, unavailable)
@@ -337,7 +334,7 @@ final class SidebarListView: NSView, NSTextFieldDelegate {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
         for row in displayed.rows {
             guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
-                  rename?.key != row.key else { continue }
+                  inlineRename.session?.key != row.key else { continue }
             recycle(view)
             rowViews[row.key] = nil
         }

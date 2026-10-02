@@ -35,7 +35,7 @@ enum WorkspaceGroupHandlers {
             let key = try context.workspace(invocation).key
             let daemon = context.services.activeDaemon
             Task {
-                await daemon.perform("move-workspace-to-group", patch: .setWorkspaceGroup(key: key, group: nil)) { connection, _ in
+                await daemon.intend("move-workspace-to-group", .setWorkspaceGroup(key: key, group: nil)) { connection in
                     _ = try await connection.moveWorkspace(key, toGroup: nil)
                 }
             }

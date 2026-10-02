@@ -10,6 +10,11 @@ extension AgentPaneModel {
     public static var tabTitle: String {
         String(localized: "agentPane.tab.title", defaultValue: "Agent", bundle: .module)
     }
+
+    /// The page's file.open was refused or failed.
+    static var openFileFailedMessage: String {
+        String(localized: "agentPane.error.openFile", defaultValue: "The file could not be opened.", bundle: .module)
+    }
 }
 
 extension AgentPaneView {

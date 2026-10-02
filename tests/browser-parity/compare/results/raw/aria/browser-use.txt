@@ -1,0 +1,65 @@
+ARIA roles
+[24]<a />
+	Root
+[28]<a />
+	Here
+Names
+Labelled by span
+|SHADOW(open)|[2]<input />
+Label for
+|SHADOW(open)|[3]<input id=for-input value=prefilled />
+|SHADOW(open)|[4]<input title=Title only />
+[42]<button aria-label=Icon button />
+[45]<button />
+	Described
+extra description
+Level three
+Level four
+Widgets
+[59]<button role=tab selected=true />
+	First
+[61]<button role=tab selected=false />
+	Second
+Panel one
+[67]<button expanded=false />
+	Menu
+[70]<button pressed=true />
+	Bold
+[73]<div role=switch aria-checked=true checked=true />
+	Wifi
+|SHADOW(open)|*[76]<input type=range min=0 max=10 value=3 aria-label=Volume valuemin=0 valuemax=10 valuetext=3 compound_components=(name=Value,role=slider,min=0.0,max=10.0) />
+Size
+[81]<label />
+	[5]<input type=radio name=s checked=true value=on />
+	Small
+[83]<label />
+	[6]<input type=radio name=s value=on checked=false />
+	Large
+Heads up
+Scores
+[95]<tr />
+	Name
+	Score
+[101]<tr />
+	[102]<td />
+		Ada
+	[104]<td />
+[108]<li role=treeitem level=1 expanded=true selected=false />
+	src
+	[112]<li role=treeitem level=2 selected=false />
+		main.swift
+|SHADOW(open)|*[116]<details compound_components=(name=Toggle Disclosure,role=button),(name=Content Area,role=region) />
+	[117]<summary expanded=false />
+		More
+Visibility
+Aria hidden
+Dialog body
+[141]<button />
+	OK
+[144]<a />
+	Anchor link
+[8]<div />
+	Clickable div
+[148]<div contenteditable=true aria-label=Editor />
+	Editable text
+Footer text

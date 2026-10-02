@@ -66,6 +66,19 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowTitlebarSetting.fallback.rawValue), keywords: ["traffic lights", "title"]
             ),
             SettingDescriptor(
+                WindowRailSetting.configPath, section: .general, group: window,
+                title: SettingsText.text("settings.window.rail", "Action Rail"),
+                help: SettingsText.text("settings.window.rail.help",
+                                        "A column of buttons for new tabs, agent chats, notifications, history and accounts."),
+                kind: .choice([
+                    SettingChoice(WindowRailPlacement.off.rawValue, SettingsText.text("settings.choice.off", "Off")),
+                    SettingChoice(WindowRailPlacement.leading.rawValue, SettingsText.text("settings.choice.railLeading", "Window Edge")),
+                    SettingChoice(WindowRailPlacement.afterSidebar.rawValue,
+                                  SettingsText.text("settings.choice.railAfterSidebar", "After Sidebar")),
+                ]),
+                default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
+            ),
+            SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
                 help: SettingsText.text("settings.app.quitBehavior.help",
@@ -128,6 +141,16 @@ public nonisolated enum SettingsSchema {
                     SettingChoice("comfortable", SettingsText.text("settings.choice.comfortable", "Comfortable")),
                 ]),
                 default: "compact", keywords: ["size", "spacing"]
+            ),
+            SettingDescriptor(
+                BordersSetting.configPath, section: .appearance, group: look,
+                title: SettingsText.text("settings.appearance.borders", "Borders"),
+                help: SettingsText.text("settings.appearance.borders.help", "None removes every border, hairline and separator in the app."),
+                kind: .choice([
+                    SettingChoice(BorderMode.default.rawValue, SettingsText.text("settings.choice.default", "Default")),
+                    SettingChoice(BorderMode.none.rawValue, SettingsText.text("settings.choice.none", "None")),
+                ]),
+                default: .string(BordersSetting.fallback.rawValue), keywords: ["border", "hairline", "separator", "outline", "line"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,

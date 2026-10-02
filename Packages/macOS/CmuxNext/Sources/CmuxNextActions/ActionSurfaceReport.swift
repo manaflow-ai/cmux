@@ -2,11 +2,28 @@
 /// every menu's rows in order, and every exemption by surface and reason.
 /// `ActionSurfaceParityTests.reportIsFresh` keeps the file current, so a
 /// menu reorder or a new exemption shows up in review.
-public enum ActionSurfaceReport {
+public struct ActionSurfaceReport {
     public static let begin = "<!-- generated: action surfaces -->"
     public static let end = "<!-- /generated -->"
 
-    public static func markdown(_ descriptors: [ActionDescriptor], menus: ContextMenuCatalog) -> String {
+    /// The actions the report counts and lists exemptions for.
+    public let descriptors: [ActionDescriptor]
+    /// The menus whose rows the report lists.
+    public let menus: ContextMenuCatalog
+
+    /// A report over `descriptors` and `menus`.
+    ///
+    /// - Parameters:
+    ///   - descriptors: The actions to count and list exemptions for.
+    ///   - menus: The menus whose rows to list.
+    public init(_ descriptors: [ActionDescriptor], menus: ContextMenuCatalog) {
+        self.descriptors = descriptors
+        self.menus = menus
+    }
+
+    /// The generated block, from ``begin`` to ``end``.
+    public var markdown: String {
+        let begin = Self.begin, end = Self.end
         var lines: [String] = [begin, ""]
         func offered(_ surface: ActionSurface) -> Int {
             descriptors.filter { $0.surfacePlan.decision(for: surface)?.isOffered == true }.count
@@ -19,7 +36,7 @@ public enum ActionSurfaceReport {
         lines.append("## Menus")
         lines.append("")
         for context in ActionMenuContext.allCases {
-            lines.append("- **\(context.rawValue)**: " + render(menus.entries(for: context)))
+            lines.append("- **\(context.rawValue)**: " + Self.render(menus.entries(for: context)))
         }
         lines.append("")
         for surface in ActionSurface.allCases {
@@ -51,6 +68,7 @@ public enum ActionSurfaceReport {
             case .action(let id): id.rawValue
             case .choices(let id): "\(id.rawValue)[choices]"
             case .submenu(let id, let children): "\(id.rawValue) > (" + render(children) + ")"
+            case .folder(let folder, let children): "[\(folder.rawValue)] > (" + render(children) + ")"
             }
         }.joined(separator: " ")
     }

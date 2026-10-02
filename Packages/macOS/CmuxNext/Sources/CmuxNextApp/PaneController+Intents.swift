@@ -7,7 +7,7 @@ import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
-// with an optimistic patch where the store has one.
+// shown at once through a store intent where the store has one.
 extension PaneController {
     func handle(_ intent: TabStripIntent) {
         switch intent {
@@ -41,6 +41,11 @@ extension PaneController {
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .trailingButton(let id):
             services.tabBarButtons.perform(id, paneKey: paneKey)
+        case .focusLocation:
+            let window = services.windowController(showing: self)
+            StripLocation.request(pane: paneKey, isFocused: window?.focus.state.pane == paneKey,
+                                  focus: { window?.focus.send(.focusPane(paneKey, source: .intent)) },
+                                  perform: { _ = services.registry.perform($0, invocation: $1) })
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -84,16 +89,22 @@ extension PaneController {
     /// New terminal tab in this pane. `typing` is sent to the new shell
     /// once the tab exists (config command actions). `keep` makes the
     /// terminal outlive the tab; by default the daemon ends it after the
-    /// reap grace period once its last tab closes.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil) {
+    /// reap grace period once its last tab closes. `fromSelectedTab` (New
+    /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
+    /// other callers (config commands, account logins) keep the pane's.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false) {
         let handle = pane.handle
+        // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
+        let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
         let cwd = cwd ?? selectedTab?.cwd
         let workspace = services.workspaceKey(of: pane)
         guard let connection = daemon.connection else { return }
         let intent = self.workspace?.beginFocusIntent()
         services.registry.track(Task {
             do {
-                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+                var start = cwd
+                if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
+                let created = try await connection.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep))
                 if let text { try await connection.send(created.surface, text: text) }
                 pendingSelectSurface = created.surface
                 apply(snapshot())
@@ -209,7 +220,7 @@ extension PaneController {
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.reconcile() }
+            if unknown { await daemon.store.refresh() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
@@ -239,7 +250,7 @@ extension PaneController {
             return
         }
         services.registry.track(Task {
-            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -257,7 +268,7 @@ extension PaneController {
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
         Task { [daemon] in
-            await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)
             }
         }
@@ -273,16 +284,13 @@ extension PaneController {
             let target = ActionTargetRef(kind: .tab, id: id.rawValue)
             guard let tab = tab(id), tab.kind == .browser else {
                 // Hibernation discards a page; a terminal has none.
-                let hidden: Set<ContextMenuEntry> = [.action("hibernateTab"), .action("wakeTab")]
-                let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
+                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
                 return registry.makeContextMenu(for: .tab, target: target, entries: entries)
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
             // Terminal themes and keep-running do not apply to a page.
-            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme"),
-                                                 .action("terminal.keep")]
-            let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))

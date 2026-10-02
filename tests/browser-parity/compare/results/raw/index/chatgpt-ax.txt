@@ -1,0 +1,35 @@
+Browser tab: 1, Title: "Parity Fixture", URL: "http://localhost:18765/?peer=http%3A%2F%2F127.0.0.1%3A18766".
+0 AXWebArea Parity Fixture, URL: localhost:18765/?peer=http%3A%2F%2F127.0.0.1%3A18766
+	1 container Main
+		2 link Description: Home, Value: localhost:18765/aria.html
+		3 link Description: Docs, Value: localhost:18765/dynamic.html
+	4 container
+		5 heading Sign up, Value: 1
+			6 text Sign up
+		7 container f
+			8 container
+				9 text Email 
+				10 text field (settable) Email
+			11 checkbox (settable, integer) Description: Accept terms, Value: 0, ID: tos
+			12 pop up button (collapsed, settable) Description: Plan, Value: Pro, ID: plan, Secondary Actions: Expand
+				13 menu
+					14 Free
+					15 (selected) Pro
+					16 Team
+			17 text entry area (settable) Description: Bio, Value: hi, ID: bio
+			18 button Create account, ID: submit
+			19 button (disabled) Disabled
+		20 content list
+			21 container
+				22 AXListMarker • 
+				23 text One
+			24 container
+				25 AXListMarker • 
+				26 text Two
+		27 text Plain 
+		28 text bold
+		29 text  text. 
+		30 image Logo
+		31 button Far away, ID: far
+
+The focused UI element is 0 AXWebArea Parity Fixture, URL: localhost:18765/?peer=http%3A%2F%2F127.0.0.1%3A18766

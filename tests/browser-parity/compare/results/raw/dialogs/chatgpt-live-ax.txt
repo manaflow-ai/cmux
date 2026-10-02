@@ -1,0 +1,9 @@
+Browser tab: 370922480, Title: "Dialogs Fixture", URL: "http://127.0.0.1:18911/dialogs.html?peer=http%3A%2F%2F127.0.0.1%3A18912".
+1 AXWebArea Dialogs Fixture, URL: 127.0.0.1:18911/dialogs.html?peer=http%3A%2F%2F127.0.0.1%3A18912
+	2 button Alert, ID: alert
+	3 button Confirm, ID: confirm
+	4 button Prompt, ID: prompt
+	5 button Arm beforeunload, ID: unload
+	6 text idle
+
+The focused UI element is 1 AXWebArea Dialogs Fixture, URL: 127.0.0.1:18911/dialogs.html?peer=http%3A%2F%2F127.0.0.1%3A18912

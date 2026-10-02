@@ -1,0 +1,60 @@
+- main:
+  - heading "States" [level=1]
+  - form "Profile":
+    - text: Name
+    - textbox "Name"
+    - text: Code
+    - textbox "Code": x1
+    - text: Account
+    - textbox "Account": "42"
+    - text: Secret
+    - textbox "Secret": hunter2
+    - checkbox "Some selected" [checked=mixed]
+    - text: Some selected
+    - combobox "Size":
+      - option "S"
+      - option "M" [selected]
+      - option "L"
+    - listbox "Tags":
+      - option "red" [selected]
+      - option "blue"
+  - button "Partial" [pressed=mixed]
+  - combobox "City" [expanded]: Paris
+  - listbox "Cities":
+    - option "Paris" [selected]
+    - option "Rome"
+  - table "Users":
+    - rowgroup:
+      - row "User Action":
+        - columnheader "User"
+        - columnheader "Action"
+      - row "Ada Edit":
+        - cell "Ada"
+        - cell "Edit":
+          - button "Edit"
+      - row "Grace none":
+        - cell "Grace"
+        - cell "none"
+  - paragraph:
+    - text: "Links:"
+    - link "relative":
+      - /url: /aria.html?x=1#y
+    - text: ","
+    - link "peer":
+      - /url: http://127.0.0.1:18766/aria.html
+    - text: ","
+    - link "script":
+      - /url: javascript:void 0
+    - text: .
+  - term: Term
+  - definition: Definition
+  - progressbar "Progress"
+  - paragraph:
+    - text: Spaces
+    - emphasis: around
+    - text: inline elements stay single.
+  - generic "Log":
+    - paragraph: line one
+    - paragraph: line two
+    - paragraph: line three
+    - paragraph: line four

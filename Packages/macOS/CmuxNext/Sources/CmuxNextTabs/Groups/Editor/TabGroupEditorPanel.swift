@@ -95,8 +95,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         swatchRow.spacing = Metrics.space2
         swatchRow.distribution = .equalSpacing
 
-        let separator = NSBox()
-        separator.boxType = .separator
+        let separator = HairlineView()
+        separator.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
         let save = row(Strings.editorSave) { [weak self] group in group.isSaved ? .unsave(group.id) : .save(group.id) }
         saveRow = save
