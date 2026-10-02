@@ -98,3 +98,33 @@ describe("the specimen", () => {
     for (const type of ["heading", "list", "table", "code", "blockquote", "hr", "math"]) expect(types.has(type as never)).toBe(true);
   });
 });
+
+describe("streaming and everyday text", () => {
+  /// Each of these once left the parser on the same line forever, freezing the pane.
+  test("half-streamed blocks parse and advance", () => {
+    for (const source of ["$$", "$$ x + y", "```python title=x\nprint(1)\n```", "```foo bar```", "# x", "text\n$$\nmore"]) {
+      expect(() => parseMarkdown(source)).not.toThrow();
+      expect(parseMarkdown(source).length).toBeGreaterThan(0);
+    }
+    const [fence] = parseMarkdown("```python title=x\nprint(1)\n```");
+    expect(fence?.type === "code" && fence.lang).toBe("python");
+  });
+
+  test("snake_case and products are not emphasis", () => {
+    expect(html("Use my_var and other_var")).not.toContain("<em>");
+    expect(html("2*3*4")).not.toContain("<em>");
+    expect(html("an _aside_ here")).toContain("<em>aside</em>");
+  });
+
+  test("prices are not math", () => {
+    expect(html("cost $5 and $10 total")).not.toContain("cv-math");
+    expect(html("let $x$ be")).toContain("cv-math");
+    expect(html("so $9 - x$ is")).toContain("cv-math");
+  });
+
+  test("a link target may hold parentheses; a local path is not an anchor", () => {
+    expect(html("[w](https://a.com/p_(x))")).toContain('href="https://a.com/p_(x)"');
+    expect(html("[n](/Users/me/notes.md)")).not.toContain("<a");
+    expect(html("[h](//evil.example)")).not.toContain("is-file");
+  });
+});

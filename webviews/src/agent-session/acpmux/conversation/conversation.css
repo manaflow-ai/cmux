@@ -24,6 +24,12 @@
   --cv-check-fill: color-mix(in srgb, var(--cv-fg) 9%, transparent); /* #3a3b34 */
   --cv-check-ring: color-mix(in srgb, var(--cv-fg) 23%, transparent); /* #575852 */
   --cv-link: color-mix(in srgb, var(--cv-fg) 79%, transparent); /* #cccabe */
+  /* Type and column. Codex draws 14px on 22.75px lines in a 736px column; the pane takes the
+     quieter end of the taste bar (13px, 720px) and scales Codex's other metrics with it. */
+  --cv-font-size: 13px;
+  --cv-line-height: 21px;
+  --cv-column: 720px;
+  --cv-gutter: 26.5px;
   --cv-font: system-ui, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   --cv-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
 }
@@ -31,6 +37,8 @@
 /* ---------- User bubble ---------- */
 
 .cv-user {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -38,11 +46,11 @@
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
-  padding: var(--cv-bubble-padding, 10.5px 16px 9.5px);
+  padding: var(--cv-bubble-padding, 9.5px 14px 9px);
   border-radius: 16px;
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size, 14px);
-  line-height: 22.75px;
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   background: var(--cv-bubble);
@@ -55,8 +63,8 @@
 
 .cv-md {
   font-family: var(--cv-font);
-  font-size: var(--cv-font-size, 14px);
-  line-height: var(--cv-md-line-height, 22.75px);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
   letter-spacing: var(--cv-tracking, 0.045px);
   color: var(--cv-text);
   -webkit-font-smoothing: antialiased;
@@ -65,7 +73,7 @@
   margin-top: 0;
 }
 .cv-p {
-  margin: 0 0 var(--cv-para-after, 14px);
+  margin: 0 0 var(--cv-para-after, 13px);
 }
 .cv-p:has(+ .cv-list) {
   margin-bottom: 0;
@@ -83,23 +91,23 @@
   color: var(--cv-text);
 }
 .cv-h1 {
-  font-size: 21px;
-  line-height: 28px;
-  margin: 20px 0 12px;
+  font-size: 19px;
+  line-height: 26px;
+  margin: 18px 0 11px;
 }
 .cv-h2 {
-  font-size: 17.5px;
-  line-height: 24px;
-  margin: 15px 0 3.5px;
+  font-size: 16px;
+  line-height: 22px;
+  margin: 14px 0 3px;
 }
 .cv-h3 {
-  font-size: 15.75px;
-  line-height: 22px;
-  margin: 15px 0 5px;
+  font-size: 14.5px;
+  line-height: 21px;
+  margin: 14px 0 4.5px;
 }
 .cv-h4 {
-  font-size: 14px;
-  margin: 16px 0 4px;
+  font-size: 13px;
+  margin: 15px 0 4px;
 }
 .cv-md strong {
   font-weight: 600;
@@ -110,7 +118,7 @@
 }
 .cv-code {
   font-family: var(--cv-code-font, var(--cv-mono));
-  font-size: var(--cv-code-size, 13px);
+  font-size: var(--cv-code-size, 12px);
   line-height: var(--cv-code-line-height, inherit);
   letter-spacing: var(--cv-code-tracking, 0px);
   padding: var(--cv-code-padding, 0.75px 5px);
@@ -162,7 +170,7 @@
 .cv-li__bullet {
   position: absolute;
   left: var(--cv-bullet-left, 10px);
-  top: var(--cv-bullet-top, 9px);
+  top: var(--cv-bullet-top, 8px);
   width: var(--cv-bullet-size, 5px);
   height: var(--cv-bullet-size, 5px);
 }
@@ -191,7 +199,7 @@
 .cv-checkbox {
   position: absolute;
   left: 0.5px;
-  top: 5.5px;
+  top: 4px;
   width: 13.5px;
   height: 14px;
   box-sizing: border-box;
@@ -239,9 +247,9 @@
 /* Short columns are at least 128px and long-text columns 256px. */
 .cv-table {
   border-collapse: collapse;
-  font-size: var(--cv-table-size, 12.25px);
+  font-size: var(--cv-table-size, 12px);
   letter-spacing: var(--cv-table-tracking, 0px);
-  line-height: var(--cv-table-line-height, 23px);
+  line-height: var(--cv-table-line-height, 21px);
   width: max-content;
   min-width: 100%;
 }
@@ -271,7 +279,7 @@
   position: relative;
   margin: 0 0 19px;
   box-sizing: border-box;
-  border-radius: 20px;
+  border-radius: 16px;
   overflow: hidden;
   background: var(--cv-codeblock-bg);
   box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
@@ -281,22 +289,44 @@
   align-items: center;
   gap: 10px;
   box-sizing: border-box;
-  height: 45.5px;
-  padding: 0 18px 0 21px;
+  height: 42px;
+  padding: 0 14px 0 18px;
   color: var(--cv-codeblock-text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
   letter-spacing: 0;
 }
 .cv-codeblock__actions {
   margin-left: auto;
   display: flex;
-  gap: 21px;
+  gap: 4px;
   color: var(--cv-codeblock-actions);
+}
+.cv-codeblock__action {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.cv-codeblock__action:hover,
+.cv-codeblock__action[aria-pressed="true"] {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, transparent);
+}
+.cv-codeblock__action:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
 }
 .cv-codeblock__body {
   display: block;
-  margin: 0 1px 13px 13px;
+  margin: 0 1px 12px 12px;
+}
+.cv-link.is-file {
+  color: var(--cv-text);
 }
 
 /* Math (Math.tsx): identifiers italic, operators spaced, in the STIX face. */
@@ -330,4 +360,17 @@
 }
 .cv-mo {
   margin: 0 0.24em;
+}
+
+/* ---------- Column ---------- */
+
+/* The transcript column and what lines up with it (styles.css keeps the older 760px). */
+.acpmux-row {
+  left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+}
+.acpmux-permission,
+.acpmux-queue {
+  padding-left: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
+  padding-right: max(var(--cv-gutter), calc((100% - var(--cv-column)) / 2));
 }

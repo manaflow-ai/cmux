@@ -43,7 +43,7 @@ function parseLines(lines: string[]): MdBlock[] {
       i++;
       continue;
     }
-    const fence = line.match(/^\s*```(\S*)\s*$/);
+    const fence = line.match(/^\s*```([^\s`]*)[^`]*$/);
     if (fence) {
       const body: string[] = [];
       i++;
@@ -111,7 +111,9 @@ function parseLines(lines: string[]): MdBlock[] {
       i = next;
       continue;
     }
-    const para: string[] = [];
+    // The first line is the paragraph's even when it opens like a block that did not parse
+    // (a lone `$$`, a half-streamed fence), so the parser always advances.
+    const para: string[] = [lines[i++].trim()];
     while (
       i < lines.length &&
       lines[i].trim() &&
@@ -186,7 +188,7 @@ export type InlineOptions = {
  * glyph for a local path (`/Users/…/README.md`, `file://…`), or a globe.
  */
 export function linkKind(href: string): "github" | "citation" | "file" | "web" {
-  if (href.startsWith("/") || href.startsWith("file:")) return "file";
+  if ((href.startsWith("/") && !href.startsWith("//")) || href.startsWith("file:")) return "file";
   if (/github\.com/.test(href)) return "github";
   if (/arxiv\.org/.test(href)) return "citation";
   return "web";
@@ -202,7 +204,7 @@ export const linkIcon = (href: string) => {
 };
 
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|(\*[^*\s][^*]*\*|_[^_\s][^_]*_)|(\[[^\]]+\]\([^)]+\))|(\n)|(\$[^$\n]+\$)/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$(?=\S)[^$\n]*?\S\$(?!\d)|\$[^$\s]\$)/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[] {
@@ -222,10 +224,17 @@ export function renderInline(text: string, opts: InlineOptions = {}): ReactNode[
     else if (m[3]) out.push(<del key={k++}>{renderInline(t.slice(2, -2), opts)}</del>);
     else if (m[4]) out.push(<em key={k++}>{renderInline(t.slice(1, -1), opts)}</em>);
     else if (m[5]) {
-      const lm = t.match(/^\[([^\]]+)\]\(([^)]+)\)$/)!;
+      const lm = t.match(/^\[([^\]]+)\]\((.+)\)$/)!;
       const href = safeHref(lm[2]);
-      // A link the pane will not open draws as its text.
-      if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
+      // A link the pane will not open draws as its text; a local path keeps its file mark.
+      if (linkKind(lm[2]) === "file")
+        out.push(
+          <span key={k++} className="cv-link is-file" title={lm[2]}>
+            {(opts.linkIcon ?? linkIcon)(lm[2])}
+            {renderInline(lm[1], opts)}
+          </span>,
+        );
+      else if (!href) out.push(<Fragment key={k++}>{renderInline(lm[1], opts)}</Fragment>);
       else
         out.push(
           <a key={k++} className={`cv-link is-${linkKind(href)}`} href={href} rel="noreferrer">
