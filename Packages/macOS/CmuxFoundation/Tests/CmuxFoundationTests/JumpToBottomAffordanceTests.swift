@@ -46,8 +46,10 @@ import Testing
             ownerChecks += 1
             return true
         }
-        #expect(!affordance.update(snapshot(below: 8), isEnabled: true, contentOwnsScrolling: ownsScrolling))
-        #expect(!affordance.update(snapshot(below: 9), isEnabled: true, contentOwnsScrolling: ownsScrolling))
+        let firstUpdate = affordance.update(snapshot(below: 8), isEnabled: true, contentOwnsScrolling: ownsScrolling)
+        #expect(!firstUpdate)
+        let secondUpdate = affordance.update(snapshot(below: 9), isEnabled: true, contentOwnsScrolling: ownsScrolling)
+        #expect(!secondUpdate)
         #expect(!affordance.isVisible)
         // The owner is asked once per departure from the bottom, not per snapshot.
         #expect(ownerChecks == 1)
