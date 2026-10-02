@@ -89,8 +89,11 @@ export const confirmLink = (s: LinkState, user: string, proof: string, now: numb
   const rest = s.pending.filter((x) => x !== p)
   if (now >= p.expires_at) return { ok: false, code: "link.expired", state: { ...s, pending: rest } }
   if (user !== p.user) return { ok: false, code: "link.wrong_account", state: { ...s, pending: rest } }
+  // A number bound to another account stays bound; a pending link never takes it over.
+  if (s.binding && s.binding.user !== user && s.binding.expires_at > now) return { ok: false, code: "link.bound_elsewhere", state: { ...s, pending: rest } }
   const binding: TextBinding = { user, bound_at: now, expires_at: now + BINDING_TTL_MS, last_inbound_at: null }
-  return { ok: true, state: { ...s, pending: rest, binding }, value: binding }
+  // Binding drops every other account's pending link.
+  return { ok: true, state: { ...s, pending: [], binding }, value: binding }
 }
 
 export const unlink = (s: LinkState, user: string | null): LinkResult<null> => {

@@ -167,6 +167,8 @@ export const addressDomain: Domain<AddressHead, Params> = {
         return { ok: true, state: { ...head, link: r.state }, value: null }
       }
       case "address.inbound.note": {
+        // Only iMessage texts count as use (a forged SMS sender must not keep a binding alive).
+        if (params.service !== "iMessage") return { ok: true, state: head, value: null, changed: false }
         const link = head.link ?? EMPTY_LINK_STATE
         const next = noteInbound(link, ctx.now)
         if (next === link) return { ok: true, state: head, value: null, changed: false }

@@ -83,8 +83,18 @@ describe("linking a phone for texting Chief", () => {
     o.submit("address.text_link.confirm", { proof: PROOF }, alice)
     expect(o.head.linked_user).toBeNull()
     const idle = NOW + BINDING_IDLE_MS + 1
-    expect(o.submit("address.inbound.note", {}, system, idle).ok).toBe(true)
+    expect(o.submit("address.inbound.note", { service: "iMessage" }, system, idle).ok).toBe(true)
     expect(textAuthority(o.head.link!, idle + 1, "iMessage")).toBe("relink")
+  })
+
+  it("never lets a second pending link take over a binding", () => {
+    const o = owner()
+    o.submit("address.text_link.request", { user: "user_alice", code_hash: sha(PROOF) }, system)
+    o.submit("address.text_link.request", { user: "user_mallory", code_hash: sha("mallory-proof") }, system, NOW + 1)
+    o.submit("address.text_link.confirm", { proof: PROOF }, alice, NOW + 2)
+    expect(o.submit("address.text_link.confirm", { proof: "mallory-proof" }, mallory, NOW + 3)).toMatchObject({ ok: false, code: "link.none" })
+    expect(o.head.link?.binding?.user).toBe("user_alice")
+    expect(o.head.link?.pending).toEqual([])
   })
 
   it("resubscribes only the recipient's own opt-out", () => {
