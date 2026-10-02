@@ -88,7 +88,7 @@ fork:`include/cef_cmux.h` (`CMUX_CEF_API_VERSION 1`). Browsers are addressed by 
 
 cmux2's `fork::Api` does not bind `cmux_tab_window_id` or `cmux_ext_action_hide_popup` (cmux2:`crates/engine/src/fork.rs:24-33`).
 
-Missing for cmux next: detach or attach a tab across windows (moving a CEF tab between panes), close through the tab strip, and a tab snapshot. Chromium has `TabStripModel::DetachWebContentsAtForInsertion`, so a fork `cmux_tab_move_to_window` is a small patch.
+Missing for cmux next: close through the tab strip, and a tab snapshot. Moving a tab between panes or windows needs no fork call today: the app gives every Chromium tab its own Chromium window (below). `cmux_tab_move_to_window` exists for popups.
 
 ## 2. What the fork patches
 
@@ -150,7 +150,9 @@ Child-window rules for `.childWindow` tabs (Decision 2):
 - Sidebar Liquid Glass must not sit over a CEF pane. Keep panes inset from glass, or accept the plain background next to CEF.
 - Column scroll, tab open/close animations, tab drag, and hover previews: call `setOccluded(true)`, which shows a `Page.captureScreenshot` image in the placeholder view and hides the child window. Restore after the settle signal. Fork patch: observe clip-view bounds changes and clip or hide when the placeholder is only partly visible. Do not ship the no-clip behavior.
 
-Chromium `Browser` per pane (Decision 1): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window. Cross-pane moves need the new fork call. Without it, a move recreates the tab and loses page state.
+Chromium `Browser` per pane (Decision 1, planned): the first CEF tab in a pane creates the tabbed browser in that pane's placeholder view. Later CEF tabs in the pane use `cmux_tab_add`. The pane's selected tab maps to `cmux_tab_activate`. When a WebKit or terminal tab is selected, the placeholder is hidden and the tracker hides the child window.
+
+As built (2026-10-02): the app leaves `BrowserTabConfiguration.pane` nil (`TabContentCache.chromiumConfiguration`), so `CEFEngine` gives each Chromium tab its own `Browser` (`tab-<id>`, `CEFPaneHost`). Its host view reparents into whichever pane or cmux window shows the tab, so a move between panes or windows keeps the page with no fork call. The cost: extensions see one single-tab Chromium window per tab. Adopting Decision 1 later needs `cmux_tab_move_to_window` (already in the fork, used for popups) for cross-pane moves.
 
 ### Rust crate or Swift against the CEF C API
 
