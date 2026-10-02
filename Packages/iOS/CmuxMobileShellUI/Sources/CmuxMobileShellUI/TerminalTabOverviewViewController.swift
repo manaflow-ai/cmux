@@ -1574,7 +1574,7 @@ private final class TerminalTabOverviewCardView: UIControl {
             height: max(0, min(surfaceHeight, bounds.height - inset * 2))
         )
         let closeSize: CGFloat = 30
-        closeButton.frame = CGRect(x: surface.bounds.width - closeSize - 4, y: 4, width: closeSize, height: closeSize)
+        closeButton.frame = CGRect(x: bounds.width - closeSize - 4, y: 4, width: closeSize, height: closeSize)
         let titleY: CGFloat = 14
         titleLabel.frame = CGRect(x: 16, y: titleY, width: max(0, surface.bounds.width - 32), height: 22)
         preview.frame = CGRect(
