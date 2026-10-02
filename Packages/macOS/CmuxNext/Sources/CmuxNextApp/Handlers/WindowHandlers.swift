@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextActions
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 
 /// Window and app-level actions (category `window`) not bound in
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
@@ -14,8 +15,8 @@ enum WindowHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let keepAwake = KeepAwake()
         registry.bind("openSettings", run: { invocation in
-            let section = invocation["section"]?.stringValue.flatMap(SettingsSection.init(rawValue:))
-            try context.services.settingsWindow.show(section: section)
+            let link = SettingsDeepLink(invocation)
+            try context.services.settingsWindow.show(section: link.section, setting: link.setting)
         })
         // DEV and NIGHTLY only: the descriptor is `isDebugOnly` (`DevTools`).
         registry.bind("openDebugSettings", run: { _ in try context.services.debugSettings.show() })

@@ -5935,7 +5935,9 @@
       "cli" : "offered",
       "cli_name" : "cloud exec",
       "context_menu" : "noTargetSurface",
-      "context_menus" : [],
+      "context_menus" : [
+
+      ],
       "id" : "cloudExec",
       "mcp" : "offered",
       "palette" : "offered"
