@@ -57,6 +57,14 @@ public final class OnboardingGalleryController: NSWindowController, NSWindowDele
         for row in rows { row.refreshPicks() }
     }
 
+    /// Scrolls the row of `step` to the top of the window (screenshots, debug.onboarding).
+    public func scroll(to step: OnboardingModel.Step) {
+        guard let row = rows.first(where: { $0.step == step }), let clip = row.enclosingScrollView?.contentView else { return }
+        let origin = row.convert(NSPoint(x: 0, y: -12), to: clip.documentView)
+        clip.scroll(to: NSPoint(x: 0, y: max(0, origin.y)))
+        row.enclosingScrollView?.reflectScrolledClipView(clip)
+    }
+
     public func windowWillClose(_ notification: Notification) {
         for preview in previews { preview.close() }
         onClose?()

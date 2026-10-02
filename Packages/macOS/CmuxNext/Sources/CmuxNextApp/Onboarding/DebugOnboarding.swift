@@ -13,7 +13,8 @@ import CmuxNextSettings
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
 /// `cancel_import`, `claim` (`claim`), `gallery` (opens it), `use_variant`
-/// (`id`), `open_variant` (`id`; returns `variant_window`), `variants`.
+/// (`id`), `open_variant` (`id`; returns `variant_window`), `gallery_row`
+/// (`step`; scrolls the gallery to it), `variants`.
 @MainActor
 enum DebugOnboarding {
     static func run(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
@@ -88,6 +89,8 @@ enum DebugOnboarding {
             if let variant, let window = onboarding.gallery?.openFullSize(variant) {
                 return .object(["variant_window": .number(Double(window.windowNumber))])
             }
+        case "gallery_row":
+            if let step = params["step"]?.stringValue.flatMap(OnboardingModel.Step.init(rawValue:)) { onboarding.gallery?.scroll(to: step) }
         case "variants": break
         default: return nil
         }

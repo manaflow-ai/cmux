@@ -5,9 +5,11 @@ import CmuxNextDesign
 final class OnboardingGalleryRow: NSStackView {
     static let columns = 4
     private var tiles: [OnboardingGalleryTile] = []
+    let step: OnboardingModel.Step
 
     init(step: OnboardingModel.Step, gallery: OnboardingGalleryController, picks: any OnboardingServices,
          makeServices: @escaping @MainActor () -> any OnboardingServices) {
+        self.step = step
         super.init(frame: .zero)
         orientation = .vertical
         alignment = .leading
