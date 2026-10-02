@@ -129,14 +129,14 @@ struct CloudTreeRowToolTipTests {
         #expect(toolTip.contains(":1"))
     }
 
-    @Test("A port row explains its in-app action without suggesting a directly reachable private URL")
+    @Test("A port row names its process without suggesting a directly reachable private URL")
     func portRowHasToolTip() throws {
         let node = Self.portNode()
         let cell = Self.cell(presence: [])
         cell.configure(node: node, machineActions: Self.machineActions(), nodeActions: Self.nodeActions())
         let toolTip = try #require(cell.toolTip)
         #expect(toolTip == "vite")
-        #expect(cell.accessibilityLabel() == "Port 3000")
+        #expect(cell.accessibilityLabel() == "Port 3000, vite")
     }
 
     @Test("An untitled browser row is still labelled for assistive technology")

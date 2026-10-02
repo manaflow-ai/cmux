@@ -117,8 +117,8 @@ struct CloudPortsVPNAffordanceTests {
         #expect(row.searchableTitle == ":33015")
         let cell = CloudTreeCellView(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         cell.configure(node: row, machineActions: machineActions(), nodeActions: nodeActions())
-        #expect(cell.toolTip == "Open in cmux. No VPN setup needed.")
-        #expect(cell.accessibilityLabel()?.contains("Open in cmux") == true)
+        #expect(cell.toolTip == nil)
+        #expect(cell.accessibilityLabel() == "Port 33015")
     }
 
     /// Each status row explains the whole Ports group, so a second one contradicts it:
