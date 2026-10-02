@@ -10,9 +10,9 @@ use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{MAX_MESSAGE_BYTES, PROTOCOL, ResourceOperation, ResponseEnvelope};
 use serde_json::{Map, Value, json};
 
-use super::{GlobalArgs, OutputMode};
 use super::command::{RequestPlan, Resolve, ZoomStep};
 use super::wire::{print_operation_error, random_request_id, read_envelope};
+use super::{GlobalArgs, OutputMode};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -237,7 +237,10 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
 
 /// `--machine` and `--session` name the scope of a request that names none
 /// (or `current`).
-pub(super) fn apply_global_route(global: &GlobalArgs, params: &mut Value) -> Result<(), &'static str> {
+pub(super) fn apply_global_route(
+    global: &GlobalArgs,
+    params: &mut Value,
+) -> Result<(), &'static str> {
     let Some(params) = params.as_object_mut() else {
         return Err("request params are not an object");
     };

@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use cmux_tui_core::platform::transport;
 use cmux_tui_core::resource::{
-    EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope,
-    StreamEndReason, StreamItemEnvelope,
+    EnvelopeType, OperationClass, PROTOCOL, ResponseEnvelope, StreamEndEnvelope, StreamEndReason,
+    StreamItemEnvelope,
 };
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
@@ -309,7 +309,10 @@ fn validate_capability_identity(identity: &Value) -> Result<(), &'static str> {
 /// `interrupt_handled` is false only for a stream on a platform with no
 /// signal watcher (Windows): there a console interrupt only sets the
 /// shutdown flag, so the read wakes every 250 ms to look at it.
-pub(super) fn response_read_timeout(plan: &RequestPlan, interrupt_handled: bool) -> Option<Duration> {
+pub(super) fn response_read_timeout(
+    plan: &RequestPlan,
+    interrupt_handled: bool,
+) -> Option<Duration> {
     if plan.stream {
         return (!interrupt_handled).then_some(Duration::from_millis(250));
     }

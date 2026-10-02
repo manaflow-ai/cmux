@@ -29,10 +29,15 @@ pub(in crate::cli) fn action_run_params(
 }
 
 /// Gives an `action.run` its idempotency key: `given`, else a new one.
-pub(in crate::cli) fn insert_run_key(params: &mut Value, given: Option<&str>) -> Result<String, String> {
+pub(in crate::cli) fn insert_run_key(
+    params: &mut Value,
+    given: Option<&str>,
+) -> Result<String, String> {
     let key = match given {
         Some(key) => key.to_owned(),
-        None => super::super::command::random_prefixed("mutation").map_err(|error| error.to_string())?,
+        None => {
+            super::super::command::random_prefixed("mutation").map_err(|error| error.to_string())?
+        }
     };
     params["idempotency_key"] = json!(key);
     Ok(key)

@@ -27,9 +27,9 @@ use std::time::Duration;
 use serde_json::{Map, Value, json};
 
 use super::command::RequestPlan;
-use transport::{CallFailure, FailureKind, Prefix};
 use super::{GlobalArgs, OutputMode};
 use action_tools::ActionTool;
+use transport::{CallFailure, FailureKind, Prefix};
 
 /// MCP revisions this server speaks, newest first.
 const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];

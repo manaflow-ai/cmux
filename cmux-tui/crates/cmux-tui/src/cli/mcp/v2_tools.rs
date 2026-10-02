@@ -12,9 +12,9 @@ use serde_json::{Map, Value, json};
 
 use super::super::command::{RequestPlan, WireOperation};
 use super::super::federation;
-use super::transport::{self, Prefix};
 use super::Exclusion;
 use super::schema::{self, Generator};
+use super::transport::{self, Prefix};
 
 const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));

@@ -23,10 +23,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         (vec!["machine", MACHINE, "session", SESSION, "open"], "session.open"),
         (vec!["session", SESSION, "show"], "session.get"),
         (vec!["session", SESSION, "snapshot"], "session.snapshot"),
-        (
-            vec!["session", SESSION, "creation", "create-42", "resolve"],
-            "session.creation.resolve",
-        ),
+        (vec!["session", SESSION, "creation", "create-42", "resolve"], "session.creation.resolve"),
         (
             vec!["session", SESSION, "events", "--generation", "g1", "--revision", "3"],
             "session.events",
@@ -44,10 +41,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             ],
             "session.journal.subscribe",
         ),
-        (
-            vec!["session", SESSION, "journal", "producer", "list"],
-            "session.journal.producer.list",
-        ),
+        (vec!["session", SESSION, "journal", "producer", "list"], "session.journal.producer.list"),
         (
             vec![
                 "session",
@@ -96,10 +90,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             vec!["session", SESSION, "journal", "restore", "preview", "--checkpoint", "latest"],
             "session.journal.restore.preview",
         ),
-        (
-            vec!["session", SESSION, "journal", "segment", "list"],
-            "session.journal.segment.list",
-        ),
+        (vec!["session", SESSION, "journal", "segment", "list"], "session.journal.segment.list"),
         (
             vec!["session", SESSION, "journal", "segment", "seal", "--through", "42"],
             "session.journal.segment.seal",
@@ -160,17 +151,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "client.sizing.release",
         ),
         (
-            vec![
-                "client",
-                CLIENT,
-                "cell",
-                "pixels",
-                "set",
-                "--width-px",
-                "8",
-                "--height-px",
-                "16",
-            ],
+            vec!["client", CLIENT, "cell", "pixels", "set", "--width-px", "8", "--height-px", "16"],
             "client.cell_pixels.set",
         ),
         (vec!["client", CLIENT, "detach"], "client.detach"),
@@ -472,16 +453,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
         (vec!["terminal", TERMINAL, "history", "clear"], "terminal.history.clear"),
         (
-            vec![
-                "terminal",
-                TERMINAL,
-                "output",
-                "read",
-                "--after",
-                "4096",
-                "--max-bytes",
-                "65536",
-            ],
+            vec!["terminal", TERMINAL, "output", "read", "--after", "4096", "--max-bytes", "65536"],
             "terminal.output_read",
         ),
         (
@@ -542,25 +514,13 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "terminal.project",
         ),
         (
-            vec![
-                "terminal",
-                TERMINAL,
-                "attach",
-                "--cols",
-                "100",
-                "--rows",
-                "40",
-                "--read-only",
-            ],
+            vec!["terminal", TERMINAL, "attach", "--cols", "100", "--rows", "40", "--read-only"],
             "terminal.attach",
         ),
         (vec!["terminal", TERMINAL, "close"], "terminal.close"),
         (vec!["browser", "list"], "browser.list"),
         (vec!["browser", BROWSER, "show"], "browser.get"),
-        (
-            vec!["browser", BROWSER, "navigate", "--url", "https://example.com"],
-            "browser.navigate",
-        ),
+        (vec!["browser", BROWSER, "navigate", "--url", "https://example.com"], "browser.navigate"),
         (vec!["browser", BROWSER, "back"], "browser.back"),
         (vec!["browser", BROWSER, "forward"], "browser.forward"),
         (vec!["browser", BROWSER, "reload"], "browser.reload"),
@@ -680,12 +640,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "notification.ack",
         ),
         (
-            vec![
-                "notification",
-                "clear",
-                "--terminal",
-                "term_00000000000000000000000000000041",
-            ],
+            vec!["notification", "clear", "--terminal", "term_00000000000000000000000000000041"],
             "notification.clear",
         ),
     ];
@@ -777,10 +732,7 @@ fn state_resource_cases<'a>(
         (vec!["tab", "group", "g", "close"], "tab_group.close"),
         (vec!["tab", "group", "saved", "list", "--room", "r"], "saved_tab_group.list"),
         (vec!["tab", "group", "g", "save", "--room", "r"], "saved_tab_group.save"),
-        (
-            vec!["tab", "group", "saved", "s", "reopen", "--pane", pane],
-            "saved_tab_group.reopen",
-        ),
+        (vec!["tab", "group", "saved", "s", "reopen", "--pane", pane], "saved_tab_group.reopen"),
         (vec!["tab", "group", "saved", "s", "delete"], "saved_tab_group.delete"),
         (vec!["room", "list"], "room.list"),
         (
@@ -837,17 +789,7 @@ fn state_resource_cases<'a>(
             "screen_group.create",
         ),
         (
-            vec![
-                "screen",
-                "group",
-                "g",
-                "update",
-                "--name",
-                "n",
-                "--color",
-                "red",
-                "--collapse",
-            ],
+            vec!["screen", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
             "screen_group.update",
         ),
         (vec!["screen", "group", "g", "add", "--screens", screen], "screen_group.add_screens"),
@@ -857,18 +799,7 @@ fn state_resource_cases<'a>(
         (vec!["closed", "c1", "reopen"], "closed.reopen"),
         (vec!["workspace", workspace, "status", "list"], "workspace_status.list"),
         (
-            vec![
-                "workspace",
-                workspace,
-                "status",
-                "set",
-                "k",
-                "t",
-                "--icon",
-                "i",
-                "--color",
-                "c",
-            ],
+            vec!["workspace", workspace, "status", "set", "k", "t", "--icon", "i", "--color", "c"],
             "workspace_status.set",
         ),
         (vec!["workspace", workspace, "status", "clear", "k"], "workspace_status.clear"),
@@ -878,17 +809,7 @@ fn state_resource_cases<'a>(
         ),
         (vec!["workspace", workspace, "progress", "clear"], "workspace_progress.clear"),
         (
-            vec![
-                "workspace",
-                workspace,
-                "log",
-                "append",
-                "t",
-                "--level",
-                "info",
-                "--source",
-                "s",
-            ],
+            vec!["workspace", workspace, "log", "append", "t", "--level", "info", "--source", "s"],
             "workspace_log.append",
         ),
         (vec!["workspace", workspace, "log", "list", "--limit", "5"], "workspace_log.list"),

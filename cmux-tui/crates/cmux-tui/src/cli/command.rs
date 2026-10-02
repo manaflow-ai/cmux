@@ -11,9 +11,9 @@ use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
 
-mod state;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
+mod state;
 
 pub(super) enum ParsedCommand {
     Help(Option<String>),
@@ -4652,7 +4652,8 @@ mod tests {
         assert_eq!(seen, expected, "safe CLI operation coverage drifted from the catalog");
         // Fields only the app that hosts a browser page writes (its record's
         // owner and history list); the CLI never sets them.
-        let app_owned = [("tab.update", "owner"), ("tab.update", "back"), ("tab.update", "forward")];
+        let app_owned =
+            [("tab.update", "owner"), ("tab.update", "back"), ("tab.update", "forward")];
         for operation in &expected {
             let catalog_fields = catalog["operations"][operation]["params"]["fields"]
                 .as_object()

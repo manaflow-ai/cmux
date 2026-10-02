@@ -18,7 +18,7 @@ use super::super::{app, resolve, wire};
 /// never reached the owner, or it may have reached the owner and its
 /// outcome is unknown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FailureKind {
+pub(in crate::cli) enum FailureKind {
     Rejected,
     NotRun,
     InProgress,
@@ -39,7 +39,7 @@ impl FailureKind {
 /// the same `{code, message, details, retryable}` shape) and the mutation's
 /// idempotency key, which a retry reuses so the change cannot apply twice.
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct CallFailure {
+pub(in crate::cli) struct CallFailure {
     pub kind: FailureKind,
     pub error: Value,
     pub idempotency_key: Option<String>,
@@ -68,7 +68,7 @@ impl CallFailure {
 /// A selector or id field that holds a unique prefix of a public id
 /// (`ws_1a2b`): the one id `list` reports with that prefix replaces it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Prefix {
+pub(in crate::cli) struct Prefix {
     pub field: String,
     pub list: ResourceOperation,
 }
@@ -125,8 +125,9 @@ pub(super) fn resource(
                         _ => fail(NotRun, "transport.failed", "lookup failed".into()),
                     }
                 })?;
-            let id = unique_prefix(&prefix.field, &value, &records)
-                .map_err(|error| CallFailure { kind: NotRun, error, idempotency_key: key.clone() })?;
+            let id = unique_prefix(&prefix.field, &value, &records).map_err(|error| {
+                CallFailure { kind: NotRun, error, idempotency_key: key.clone() }
+            })?;
             params.insert(prefix.field.clone(), Value::String(id));
         }
         request["params"] = plan.params.clone();
