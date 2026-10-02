@@ -490,11 +490,11 @@
           ],
           "pro": [
             "وكلاء سحابيون على Cloud VMs",
-            "5 Cloud VMs، لكل منها 4 vCPU و8 غيغابايت RAM",
+            "حتى 5 Cloud VMs، بحد أقصى 4 vCPU و8 غيغابايت RAM لكل VM",
             "تطبيق cmux لنظام iOS"
           ],
           "max": [
-            "5 Cloud VMs، لكل منها 16 vCPU و32 غيغابايت RAM",
+            "حتى 5 Cloud VMs، بحد أقصى 16 vCPU و32 غيغابايت RAM لكل VM",
             "أحجام أجهزة أكبر",
             "كل ما في Pro"
           ],

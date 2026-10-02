@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Skyagenter på Cloud VMs",
-            "5 Cloud VMs med 4 vCPU-er og 8 GB RAM hver",
+            "Opptil 5 Cloud VMs, opptil 4 vCPU-er og 8 GB RAM per VM",
             "cmux-appen for iOS"
           ],
           "max": [
-            "5 Cloud VMs med 16 vCPU-er og 32 GB RAM hver",
+            "Opptil 5 Cloud VMs, opptil 16 vCPU-er og 32 GB RAM per VM",
             "Større maskinstørrelser",
             "Alt i Pro"
           ],

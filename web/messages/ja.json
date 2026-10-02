@@ -652,7 +652,7 @@
         "activeBody": "Max プランは有効です。次回更新日は {date} です。",
         "pendingBody": "Max プランは {date} に終了します。",
         "monthlyPrice": "${amount}/月",
-        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM を利用でき、各 VM に 16 vCPU と 32 GB RAM が割り当てられます。"
+        "upsell": "Max は月額 $200 の月払いで、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM を使えます。"
       },
       "teamPanel": {
         "notFound": "このチームは利用できません。チームから退出したか、チームが削除された可能性があります。",
@@ -717,11 +717,11 @@
           ],
           "pro": [
             "Cloud VM 上のクラウドエージェント",
-            "Cloud VM 5 台、各 4 vCPU と 8 GB RAM",
+            "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
             "cmux iOS アプリ"
           ],
           "max": [
-            "Cloud VM 5 台、各 16 vCPU と 32 GB RAM",
+            "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
             "より大きなマシンサイズ",
             "Pro のすべての機能"
           ],
@@ -1667,7 +1667,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 5 台の Cloud VM、各 VM に 4 vCPU と 8 GB RAM",
+        "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -1684,7 +1684,7 @@
       "cta": "Max を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "最大 5 台の Cloud VM、各 VM に 16 vCPU と 32 GB RAM",
+        "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM",
         "無制限のワークスペースと iOS アプリ"
       ]
     },
@@ -1901,11 +1901,11 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、各 VM に 4 vCPU と 8 GB RAM が割り当てられます。Team ではユーザーごとに同じ枠が適用されます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro では最大 5 台の Cloud VM を利用でき、VM あたり最大 4 vCPU と 8 GB RAM を使えます。Team ではユーザーごとに同じ枠が適用されます。"
         },
         {
           "q": "Max では何が追加されますか?",
-          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM を利用でき、各 VM は最大 16 vCPU と 32 GB RAM です。Pro と Team のマシンは最大 4 vCPU と 8 GB RAM です。Free には Cloud VM は含まれません。"
+          "a": "Max は月払いで $200/月です。Pro のすべてを含み、最大 5 台の Cloud VM を利用でき、VM あたり最大 16 vCPU と 32 GB RAM です。Pro と Team のマシンは最大 4 vCPU と 8 GB RAM です。Free には Cloud VM は含まれません。"
         },
         {
           "q": "cmux Vault とは何ですか?",

@@ -129,7 +129,7 @@ describe("VM defaults and pricing copy", () => {
     ["en", enMessages, "Resources per Cloud VM"],
     ["ja", jaMessages, "Cloud VM あたりのリソース"],
   ] as const) {
-    test(`${locale} pricing advertises 5 VMs with 4 vCPUs and 8 GB RAM each`, () => {
+    test(`${locale} pricing advertises up to 5 VMs with up to 4 vCPUs and 8 GB RAM per VM`, () => {
       const features = messages.pricing.pro.features.join("\n");
       expect(features).toMatch(/(?:^|\D)5(?:\D|$)/);
       const row = messages.pricing.compare.rows.find(row => row.label === label);
@@ -153,7 +153,7 @@ describe("VM defaults and pricing copy", () => {
     ["en", enMessages, "Largest Cloud VM", "What does Max add?"],
     ["ja", jaMessages, "最大の Cloud VM", "Max では何が追加されますか?"],
   ] as const) {
-    test(`${locale} Max copy sells 5 VMs with 16 vCPUs and 32 GB RAM each`, () => {
+    test(`${locale} Max copy sells up to 5 VMs with up to 16 vCPUs and 32 GB RAM per VM`, () => {
       const features = messages.pricing.max.features.join("\n");
       expect(features).toContain("32 GB");
       expect(features).toContain("16 vCPU");
@@ -189,8 +189,8 @@ describe("VM defaults and pricing copy", () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
-      expect(messages.pricing.pro.features.join("\n")).toContain("Up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM");
-      expect(messages.pricing.max.features[0]).toBe("Up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM");
+      expect(messages.pricing.pro.features.join("\n")).toContain("Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM");
+      expect(messages.pricing.max.features[0]).toBe("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM");
       expect(messages.pricing.compare.rows.find(row => row.label === "Resources per Cloud VM")).toBeDefined();
     }
   });

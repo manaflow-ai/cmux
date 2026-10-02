@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Cloud agenti na Cloud VMs",
-            "5 Cloud VM-ova, svaki sa 4 vCPU-a i 8 GB RAM-a",
+            "Do 5 Cloud VM-ova, najviše 4 vCPU-a i 8 GB RAM-a po VM-u",
             "cmux aplikacija za iOS"
           ],
           "max": [
-            "5 Cloud VM-ova, svaki sa 16 vCPU-a i 32 GB RAM-a",
+            "Do 5 Cloud VM-ova, najviše 16 vCPU-a i 32 GB RAM-a po VM-u",
             "Veće mašine",
             "Sve iz Pro"
           ],

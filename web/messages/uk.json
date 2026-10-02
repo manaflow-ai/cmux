@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Хмарні агенти на Cloud VMs",
-            "5 Cloud VMs, кожна з 4 vCPU і 8 ГБ RAM",
+            "До 5 Cloud VMs, до 4 vCPU і 8 ГБ RAM на кожну VM",
             "Застосунок cmux для iOS"
           ],
           "max": [
-            "5 Cloud VMs, кожна з 16 vCPU і 32 ГБ RAM",
+            "До 5 Cloud VMs, до 16 vCPU і 32 ГБ RAM на кожну VM",
             "Більші машини",
             "Усе з Pro"
           ],

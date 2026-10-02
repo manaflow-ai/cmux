@@ -567,7 +567,7 @@ describe("VM REST auth", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      limits: { planId: "team", maxActiveVms: 200, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+      limits: { planId: "team", maxActiveVms: 20, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
       vms: [{ freeAccessExpiresAt: null }],
     });
     expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");

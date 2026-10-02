@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Cloud VMs üzerinde bulut ajanları",
-            "Her biri 4 vCPU ve 8 GB RAM'e sahip 5 Cloud VM",
+            "VM başına en fazla 4 vCPU ve 8 GB RAM ile en fazla 5 Cloud VM",
             "cmux iOS uygulaması"
           ],
           "max": [
-            "Her biri 16 vCPU ve 32 GB RAM'e sahip 5 Cloud VM",
+            "VM başına en fazla 16 vCPU ve 32 GB RAM ile en fazla 5 Cloud VM",
             "Daha büyük makine boyutları",
             "Pro'daki her şey"
           ],

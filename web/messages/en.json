@@ -652,7 +652,7 @@
         "activeBody": "Your Max plan is active. It renews on {date}.",
         "pendingBody": "Your Max plan ends on {date}.",
         "monthlyPrice": "${amount}/mo",
-        "upsell": "Max includes up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM, for $200 per month, billed monthly."
+        "upsell": "Max includes up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM, for $200 per month, billed monthly."
       },
       "teamPanel": {
         "notFound": "This team is not available. You may have left it, or it was deleted.",
@@ -717,11 +717,11 @@
           ],
           "pro": [
             "Cloud agents on Cloud VMs",
-            "5 Cloud VMs with 4 vCPUs and 8 GB RAM each",
+            "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
             "The cmux iOS app"
           ],
           "max": [
-            "5 Cloud VMs with 16 vCPUs and 32 GB RAM each",
+            "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
             "Larger machine sizes",
             "Everything in Pro"
           ],
@@ -1667,7 +1667,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM",
+        "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -1684,7 +1684,7 @@
       "cta": "Get Max",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
-        "Up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM",
+        "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM",
         "Unlimited workspaces and the iOS app"
       ]
     },
@@ -1901,11 +1901,11 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same allowance per user."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 5 Cloud VMs, with up to 4 vCPUs and 8 GB RAM per VM. Team includes the same allowance per user."
         },
         {
           "q": "What does Max add?",
-          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, each with up to 16 vCPUs and 32 GB RAM. Pro and Team machines top out at 4 vCPUs and 8 GB RAM. Free accounts do not include Cloud VMs."
+          "a": "Max is $200/mo, billed monthly. It includes everything in Pro and up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM. Pro and Team machines top out at 4 vCPUs and 8 GB RAM. Free accounts do not include Cloud VMs."
         },
         {
           "q": "What is cmux Vault?",

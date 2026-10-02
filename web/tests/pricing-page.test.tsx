@@ -130,7 +130,7 @@ describe("localized pricing page", () => {
     try {
       const first = await readInitialMain(reader);
       expect(first.includes("$50") && first.includes("$200")).toBe(true);
-      expect(first.includes("Up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM")).toBe(true);
+      expect(first.includes("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM")).toBe(true);
       expect(first.includes("animate-pulse")).toBe(false);
       expect(first.includes("Current plan")).toBe(false);
     } finally {
@@ -302,7 +302,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$200");
     expect(html).toContain("$200 /mo");
     expect(html).not.toContain("$200/mo, billed yearly");
-    expect(html).toContain("Up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM");
+    expect(html).toContain("Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM");
     expect(html).toContain("Get Go");
     expect(html).toContain("2 vCPU, 4 GiB RAM, and 16 GiB disk");
     expect(html).toContain("For individuals");
@@ -417,7 +417,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM",
+      "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

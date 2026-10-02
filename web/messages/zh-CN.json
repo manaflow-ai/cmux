@@ -490,11 +490,11 @@
           ],
           "pro": [
             "在 Cloud VM 上运行云端智能体",
-            "5 台 Cloud VM，每台 4 个 vCPU 和 8 GB 内存",
+            "最多 5 台 Cloud VM，每台最多 4 个 vCPU 和 8 GB 内存",
             "cmux iOS 应用"
           ],
           "max": [
-            "5 台 Cloud VM，每台 16 个 vCPU 和 32 GB 内存",
+            "最多 5 台 Cloud VM，每台最多 16 个 vCPU 和 32 GB 内存",
             "更大的机器规格",
             "Pro 的全部功能"
           ],

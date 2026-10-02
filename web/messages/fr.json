@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Agents cloud sur des Cloud VMs",
-            "5 Cloud VMs avec 4 vCPU et 8 Go de RAM chacune",
+            "Jusqu'à 5 Cloud VMs, jusqu'à 4 vCPU et 8 Go de RAM par VM",
             "L'app cmux pour iOS"
           ],
           "max": [
-            "5 Cloud VMs avec 16 vCPU et 32 Go de RAM chacune",
+            "Jusqu'à 5 Cloud VMs, jusqu'à 16 vCPU et 32 Go de RAM par VM",
             "Des machines plus grandes",
             "Tout ce qu'inclut Pro"
           ],

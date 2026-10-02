@@ -380,9 +380,9 @@ ensure_product_description() {
     --data-urlencode "description=${description}" >/dev/null
   echo "Set description for ${product_id}." >&2
 }
-ensure_product_description "$pro_product_id" "5 Cloud VMs with 4 vCPUs and 8 GB RAM each, plus the cmux iOS app."
-ensure_product_description "$max_product_id" "Everything in Pro, with 5 Cloud VMs of up to 16 vCPUs and 32 GB RAM each."
-ensure_product_description "$team_product_id" "Per seat: 5 Cloud VMs with 4 vCPUs and 8 GB RAM each, the cmux iOS app, and priority support."
+ensure_product_description "$pro_product_id" "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, plus the cmux iOS app."
+ensure_product_description "$max_product_id" "Everything in Pro, with up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM."
+ensure_product_description "$team_product_id" "Per seat: up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM, the cmux iOS app, and priority support."
 
 # Current catalog (web/services/billing/plans.ts). Stripe Price amounts are
 # immutable, so each price change mints a new lookup key carrying the amount.

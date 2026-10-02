@@ -273740,55 +273740,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM"
+            "value": "Up to 5 Cloud VMs, up to 4 vCPUs and 8 GB RAM per VM"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM、各 4 vCPU と 8 GB RAM"
+            "value": "最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，每台 4 个虚拟 CPU 和 8 GB 内存"
+            "value": "最多 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs mit jeweils 4 vCPUs und 8 GB RAM"
+            "value": "Bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud, chacune avec 4 vCPU et 8 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud, jusqu’à 4 vCPU et 8 Go de RAM par VM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، لكل منها 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube, cada una con 4 vCPU y 8 GB de RAM"
+            "value": "Hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，每台 4 個虛擬 CPU 與 8 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM, 각각 vCPU 4개와 RAM 8 GB"
+            "value": "최대 5개의 클라우드 VM, VM당 최대 vCPU 4개와 RAM 8 GB"
           }
         }
       }
@@ -274345,121 +274345,121 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro includes up to 5 Cloud VMs, with up to 4 vCPUs and 8 GB RAM per VM. Team includes the same limits per user. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro には最大 5 台の Cloud VM が含まれ、各 VM に 4 vCPU と 8 GB RAM があります。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
+            "value": "Pro には最大 5 台の Cloud VM が含まれ、VM あたり最大 4 vCPU と 8 GB RAM を利用できます。Team ではユーザーごとに同じ上限が適用されます。従量課金や超過料金はありません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية، لكل منها 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة. وتمنح باقة Team الحدود نفسها لكل مستخدم. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
+            "value": "تتضمن باقة Pro ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز. وتمنح باقة Team الحدود نفسها لكل مستخدم. لا توجد فوترة حسب الاستهلاك أو رسوم إضافية لتجاوز الحدود."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro uključuje do 5 Cloud VM-ova, s najviše 4 vCPU-a i 8 GB RAM-a po VM-u. Team uključuje ista ograničenja po korisniku. Nema naplate prema potrošnji niti naplate prekoračenja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro inkluderer op til 5 Cloud VMs med op til 4 vCPU'er og 8 GB RAM pr. VM. Team inkluderer de samme grænser pr. bruger. Der er ingen forbrugsafregning eller betaling for overforbrug."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro beinhaltet bis zu 5 Cloud-VMs mit jeweils 4 vCPUs und 8 GB RAM. Team beinhaltet dieselben Limits pro Benutzer. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
+            "value": "Pro beinhaltet bis zu 5 Cloud-VMs mit bis zu 4 vCPUs und 8 GB RAM pro VM. Team beinhaltet dieselben Limits pro Benutzer. Es gibt keine verbrauchsabhängige Abrechnung oder Nachberechnung."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro incluye hasta 5 VM en la nube, cada una con 4 vCPU y 8 GB de RAM. Team incluye los mismos límites por usuario. No hay facturación por consumo ni por exceso."
+            "value": "Pro incluye hasta 5 VM en la nube, con hasta 4 vCPU y 8 GB de RAM por VM. Team incluye los mismos límites por usuario. No hay facturación por consumo ni por exceso."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro inclut jusqu'à 5 VM Cloud, chacune avec 4 vCPU et 8 Go de RAM. Team inclut les mêmes limites par utilisateur. Il n'y a pas de facturation à l'utilisation ou de dépassement."
+            "value": "Pro inclut jusqu'à 5 VM Cloud, avec jusqu'à 4 vCPU et 8 Go de RAM par VM. Team inclut les mêmes limites par utilisateur. Il n'y a pas de facturation à l'utilisation ou de dépassement."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro include fino a 5 Cloud VM, con fino a 4 vCPU e 8 GB di RAM per VM. Team include gli stessi limiti per utente. Non è prevista fatturazione a consumo né per eccedenze."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro រួមបញ្ចូល Cloud VMs រហូតដល់ 5 ដោយមាន vCPU រហូតដល់ 4 និង RAM 8 GB ក្នុងមួយ VM។ Team រួមបញ្ចូលដែនកំណត់ដូចគ្នាសម្រាប់អ្នកប្រើម្នាក់ៗ។ មិនមានការគិតថ្លៃតាមការប្រើប្រាស់ ឬថ្លៃលើសកំណត់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, 각 VM에 vCPU 4개와 RAM 8 GB가 있습니다. Team은 사용자마다 동일한 한도가 적용됩니다. 사용량 기반 과금이나 초과 요금은 없습니다."
+            "value": "Pro는 최대 5개의 클라우드 VM을 포함하며, VM당 최대 vCPU 4개와 RAM 8 GB를 사용할 수 있습니다. Team은 사용자마다 동일한 한도가 적용됩니다. 사용량 기반 과금이나 초과 요금은 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro inkluderer opptil 5 Cloud VMs med opptil 4 vCPU-er og 8 GB RAM per VM. Team inkluderer de samme grensene per bruker. Det er ingen forbruksbasert fakturering eller betaling for overforbruk."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro obejmuje do 5 Cloud VMs, z maksymalnie 4 vCPU i 8 GB RAM na VM. Team obejmuje te same limity na użytkownika. Nie ma rozliczeń za zużycie ani opłat za przekroczenie limitów."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "O Pro inclui até 5 Cloud VMs, com até 4 vCPUs e 8 GB de RAM por VM. O Team inclui os mesmos limites por usuário. Não há cobrança por uso nem por excedente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro включает до 5 Cloud VMs, до 4 vCPU и 8 ГБ RAM на каждую VM. Team включает те же лимиты на пользователя. Нет оплаты по факту использования или за превышение."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro มี Cloud VMs ได้สูงสุด 5 เครื่อง แต่ละ VM มีได้สูงสุด 4 vCPU และ RAM 8 GB Team มีขีดจำกัดเดียวกันต่อผู้ใช้ ไม่มีการคิดค่าบริการตามการใช้งานหรือค่าใช้งานส่วนเกิน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro, VM başına en fazla 4 vCPU ve 8 GB RAM ile en fazla 5 Cloud VM içerir. Team, kullanıcı başına aynı sınırları içerir. Kullanıma göre ücretlendirme veya aşım ücreti yoktur."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 5 Cloud VMs, each with 4 vCPUs and 8 GB RAM. Team includes the same limits per user. There is no metering or overage billing."
+            "value": "Pro включає до 5 Cloud VMs, до 4 vCPU і 8 ГБ RAM на кожну VM. Team включає ті самі ліміти на користувача. Немає оплати за фактичне використання чи за перевищення."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 最多包含 5 台云端虚拟机，每台有 4 个虚拟 CPU 和 8 GB 内存。Team 的每位用户享有相同上限。不按用量计费，也不收取超额费用。"
+            "value": "Pro 最多包含 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存。Team 的每位用户享有相同上限。不按用量计费，也不收取超额费用。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro 包含最多 5 台雲端虛擬機，每台有 4 個虛擬 CPU 與 8 GB 記憶體。Team 的每位使用者享有相同上限。不按用量計費，也不收取超額費用。"
+            "value": "Pro 包含最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體。Team 的每位使用者享有相同上限。不按用量計費，也不收取超額費用。"
           }
         }
       }
@@ -275126,55 +275126,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs per user, each with 4 vCPUs and 8 GB RAM"
+            "value": "Up to 5 Cloud VMs per user, up to 4 vCPUs and 8 GB RAM per VM"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに最大 5 台の Cloud VM、各 4 vCPU と 8 GB RAM"
+            "value": "ユーザーごとに最大 5 台の Cloud VM、VM あたり最大 4 vCPU と 8 GB RAM"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位用户最多 5 台云端虚拟机，每台 4 个虚拟 CPU 和 8 GB 内存"
+            "value": "每位用户最多 5 台云端虚拟机，每台最多 4 个虚拟 CPU 和 8 GB 内存"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs pro Benutzer mit jeweils 4 vCPUs und 8 GB RAM"
+            "value": "Bis zu 5 Cloud-VMs pro Benutzer mit bis zu 4 vCPUs und 8 GB RAM pro VM"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud par utilisateur, chacune avec 4 vCPU et 8 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud par utilisateur, jusqu’à 4 vCPU et 8 Go de RAM par VM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية لكل مستخدم، لكل منها 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية لكل مستخدم، بحد أقصى 4 وحدات معالجة مركزية افتراضية و8 جيجابايت من الذاكرة لكل جهاز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube por usuario, cada una con 4 vCPU y 8 GB de RAM"
+            "value": "Hasta 5 VM en la nube por usuario, con hasta 4 vCPU y 8 GB de RAM por VM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每位使用者最多 5 台雲端虛擬機，每台 4 個虛擬 CPU 與 8 GB 記憶體"
+            "value": "每位使用者最多 5 台雲端虛擬機，每台最多 4 個虛擬 CPU 與 8 GB 記憶體"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자당 최대 5개의 클라우드 VM, 각각 vCPU 4개와 RAM 8 GB"
+            "value": "사용자당 최대 5개의 클라우드 VM, VM당 최대 vCPU 4개와 RAM 8 GB"
           }
         }
       }
@@ -521441,55 +521441,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max includes up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM."
+            "value": "Max includes up to 5 Cloud VMs, with up to 16 vCPUs and 32 GB RAM per VM."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max beinhaltet bis zu 5 Cloud-VMs mit jeweils 16 vCPUs und 32 GB RAM."
+            "value": "Max beinhaltet bis zu 5 Cloud-VMs mit bis zu 16 vCPUs und 32 GB RAM pro VM."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max inclut jusqu'à 5 VM Cloud, chacune avec 16 vCPU et 32 Go de RAM."
+            "value": "Max inclut jusqu'à 5 VM Cloud, avec jusqu'à 16 vCPU et 32 Go de RAM par VM."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية، لكل منها 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة."
+            "value": "تتضمن باقة Max ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة لكل جهاز."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max incluye hasta 5 VM en la nube, cada una con 16 vCPU y 32 GB de RAM."
+            "value": "Max incluye hasta 5 VM en la nube, con hasta 16 vCPU y 32 GB de RAM por VM."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 包含最多 5 台雲端虛擬機，每台有 16 個虛擬 CPU 與 32 GB 記憶體。"
+            "value": "Max 包含最多 5 台雲端虛擬機，每台最多 16 個虛擬 CPU 與 32 GB 記憶體。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max 最多包含 5 台云端虚拟机，每台有 16 个虚拟 CPU 和 32 GB 内存。"
+            "value": "Max 最多包含 5 台云端虚拟机，每台最多 16 个虚拟 CPU 和 32 GB 内存。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, 각 VM에 vCPU 16개와 RAM 32 GB가 있습니다."
+            "value": "Max는 최대 5개의 클라우드 VM을 포함하며, VM당 최대 vCPU 16개와 RAM 32 GB를 사용할 수 있습니다."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Max には最大 5 台の Cloud VM が含まれ、各 VM に 16 vCPU と 32 GB RAM があります。"
+            "value": "Max には最大 5 台の Cloud VM が含まれ、VM あたり最大 16 vCPU と 32 GB RAM を利用できます。"
           }
         }
       }
@@ -522267,55 +522267,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 5 Cloud VMs, each with 16 vCPUs and 32 GB RAM"
+            "value": "Up to 5 Cloud VMs, up to 16 vCPUs and 32 GB RAM per VM"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bis zu 5 Cloud-VMs mit jeweils 16 vCPUs und 32 GB RAM"
+            "value": "Bis zu 5 Cloud-VMs mit bis zu 16 vCPUs und 32 GB RAM pro VM"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jusqu’à 5 VM cloud, chacune avec 16 vCPU et 32 Go de RAM"
+            "value": "Jusqu’à 5 VM cloud, jusqu’à 16 vCPU et 32 Go de RAM par VM"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، لكل منها 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة"
+            "value": "ما يصل إلى 5 أجهزة افتراضية سحابية، بحد أقصى 16 وحدة معالجة مركزية افتراضية و32 جيجابايت من الذاكرة لكل جهاز"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hasta 5 VM en la nube, cada una con 16 vCPU y 32 GB de RAM"
+            "value": "Hasta 5 VM en la nube, con hasta 16 vCPU y 32 GB de RAM por VM"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台雲端虛擬機，每台 16 個虛擬 CPU 與 32 GB 記憶體"
+            "value": "最多 5 台雲端虛擬機，每台最多 16 個虛擬 CPU 與 32 GB 記憶體"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "最多 5 台云端虚拟机，每台 16 个虚拟 CPU 和 32 GB 内存"
+            "value": "最多 5 台云端虚拟机，每台最多 16 个虚拟 CPU 和 32 GB 内存"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "최대 5개의 클라우드 VM, 각각 vCPU 16개와 RAM 32 GB"
+            "value": "최대 5개의 클라우드 VM, VM당 최대 vCPU 16개와 RAM 32 GB"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 5 台の Cloud VM、各 16 vCPU と 32 GB RAM"
+            "value": "最大 5 台の Cloud VM、VM あたり最大 16 vCPU と 32 GB RAM"
           }
         }
       }

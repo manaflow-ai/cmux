@@ -490,11 +490,11 @@
           ],
           "pro": [
             "在 Cloud VM 上執行雲端代理",
-            "5 台 Cloud VM，每台 4 個 vCPU 和 8 GB RAM",
+            "最多 5 台 Cloud VM，每台最多 4 個 vCPU 和 8 GB RAM",
             "cmux iOS App"
           ],
           "max": [
-            "5 台 Cloud VM，每台 16 個 vCPU 和 32 GB RAM",
+            "最多 5 台 Cloud VM，每台最多 16 個 vCPU 和 32 GB RAM",
             "更大的機器規格",
             "Pro 的所有功能"
           ],

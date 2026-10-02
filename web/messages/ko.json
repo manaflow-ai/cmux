@@ -490,11 +490,11 @@
           ],
           "pro": [
             "Cloud VM의 클라우드 에이전트",
-            "각각 vCPU 4개와 8 GB RAM을 갖춘 Cloud VM 5대",
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 4개와 8 GB RAM",
             "cmux iOS 앱"
           ],
           "max": [
-            "각각 vCPU 16개와 32 GB RAM을 갖춘 Cloud VM 5대",
+            "최대 5대의 Cloud VM, VM당 최대 vCPU 16개와 32 GB RAM",
             "더 큰 머신 크기",
             "Pro의 모든 기능"
           ],
