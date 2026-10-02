@@ -200,10 +200,10 @@ fn keeper_terminate_ends_a_running_child() {
     let mut conn = Connection::connect(&endpoint).unwrap();
     conn.terminate().unwrap();
     let status = conn.wait_exit().unwrap();
-    if cfg!(unix) {
-        #[cfg(unix)]
-        assert_eq!(status.signal(), Some(libc::SIGHUP), "{status:?}");
-    }
+    #[cfg(unix)]
+    assert_eq!(status.signal(), Some(libc::SIGHUP), "{status:?}");
+    #[cfg(windows)]
+    assert!(status.code().is_some(), "{status:?}");
     drop(conn);
     wait_until_gone(&endpoint);
 }
