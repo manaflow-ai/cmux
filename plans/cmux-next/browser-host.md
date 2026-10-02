@@ -60,6 +60,18 @@ CEF relay: the shim gains `cmux_shim_devtools_send(browser_id, message_json)` (`
 
 Catalog ops (owner `browser-host`), the runtime command list in spec/browser-use.md "APIs and ops": `browser.session.open/list/reset/close`, `browser.eval {session, code, max_output}`, `browser.snapshot`, `browser.screenshot`, `browser.wait`, `browser.dialog.respond`, `browser.filechooser.respond`, `browser.download.list/path`, `browser.cookies.*`, `browser.storage_state.save/load {scope}`, `browser.policy.set` (user origin only), `browser.secrets.load/list/delete` (user origin only), `browser.record.start/stop`, `browser.trace.export`, `browser.lease.take/release`, `browser.cdp` (grant), `browser.act` (fixed tool mode, opt-in). Framing: the cmux-tui request envelope (`{id, method, params, origin, idempotency_key?}`, `request-settled`), so the generated CLI and MCP clients reuse their transport. Runtime commands are at-most-once by request id; an input call whose result is lost is reported `ambiguous` and never replayed.
 
+### Surfaces: CLI, MCP and mux code mode (binding, Lawrence 2026-10-01)
+
+Browser use is available through three surfaces, all generated from the one operation catalog (owner `browser-host`), all with the same persistent REPL session model:
+
+| Surface | REPL | Discrete ops |
+| --- | --- | --- |
+| CLI | `cmux browser repl` interactive, and `cmux browser repl --session NAME --eval CODE\|-` one-shot (15570 grammar); `cmux browser repl list`, `reset`, `close`, `guide` | `cmux browser snapshot`, `screenshot`, `tabs`, ... from the catalog |
+| MCP | `browser_repl_open {session?, profile?, label?} -> {session}`, `browser_repl_eval {session, code, timeout?, max_output?}`, `browser_repl_close {session}` | `browser_snapshot`, `browser_screenshot`, `browser_tabs`, ... from the catalog (default group per operation-catalog.md) |
+| mux code mode | the mux sends code to `browser.repl.eval` on a session it opened; the code runs in the host's QuickJS VM with the 15570 API (`page`, locators, `keyboard`, `mouse`, `tabs`, `snapshot`, ...) so one call scripts a multi-step task | same catalog ops as tools |
+
+Catalog ops behind them: `browser.repl.open {session?, profile?, label?}` (creates or attaches by id; idempotent by `session`), `browser.repl.eval {session, code, timeout_ms?, max_output?}`, `browser.repl.close {session}`, `browser.repl.list`, `browser.repl.reset {session}`. A session keeps its VM state (top-level `const`/`let`, variables, open tabs, refs) between calls until `close`, `reset`, idle expiry, or a host restart. Every surface runs the same sandbox and the same policy, secret and masking rules (section 4), and every call is stamped with `origin` (`cli`, `mcp`, `remote` for a relayed mux) plus `actor` and `on_behalf_of` from the connection (section 3). There is no surface-specific runtime: the CLI, the MCP server (`cmux mcp`) and the mux tool layer are thin generated clients of these ops.
+
 ## 2. What runs where
 
 | Piece | Where | Why |
@@ -140,6 +152,8 @@ Gate for flipping the NIGHTLY default (decision 5): `gate.sh` green on `host-web
 | c | app side: `CmuxNextBrowserHost` provider bridge (connection, `hello`, WebKit call forwarding to the ported driver, CEF relay via the shim, lease badge, user-input pause); shim `cmux_shim_devtools_send` + message forwarder | `swift build --build-tests`, module tests with a fake host; tagged no-activate live run |
 | d | conformance runner: `host-*` backends, `gate.sh` against both engines, perf bench vs 15570 | numbers per engine in this note |
 | e | catalog entries for `browser.*` (owner `browser-host`), CLI verbs generated (request to session feat-cmux-next-99), MCP default group through `cmux mcp` | generated surfaces checked by the catalog tests |
+
+Order change (binding surfaces above): the REPL session ops (`browser.repl.open/eval/close/list/reset`) and their three surfaces move forward. Step b lands them on the host listener together with the VM, and the CLI and MCP clients for them land right after b (CLI through session feat-cmux-next-99, MCP through the `cmux mcp` owner), before c. The discrete ops follow in e.
 
 ## 7. Prototype switches (DEV and NIGHTLY)
 
