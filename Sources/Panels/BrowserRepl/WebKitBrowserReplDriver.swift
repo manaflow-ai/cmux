@@ -1587,17 +1587,34 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         )
     }
 
-    /// Whether ending `panel`'s web content process ends only tabs a session
-    /// created: the tab is one, and every other browser tab in that process
-    /// (popups share their opener's) was created by the same session.
+    /// The tabs `creator` created, by panel id.
     @MainActor
-    private func webContentEndsOnlySessionTabs(_ panel: BrowserPanel, webView: WKWebView) -> Bool {
-        guard panel.webView === webView,
-              let creator = BrowserReplTabAttachments.shared.attachment(for: panel.id)?.creatorSessionID,
-              let pid = CmuxWebContentProcessIdentifier.pid(for: webView) else { return false }
-        for (other, _) in allBrowserPanels() where other !== panel {
-            guard CmuxWebContentProcessIdentifier.pid(for: other.webView) == pid else { continue }
-            guard BrowserReplTabAttachments.shared.attachment(for: other.id)?.creatorSessionID == creator else { return false }
+    private func tabsCreated(by creator: String) -> Set<UUID> {
+        Set(allBrowserPanels().compactMap { entry in
+            BrowserReplTabAttachments.shared.attachment(for: entry.panel.id)?.creatorSessionID == creator ? entry.panel.id : nil
+        })
+    }
+
+    /// Whether ending `webView`'s web content process ends nothing of the
+    /// user's: every other web view in that process is a browser tab in
+    /// `sessionTabs` (the tabs the commanding session created when the
+    /// command started, which stay its tabs for the command even when it
+    /// detaches meanwhile) or one that session created since. A floating
+    /// popup window is the user's. `webView` itself is the commanded tab's,
+    /// also after that tab closed. A process that is already gone may be
+    /// "ended".
+    @MainActor
+    private func webContentEndsOnlySessionTabs(_ webView: WKWebView, creator: String, sessionTabs: Set<UUID>) -> Bool {
+        guard let pid = CmuxWebContentProcessIdentifier.pid(for: webView) else { return true }
+        for (other, _) in allBrowserPanels() {
+            if other.webView !== webView, CmuxWebContentProcessIdentifier.pid(for: other.webView) == pid,
+               !sessionTabs.contains(other.id),
+               BrowserReplTabAttachments.shared.attachment(for: other.id)?.creatorSessionID != creator {
+                return false
+            }
+            for popup in other.floatingPopupWebViews where popup !== webView {
+                if CmuxWebContentProcessIdentifier.pid(for: popup) == pid { return false }
+            }
         }
         return true
     }
@@ -1624,6 +1641,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
                 return
             }
+            // The tab's creator and its tabs now: a session that detaches,
+            // or a tab that closes, during the command leaves the page no
+            // way to keep its process from being ended.
+            guard panel.webView === webView, let creator = attachment.creatorSessionID else {
+                try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
+                return
+            }
+            let sessionTabs = tabsCreated(by: creator)
             let pasteboard = NSPasteboard.withUniqueName()
             if isPaste {
                 BrowserReplClipboardItems.write(attachment.clipboardItems, to: pasteboard)
@@ -1640,9 +1665,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 in: webView,
                 pasteboard: pasteboard,
                 tab: panel.id.uuidString,
-                mayEndWebContent: { [weak self, weak panel, weak webView] in
-                    guard let self, let panel, let webView else { return false }
-                    return self.webContentEndsOnlySessionTabs(panel, webView: webView)
+                mayEndWebContent: { [weak self] in
+                    guard let self else { return true }
+                    return self.webContentEndsOnlySessionTabs(webView, creator: creator, sessionTabs: sessionTabs)
                 }
             ) { [weak attachment] in
                 attachment?.clipboardCommandFinished(name.lowercased())
@@ -1651,7 +1676,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             // pasteboard was reachable only during the command's own window,
             // which no other REPL command shares. It is emptied and released
             // here, except after `timedOutStillRunning`, when the redirect
-            // releases it once WebKit finishes.
+            // releases it once WebKit finishes or its grace ends.
             defer {
                 if outcome != .timedOutStillRunning {
                     pasteboard.clearContents()
@@ -1675,7 +1700,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             case .timedOutStillRunning:
                 throw Self.error(
                     "timeout",
-                    "\(name) did not finish within 5 s and the tab's clipboard is unchanged. The tab's web content process now also runs a tab no session created, so cmux did not end it; until the page finishes, WebKit's copies and pastes in every browser tab use a private pasteboard, never the system clipboard, and Copy, Cut and Paste wait for it"
+                    "\(name) did not finish within 5 s and the tab's clipboard is unchanged. The tab's web content process also runs a tab or popup window no session created, so cmux gives the page up to 5 s more: until it finishes, WebKit's copies and pastes in every browser tab use a private pasteboard, never the system clipboard, and Copy, Cut and Paste wait for it. Then cmux ends that process, and the pages in it crash (page.reload() loads them again)"
                 )
             case .busy(let tab):
                 throw Self.error(

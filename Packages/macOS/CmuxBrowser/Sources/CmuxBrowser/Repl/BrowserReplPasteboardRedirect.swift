@@ -36,7 +36,10 @@ public import WebKit
 ///   The caller decides whether the process may be ended (it must belong only
 ///   to tabs a session created); when it may not, the command does not start
 ///   (`unavailable`), and when that changes during the command, the redirect
-///   stays until WebKit reports the command done (`timedOutStillRunning`).
+///   stays until WebKit reports the command done or one more timeout passes
+///   (`timedOutStillRunning`), when the process is ended regardless. A
+///   caller that stops waiting (its task is cancelled) changes none of this:
+///   the timeout it is told about is the one that happened.
 /// - A Paste's late reads would find nothing anyway: WebKit grants a Paste's
 ///   web process access to the general pasteboard at the command's start, by
 ///   the change count it sees then, which is the tab pasteboard's, and
@@ -47,9 +50,8 @@ public import WebKit
 ///   lookups do not say which web view they serve, so two tabs' commands in
 ///   flight together would read and write each other's pasteboards. A command
 ///   waits up to its timeout for the one before it, then gets its own
-///   timeout; it waits only while the earlier command is in flight (at most
-///   its timeout, since an abandoned command's process is ended), or after a
-///   `timedOutStillRunning` until WebKit finishes that one. One that cannot
+///   timeout; it waits only while the earlier command is in flight, which is
+///   at most its timeout, or two after a `timedOutStillRunning`. One that cannot
 ///   start in time does not run (`busy`, naming the tab it waited for), and
 ///   nothing is redirected for it while it waits.
 ///
@@ -58,13 +60,14 @@ public import WebKit
 /// gets or fills the tab's pasteboard, and so does app code that WebKit
 /// calls back into (a delegate) if it looks up the general pasteboard by
 /// name. A copy made that way lands on the tab's clipboard. The same holds
-/// after a `timedOutStillRunning` until WebKit finishes. The caller test errs
+/// after a `timedOutStillRunning` until WebKit finishes, at most one more
+/// timeout. The caller test errs
 /// toward WebKit: should WebKit's pasteboard code move, its lookups still
 /// come from a WebKit image and stay redirected, unless it moves to
 /// `+generalPasteboard`, which the WebKit tests catch as a change of the
-/// system pasteboard's change count. Writes a page starts in a command but
-/// that WebKit performs after reporting the command done (the asynchronous
-/// Clipboard API) are not commands and are not redirected.
+/// system pasteboard's change count. Writes a page's own scripts make (the
+/// asynchronous Clipboard API, `execCommand("copy")`) are not commands and
+/// are not redirected; ``BrowserReplPageClipboard`` handles those.
 public enum BrowserReplPasteboardRedirect {
     /// How one command ended.
     public enum Outcome: Equatable, Sendable {
@@ -77,11 +80,12 @@ public enum BrowserReplPasteboardRedirect {
         /// and may be released at once.
         case timedOut
         /// WebKit had not reported the command done within the timeout and
-        /// its web content process could no longer be ended. WebKit's
-        /// lookups of the general pasteboard keep getting the tab's
-        /// pasteboard until WebKit reports the command done, so nothing it
-        /// writes late reaches the system pasteboard; the redirect then
-        /// empties and releases that pasteboard, and the caller must not.
+        /// its web content process could not be ended then. WebKit's lookups
+        /// of the general pasteboard keep getting the tab's pasteboard until
+        /// WebKit reports the command done or one more timeout passes, when
+        /// the web content is ended regardless; so nothing it writes late
+        /// reaches the system pasteboard. The redirect then empties and
+        /// releases that pasteboard, and the caller must not.
         case timedOutStillRunning
         /// An earlier command, from the tab the caller named `tab`, was still
         /// unfinished when this one's wait ended; this one did not start.
@@ -127,12 +131,17 @@ public enum BrowserReplPasteboardRedirect {
     ///
     /// - Parameters:
     ///   - tab: names the tab in a later command's `busy`.
+    ///   - grace: how long past `timeout` a command whose web content could
+    ///     not be ended keeps running before it is ended regardless;
+    ///     `timeout` when `nil`.
     ///   - systemChangeCount: the system pasteboard's change count, read when
     ///     `nil`. A Paste runs only while `pasteboard`'s count is below it.
     ///   - mayEndWebContent: whether `webView`'s web content process may be
     ///     ended; asked before the command starts (`false` there makes it
-    ///     `unavailable`) and again at the timeout. Ending it ends every page
-    ///     in that process.
+    ///     `unavailable`) and again at the timeout. When it says no at the
+    ///     timeout, the process is ended one more timeout later anyway.
+    ///     Ending it ends every page in that process. `webView` is held
+    ///     until then, also when its tab closes.
     ///   - whenWebKitFinishes: called once, when WebKit reports the command
     ///     done or its process is ended, or at once when it did not start.
     @MainActor
@@ -142,6 +151,7 @@ public enum BrowserReplPasteboardRedirect {
         pasteboard: NSPasteboard,
         tab: String = "",
         timeout: Duration = .seconds(5),
+        grace: Duration? = nil,
         systemChangeCount: Int? = nil,
         mayEndWebContent: @escaping @MainActor () -> Bool = { true },
         whenWebKitFinishes: @escaping @MainActor () -> Void = {}
@@ -154,12 +164,17 @@ public enum BrowserReplPasteboardRedirect {
             whenWebKitFinishes()
             return .unavailable
         }
+        var askedToEnd = 0
         return await run(
             on: pasteboard,
             tab: tab,
             timeout: timeout,
-            endWebContent: { [weak webView] in
-                guard let webView, mayEndWebContent() else { return false }
+            grace: grace,
+            endWebContent: {
+                // At the timeout the caller decides; one timeout later the
+                // web content is ended regardless.
+                askedToEnd += 1
+                guard askedToEnd > 1 || mayEndWebContent() else { return false }
                 return endWebContent(of: webView)
             },
             whenFinished: whenWebKitFinishes
@@ -189,11 +204,14 @@ public enum BrowserReplPasteboardRedirect {
     /// pasteboard for WebKit's lookups. `invoke` starts the command and calls
     /// its argument when WebKit reports the command done. The command waits
     /// up to `timeout` on `clock` for an earlier unfinished one, then gets
-    /// its own `timeout`. If WebKit has not reported it done by then (or the
-    /// caller stopped waiting), `endWebContent` is called in the same
-    /// main-actor turn; when it returns `true` the redirect ends there
-    /// (`timedOut`), otherwise it lasts until WebKit reports the command done
-    /// (`timedOutStillRunning`). `whenFinished` is called once, when
+    /// its own `timeout`. If WebKit has not reported it done by then,
+    /// `endWebContent` is called in the same main-actor turn; when it returns
+    /// `true` the redirect ends there (`timedOut`). Otherwise
+    /// (`timedOutStillRunning`) the redirect lasts until WebKit reports the
+    /// command done or `grace` (one more `timeout` when `nil`) passes, when
+    /// `endWebContent` is called again (the caller then ends the web content
+    /// regardless) and the redirect ends whatever it returns. Cancelling the caller's task
+    /// shortens none of these waits. `whenFinished` is called once, when
     /// `invoke`'s argument is called or the web content is ended, or at once
     /// when the command does not start.
     @MainActor
@@ -201,8 +219,9 @@ public enum BrowserReplPasteboardRedirect {
         on pasteboard: NSPasteboard,
         tab: String = "",
         timeout: Duration,
+        grace: Duration? = nil,
         clock: C = ContinuousClock(),
-        endWebContent: @MainActor () -> Bool,
+        endWebContent: @escaping @MainActor () -> Bool,
         whenFinished: @escaping @MainActor () -> Void = {},
         invoke: (_ done: @escaping @MainActor () -> Void) -> Void
     ) async -> Outcome where C.Duration == Duration {
@@ -212,7 +231,7 @@ public enum BrowserReplPasteboardRedirect {
         }
         let waitDeadline = clock.now.advanced(by: timeout)
         while let earlier = unfinished {
-            guard await earlier.finished.wait(until: waitDeadline, clock: clock) else {
+            guard await earlier.finished.wait(until: waitDeadline, clock: clock, honoringCancellation: false) else {
                 whenFinished()
                 return .busy(tab: earlier.tab)
             }
@@ -222,10 +241,10 @@ public enum BrowserReplPasteboardRedirect {
         setTarget(pasteboard)
         let deadline = clock.now.advanced(by: timeout)
         invoke { finish(command) }
-        if await command.finished.wait(until: deadline, clock: clock) { return .completed }
-        // Past the timeout, or the caller stopped waiting. Until this turn
-        // ends nothing else runs on the main thread, so WebKit handles no
-        // more of the page's pasteboard messages before its process is gone.
+        if await command.finished.wait(until: deadline, clock: clock, honoringCancellation: false) { return .completed }
+        // Past the timeout. Until this turn ends nothing else runs on the
+        // main thread, so WebKit handles no more of the page's pasteboard
+        // messages before its process is gone.
         if command.finished.isSignaled { return .completed }
         if endWebContent() {
             // WebKit may already have reported the command done while it
@@ -234,6 +253,14 @@ public enum BrowserReplPasteboardRedirect {
             return .timedOut
         }
         command.releasesPasteboardWhenFinished = true
+        let bound = deadline.advanced(by: grace ?? timeout)
+        Task { @MainActor in
+            if await command.finished.wait(until: bound, clock: clock, honoringCancellation: false) { return }
+            // The same turn again: the web content is gone before WebKit
+            // could handle another of its messages, and the redirect ends.
+            _ = endWebContent()
+            finish(command)
+        }
         return .timedOutStillRunning
     }
 
@@ -336,9 +363,13 @@ final class BrowserReplLatch {
         for continuation in pending.values { continuation.resume(returning: true) }
     }
 
-    /// Returns `true` once signaled, or `false` at `deadline` or when the
-    /// waiting task is cancelled.
-    func wait<C: Clock>(until deadline: C.Instant, clock: C) async -> Bool where C.Duration == Duration {
+    /// Returns `true` once signaled, or `false` at `deadline` or, when
+    /// `honoringCancellation`, as soon as the waiting task is cancelled.
+    func wait<C: Clock>(
+        until deadline: C.Instant,
+        clock: C,
+        honoringCancellation: Bool = true
+    ) async -> Bool where C.Duration == Duration {
         if isSignaled { return true }
         nextWaiter += 1
         let id = nextWaiter
@@ -347,14 +378,18 @@ final class BrowserReplLatch {
             self?.resume(id, false)
         }
         defer { timer.cancel() }
-        return await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-                if isSignaled || Task.isCancelled {
-                    continuation.resume(returning: isSignaled)
-                } else {
-                    waiters[id] = continuation
-                }
+        let register = { (continuation: CheckedContinuation<Bool, Never>) in
+            if self.isSignaled || (honoringCancellation && Task.isCancelled) {
+                continuation.resume(returning: self.isSignaled)
+            } else {
+                self.waiters[id] = continuation
             }
+        }
+        guard honoringCancellation else {
+            return await withCheckedContinuation(register)
+        }
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation(register)
         } onCancel: {
             Task { @MainActor [weak self] in self?.resume(id, false) }
         }

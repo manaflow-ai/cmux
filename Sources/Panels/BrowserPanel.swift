@@ -5164,6 +5164,11 @@ final class BrowserPanel: Panel, ObservableObject {
         return controller.webView
     }
 
+    /// The web views of this tab's floating popup windows, nested ones too.
+    var floatingPopupWebViews: [WKWebView] {
+        popupControllers.flatMap(\.webViewsIncludingChildPopups)
+    }
+
     func removePopupController(_ controller: BrowserPopupWindowController) {
         popupControllers.removeAll { $0 === controller }
         reevaluateHiddenWebViewDiscardScheduling(reason: "popup_closed")
