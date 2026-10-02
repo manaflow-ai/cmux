@@ -14,7 +14,7 @@ struct LaunchRevealTests {
         defer { Motion.reduceMotionOverride = nil }
         Motion.reduceMotionOverride = reduceMotion
         let reveal = LaunchReveal()
-        let sidebar = NSView(), tabs = NSView(), pane = NSView()
+        let sidebar = Self.view(), tabs = Self.view(), pane = Self.view()
         reveal.hold(sidebar, until: .sidebar)
         reveal.hold(tabs, until: .tabs)
         reveal.hold(pane, until: .pane)
@@ -31,7 +31,7 @@ struct LaunchRevealTests {
     @Test func holdingAfterReadyShowsAtOnce() {
         let reveal = LaunchReveal()
         reveal.markReady(.tabs)
-        let strip = NSView()
+        let strip = Self.view()
         strip.alphaValue = 1
         reveal.hold(strip, until: .tabs)
         #expect(strip.alphaValue == 1)
@@ -51,7 +51,7 @@ struct LaunchRevealTests {
     @Test func markAllReadyReleasesEveryRegion() {
         let reveal = LaunchReveal()
         let views = LaunchRegion.allCases.map { region -> NSView in
-            let view = NSView()
+            let view = Self.view()
             reveal.hold(view, until: region)
             return view
         }
@@ -63,12 +63,30 @@ struct LaunchRevealTests {
     @Test func aReleasedViewIsNotKeptAlive() {
         let reveal = LaunchReveal()
         weak var gone: NSView?
-        do {
-            let view = NSView()
+        autoreleasepool {
+            let view = Self.view()
             gone = view
             reveal.hold(view, until: .sidebar)
         }
         #expect(gone == nil)
         reveal.markReady(.sidebar)
+    }
+
+    @Test func theDeadlineReleasesARegionThatNeverArrives() async {
+        let reveal = LaunchReveal(deadline: .milliseconds(20))
+        let pane = Self.view()
+        reveal.hold(pane, until: .pane)
+        reveal.markReady(.sidebar)
+        for _ in 0..<200 where !reveal.isReady(.pane) { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(reveal.ready == Set(LaunchRegion.allCases))
+        #expect(pane.alphaValue == 1)
+    }
+
+    /// Layer-backed, as every view in a window is: its animator sets the
+    /// model value at once and animates the layer.
+    private static func view() -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        return view
     }
 }
