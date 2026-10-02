@@ -782,6 +782,8 @@ impl Mux {
         let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
             anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
         })?;
+        // `conversation-tabs-v1`: a conversation tab's row never gets a page.
+        self.refuse_conversation_tab(&runtime)?;
         if let Some(owner) = &owner {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
