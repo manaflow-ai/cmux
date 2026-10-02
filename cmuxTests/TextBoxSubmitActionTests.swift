@@ -136,6 +136,34 @@ struct TextBoxSubmitActionTests {
     }
 
     @Test
+    func testCloudImageDispatchPlanThreadsTransferTarget() {
+        let imageURL = URL(fileURLWithPath: "/tmp/cloud-prompt.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let plan = TextBoxInputContainer.dispatchPlan(
+            [.text("inspect"), .attachment(attachment)],
+            applying: .textEntryAction,
+            shouldForceTextEntrySubmit: true,
+            allowsCommandTemplateSubmit: false,
+            terminalAgentContext: "restoredAgent:codex",
+            pendingProviderLaunchAction: nil,
+            imageTransferTarget: .cloud
+        )
+
+        XCTAssertEqual(
+            plan.events,
+            [
+                .pasteText("inspect"),
+                .pasteCloudImages([imageURL.standardizedFileURL]),
+                .pasteText(" "),
+                .namedKey("return")
+            ]
+        )
+    }
+
+    @Test
     func testTextBoxSubmitActionRejectsPromptPlaceholderInsideShellQuotes() {
         let singleQuoted = TextBoxSubmitAction(
             id: "single-quoted-router",
