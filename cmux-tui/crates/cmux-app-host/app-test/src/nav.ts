@@ -194,6 +194,8 @@ export interface NavLevel {
   selection: string | null
   pendingReset: boolean
   pendingSubmit: boolean
+  /** The empty-query row index the last batch asked for, if any. */
+  emptyQuerySelection: number | null
 }
 
 export interface NavState {
@@ -221,7 +223,8 @@ const newLevel = (id: number, scope: ScopeID, entry: Entry, query: string): NavL
   isLoading: true,
   selection: null,
   pendingReset: true,
-  pendingSubmit: false
+  pendingSubmit: false,
+  emptyQuerySelection: null
 })
 
 // MARK: Events and effects (same case names as PaletteNavEvent / PaletteNavEffect)
@@ -236,10 +239,10 @@ export type NavEvent =
   | { event: "escape" }
   | { event: "popTo"; index: number }
   | { event: "activate"; rowID: string | null }
-  | { event: "push"; scope: ScopeID; row: string | null }
+  | { event: "push"; scope: ScopeID; row: string | null; query?: string }
   | { event: "move"; delta: number }
   | { event: "select"; rowID: string }
-  | { event: "results"; levelID: number; generation: number; rows: NavRow[]; replace: boolean; isFinal: boolean }
+  | { event: "results"; levelID: number; generation: number; rows: NavRow[]; replace: boolean; isFinal: boolean; emptyQuerySelection?: number | null }
   | { event: "refresh" }
 
 export type NavEffect =
@@ -251,7 +254,6 @@ export type NavEffect =
   | { effect: "announceEntered"; scope: ScopeID }
   | { effect: "announceLeft"; to: ScopeID }
   | { effect: "refused"; reason: "depthLimit" }
-  | { effect: "refused"; reason: "unknownScope"; scope: ScopeID }
 
 export interface NavConfig {
   prefixEntry: boolean
@@ -301,7 +303,7 @@ export class NavReducer {
       case "activate":
         return this.activate(state, event.rowID)
       case "push":
-        return this.push(state, event.scope, { entry: "command", value: event.row }, "")
+        return this.push(state, event.scope, { entry: "command", value: event.row }, event.query ?? "")
       case "move":
         this.move(state, event.delta)
         return []
@@ -309,7 +311,7 @@ export class NavReducer {
         if (state.levels[top]!.rows.some((r) => r.id === event.rowID)) state.levels[top]!.selection = event.rowID
         return []
       case "results":
-        return this.accept(state, event.levelID, event.generation, event.rows, event.replace, event.isFinal)
+        return this.accept(state, event.levelID, event.generation, event.rows, event.replace, event.isFinal, event.emptyQuerySelection ?? null)
       case "refresh":
         return [this.reload(state.levels[top]!)]
     }
@@ -321,11 +323,10 @@ export class NavReducer {
     const effects = this.close(state)
     state.isOpen = true
     const target = scope === null || scope === ROOT ? null : scope
-    const known = target !== null && this.graph.contains(target)
-    // An unknown scope opens the root with the query, and says why.
-    effects.push(...this.push(state, ROOT, { entry: "root" }, known ? "" : query, false))
+    // Any page id opens above the root (an argument picker opened by a
+    // shortcut); callers that take ids from outside check the graph.
+    effects.push(...this.push(state, ROOT, { entry: "root" }, target === null ? query : "", false))
     if (target === null) return effects
-    if (!known) return [...effects, { effect: "refused", reason: "unknownScope", scope: target }]
     effects.push(...this.push(state, target, { entry: "opened" }, query, true))
     return effects
   }
@@ -341,7 +342,6 @@ export class NavReducer {
 
   private push(state: NavState, scope: ScopeID, entry: Entry, query: string, announce = true): NavEffect[] {
     if (state.levels.length >= this.config.maxDepth) return [{ effect: "refused", reason: "depthLimit" }]
-    if (entry.entry !== "command" && !this.graph.contains(scope)) return [{ effect: "refused", reason: "unknownScope", scope }]
     const level = newLevel(state.nextLevelID, scope, entry, query)
     state.nextLevelID += 1
     state.levels.push(level)
@@ -433,10 +433,12 @@ export class NavReducer {
 
   // Results
 
-  private accept(state: NavState, levelID: number, generation: number, rows: NavRow[], replace: boolean, isFinal: boolean): NavEffect[] {
+  private accept(state: NavState, levelID: number, generation: number, rows: NavRow[], replace: boolean, isFinal: boolean,
+                 emptyQuerySelection: number | null): NavEffect[] {
     const index = state.levels.findIndex((l) => l.id === levelID)
     if (index < 0 || state.levels[index]!.generation !== generation) return []
     const level = state.levels[index]!
+    if (emptyQuerySelection !== null) level.emptyQuerySelection = Math.max(0, emptyQuerySelection)
     const previous = level.selection === null ? -1 : level.rows.findIndex((r) => r.id === level.selection)
     level.rows = replace || level.rowsGeneration !== generation ? unique(rows) : unique([...level.rows, ...rows])
     level.rowsGeneration = generation
@@ -458,7 +460,7 @@ export class NavReducer {
 
   private defaultSelection(level: NavLevel): string | null {
     if (level.rows.length === 0) return null
-    const preferred = level.query === "" ? (this.graph.descriptor(level.scope)?.emptyQuerySelection ?? 0) : 0
+    const preferred = level.query === "" ? (level.emptyQuerySelection ?? this.graph.descriptor(level.scope)?.emptyQuerySelection ?? 0) : 0
     return level.rows[Math.min(preferred, level.rows.length - 1)]!.id
   }
 

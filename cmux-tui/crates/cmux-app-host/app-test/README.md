@@ -93,15 +93,15 @@ Events: `event` is the `PaletteNavEvent` case name; associated values use the Sw
 | `setQuery` | `text` |
 | `popTo` | `index` |
 | `activate` | `rowID` (id or null) |
-| `push` | `scope`, `row` (id or null) |
+| `push` | `scope`, `row` (id or null), `query` (optional, default `""`) |
 | `move` | `delta` |
 | `select` | `rowID` |
-| `results` | `levelID`, `generation`, `rows`, `replace`, `isFinal` |
+| `results` | `levelID`, `generation`, `rows`, `replace`, `isFinal`, `emptyQuerySelection` (optional) |
 
 Level ids start at 1 and generations at 1 per level, so explicit `results` events can name them.
 
 Expect, on the final state (`top` is the last level). Required: `isOpen`, `chips` (scope ids of all levels, root first; `[]` when closed), `query` and `selection` of the top level (null when closed). Optional, checked only when present: `queries` and `selections` (per level, root first), `topEntry` (`{"entry": "root" | "opened" | "prefix" | "keyword" | "row" | "drill" | "command", "value"?}`, `value` present for every case with an associated value, null for `command(nil)`), `topRows` (row ids), `topContext` (the level's `context`), `isLoading`, `graphProblems` (count of `PaletteScopeGraph.problems`), `lastEffects` (exactly the effects the last event produced, including the driver's answers, in order), `lastEffectsInclude` (each must appear in them).
 
-Effects: `effect` is the `PaletteNavEffect` case name: `{"effect": "load", "levelID", "scope", "query", "generation", "context"}` (`context` null when absent), `{"effect": "cancel", "levelID"}`, `{"effect": "run", "levelID", "rowID"}`, `{"effect": "openActions", "rowID"}`, `{"effect": "dismiss"}`, `{"effect": "announceEntered", "scope"}`, `{"effect": "announceLeft", "to"}`, `{"effect": "refused", "reason": "depthLimit"}`, `{"effect": "refused", "reason": "unknownScope", "scope"}`.
+Effects: `effect` is the `PaletteNavEffect` case name: `{"effect": "load", "levelID", "scope", "query", "generation", "context"}` (`context` null when absent), `{"effect": "cancel", "levelID"}`, `{"effect": "run", "levelID", "rowID"}`, `{"effect": "openActions", "rowID"}`, `{"effect": "dismiss"}`, `{"effect": "announceEntered", "scope"}`, `{"effect": "announceLeft", "to"}`, `{"effect": "refused", "reason": "depthLimit"}`. Any scope id opens (`open`) and pushes (`push`); the graph only gates prefix, keyword, scope-row and drill entry.
 
 Prefix characters are single graphemes in both implementations; vectors use ASCII only.
