@@ -119,6 +119,7 @@ struct CloudActivationCoordinatorTests {
         defaults.set(false, forKey: CloudActivationCoordinator.activationKey)
         let firstStarted = AsyncStream<Void>.makeStream()
         let secondStarted = AsyncStream<Void>.makeStream()
+        let cleanupStarted = AsyncStream<Void>.makeStream()
         var firstRelease: CheckedContinuation<Void, Never>?
         var secondRelease: CheckedContinuation<Void, Never>?
         var cleanupRelease: CheckedContinuation<Void, Never>?
@@ -144,6 +145,7 @@ struct CloudActivationCoordinatorTests {
             cleanup: {
                 cleanupCalls += 1
                 cleanupActive = true
+                cleanupStarted.continuation.yield(())
                 if cleanupCalls == 1 {
                     await withCheckedContinuation { cleanupRelease = $0 }
                 }
@@ -157,6 +159,8 @@ struct CloudActivationCoordinatorTests {
         #expect(coordinator.state == .cancelled)
         coordinator.retry()
         #expect(coordinator.state == .enabled)
+        var cleanupIterator = cleanupStarted.stream.makeAsyncIterator()
+        _ = await cleanupIterator.next()
         #expect(prepareCalls == 1)
 
         // The replacement waits for the cancelled attempt to unwind, so the
