@@ -45,6 +45,9 @@ impl Mux {
         let (workspace_id, _) = self
             .read_registry_state(home_store::live_home)?
             .context("the created home workspace has no kind row")?;
+        // The raw tree reads `kind` from the presentation snapshot.
+        self.reload_presentation(&self.workspace_registry.lock().unwrap())?;
+        self.emit(MuxEvent::TreeChanged);
         // The creation commit moved the personal order too; raw
         // `personal-changed` readers refetch on this event.
         let personal_after = self.read_registry_state(personal_revision)?;

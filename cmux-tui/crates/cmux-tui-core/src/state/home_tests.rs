@@ -265,3 +265,24 @@ fn home_stays_first_in_the_top_section() {
         .unwrap();
     mux.shutdown();
 }
+
+/// The raw tree names the home workspace with `kind: "home"`.
+#[test]
+fn home_raw_tree_names_the_home_workspace() {
+    let session = Session::new("raw-kind");
+    let mux = session.open();
+    let other = empty_workspace(&mux, "work");
+    let home = ensure_home(&mux, "connect")["value"]["workspace_id"].as_str().unwrap().to_string();
+    let tree = crate::server::workspaces_json(
+        &mux.with_state(|state| state.clone()),
+        &mux.tree_decorations(),
+    );
+    let kind_of = |id: &str| {
+        tree["workspaces"].as_array().unwrap().iter().find(|w| w["resource_id"] == id).unwrap()
+            ["kind"]
+            .clone()
+    };
+    assert_eq!(kind_of(&home), "home");
+    assert_eq!(kind_of(&other), "normal");
+    mux.shutdown();
+}

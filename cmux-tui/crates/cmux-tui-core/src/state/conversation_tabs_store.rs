@@ -104,12 +104,16 @@ pub(crate) fn write_conversation_tab(
     Ok(())
 }
 
-pub(crate) fn delete_conversation_tab(
-    transaction: &Transaction<'_>,
-    browser_id: &str,
-) -> anyhow::Result<()> {
-    transaction.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
-    Ok(())
+impl crate::workspace_registry::WorkspaceRegistry {
+    /// Forget a frontend browser (and its conversation record) whose tab
+    /// creation failed.
+    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
+        crate::resource::BrowserPublicId::parse(browser_id.to_string())?;
+        let tx = self.connection.transaction()?;
+        tx.execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
+        tx.execute("DELETE FROM conversation_tabs WHERE browser_id = ?1", [browser_id])?;
+        Ok(tx.commit()?)
+    }
 }
 
 /// The browser id a creation with this idempotency key recorded.
