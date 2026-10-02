@@ -189,9 +189,12 @@ extension CMUXCLI {
             } else {
                 nil
             }
+        let transcriptTargetWorkingDirectory = normalizedRestoreWorkingDirectory(
+            record.forkArgumentsWorkingDirectory
+        ) ?? effectiveWorkingDirectory
         try await seedClaudeTranscriptForForkIfNeeded(
             record: record,
-            targetWorkingDirectory: effectiveWorkingDirectory,
+            targetWorkingDirectory: transcriptTargetWorkingDirectory,
             processEnvironment: processEnvironment
         )
         let request = AgentRestoreRequest(
