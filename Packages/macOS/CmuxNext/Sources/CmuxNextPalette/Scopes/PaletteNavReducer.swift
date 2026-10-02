@@ -57,8 +57,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
             return pop(&state, to: index)
         case .activate(let rowID):
             return activate(&state, rowID: rowID)
-        case .push(let scope, let row):
-            return push(&state, scope: scope, entry: .command(row), query: "")
+        case .push(let scope, let row, let query):
+            return push(&state, scope: scope, entry: .command(row), query: query)
         case .move(let delta):
             move(&state, by: delta)
             return []
@@ -66,8 +66,9 @@ nonisolated public struct PaletteNavReducer: Sendable {
             let top = state.levels.count - 1
             if state.levels[top].rows.contains(where: { $0.id == rowID }) { state.levels[top].selection = rowID }
             return []
-        case .results(let levelID, let generation, let rows, let replace, let isFinal):
-            return accept(&state, levelID: levelID, generation: generation, rows: rows, replace: replace, isFinal: isFinal)
+        case .results(let levelID, let generation, let rows, let replace, let isFinal, let emptyQuerySelection):
+            return accept(&state, levelID: levelID, generation: generation, rows: rows, replace: replace, isFinal: isFinal,
+                          emptyQuerySelection: emptyQuerySelection)
         case .refresh:
             let top = state.levels.count - 1
             return [reload(&state.levels[top])]
@@ -80,11 +81,8 @@ nonisolated public struct PaletteNavReducer: Sendable {
         var effects = close(&state)
         state.isOpen = true
         let target = scope.flatMap { $0 == .root ? nil : $0 }
-        let known = target.map(graph.contains) ?? false
-        // An unknown scope opens the root with the query, and says why.
-        effects += push(&state, scope: .root, entry: .root, query: known ? "" : query, announce: false)
+        effects += push(&state, scope: .root, entry: .root, query: target == nil ? query : "", announce: false)
         guard let target else { return effects }
-        guard known else { return effects + [.refused(.unknownScope(target))] }
         effects += push(&state, scope: target, entry: .opened, query: query, announce: true)
         return effects
     }
@@ -101,7 +99,6 @@ nonisolated public struct PaletteNavReducer: Sendable {
     private func push(_ state: inout PaletteNavState, scope: PaletteScopeID, entry: PaletteNavLevel.Entry, query: String,
                       announce: Bool = true) -> [PaletteNavEffect] {
         guard state.levels.count < config.maxDepth else { return [.refused(.depthLimit)] }
-        if case .command = entry {} else if !graph.contains(scope) { return [.refused(.unknownScope(scope))] }
         let level = PaletteNavLevel(id: state.nextLevelID, scope: scope, entry: entry, query: query)
         state.nextLevelID += 1
         state.levels.append(level)
@@ -201,9 +198,10 @@ nonisolated public struct PaletteNavReducer: Sendable {
     // MARK: Results
 
     private func accept(_ state: inout PaletteNavState, levelID: Int, generation: Int, rows: [PaletteNavRow],
-                        replace: Bool, isFinal: Bool) -> [PaletteNavEffect] {
+                        replace: Bool, isFinal: Bool, emptyQuerySelection: Int?) -> [PaletteNavEffect] {
         guard let index = state.index(ofLevel: levelID), state.levels[index].generation == generation else { return [] }
         var level = state.levels[index]
+        if let emptyQuerySelection { level.emptyQuerySelection = max(0, emptyQuerySelection) }
         let previousIndex = level.rows.firstIndex { $0.id == level.selection }
         if replace || level.rowsGeneration != generation {
             level.rows = Self.unique(rows)
@@ -230,7 +228,7 @@ nonisolated public struct PaletteNavReducer: Sendable {
 
     private func defaultSelection(_ level: PaletteNavLevel) -> String? {
         guard !level.rows.isEmpty else { return nil }
-        let preferred = level.query.isEmpty ? graph.descriptor(level.scope)?.emptyQuerySelection ?? 0 : 0
+        let preferred = level.query.isEmpty ? level.emptyQuerySelection ?? graph.descriptor(level.scope)?.emptyQuerySelection ?? 0 : 0
         return level.rows[min(preferred, level.rows.count - 1)].id
     }
 

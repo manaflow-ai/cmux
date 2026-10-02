@@ -104,13 +104,13 @@ This is client view state (OWNERSHIP-PRINCIPLES: the client owns the view). It n
 
 ### 4.2 Events and effects
 
-Events: `open(scope?, query)`, `close`, `setQuery(text)`, `backspaceOnEmpty`, `tab`, `shiftTab`, `escape`, `popTo(index)`, `activate(rowID?)` (Return or click), `move(delta)`, `select(rowID)`, `results(levelID, generation, rows, replace, isFinal)`, `refresh` (the owner reported a change).
+Events: `open(scope?, query)`, `close`, `setQuery(text)`, `backspaceOnEmpty`, `tab`, `shiftTab`, `escape`, `popTo(index)`, `activate(rowID?)` (Return or click), `push(page, row, query)`, `move(delta)`, `select(rowID)`, `results(levelID, generation, rows, replace, isFinal, emptyQuerySelection?)`, `refresh` (the owner reported a change).
 
 Effects: `load(levelID, scope, query, generation, context)`, `cancel(levelID)`, `run(levelID, rowID)`, `openActions(rowID)`, `dismiss`, `announce(entered | left)`, `refused(reason)`.
 
 ### 4.3 Rules
 
-1. **Open.** `open(nil)` makes `[root]`. `open(scope)` makes `[root, scope(entry: opened)]`, so Backspace on its empty query shows the root (Cmd-Shift-A, Backspace, full palette). Each new level emits `load`.
+1. **Open.** `open(nil)` makes `[root]`. `open(scope)` makes `[root, scope(entry: opened)]`, so Backspace on its empty query shows the root (Cmd-Shift-A, Backspace, full palette). Any page id opens this way (an argument picker from a shortcut); `palette.open` checks ids from outside against the graph. A command that pushes its own page (rename, picker) sends `push(page, row, query)` (entry `command`). Each new level emits `load`.
 2. **Typing.** `setQuery` changes only the top level: new generation, `pendingReset`, `load`. Exception, **prefix entry**: when the top query was empty and the new text starts with a prefix that the graph allows from the top scope, push that scope with the rest of the text as its query; the parent's query stays empty.
 3. **Backspace on an empty query** pops one level (cancel the child, refresh the parent, announce). At the root it does nothing and is consumed (no beep). Backspace with text is plain editing.
 4. **Tab.** In order: the top query equals a child keyword → push that scope with an empty query and clear the parent query; the selected row has `enters` → push it; the selected row has `drills` → push it with the row as context (the parent keeps query and selection); otherwise `openActions` (today's Tab). Shift-Tab pops one level whatever the query.

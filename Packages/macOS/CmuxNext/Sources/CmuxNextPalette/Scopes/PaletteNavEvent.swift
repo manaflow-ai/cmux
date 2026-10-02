@@ -1,6 +1,9 @@
 /// Inputs to the navigation reducer: keys, field edits and source batches.
 nonisolated public enum PaletteNavEvent: Equatable, Sendable {
     /// Open on the root, or on `scope` above the root, with `query` typed.
+    /// Any scope id opens: a page the App opens directly (an argument
+    /// picker from a shortcut) need not be in the graph. Callers that take
+    /// ids from outside (`palette.open`) check the graph first.
     case open(scope: PaletteScopeID?, query: String)
     /// The palette closed from outside (click elsewhere, a closing command).
     case close
@@ -16,13 +19,16 @@ nonisolated public enum PaletteNavEvent: Equatable, Sendable {
     /// Return, or a click on row `rowID` (nil: the selection).
     case activate(String?)
     /// A command pushed its own page `scope` (entry `command`), from row
-    /// `row` of the top level.
-    case push(PaletteScopeID, row: String?)
+    /// `row` of the top level, with `query` typed (a rename's current name).
+    case push(PaletteScopeID, row: String?, query: String)
     /// Arrow keys; wraps.
     case move(Int)
     case select(String)
     /// A batch from the source of `levelID` for `generation`.
-    case results(levelID: Int, generation: Int, rows: [PaletteNavRow], replace: Bool, isFinal: Bool)
+    /// `emptyQuerySelection` overrides the scope's index for this batch (a
+    /// page that decides it from its rows, such as Search Tabs).
+    case results(levelID: Int, generation: Int, rows: [PaletteNavRow], replace: Bool, isFinal: Bool,
+                 emptyQuerySelection: Int? = nil)
     /// The owner of the top level's data changed: reload, keep selection.
     case refresh
 }
@@ -47,5 +53,4 @@ nonisolated public enum PaletteNavEffect: Equatable, Sendable {
 
 nonisolated public enum PaletteNavRefusal: Equatable, Sendable {
     case depthLimit
-    case unknownScope(PaletteScopeID)
 }

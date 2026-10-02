@@ -68,6 +68,8 @@ nonisolated public struct PaletteNavLevel: Equatable, Sendable, Identifiable {
     public internal(set) var pendingReset: Bool
     /// Return arrived while `rows` were stale: run once fresh rows land.
     public internal(set) var pendingSubmit = false
+    /// The empty-query row index the last batch asked for, if any.
+    public internal(set) var emptyQuerySelection: Int?
 
     init(id: Int, scope: PaletteScopeID, entry: Entry, query: String) {
         self.id = id

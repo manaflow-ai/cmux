@@ -204,20 +204,33 @@ import Testing
     @Test func commandPagesPushOutsideTheGraphAndPopLikeScopes() {
         var d = driver()
         d.send(.open(scope: nil, query: "ren"))
-        d.send(.push("page.renameTab", row: "cmd.a"))
+        d.send(.push("page.renameTab", row: "cmd.a", query: "old name"))
         #expect(d.chips == ["root", "page.renameTab"])
         #expect(d.top.entry == .command("cmd.a"))
+        #expect(d.top.query == "old name")
         d.send(.escape)
         #expect(d.chips == ["root"])
         #expect(d.top.query == "ren")
     }
 
-    @Test func unknownScopeOpensTheRootWithTheQuery() {
+    @Test func anyPageOpensAboveTheRoot() {
         var d = driver()
-        let effects = d.send(.open(scope: "nope", query: "q"))
-        #expect(d.chips == ["root"])
+        d.send(.open(scope: "page.pickWorkspace", query: "q"))
+        #expect(d.chips == ["root", "page.pickWorkspace"])
         #expect(d.top.query == "q")
-        #expect(effects.contains(.refused(.unknownScope("nope"))))
+        #expect(d.top.entry == .opened)
+        // Esc on an opened page closes; it never shows the root.
+        d.send(.escape)
+        #expect(d.send(.escape).contains(.dismiss))
+    }
+
+    @Test func aBatchCanChooseTheEmptyQueryRow() {
+        var d = driver()
+        d.send(.open(scope: F.workspaces, query: ""), answer: false)
+        let level = d.top
+        d.send(.results(levelID: level.id, generation: level.generation, rows: F.rows(["a", "b", "c"]), replace: true,
+                        isFinal: true, emptyQuerySelection: 2))
+        #expect(d.top.selection == "c")
     }
 
     @Test func graphRefusesBadPrefixesAndCollisions() {

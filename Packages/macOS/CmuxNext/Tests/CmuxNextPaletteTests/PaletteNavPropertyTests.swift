@@ -76,7 +76,8 @@ import Testing
             case 56..<62: return .move(Int.random(in: -3...3, using: &rng))
             case 62..<64: return .select(["r0", "r1", "r2", "zz"].randomElement(using: &rng)!)
             case 64..<66: return .refresh
-            case 66: return .push(["page.rename", "page.pick"].randomElement(using: &rng)!, row: Bool.random(using: &rng) ? "r0" : nil)
+            case 66: return .push(["page.rename", "page.pick"].randomElement(using: &rng)!, row: Bool.random(using: &rng) ? "r0" : nil,
+                               query: Bool.random(using: &rng) ? "" : "name")
             default:
                 // A batch: usually for a pending load, sometimes stale.
                 if !pending.isEmpty, Int.random(in: 0..<5, using: &rng) != 0 {
@@ -85,7 +86,8 @@ import Testing
                     let isFinal = Bool.random(using: &rng)
                     if isFinal { pending.remove(at: index) }
                     return .results(levelID: load.levelID, generation: load.generation, rows: randomRows(),
-                                    replace: Bool.random(using: &rng), isFinal: isFinal)
+                                    replace: Bool.random(using: &rng), isFinal: isFinal,
+                                    emptyQuerySelection: Bool.random(using: &rng) ? nil : Int.random(in: 0...3, using: &rng))
                 }
                 let old = history.randomElement(using: &rng) ?? (levelID: 0, generation: 0)
                 return .results(levelID: old.levelID, generation: old.generation - Int.random(in: 0...1, using: &rng),
