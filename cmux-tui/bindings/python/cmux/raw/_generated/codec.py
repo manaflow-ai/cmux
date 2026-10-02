@@ -167,6 +167,8 @@ MODEL_BY_PATH = {
     'commands/close-tabs/request': models.CloseTabsRequest,
     'commands/close-terminal/request': models.CloseTerminalRequest,
     'commands/close-workspace/request': models.CloseWorkspaceRequest,
+    'commands/conversation-agent-token/request': models.ConversationAgentTokenRequest,
+    'commands/conversation-bind/request': models.ConversationBindRequest,
     'commands/conversation-create/request': models.ConversationCreateRequest,
     'commands/conversation-history/request': models.ConversationHistoryRequest,
     'commands/conversation-list/request': models.ConversationListRequest,

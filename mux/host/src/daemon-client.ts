@@ -138,6 +138,11 @@ export class DaemonClient {
     return this.request("conversation-op", params);
   }
 
+  /** Binds this connection to agent `participant` (the owner then stamps it as the actor). */
+  bind(participant: ParticipantId, token: string): Promise<unknown> {
+    return this.request("conversation-bind", { participant, token });
+  }
+
   typing(conversation: string, actor: ParticipantId, on: boolean): Promise<unknown> {
     return this.request("conversation-typing", { conversation, actor, on });
   }

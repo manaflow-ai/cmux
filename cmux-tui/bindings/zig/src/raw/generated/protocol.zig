@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "44e18d2ed7a231cf54c1aef9708d9b691c633398a2efa3d755e991f83896ed7c";
+pub const ir_sha256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -2932,8 +2932,47 @@ pub fn closeWorkspace(client: anytype, request: CloseWorkspaceRequest) !wire.Dec
     );
 }
 
+pub const ConversationAgentTokenRequest = struct {
+    participant: []const u8,
+};
+
+pub const ConversationAgentTokenResult = JsonValue;
+
+pub fn conversationAgentToken(client: anytype, request: ConversationAgentTokenRequest) !wire.Decoded(ConversationAgentTokenResult) {
+    return client.callTyped(
+        ConversationAgentTokenResult,
+        .{
+            .name = "conversation-agent-token",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
+pub const ConversationBindRequest = struct {
+    participant: []const u8,
+    token: []const u8,
+};
+
+pub const ConversationBindResult = JsonValue;
+
+pub fn conversationBind(client: anytype, request: ConversationBindRequest) !wire.Decoded(ConversationBindResult) {
+    return client.callTyped(
+        ConversationBindResult,
+        .{
+            .name = "conversation-bind",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "local-conversations-v1",
+        },
+        request,
+    );
+}
+
 pub const ConversationCreateRequest = struct {
-    actor: []const u8,
+    actor: wire.Field([]const u8) = .absent,
     idempotency_key: []const u8,
     participants: wire.Nullable(JsonValue),
     title: []const u8,
@@ -2993,7 +3032,7 @@ pub fn conversationList(client: anytype, request: ConversationListRequest) !wire
 }
 
 pub const ConversationOpRequest = struct {
-    actor: []const u8,
+    actor: wire.Field([]const u8) = .absent,
     conversation: []const u8,
     idempotency_key: []const u8,
     op: wire.Nullable(JsonValue),
@@ -3036,7 +3075,7 @@ pub fn conversationSnapshot(client: anytype, request: ConversationSnapshotReques
 }
 
 pub const ConversationTypingRequest = struct {
-    actor: []const u8,
+    actor: wire.Field([]const u8) = .absent,
     conversation: []const u8,
     on: bool,
 };
@@ -7846,7 +7885,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 202;
+pub const command_count: usize = 204;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7878,6 +7917,8 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "close-tabs", .authority = "control", .since = 12, .capability = "batch-close-v1", .stream = null },
     .{ .name = "close-terminal", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "close-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "conversation-agent-token", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
+    .{ .name = "conversation-bind", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-create", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-history", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },
     .{ .name = "conversation-list", .authority = "local-admin", .since = 12, .capability = "local-conversations-v1", .stream = null },

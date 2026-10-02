@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "44e18d2ed7a231cf54c1aef9708d9b691c633398a2efa3d755e991f83896ed7c";
+inline constexpr std::string_view kProtocolIrSha256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -191,6 +191,8 @@ struct CloseTabGroupRequest;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
+struct ConversationAgentTokenRequest;
+struct ConversationBindRequest;
 struct ConversationCreateRequest;
 struct ConversationHistoryRequest;
 struct ConversationListRequest;
@@ -1152,6 +1154,17 @@ struct ConfigReloadRequestedEvent {
     friend bool operator==(const ConfigReloadRequestedEvent&, const ConfigReloadRequestedEvent&) = default;
 };
 
+struct ConversationAgentTokenRequest {
+    std::string participant{};
+    friend bool operator==(const ConversationAgentTokenRequest&, const ConversationAgentTokenRequest&) = default;
+};
+
+struct ConversationBindRequest {
+    std::string participant{};
+    std::string token{};
+    friend bool operator==(const ConversationBindRequest&, const ConversationBindRequest&) = default;
+};
+
 struct JsonValue {
     Json value{};
     friend bool operator==(const JsonValue&, const JsonValue&) = default;
@@ -1166,7 +1179,7 @@ struct ConversationChangedEvent {
 };
 
 struct ConversationCreateRequest {
-    std::string actor{};
+    Field<std::string> actor{};
     std::string idempotency_key{};
     std::optional<JsonValue> participants{};
     std::string title{};
@@ -1185,7 +1198,7 @@ struct ConversationListRequest {
 };
 
 struct ConversationOpRequest {
-    std::string actor{};
+    Field<std::string> actor{};
     std::string conversation{};
     std::string idempotency_key{};
     std::optional<JsonValue> op{};
@@ -1207,7 +1220,7 @@ struct ConversationTypingEvent {
 };
 
 struct ConversationTypingRequest {
-    std::string actor{};
+    Field<std::string> actor{};
     std::string conversation{};
     bool on{};
     friend bool operator==(const ConversationTypingRequest&, const ConversationTypingRequest&) = default;
@@ -4931,6 +4944,18 @@ template <>
 struct Codec<CloseWorkspaceRequest> {
     static Result<Json> encode(const CloseWorkspaceRequest& value);
     static Result<CloseWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationAgentTokenRequest> {
+    static Result<Json> encode(const ConversationAgentTokenRequest& value);
+    static Result<ConversationAgentTokenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationBindRequest> {
+    static Result<Json> encode(const ConversationBindRequest& value);
+    static Result<ConversationBindRequest> decode(const Json& value);
 };
 
 template <>

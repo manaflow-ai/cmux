@@ -15,8 +15,9 @@ export async function world() {
   const home = join(dir, "home");
   const lines: string[] = [];
   const hosts: MuxHost[] = [];
-  const host = () => {
+  const host = (extra: { agentToken?: string } = {}) => {
     const h = new MuxHost({
+      ...extra,
       daemonSocket: daemon.path,
       acpmuxSocket: acpmux.path,
       paths: muxPaths(home),

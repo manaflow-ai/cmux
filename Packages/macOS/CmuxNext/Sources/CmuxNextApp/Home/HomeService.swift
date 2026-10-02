@@ -60,7 +60,14 @@ final class HomeService {
                                                        tag: services.environment.tag) else { return }
             guard !startedBrainHost else { return }
             startedBrainHost = true
-            await host.launch()
+            // The mux proves its principal with a token this (user) connection mints.
+            do {
+                let token = try await ConversationClient(connection).agentToken(for: HomeService.mux.id)
+                await host.launch(agentToken: token)
+            } catch {
+                startedBrainHost = false
+                logger.error("mux agent token: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -155,7 +162,7 @@ final class HomeService {
     func markRead(_ seq: UInt64, in conversation: String) {
         guard let connection, let head = conversations.first(where: { $0.id == conversation }),
               seq > (head.readCursors[actor] ?? 0) else { return }
-        let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(actor):\(seq)", actor: actor,
+        let request = ConversationOpRequest(conversation: conversation, idempotencyKey: "read:\(actor):\(seq)",
                                             transaction: nil, op: .setReadCursor(seq: seq))
         // task-owner: one conversation-op write; ends with its reply
         Task { [weak self] in
@@ -173,7 +180,7 @@ final class HomeService {
     /// connection keeps it sending, and the next connection resends it.
     private func submit(_ send: PendingConversationSend, in session: HomeConversationSession) {
         guard let connection else { return }
-        let request = ConversationOpRequest(conversation: send.conversation, idempotencyKey: send.clientMsgID, actor: actor,
+        let request = ConversationOpRequest(conversation: send.conversation, idempotencyKey: send.clientMsgID,
                                             transaction: ClientTransactionID(rawValue: send.clientMsgID), op: send.op)
         // task-owner: one conversation-op write; ends with its reply
         Task { [weak self, weak session] in

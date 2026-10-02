@@ -33,6 +33,8 @@ export interface OutstandingPrompt {
 export interface OutboxEntry {
   conversation: string;
   idempotency_key: string;
+  /** Set after one retry of an `agent_rate` reject (host.ts flushOutbox). */
+  rateRetried?: boolean;
   op: Op;
   /** A work-part op: its message id is filled from `children[child].messageId` when it flushes. */
   child?: string;

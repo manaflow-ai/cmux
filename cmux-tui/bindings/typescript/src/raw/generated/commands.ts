@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 44e18d2ed7a231cf54c1aef9708d9b691c633398a2efa3d755e991f83896ed7c. */
+/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
 
 
 import type * as T from "./types.js";
@@ -305,9 +305,24 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationAgentTokenRequest extends CmuxRequestBase {
+  cmd: "conversation-agent-token";
+  "participant": string;
+}
+export type ConversationAgentTokenResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationBindRequest extends CmuxRequestBase {
+  cmd: "conversation-bind";
+  "participant": string;
+  "token": string;
+}
+export type ConversationBindResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationCreateRequest extends CmuxRequestBase {
   cmd: "conversation-create";
-  "actor": string;
+  "actor"?: (string) | null;
   "idempotency_key": string;
   "participants": (T.JsonValue) | null;
   "title": string;
@@ -332,7 +347,7 @@ export type ConversationListResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface ConversationOpRequest extends CmuxRequestBase {
   cmd: "conversation-op";
-  "actor": string;
+  "actor"?: (string) | null;
   "conversation": string;
   "idempotency_key": string;
   "op": (T.JsonValue) | null;
@@ -351,7 +366,7 @@ export type ConversationSnapshotResult = T.JsonValue;
 /** Protocol v12; authority: local-admin. */
 export interface ConversationTypingRequest extends CmuxRequestBase {
   cmd: "conversation-typing";
-  "actor": string;
+  "actor"?: (string) | null;
   "conversation": string;
   "on": boolean;
 }
@@ -1915,6 +1930,8 @@ export type CmuxRequest =
   | CloseTabsRequest
   | CloseTerminalRequest
   | CloseWorkspaceRequest
+  | ConversationAgentTokenRequest
+  | ConversationBindRequest
   | ConversationCreateRequest
   | ConversationHistoryRequest
   | ConversationListRequest
@@ -2328,6 +2345,22 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "conversation-agent-token": {
+    request: ConversationAgentTokenRequest;
+    result: ConversationAgentTokenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-bind": {
+    request: ConversationBindRequest;
+    result: ConversationBindResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "local-conversations-v1";
     stream: null;
   };
   "conversation-create": {

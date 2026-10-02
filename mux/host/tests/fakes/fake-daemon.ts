@@ -24,6 +24,10 @@ interface Conversation {
 export class FakeDaemon {
   readonly requests: Request[] = [];
   readonly typing: { conversation: string; actor: string; on: boolean }[] = [];
+  readonly bindings: { participant: string; token: string }[] = [];
+  /** Agent message.sends to refuse next (with `agentReject`), as the owner's turn budget does. */
+  rejectAgentSends = 0;
+  agentReject = "agent_rate";
   capabilities = ["local-conversations-v1"];
   private server!: Server;
   private readonly clients = new Set<Socket>();
@@ -187,6 +191,9 @@ export class FakeDaemon {
       }
       case "conversation-op":
         return this.op(request);
+      case "conversation-bind":
+        this.bindings.push({ participant: String(request.participant), token: String(request.token) });
+        return { participant: request.participant };
       case "conversation-typing": {
         const c = this.get(request.conversation);
         const actor = String(request.actor);
@@ -230,6 +237,11 @@ export class FakeDaemon {
   }
 
   private op(request: Request): unknown {
+    const send = (request.op as Op | undefined)?.kind === "message.send";
+    if (send && String(request.actor) !== "user_local" && this.rejectAgentSends > 0) {
+      this.rejectAgentSends -= 1;
+      throw new Reject(this.agentReject);
+    }
     const c = this.get(request.conversation);
     const actor = String(request.actor);
     const key = String(request.idempotency_key);

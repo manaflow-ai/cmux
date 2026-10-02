@@ -341,7 +341,9 @@
       "conversation-snapshot",
       "conversation-history",
       "conversation-op",
-      "conversation-typing"
+      "conversation-typing",
+      "conversation-bind",
+      "conversation-agent-token"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

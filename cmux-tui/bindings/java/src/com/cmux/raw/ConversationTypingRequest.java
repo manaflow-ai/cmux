@@ -12,13 +12,12 @@ import java.util.Objects;
 
 /** Immutable conversation-typing request. Protocol v12; authority: local-admin. */
 public final class ConversationTypingRequest implements WireValue {
-    private final String actor;
+    private final Field<String> actor;
     private final String conversation;
     private final boolean on;
 
     private ConversationTypingRequest(Builder builder) {
-        if (!builder.actorSet) throw new IllegalArgumentException("actor is required");
-        this.actor = Wire.nonNull(builder.actor, "actor");
+        this.actor = builder.actor;
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
         this.conversation = Wire.nonNull(builder.conversation, "conversation");
         if (!builder.onSet) throw new IllegalArgumentException("on is required");
@@ -27,15 +26,17 @@ public final class ConversationTypingRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public String actor() { return actor; }
+    public Field<String> actor() { return actor; }
     public String conversation() { return conversation; }
     public boolean on() { return on; }
 
     public static ConversationTypingRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationTypingRequest");
         Builder builder = builder();
-        Object rawActor = Wire.required(object, "actor");
-        builder.actor(Wire.string(rawActor, "ConversationTypingRequest.actor"));
+        Object rawActor = Wire.optional(object, "actor");
+        if (!Wire.isMissing(rawActor)) {
+            builder.actor(rawActor == null ? null : Wire.string(rawActor, "ConversationTypingRequest.actor"));
+        }
         Object rawConversation = Wire.required(object, "conversation");
         builder.conversation(Wire.string(rawConversation, "ConversationTypingRequest.conversation"));
         Object rawOn = Wire.required(object, "on");
@@ -65,16 +66,14 @@ public final class ConversationTypingRequest implements WireValue {
     public String toString() { return "ConversationTypingRequest" + toWire(); }
 
     public static final class Builder {
-        private String actor;
-        private boolean actorSet;
+        private Field<String> actor = Field.omitted();
         private String conversation;
         private boolean conversationSet;
         private Boolean on;
         private boolean onSet;
 
         public Builder actor(String value) {
-            this.actor = value;
-            this.actorSet = true;
+            this.actor = Field.ofNullable(value);
             return this;
         }
         public Builder conversation(String value) {

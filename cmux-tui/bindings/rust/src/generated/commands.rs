@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 44e18d2ed7a231cf54c1aef9708d9b691c633398a2efa3d755e991f83896ed7c.
+// cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -432,8 +432,28 @@ pub type CloseWorkspaceResult = T::WorkspaceMutationResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationAgentTokenRequest {
+    pub participant: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationAgentTokenResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationBindRequest {
+    pub participant: String,
+    pub token: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationBindResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationCreateRequest {
-    pub actor: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
     pub idempotency_key: String,
     pub participants: Nullable<T::JsonValue>,
     pub title: String,
@@ -464,7 +484,8 @@ pub type ConversationListResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationOpRequest {
-    pub actor: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
     pub conversation: String,
     pub idempotency_key: String,
     pub op: Nullable<T::JsonValue>,
@@ -488,7 +509,8 @@ pub type ConversationSnapshotResult = T::JsonValue;
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationTypingRequest {
-    pub actor: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub actor: Optional<String>,
     pub conversation: String,
     pub on: bool,
 }
@@ -2851,6 +2873,14 @@ impl CmuxClient {
             self.require_protocol_field("close-workspace", 7)?;
         }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
+    }
+
+    pub fn conversation_agent_token(&mut self, request: ConversationAgentTokenRequest) -> Result<ConversationAgentTokenResult> {
+        self.execute(&CONVERSATION_AGENT_TOKEN_METADATA, &request)
+    }
+
+    pub fn conversation_bind(&mut self, request: ConversationBindRequest) -> Result<ConversationBindResult> {
+        self.execute(&CONVERSATION_BIND_METADATA, &request)
     }
 
     pub fn conversation_create(&mut self, request: ConversationCreateRequest) -> Result<ConversationCreateResult> {

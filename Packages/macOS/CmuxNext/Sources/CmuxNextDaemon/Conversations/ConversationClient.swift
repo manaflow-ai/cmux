@@ -49,4 +49,12 @@ public struct ConversationClient: Sendable {
         try await require()
         _ = try await connection.request(ConversationTypingRequest(conversation: conversation, actor: actor, on: on))
     }
+
+    /// Mints the credential of agent `participant` (local user connections only).
+    public func agentToken(for participant: String) async throws -> String {
+        try await require()
+        let minted = try await connection.request(ConversationAgentTokenRequest(participant: participant))
+        guard let token = minted.token else { throw DaemonError.malformedResponse("conversation-agent-token: no token") }
+        return token
+    }
 }

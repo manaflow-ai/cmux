@@ -163,6 +163,16 @@ public abstract class GeneratedCmuxClient {
         return WorkspaceMutationResult.fromWire(result);
     }
 
+    public final Object conversationAgentToken(ConversationAgentTokenRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_AGENT_TOKEN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
+    public final Object conversationBind(ConversationBindRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_BIND, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object conversationCreate(ConversationCreateRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_CREATE, request.toWire());
         return Wire.immutableJson(result);

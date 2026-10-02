@@ -16288,8 +16288,8 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "title": {
       "type": {
@@ -16425,8 +16425,8 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "transaction": {
       "type": {
@@ -16477,8 +16477,8 @@
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
-      "nullable": false
+      "presence": "optional",
+      "nullable": true
      },
      "on": {
       "type": {
@@ -16498,6 +16498,68 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Ephemeral: never stored. See spec/commands.md."
+   ]
+  },
+  "conversation-bind": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "token": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Binds the connection to an agent participant for its lifetime. See spec/commands.md."
+   ]
+  },
+  "conversation-agent-token": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "local-conversations-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "participant": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections bound to the local user only. Mints a new token; the old one stops working. See spec/commands.md."
    ]
   }
  },

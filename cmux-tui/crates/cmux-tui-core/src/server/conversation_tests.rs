@@ -16,6 +16,22 @@ fn conversation_mux() -> (Arc<Mux>, u64) {
     (mux, client)
 }
 
+/// A second trusted local connection bound to agent `participant` with a token
+/// the local user (`user_client`) minted.
+fn agent_client(mux: &Arc<Mux>, user_client: u64, participant: &str) -> u64 {
+    let minted = run(
+        mux,
+        user_client,
+        json!({"cmd":"conversation-agent-token","participant":participant}),
+    )
+    .unwrap();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    let token = minted["token"].clone();
+    run(mux, client, json!({"cmd":"conversation-bind","participant":participant,"token":token}))
+        .unwrap();
+    client
+}
+
 fn run(mux: &Arc<Mux>, client: u64, request: Value) -> anyhow::Result<Value> {
     let command: Command = serde_json::from_value(request)?;
     handle_command(mux, client, command, &writer())
@@ -115,11 +131,12 @@ fn conversation_create_send_snapshot_and_history_round_trip() {
     );
 
     run(&mux, client, send(&conversation, "c2", "two")).unwrap();
+    let agent = agent_client(&mux, client, "agent_mux");
     let reply = run(
         &mux,
-        client,
+        agent,
         json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"agent-1",
-               "actor":"agent_mux","op":{"kind":"message.send","client_msg_id":"agent-1",
+               "op":{"kind":"message.send","client_msg_id":"agent-1",
                "parts":[{"type":"work","session":"child","status":"running"}],
                "reply_to":{"message_id":message["id"],"part_index":0}}}),
     )
@@ -128,9 +145,9 @@ fn conversation_create_send_snapshot_and_history_round_trip() {
     assert_eq!(reply["seq"], 3);
     let reacted = run(
         &mux,
-        client,
+        agent,
         json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"react-1",
-               "actor":"agent_mux","op":{"kind":"reaction.add","message_id":message["id"],
+               "op":{"kind":"reaction.add","message_id":message["id"],
                "part_index":0,"reaction":{"tapback":"love"}}}),
     )
     .unwrap();
@@ -234,13 +251,13 @@ fn conversation_rejects_carry_a_stable_reason() {
             json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"x1",
                    "actor":"user_eve","op":{"kind":"message.send","client_msg_id":"x1",
                    "parts":[{"type":"text","text":"hi"}]}}),
-            "not_participant",
+            "actor_mismatch",
         ),
         (
             json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"x2",
                    "actor":"agent_mux","op":{"kind":"message.edit","message_id":message_id,
                    "parts":[{"type":"text","text":"mine now"}]}}),
-            "not_author",
+            "actor_mismatch",
         ),
         (
             json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"x3",
@@ -271,7 +288,7 @@ fn conversation_rejects_carry_a_stable_reason() {
         (
             json!({"cmd":"conversation-typing","conversation":conversation,"actor":"user_eve",
                    "on":true}),
-            "not_participant",
+            "actor_mismatch",
         ),
     ];
     for (request, reason) in cases {
@@ -324,12 +341,12 @@ fn conversation_rejects_carry_a_stable_reason() {
 fn conversation_typing_is_broadcast_and_never_stored() {
     let (mux, client) = conversation_mux();
     let conversation = create(&mux, client);
+    let agent = agent_client(&mux, client, "agent_mux");
     let events = mux.subscribe();
     let typed = run(
         &mux,
-        client,
-        json!({"cmd":"conversation-typing","conversation":conversation,"actor":"agent_mux",
-               "on":true}),
+        agent,
+        json!({"cmd":"conversation-typing","conversation":conversation,"on":true}),
     )
     .unwrap();
     assert_eq!(typed, json!({}));
@@ -391,4 +408,45 @@ fn conversation_store_file_persists_across_reopen() {
     assert_eq!(messages[0].client_msg_id, "c1");
     drop(store);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn conversation_actor_is_stamped_by_the_owner() {
+    let (mux, client) = conversation_mux();
+    let conversation = create(&mux, client);
+    let mine = run(&mux, client, send(&conversation, "c1", "hello")).unwrap();
+    let message_id = mine["change"]["message"]["id"].clone();
+    assert_eq!(mine["change"]["message"]["author"], "user_local");
+
+    let agent = agent_client(&mux, client, "agent_mux");
+    let reply = run(
+        &mux,
+        agent,
+        json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"a1",
+               "op":{"kind":"message.send","client_msg_id":"a1",
+               "parts":[{"type":"text","text":"**PONG**"}]}}),
+    )
+    .unwrap();
+    assert_eq!(reply["change"]["message"]["author"], "agent_mux");
+
+    let edit = json!({"cmd":"conversation-op","conversation":conversation,"idempotency_key":"a2",
+                      "op":{"kind":"message.edit","message_id":message_id,
+                      "parts":[{"type":"text","text":"mine now"}]}});
+    assert_eq!(rejection(&mux, agent, edit).0, "not_author");
+    let too_soon = json!({"cmd":"conversation-op","conversation":conversation,
+                          "idempotency_key":"a3","op":{"kind":"message.send","client_msg_id":"a3",
+                          "parts":[{"type":"text","text":"again"}]}});
+    assert_eq!(rejection(&mux, agent, too_soon).0, "agent_rate");
+
+    let mint = json!({"cmd":"conversation-agent-token","participant":"agent_other"});
+    assert!(run(&mux, agent, mint).is_err(), "only the local user mints tokens");
+    let stranger = mux.control_clients.register(ClientTransport::Unix, writer());
+    let bad = json!({"cmd":"conversation-bind","participant":"agent_mux","token":"nope"});
+    assert!(run(&mux, stranger, bad).unwrap_err().to_string().contains("not valid"));
+
+    let ghost = agent_client(&mux, client, "agent_ghost");
+    let intruder = json!({"cmd":"conversation-op","conversation":conversation,
+                          "idempotency_key":"g1","op":{"kind":"message.send","client_msg_id":"g1",
+                          "parts":[{"type":"text","text":"hi"}]}});
+    assert_eq!(rejection(&mux, ghost, intruder).0, "not_participant");
 }

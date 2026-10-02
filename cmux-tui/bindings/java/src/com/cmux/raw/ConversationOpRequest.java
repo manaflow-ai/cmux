@@ -12,15 +12,14 @@ import java.util.Objects;
 
 /** Immutable conversation-op request. Protocol v12; authority: local-admin. */
 public final class ConversationOpRequest implements WireValue {
-    private final String actor;
+    private final Field<String> actor;
     private final String conversation;
     private final String idempotencyKey;
     private final Object op;
     private final Field<String> transaction;
 
     private ConversationOpRequest(Builder builder) {
-        if (!builder.actorSet) throw new IllegalArgumentException("actor is required");
-        this.actor = Wire.nonNull(builder.actor, "actor");
+        this.actor = builder.actor;
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
         this.conversation = Wire.nonNull(builder.conversation, "conversation");
         if (!builder.idempotencyKeySet) throw new IllegalArgumentException("idempotency_key is required");
@@ -32,7 +31,7 @@ public final class ConversationOpRequest implements WireValue {
 
     public static Builder builder() { return new Builder(); }
 
-    public String actor() { return actor; }
+    public Field<String> actor() { return actor; }
     public String conversation() { return conversation; }
     public String idempotencyKey() { return idempotencyKey; }
     public Object op() { return op; }
@@ -41,8 +40,10 @@ public final class ConversationOpRequest implements WireValue {
     public static ConversationOpRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "ConversationOpRequest");
         Builder builder = builder();
-        Object rawActor = Wire.required(object, "actor");
-        builder.actor(Wire.string(rawActor, "ConversationOpRequest.actor"));
+        Object rawActor = Wire.optional(object, "actor");
+        if (!Wire.isMissing(rawActor)) {
+            builder.actor(rawActor == null ? null : Wire.string(rawActor, "ConversationOpRequest.actor"));
+        }
         Object rawConversation = Wire.required(object, "conversation");
         builder.conversation(Wire.string(rawConversation, "ConversationOpRequest.conversation"));
         Object rawIdempotencyKey = Wire.required(object, "idempotency_key");
@@ -80,8 +81,7 @@ public final class ConversationOpRequest implements WireValue {
     public String toString() { return "ConversationOpRequest" + toWire(); }
 
     public static final class Builder {
-        private String actor;
-        private boolean actorSet;
+        private Field<String> actor = Field.omitted();
         private String conversation;
         private boolean conversationSet;
         private String idempotencyKey;
@@ -91,8 +91,7 @@ public final class ConversationOpRequest implements WireValue {
         private Field<String> transaction = Field.omitted();
 
         public Builder actor(String value) {
-            this.actor = value;
-            this.actorSet = true;
+            this.actor = Field.ofNullable(value);
             return this;
         }
         public Builder conversation(String value) {

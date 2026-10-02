@@ -108,9 +108,18 @@ Events (after the normal `subscribe`):
 refetches the snapshot. The op reply carries the same `rev` and `transaction`; whichever arrives first
 settles the intent.
 
-Identity gap (phase A): `actor` is declared by the client and the owner checks only membership. The
-authenticated per-connection identity (ownership.md step "authenticated client identity") replaces it;
-the brain host then connects with the mux's launch credential.
+Actor (owner-stamped): the owner derives every write's actor from the connection. A trusted local
+(Unix) connection is `user_local` until it runs `conversation-bind {participant, token}` with a token
+minted by `conversation-agent-token {participant}` (callable only by a `user_local` connection; the
+owner stores the token's SHA-256, a new token replaces the old one). `actor` in requests is optional;
+naming anyone but the connection's principal is refused (`actor_mismatch`). The app mints the mux's
+token and hands it to the brain host in a 0600 file (`MUX_AGENT_TOKEN_FILE`). Remaining gap: any
+same-uid process is `user_local` (socket mode `automation`, D16) until the launch credential lands.
+
+Agent turn budget (owner-enforced): an agent `message.send` is refused with `agent_budget` after 4
+agent messages since the last human message in that conversation, and with `agent_rate` within 2 s
+of the last agent message. Replays of committed keys are never refused (the ledger is checked
+first). The brain host retries an `agent_rate` reply once after the gap and drops `agent_budget`.
 
 ## 3. App: mirror, intent log, Home surface
 
@@ -159,7 +168,8 @@ the brain host then connects with the mux's launch credential.
   more than one agent, an agent wakes only on a mention, a reply to its own message, or a DM; with one
   human and one mux it wakes on every human message.
 - Budget: at most 4 agent turns per human message per conversation and a 2 s minimum gap between agent
-  turns, enforced by the owner (reject `agent_budget`), so two muxes cannot loop.
+  turns, enforced by the owner (rejects `agent_budget`, `agent_rate`; built in phase A), so two muxes
+  cannot loop.
 - Non-owner prompts: a non-owner may talk to a mux; any op beyond `read` and replies becomes an
   `approval` part addressed to the mux's owner (`approval.request` / `approval.decide`).
 - Unread: cloud unread comes from `UserDO` folding read cursors; local unread is computed by the app from
@@ -180,9 +190,9 @@ the brain host then connects with the mux's launch credential.
   and of the prototype has not had a valid low-load run yet (machine load 100 to 180 for hours).
 - Brain host: `mux/` (Bun; `bun run build` -> `mux/dist/mux`; 22 tests). The app starts it when
   `CMUX_NEXT_MUX_HOST` names that executable.
-- Known gaps: the 4-turn budget and 2 s gap are not enforced by the owner yet; actor is client-declared;
-  no `request-settled`; edits/retractions by humans do not wake the mux; reply counts and thread
-  connectors are not drawn.
+- Built since: owner-enforced turn budget, owner-stamped actor (`conversation-bind`), Markdown
+  rendering of other participants' messages. Known gaps: no `request-settled`; edits/retractions by
+  humans do not wake the mux; reply counts and thread connectors are not drawn.
 
 ## 7. Home = workspace (user decision relayed by the coordinator, 2026-10-02)
 

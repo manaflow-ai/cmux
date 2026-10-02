@@ -286,3 +286,34 @@ describe("lifecycle", () => {
     await expect(host.fatal).rejects.toBeInstanceOf(MissingCapabilityError);
   });
 });
+
+describe("owner-stamped principal", () => {
+  test("the host binds as agent_mux with the app's token right after creating the conversation", async () => {
+    const w = await setup();
+    w.host({ agentToken: "secret-token" }).start();
+    for (let i = 0; i < 200 && w.daemon.bindings.length === 0; i++) await Bun.sleep(5);
+    expect(w.daemon.bindings).toEqual([{ participant: AGENT_MUX, token: "secret-token" }]);
+    const cmds = w.daemon.requests.map((r) => r.cmd);
+    expect(cmds.indexOf("conversation-bind")).toBeGreaterThan(cmds.indexOf("conversation-create"));
+  });
+});
+
+describe("owner turn budget", () => {
+  test("an agent_rate reject is retried once after the gap; agent_budget is dropped", async () => {
+    const w = await setup();
+    const host = w.host();
+    host.start();
+    await host.ready;
+    const [conv] = w.daemon.conversationIds;
+    w.daemon.rejectAgentSends = 1;
+    w.daemon.send(conv, USER_LOCAL, "first");
+    await w.daemon.until(() => muxReplies(w.daemon.messages(conv)).length === 1);
+    expect(w.lines.some((line) => line.includes("retrying once after it"))).toBe(true);
+
+    w.daemon.rejectAgentSends = 1;
+    w.daemon.agentReject = "agent_budget";
+    w.daemon.send(conv, USER_LOCAL, "second");
+    await w.daemon.until(() => w.lines.some((line) => line.includes("dropping rejected op")));
+    expect(muxReplies(w.daemon.messages(conv)).length).toBe(1);
+  }, 15000);
+});

@@ -7,10 +7,14 @@
 //! The local owner (the cmux daemon) and the cloud owner (`ConversationDO`)
 //! run the same reducer, so both speak the same ops and events.
 
+mod budget;
 mod id;
 mod reducer;
 mod types;
 
+pub use budget::{
+    BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, parse_rfc3339_millis,
+};
 pub use id::{encode_id, format_rfc3339_millis};
 pub use reducer::{
     Commit, CreateRequest, OpRequest, Reject, apply, check_typing, create, summary,

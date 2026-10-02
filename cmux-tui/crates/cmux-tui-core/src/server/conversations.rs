@@ -6,13 +6,15 @@
 
 use std::sync::Arc;
 
-use cmux_conversation::{Change, Op, Participant};
+use cmux_conversation::{Change, Op, Participant, Reject};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::{Mux, MuxEvent, validate_client_transaction};
-use crate::conversation_store::{ConversationEvent, MAX_PAGE_MESSAGES};
+use crate::conversation_store::{
+    ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES,
+};
 
 /// The local conversation owner: the `conversation-*` commands and the
 /// `conversation-changed` and `conversation-typing` events, on trusted local
@@ -24,7 +26,8 @@ pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
 #[derive(Deserialize)]
 pub(super) struct CreateParams {
     idempotency_key: String,
-    actor: String,
+    #[serde(default)]
+    actor: Option<String>,
     title: String,
     participants: Value,
 }
@@ -49,7 +52,8 @@ pub(super) struct HistoryParams {
 pub(super) struct OpParams {
     conversation: String,
     idempotency_key: String,
-    actor: String,
+    #[serde(default)]
+    actor: Option<String>,
     #[serde(default)]
     transaction: Option<String>,
     op: Value,
@@ -59,8 +63,34 @@ pub(super) struct OpParams {
 #[derive(Deserialize)]
 pub(super) struct TypingParams {
     conversation: String,
-    actor: String,
+    #[serde(default)]
+    actor: Option<String>,
     on: bool,
+}
+
+/// `conversation-bind`: become agent `participant` for the rest of the
+/// connection, proven by the token the local user minted for it.
+#[derive(Deserialize)]
+pub(super) struct BindParams {
+    participant: String,
+    token: String,
+}
+
+/// `conversation-agent-token`: mint the credential of agent `participant`
+/// (local user connections only).
+#[derive(Deserialize)]
+pub(super) struct AgentTokenParams {
+    participant: String,
+}
+
+/// The actor of a write is the connection's principal, stamped by the owner.
+/// A request may still name it; naming anyone else is refused.
+fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Result<String> {
+    let principal = mux.conversation_principal(client);
+    if declared.is_some_and(|declared| declared != principal) {
+        return Err(ConversationRejected(Reject::ActorMismatch).into());
+    }
+    Ok(principal)
 }
 
 /// The `error_code` of a conversation reject.
@@ -99,6 +129,7 @@ pub(super) fn list(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let CreateParams { idempotency_key, actor, title, participants } = params;
+    let actor = resolve_actor(mux, client, actor)?;
     let participants: Vec<Participant> = decode(participants, "participants")?;
     let outcome = mux.conversation_write(
         |store| store.create(&idempotency_key, &actor, &title, &participants),
@@ -139,6 +170,7 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let OpParams { conversation, idempotency_key, actor, transaction, op } = params;
+    let actor = resolve_actor(mux, client, actor)?;
     validate_client_transaction(transaction.as_deref())?;
     let op: Op = decode(op, "op")?;
     let transaction: Option<Arc<str>> = transaction.map(Arc::from);
@@ -171,6 +203,7 @@ pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Val
 pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let TypingParams { conversation, actor, on } = params;
+    let actor = resolve_actor(mux, client, actor)?;
     mux.conversation_write(
         |store| store.check_typing(&conversation, &actor),
         |_| {
@@ -182,6 +215,29 @@ pub(super) fn typing(mux: &Mux, client: u64, params: TypingParams) -> anyhow::Re
         },
     )?;
     Ok(json!({}))
+}
+
+pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let BindParams { participant, token } = params;
+    let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
+    anyhow::ensure!(valid, "conversation agent token is not valid for {participant}");
+    mux.bind_conversation_principal(client, participant.clone());
+    Ok(json!({"participant": participant}))
+}
+
+pub(super) fn agent_token(
+    mux: &Mux,
+    client: u64,
+    params: AgentTokenParams,
+) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    anyhow::ensure!(
+        mux.conversation_principal(client) == LOCAL_USER,
+        "only the local user mints agent tokens"
+    );
+    let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
+    Ok(json!({"participant": params.participant, "token": token}))
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@
 // section 4) and the `mux` CLI the mux uses from its own shell.
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { toLines, zoom } from "../../packages/brain/src/index.ts";
 import { FileMemoryStore } from "../../packages/brain/src/file-store.ts";
@@ -105,6 +106,7 @@ async function runHost(): Promise<void> {
     self,
     sessionEnv,
     mcpServers: cmuxMcpServers(),
+    agentToken: readAgentToken(process.env.MUX_AGENT_TOKEN_FILE),
     startAcpmux: process.env.ACPMUX_BIN
       ? async () => {
           await ensureAcpmuxDaemon(process.env, acpmuxSocket, (line) => console.error(`mux host: ${line}`));
@@ -238,5 +240,16 @@ async function runCompact(): Promise<void> {
     }
   } finally {
     release();
+  }
+}
+
+/** The token file the app wrote (0600) for this host; undefined when absent. */
+function readAgentToken(file: string | undefined): string | undefined {
+  if (!file) return undefined;
+  try {
+    const token = readFileSync(file, "utf8").trim();
+    return token.length > 0 ? token : undefined;
+  } catch {
+    return undefined;
   }
 }

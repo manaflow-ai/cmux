@@ -44,6 +44,8 @@ import { wakes } from "./wake.ts";
 // seq>" (conversation owner). The host's durable to-dos live in HostState.
 
 export const DEFAULT_CONVERSATION_KEY = "mux-home-default";
+/** The owner's minimum gap between agent messages (2 s) plus a margin. */
+const AGENT_GAP_RETRY_MS = 2_200;
 export const MUX_SESSION_NAME = "mux";
 
 export interface HostOptions {
@@ -60,6 +62,12 @@ export interface HostOptions {
   /** Env baked into the mux's hooks and tools (MUX_HOME, ACPMUX_SOCKET, ...). */
   sessionEnv: Record<string, string>;
   mcpServers: McpServer[];
+  /**
+   * The mux's conversation credential (minted by the app as the local user):
+   * after creating the default conversation, the connection binds as agent_mux so
+   * the owner stamps the mux's writes. Absent in tests against the fake daemon.
+   */
+  agentToken?: string;
   /** Makes the acpmux socket reachable before each connect (starts the daemon from ACPMUX_BIN). */
   startAcpmux?: () => Promise<void>;
   log?: (line: string) => void;
@@ -202,6 +210,7 @@ export class MuxHost {
         participants: this.defaultParticipants(),
       });
       this.remember(conversation);
+      if (this.options.agentToken) await daemon.bind(AGENT_MUX, this.options.agentToken);
       if (this.state.data.defaultConversation !== conversation.id) {
         this.state.data.defaultConversation = conversation.id;
         this.state.save();
@@ -525,6 +534,17 @@ export class MuxHost {
           }
         } catch (error) {
           if (!(error instanceof DaemonError)) return; // Connection lost: retried on the next connect.
+          // The owner's agent turn budget: a reply sent inside the minimum gap is
+          // retried once, after the gap, by a one-shot timer; anything else
+          // (including agent_budget) is dropped, so a reject never loops.
+          if (error.message.includes("agent_rate") && !entry.rateRetried) {
+            entry.rateRetried = true;
+            this.state.save();
+            this.log(`op ${entry.idempotency_key} inside the agent gap; retrying once after it`);
+            const timer = setTimeout(() => void this.effects.run(() => this.flushOutbox()), AGENT_GAP_RETRY_MS);
+            timer.unref?.();
+            return;
+          }
           this.log(`dropping rejected op ${entry.idempotency_key}: ${error.message}`);
         }
       }

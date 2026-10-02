@@ -1705,12 +1705,25 @@ class CloseWorkspaceRequest:
 
 
 @dataclass(frozen=True)
+class ConversationAgentTokenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-agent-token/request'
+    participant: str
+
+
+@dataclass(frozen=True)
+class ConversationBindRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-bind/request'
+    participant: str
+    token: str
+
+
+@dataclass(frozen=True)
 class ConversationCreateRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-create/request'
-    actor: str
     idempotency_key: str
     participants: Union[JsonValue, None]
     title: str
+    actor: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1730,10 +1743,10 @@ class ConversationListRequest:
 @dataclass(frozen=True)
 class ConversationOpRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-op/request'
-    actor: str
     conversation: str
     idempotency_key: str
     op: Union[JsonValue, None]
+    actor: Union[str, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -1747,9 +1760,9 @@ class ConversationSnapshotRequest:
 @dataclass(frozen=True)
 class ConversationTypingRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-typing/request'
-    actor: str
     conversation: str
     on: bool
+    actor: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -4022,6 +4035,8 @@ __all__ = [
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
+    'ConversationAgentTokenRequest',
+    'ConversationBindRequest',
     'ConversationCreateRequest',
     'ConversationHistoryRequest',
     'ConversationListRequest',

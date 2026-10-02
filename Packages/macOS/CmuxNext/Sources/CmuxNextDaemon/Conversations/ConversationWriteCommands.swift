@@ -8,10 +8,11 @@ public struct CreateConversationRequest: DaemonRequest {
     public typealias Response = ConversationCreated
     public static let command = "conversation-create"
     public var idempotencyKey: String
-    public var actor: String
+    /// Omitted: the owner stamps the connection's principal.
+    public var actor: String?
     public var title: String
     public var participants: [ConversationParticipant]
-    public init(idempotencyKey: String, actor: String, title: String, participants: [ConversationParticipant]) {
+    public init(idempotencyKey: String, actor: String? = nil, title: String, participants: [ConversationParticipant]) {
         self.idempotencyKey = idempotencyKey
         self.actor = actor
         self.title = title
@@ -29,10 +30,12 @@ public struct ConversationOpRequest: DaemonRequest {
     public static let command = "conversation-op"
     public var conversation: String
     public var idempotencyKey: String
-    public var actor: String
+    /// Omitted: the owner stamps the connection's principal.
+    public var actor: String?
     public var transaction: ClientTransactionID?
     public var op: ConversationOp
-    public init(conversation: String, idempotencyKey: String, actor: String, transaction: ClientTransactionID?, op: ConversationOp) {
+    public init(conversation: String, idempotencyKey: String, actor: String? = nil, transaction: ClientTransactionID?,
+                op: ConversationOp) {
         self.conversation = conversation
         self.idempotencyKey = idempotencyKey
         self.actor = actor
@@ -50,9 +53,9 @@ public struct ConversationTypingRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "conversation-typing"
     public var conversation: String
-    public var actor: String
+    public var actor: String?
     public var on: Bool
-    public init(conversation: String, actor: String, on: Bool) {
+    public init(conversation: String, actor: String? = nil, on: Bool) {
         self.conversation = conversation
         self.actor = actor
         self.on = on

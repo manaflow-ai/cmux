@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Context;
 use cmux_conversation::{
     ConversationHead, CreateRequest, Message, Op, OpRequest, Participant, Reject, Summary,
-    encode_id, format_rfc3339_millis, summary, valid_token,
+    encode_id, format_rfc3339_millis, summary, valid_participant_id, valid_token,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
@@ -27,6 +27,8 @@ pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
 const SCHEMA_VERSION: i64 = 1;
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
+/// The participant id of the Mac's own user in local conversations.
+pub(crate) const LOCAL_USER: &str = "user_local";
 
 /// An op the conversation reducer refused. The control socket reports it
 /// with `error_code` [`ConversationRejected::CODE`] and the reason code as
@@ -164,6 +166,10 @@ impl ConversationStore {
                participant TEXT NOT NULL,
                seq INTEGER NOT NULL CHECK(seq >= 0),
                PRIMARY KEY(conversation, participant)
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS agent_token (
+               participant TEXT PRIMARY KEY NOT NULL,
+               token_hash TEXT NOT NULL
              ) WITHOUT ROWID;",
         )?;
         transaction.execute(
@@ -173,6 +179,42 @@ impl ConversationStore {
         )?;
         transaction.commit()?;
         Ok(Self { connection })
+    }
+
+    /// Mints the credential of agent `participant`: a random token whose SHA-256
+    /// is stored (a new token replaces the old one). A connection becomes that
+    /// participant only by presenting the token (`conversation-bind`).
+    pub(crate) fn mint_agent_token(&mut self, participant: &str) -> anyhow::Result<String> {
+        anyhow::ensure!(
+            valid_participant_id(participant) && participant.starts_with("agent_"),
+            "bad request: participant must be an agent id"
+        );
+        let mut random = [0_u8; 32];
+        getrandom::fill(&mut random).map_err(|_| anyhow::anyhow!("agent token randomness"))?;
+        let token: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+        self.connection.execute(
+            "INSERT INTO agent_token(participant, token_hash) VALUES(?1, ?2)
+             ON CONFLICT(participant) DO UPDATE SET token_hash = excluded.token_hash",
+            params![participant, token_digest(&token)],
+        )?;
+        Ok(token)
+    }
+
+    /// Whether `token` is the current credential of `participant`.
+    pub(crate) fn verify_agent_token(
+        &mut self,
+        participant: &str,
+        token: &str,
+    ) -> anyhow::Result<bool> {
+        let stored: Option<String> = self
+            .connection
+            .query_row(
+                "SELECT token_hash FROM agent_token WHERE participant = ?1",
+                params![participant],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(stored.is_some_and(|stored| stored == token_digest(token)))
     }
 
     /// Every conversation, newest `updated_at` first.
@@ -313,6 +355,12 @@ impl ConversationStore {
             let result = serde_json::from_str(&result).context("conversation ledger is corrupt")?;
             return Ok(OpOutcome { result, replayed: true });
         }
+        if op.is_send() {
+            let window = cmux_conversation::BUDGET_WINDOW as u32;
+            let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
+            recent.reverse();
+            cmux_conversation::check_agent_budget(&head, actor, &recent, now_ms).map_err(rejected)?;
+        }
         let target = match op.target_message_id() {
             Some(id) => load_message_by_id(&transaction, id)?,
             None => None,
@@ -369,6 +417,10 @@ fn validate_idempotency_key(key: &str) -> anyhow::Result<()> {
 fn fingerprint(request: &Value) -> anyhow::Result<String> {
     let digest = Sha256::digest(serde_json::to_vec(request)?);
     Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn token_digest(token: &str) -> String {
+    Sha256::digest(token.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// `<prefix>` + 26 Crockford base32 characters: the current millisecond and
@@ -554,6 +606,8 @@ impl ConversationEvent {
 pub(crate) struct ConversationHost {
     pub(crate) store: Mutex<Option<ConversationStore>>,
     pub(crate) publish: Mutex<()>,
+    /// The participant each connection bound with an agent token (memory only).
+    pub(crate) bindings: Mutex<std::collections::BTreeMap<u64, String>>,
 }
 
 #[cfg(test)]

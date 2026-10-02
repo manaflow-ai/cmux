@@ -71,6 +71,8 @@ public:
     [[nodiscard]] Result<JsonValue> close_tabs(const CloseTabsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CloseTerminalResult> close_terminal(const CloseTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> close_workspace(const CloseWorkspaceRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_agent_token(const ConversationAgentTokenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> conversation_bind(const ConversationBindRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> conversation_create(const ConversationCreateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> conversation_history(const ConversationHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> conversation_list(const ConversationListRequest& request = {}, RequestOptions options = {});

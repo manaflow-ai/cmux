@@ -14,7 +14,7 @@ extension HomeService {
     /// A new local conversation with the mux (user origin; the owner assigns the id).
     func createConversation(title: String = HomeStrings.newConversationTitle) {
         guard let connection else { return }
-        let request = CreateConversationRequest(idempotencyKey: "create:" + UUID().uuidString.lowercased(), actor: actor, title: title,
+        let request = CreateConversationRequest(idempotencyKey: "create:" + UUID().uuidString.lowercased(), title: title,
                                                 participants: [Self.localUser, Self.mux])
         // task-owner: one conversation-create write; ends with its reply
         Task { [weak self] in

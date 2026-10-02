@@ -47,10 +47,17 @@ pub enum Reject {
     InvalidParticipant,
     /// A title must have 1 to 200 characters.
     InvalidTitle,
+    /// Agents already posted the most messages allowed since the last human
+    /// message (budget.rs).
+    AgentBudget,
+    /// An agent posted less than the minimum gap after the last agent message.
+    AgentRate,
+    /// The request names an actor other than the connection's principal.
+    ActorMismatch,
 }
 
 impl Reject {
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 20] = [
         Self::NotParticipant,
         Self::NotAuthor,
         Self::UnknownMessage,
@@ -68,6 +75,9 @@ impl Reject {
         Self::DuplicateParticipant,
         Self::InvalidParticipant,
         Self::InvalidTitle,
+        Self::AgentBudget,
+        Self::AgentRate,
+        Self::ActorMismatch,
     ];
 
     pub fn code(self) -> &'static str {
@@ -89,6 +99,9 @@ impl Reject {
             Self::DuplicateParticipant => "duplicate_participant",
             Self::InvalidParticipant => "invalid_participant",
             Self::InvalidTitle => "invalid_title",
+            Self::AgentBudget => "agent_budget",
+            Self::AgentRate => "agent_rate",
+            Self::ActorMismatch => "actor_mismatch",
         }
     }
 }

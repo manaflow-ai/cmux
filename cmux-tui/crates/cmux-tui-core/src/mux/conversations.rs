@@ -4,7 +4,7 @@
 //! its events after each commit.
 
 use super::*;
-use crate::conversation_store::ConversationStore;
+use crate::conversation_store::{ConversationStore, LOCAL_USER};
 
 impl Mux {
     /// Run `operation` on the conversation store, opening
@@ -38,4 +38,25 @@ impl Mux {
         }
         Ok(value)
     }
+
+    /// The conversation principal of control client `client`: the agent it
+    /// bound with a token, else the Mac's user (`user_local`).
+    pub(crate) fn conversation_principal(&self, client: u64) -> String {
+        let bindings = self.conversations.bindings.lock().unwrap();
+        bindings.get(&client).cloned().unwrap_or_else(|| LOCAL_USER.to_string())
+    }
+
+    /// Binds `client` to agent `participant` for the rest of the connection.
+    /// Client ids only grow, so the oldest binding goes first when the map is
+    /// full (a binding outliving its connection names an id nobody reuses).
+    pub(crate) fn bind_conversation_principal(&self, client: u64, participant: String) {
+        let mut bindings = self.conversations.bindings.lock().unwrap();
+        if bindings.len() >= MAX_BINDINGS && !bindings.contains_key(&client) {
+            bindings.pop_first();
+        }
+        bindings.insert(client, participant);
+    }
 }
+
+/// Most connection bindings kept at once.
+const MAX_BINDINGS: usize = 4096;
