@@ -25,7 +25,12 @@ pub fn validate_package(dir: &Path) -> PackageReport {
     let path = dir.join("cmux-app.json");
     let raw = match std::fs::read(&path) {
         Ok(raw) => raw,
-        Err(_) => return PackageReport { manifest: None, issues: vec![Issue::error("", "manifest.missing", "cmux-app.json not found")] },
+        Err(_) => {
+            return PackageReport {
+                manifest: None,
+                issues: vec![Issue::error("", "manifest.missing", "cmux-app.json not found")],
+            };
+        }
     };
     let mut issues = Vec::new();
     if raw.len() as u64 > MANIFEST_LIMIT {
@@ -64,10 +69,14 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
             add(&format!("/implements/{}/web", crate::issue::escape(name)), imp.get("web"));
         }
     }
-    let files: Option<Vec<&str>> = m["files"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
+    let files: Option<Vec<&str>> =
+        m["files"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect());
     let mut out = Vec::new();
     for (at, p) in refs {
-        if Path::new(&p).components().any(|c| matches!(c, Component::ParentDir | Component::RootDir)) {
+        if Path::new(&p)
+            .components()
+            .any(|c| matches!(c, Component::ParentDir | Component::RootDir))
+        {
             out.push(Issue::error(at, "path.escape", format!("{p} leaves the package")));
             continue;
         }
@@ -77,11 +86,19 @@ fn referenced_files(dir: &Path, m: &Value) -> Vec<Issue> {
             continue;
         }
         if let Some(files) = &files
-            && !files.iter().any(|f| p == *f || p.starts_with(&format!("{}/", f.trim_end_matches('/'))))
+            && !files
+                .iter()
+                .any(|f| p == *f || p.starts_with(&format!("{}/", f.trim_end_matches('/'))))
         {
-            out.push(Issue::error(at.clone(), "path.notInFiles", format!("{p} is not listed in files")));
+            out.push(Issue::error(
+                at.clone(),
+                "path.notInFiles",
+                format!("{p} is not listed in files"),
+            ));
         }
-        if at == "/runtime/main" && std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false) {
+        if at == "/runtime/main"
+            && std::fs::metadata(&full).map(|md| md.len() > MAIN_LIMIT).unwrap_or(false)
+        {
             out.push(Issue::error(at, "limit.main", "runtime.main is larger than 2 MiB"));
         }
     }

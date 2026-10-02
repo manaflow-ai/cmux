@@ -11,11 +11,13 @@ import Testing
 /// applies when the key is absent.
 @Suite struct SettingsSchemaTests {
     static let densities: Set<String> = ["compact", "comfortable"]
+    /// The metrics the schema lists (the App passes every `MetricKey`).
+    static let metrics: Set<String> = [InterfaceSizeSetting().metricName]
 
     static func diagnostics(for value: JSONValue, at path: [String]) -> [SettingsDiagnostic] {
         var root = JSONValue.object([:])
         root = Self.setting(value, at: path, in: root)
-        return CmuxConfigSnapshot.parse(root, validDensities: densities, validMetrics: []).diagnostics
+        return CmuxConfigSnapshot.parse(root, validDensities: densities, validMetrics: metrics).diagnostics
     }
 
     static func setting(_ value: JSONValue, at path: [String], in root: JSONValue) -> JSONValue {
@@ -36,6 +38,8 @@ import Testing
         case .url: ["", "https://example.com/start", "example.com"]
         case .hostList: [[], ["mail.google.com", "*.example.com"]]
         case .timeRange: [["start": "22:00", "end": "07:30"]]
+        case .theme: ["Nord", "light:Rose Pine Dawn,dark:Rose Pine", "Theme From A Newer Ghostty"]
+        case .fontFamily: ["SF Mono", "JetBrains Mono"]
         }
     }
 
@@ -50,6 +54,8 @@ import Testing
         case .url: ["not an address", "ftp://example.com", 4]
         case .hostList: ["mail.google.com", [1]]
         case .timeRange: [["start": "25:00", "end": "07:00"], "22:00-07:00"]
+        case .theme: ["Nord\nfont-size = 40", "light:Nord,night:Nord", 7]
+        case .fontFamily: ["Mono = 1", "\"Quoted\"", 12]
         }
     }
 

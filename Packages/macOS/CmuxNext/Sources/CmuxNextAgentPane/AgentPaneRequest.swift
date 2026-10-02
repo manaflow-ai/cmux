@@ -27,6 +27,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's "default: X" toggle: what Cmd-T opens
     /// (`tabs.newTabKind`; the App checks the value).
     case setDefaultKind(String)
+    /// The page reports whether repository checkpoint actions are available so
+    /// native palette actions can stay capability-gated with the pane.
+    case checkpointAvailability(Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// or `dictation.openSettings` with `{permission}`.
     case dictation(AgentPaneDictationCommand)
@@ -54,6 +57,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "chat.persistSession":
             if let id = params?["sessionId"] as? String, !id.isEmpty {
                 self = .persistSession(id)
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.checkpointAvailability":
+            if let available = params?["available"] as? Bool {
+                self = .checkpointAvailability(available)
             } else {
                 self = .unsupported(method)
             }
@@ -140,6 +149,9 @@ public nonisolated enum AgentPaneReply {
         if let newTab = handshake.newTab { value["newTab"] = newTab.reply }
         if let cwd = handshake.cwd { value["cwd"] = cwd }
         if let draft = handshake.draft { value["draft"] = draft }
+        if let prompt = handshake.prompt { value["prompt"] = prompt }
+        value["handoffStrings"] = AgentPaneHandoffStrings().values
+        value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)
     }
 }

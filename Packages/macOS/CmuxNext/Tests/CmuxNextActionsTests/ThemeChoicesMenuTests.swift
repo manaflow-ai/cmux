@@ -18,10 +18,10 @@ import Testing
 
     @Test func roomMenuListsEveryThemeAndChecksTheCurrentOne() throws {
         let registry = ActionRegistry.standard()
-        registry.bind("room.setTheme") { _ in }
-        registry.choiceState = { id, _ in id == "room.setTheme" ? "Nord" : nil }
+        registry.bind("space.setTheme") { _ in }
+        registry.choiceState = { id, _ in id == "space.setTheme" ? "Nord" : nil }
         let menu = registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: "default"))
-        let submenu = try #require(try themeItem(menu, registry, "room.setTheme").submenu)
+        let submenu = try #require(try themeItem(menu, registry, "space.setTheme").submenu)
         // Ghostty config, onboarding's themes, then More… (the full list).
         #expect(submenu.items.count == 1 + ActionArgument.curatedThemes.count + 2)
         #expect(submenu.items.map(\.title).dropFirst().prefix(ActionArgument.curatedThemes.count).elementsEqual(ActionArgument.curatedThemes))

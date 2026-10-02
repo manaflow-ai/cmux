@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b";
+inline constexpr std::string_view kProtocolIrSha256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -198,6 +198,7 @@ struct ConversationCreateRequest;
 struct ConversationHistoryRequest;
 struct ConversationListRequest;
 struct ConversationOpRequest;
+struct ConversationSearchRequest;
 struct ConversationSnapshotRequest;
 struct ConversationTypingRequest;
 struct CopyRequest;
@@ -226,6 +227,7 @@ struct FocusPaneRequest;
 struct ForgetSessionRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
+struct GetFrontendBrowserHistoryRequest;
 struct GetFrontendProjectionRequest;
 struct GetSizeStateRequest;
 struct IdentifyRequest;
@@ -325,6 +327,7 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetColumnStickyRequest;
 struct SetDefaultColorsRequest;
+struct SetFrontendBrowserHistoryRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
@@ -1207,6 +1210,12 @@ struct ConversationOpRequest {
     friend bool operator==(const ConversationOpRequest&, const ConversationOpRequest&) = default;
 };
 
+struct ConversationSearchRequest {
+    std::uint32_t limit{};
+    std::string query{};
+    friend bool operator==(const ConversationSearchRequest&, const ConversationSearchRequest&) = default;
+};
+
 struct ConversationSnapshotRequest {
     std::string conversation{};
     std::uint32_t tail{};
@@ -1655,6 +1664,11 @@ struct GetCellPixelsResult {
     std::vector<CellPixelSurface> surfaces{};
     std::uint16_t width_px{};
     friend bool operator==(const GetCellPixelsResult&, const GetCellPixelsResult&) = default;
+};
+
+struct GetFrontendBrowserHistoryRequest {
+    Id surface{};
+    friend bool operator==(const GetFrontendBrowserHistoryRequest&, const GetFrontendBrowserHistoryRequest&) = default;
 };
 
 struct GetFrontendProjectionRequest {
@@ -3217,6 +3231,12 @@ struct SetDefaultColorsRequest {
     Field<ColorHex> selection_bg{};
     Field<ColorHex> selection_fg{};
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
+};
+
+struct SetFrontendBrowserHistoryRequest {
+    std::optional<JsonValue> history{};
+    Id surface{};
+    friend bool operator==(const SetFrontendBrowserHistoryRequest&, const SetFrontendBrowserHistoryRequest&) = default;
 };
 
 struct SetPersonalTerminalRequest {
@@ -5003,6 +5023,12 @@ struct Codec<ConversationOpRequest> {
 };
 
 template <>
+struct Codec<ConversationSearchRequest> {
+    static Result<Json> encode(const ConversationSearchRequest& value);
+    static Result<ConversationSearchRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationSnapshotRequest> {
     static Result<Json> encode(const ConversationSnapshotRequest& value);
     static Result<ConversationSnapshotRequest> decode(const Json& value);
@@ -5168,6 +5194,12 @@ template <>
 struct Codec<GetCellPixelsRequest> {
     static Result<Json> encode(const GetCellPixelsRequest& value);
     static Result<GetCellPixelsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<GetFrontendBrowserHistoryRequest> {
+    static Result<Json> encode(const GetFrontendBrowserHistoryRequest& value);
+    static Result<GetFrontendBrowserHistoryRequest> decode(const Json& value);
 };
 
 template <>
@@ -5762,6 +5794,12 @@ template <>
 struct Codec<SetDefaultColorsRequest> {
     static Result<Json> encode(const SetDefaultColorsRequest& value);
     static Result<SetDefaultColorsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetFrontendBrowserHistoryRequest> {
+    static Result<Json> encode(const SetFrontendBrowserHistoryRequest& value);
+    static Result<SetFrontendBrowserHistoryRequest> decode(const Json& value);
 };
 
 template <>

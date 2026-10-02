@@ -7,32 +7,32 @@ struct StatusPoliciesTests {
     @Test func commandBusyShowsAfterTheThresholdOnlyWhenEnabled() {
         var settings = StatusBehaviorSettings()
         #expect(settings.inferCommandBusy && settings.inferCommandBusyAfter == 3)
-        #expect(!StatusPolicies.showsCommandBusy(sinceMs: 1_000, nowMs: 3_999, settings: settings))
-        #expect(StatusPolicies.showsCommandBusy(sinceMs: 1_000, nowMs: 4_000, settings: settings))
-        #expect(StatusPolicies.commandBusyDeadlineMs(sinceMs: 1_000, nowMs: 2_000, settings: settings) == 4_000)
-        #expect(StatusPolicies.commandBusyDeadlineMs(sinceMs: 1_000, nowMs: 5_000, settings: settings) == nil)
+        #expect(!settings.showsCommandBusy(sinceMs: 1_000, nowMs: 3_999))
+        #expect(settings.showsCommandBusy(sinceMs: 1_000, nowMs: 4_000))
+        #expect(settings.commandBusyDeadlineMs(sinceMs: 1_000, nowMs: 2_000) == 4_000)
+        #expect(settings.commandBusyDeadlineMs(sinceMs: 1_000, nowMs: 5_000) == nil)
         settings.inferCommandBusyAfter = 0
-        #expect(StatusPolicies.showsCommandBusy(sinceMs: 1_000, nowMs: 1_000, settings: settings))
+        #expect(settings.showsCommandBusy(sinceMs: 1_000, nowMs: 1_000))
         settings.inferCommandBusy = false
-        #expect(!StatusPolicies.showsCommandBusy(sinceMs: 0, nowMs: 99_999, settings: settings))
-        #expect(StatusPolicies.commandBusyDeadlineMs(sinceMs: 0, nowMs: 0, settings: settings) == nil)
+        #expect(!settings.showsCommandBusy(sinceMs: 0, nowMs: 99_999))
+        #expect(settings.commandBusyDeadlineMs(sinceMs: 0, nowMs: 0) == nil)
     }
 
     @Test func runNotifiesWhenLongEnoughAndNotVisible() {
         var settings = StatusBehaviorSettings()
         #expect(settings.runNotifyMinimumSeconds == 10 && !settings.runNotifyWhenVisible)
         let visible = TerminalVisibility(tabSelected: true, paneOnScreen: true, windowShown: true, appActive: true)
-        #expect(!StatusPolicies.notifiesFinishedRun(durationMs: 9_999, visibility: .hidden, settings: settings))
-        #expect(StatusPolicies.notifiesFinishedRun(durationMs: 10_000, visibility: .hidden, settings: settings))
-        #expect(!StatusPolicies.notifiesFinishedRun(durationMs: 60_000, visibility: visible, settings: settings))
+        #expect(!settings.notifiesFinishedRun(durationMs: 9_999, visibility: .hidden))
+        #expect(settings.notifiesFinishedRun(durationMs: 10_000, visibility: .hidden))
+        #expect(!settings.notifiesFinishedRun(durationMs: 60_000, visibility: visible))
         // Any one hidden condition makes the terminal not visible.
         for hidden in [\TerminalVisibility.tabSelected, \.paneOnScreen, \.windowShown, \.appActive] {
             var partly = visible
             partly[keyPath: hidden] = false
-            #expect(StatusPolicies.notifiesFinishedRun(durationMs: 60_000, visibility: partly, settings: settings))
+            #expect(settings.notifiesFinishedRun(durationMs: 60_000, visibility: partly))
         }
         settings.runNotifyWhenVisible = true
-        #expect(StatusPolicies.notifiesFinishedRun(durationMs: 60_000, visibility: visible, settings: settings))
+        #expect(settings.notifiesFinishedRun(durationMs: 60_000, visibility: visible))
     }
 
     @Test func styleHintsCountOnlyFromHonoredSources() {

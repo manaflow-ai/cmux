@@ -15860,6 +15860,1259 @@
         }
       }
     },
+    "firewall.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp",
+                      "udp",
+                      "icmp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "destination": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp",
+                      "udp",
+                      "icmp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "action": {
+                "required": true,
+                "type": {
+                  "kind": "enum",
+                  "values": [
+                    "allow"
+                  ]
+                }
+              },
+              "source": {
+                "required": true,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "vmId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "vpcId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "tunnelId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "cidr": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "public": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "boolean"
+                      }
+                    },
+                    "port": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
+                    },
+                    "protocol": {
+                      "required": false,
+                      "type": {
+                        "kind": "enum",
+                        "values": [
+                          "tcp",
+                          "udp",
+                          "icmp"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "destination": {
+                "required": true,
+                "type": {
+                  "kind": "object",
+                  "fields": {
+                    "vmId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "vpcId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "tunnelId": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "cidr": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
+                    "public": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "boolean"
+                      }
+                    },
+                    "port": {
+                      "required": false,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "int64"
+                      }
+                    },
+                    "protocol": {
+                      "required": false,
+                      "type": {
+                        "kind": "enum",
+                        "values": [
+                          "tcp",
+                          "udp",
+                          "icmp"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "description": {
+                "required": false,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "firewall create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Allow a validated path through the caller's private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.delete": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "rule_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "rule_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "firewall delete",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Delete one firewall rule owned by the caller.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "rule_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "action": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "allow"
+              ]
+            }
+          },
+          "source": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp",
+                      "udp",
+                      "icmp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "destination": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "vmId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "vpcId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "tunnelId": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "cidr": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "public": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "boolean"
+                  }
+                },
+                "port": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                },
+                "protocol": {
+                  "required": false,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "tcp",
+                      "udp",
+                      "icmp"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated",
+        "selector.not_found"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "firewall get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "Read one firewall rule owned by the caller.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "rule_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "destination": {
+            "type": "object",
+            "properties": {
+              "vmId": {
+                "type": "string"
+              },
+              "vpcId": {
+                "type": "string"
+              },
+              "tunnelId": {
+                "type": "string"
+              },
+              "cidr": {
+                "type": "string"
+              },
+              "public": {
+                "type": "boolean"
+              },
+              "port": {
+                "type": "integer"
+              },
+              "protocol": {
+                "type": "string",
+                "enum": [
+                  "tcp",
+                  "udp",
+                  "icmp"
+                ]
+              }
+            },
+            "additionalProperties": true
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "source",
+          "destination"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "firewall.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "vpc_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "vm_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "tunnel_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "rules": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "action": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "allow"
+                      ]
+                    }
+                  },
+                  "source": {
+                    "required": true,
+                    "type": {
+                      "kind": "object",
+                      "fields": {
+                        "vmId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "vpcId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "tunnelId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "cidr": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "public": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "boolean"
+                          }
+                        },
+                        "port": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "int64"
+                          }
+                        },
+                        "protocol": {
+                          "required": false,
+                          "type": {
+                            "kind": "enum",
+                            "values": [
+                              "tcp",
+                              "udp",
+                              "icmp"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "destination": {
+                    "required": true,
+                    "type": {
+                      "kind": "object",
+                      "fields": {
+                        "vmId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "vpcId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "tunnelId": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "cidr": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "string"
+                          }
+                        },
+                        "public": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "boolean"
+                          }
+                        },
+                        "port": {
+                          "required": false,
+                          "type": {
+                            "kind": "primitive",
+                            "name": "int64"
+                          }
+                        },
+                        "protocol": {
+                          "required": false,
+                          "type": {
+                            "kind": "enum",
+                            "values": [
+                              "tcp",
+                              "udp",
+                              "icmp"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "description": {
+                    "required": false,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "firewall list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List firewall rules attached to the caller's private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "vpc_id": {
+            "type": "string"
+          },
+          "vm_id": {
+            "type": "string"
+          },
+          "tunnel_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "allow"
+                  ]
+                },
+                "source": {
+                  "type": "object",
+                  "properties": {
+                    "vmId": {
+                      "type": "string"
+                    },
+                    "vpcId": {
+                      "type": "string"
+                    },
+                    "tunnelId": {
+                      "type": "string"
+                    },
+                    "cidr": {
+                      "type": "string"
+                    },
+                    "public": {
+                      "type": "boolean"
+                    },
+                    "port": {
+                      "type": "integer"
+                    },
+                    "protocol": {
+                      "type": "string",
+                      "enum": [
+                        "tcp",
+                        "udp",
+                        "icmp"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "destination": {
+                  "type": "object",
+                  "properties": {
+                    "vmId": {
+                      "type": "string"
+                    },
+                    "vpcId": {
+                      "type": "string"
+                    },
+                    "tunnelId": {
+                      "type": "string"
+                    },
+                    "cidr": {
+                      "type": "string"
+                    },
+                    "public": {
+                      "type": "boolean"
+                    },
+                    "port": {
+                      "type": "integer"
+                    },
+                    "protocol": {
+                      "type": "string",
+                      "enum": [
+                        "tcp",
+                        "udp",
+                        "icmp"
+                      ]
+                    }
+                  },
+                  "additionalProperties": true
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "action",
+                "source",
+                "destination"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "rules"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "github.issue.comment": {
       "class": "mutation",
       "idempotency": "required",
@@ -19333,6 +20586,160 @@
         },
         "required": [
           "teams"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "network.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "networks": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "cidr": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "cidrV6": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
+                  "scope": {
+                    "required": true,
+                    "type": {
+                      "kind": "enum",
+                      "values": [
+                        "user",
+                        "team"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "vpc list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "cloud"
+      },
+      "docs": "List the caller-owned private Cloud networks.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "networks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "cidr": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "cidrV6": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "scope": {
+                  "type": "string",
+                  "enum": [
+                    "user",
+                    "team"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "cidr",
+                "cidrV6",
+                "scope"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "networks"
         ],
         "additionalProperties": true,
         "$defs": {}
@@ -25644,6 +27051,388 @@
             "additionalProperties": true
           }
         }
+      }
+    },
+    "tunnel.attach": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "network_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "network_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel attach",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Attach an owned WireGuard tunnel to an owned private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "tunnel.detach": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "network_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "network_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel detach",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Detach an owned WireGuard tunnel from an owned private network.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "network_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "network_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "tunnel.rotate-key": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "device",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "device_fingerprint": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "client_public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "tunnel_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "client_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "tunnel rotate-key",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "cloud"
+      },
+      "docs": "Rotate an owned tunnel's WireGuard public key without changing its address.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "device_fingerprint": {
+            "type": "string"
+          },
+          "client_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "device_fingerprint",
+          "client_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "tunnel_id": {
+            "type": "string"
+          },
+          "client_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tunnel_id",
+          "client_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "user.ensure": {

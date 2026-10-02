@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextTerminalFind
 
 /// Container the App embeds. Holds the current surface view (swapped on
 /// replay) and paints the terminal's background (its theme's, else the
@@ -49,6 +50,18 @@ public final class TerminalHostView: NSView {
         configObserver = NotificationCenter.default.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.needsLayout = true }
         }
+    }
+
+    /// Pins the session's find bar to the top-trailing corner, above the
+    /// surface and the status banner.
+    func attachFind(_ find: TerminalFindController) {
+        let bar = TerminalFindBarView(find: find)
+        addSubview(bar, positioned: .above, relativeTo: banner)
+        NSLayoutConstraint.activate([
+            bar.topAnchor.constraint(equalTo: topAnchor, constant: Metrics.panelInset),
+            bar.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.panelInset),
+            bar.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: Metrics.panelInset),
+        ])
     }
 
     /// The link status label over the terminal (hidden while connected).

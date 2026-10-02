@@ -1,10 +1,12 @@
 import type { AcpmuxRow } from "./model";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
+import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
-// method. The first call turns on measurement (acpmuxPerf.enabled); until
-// then the pane pays nothing for it.
+// method. The first measurement call turns on measurement (acpmuxPerf.enabled);
+// until then the pane pays nothing for it. openMenu opens a composer menu for
+// automation and captures.
 
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
@@ -15,6 +17,8 @@ export type AcpmuxDebug = {
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
+  /// Opens the composer menu labelled `label` and resolves once it has painted.
+  openMenu(label: string): Promise<Record<string, unknown>>;
 };
 
 const WARMUP_FRAMES = 30;
@@ -117,6 +121,17 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
       acpmuxPerf.enable();
       acpmuxPerf.typing.length = 0;
       return { keys: 0 };
+    },
+
+    // Not a measurement, so it leaves acpmuxPerf off.
+    async openMenu(label) {
+      if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
+      await nextFrame();
+      await nextFrame();
+      const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
+        (node) => node.dataset.menu === label,
+      );
+      return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
     },
   };
 }

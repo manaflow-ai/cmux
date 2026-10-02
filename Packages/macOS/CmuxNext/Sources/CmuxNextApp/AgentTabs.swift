@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -44,8 +45,14 @@ final class AgentTabStore {
     /// workspace, its daemon away) close once the live tree drops the pane.
     private var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// The app shortcuts every agent page shows, kept current on rebinds.
+    private var shortcuts = AgentPaneShortcuts()
+    private var shortcutObservation: Task<Void, Never>?
+    private weak var actionRegistry: ActionRegistry?
+    private var checkpointFocusTab: String?
 
-    init(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        actionRegistry = registry
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -77,6 +84,15 @@ final class AgentTabStore {
         customization.onChange = { [weak self] value in
             guard let self else { return }
             for view in views.values { view.customization = value }
+        }
+        shortcuts = AgentPaneShortcuts.read(registry)
+        // Rebinds in Settings or cmux.json reach every open page.
+        shortcutObservation = Task { [weak self] in
+            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+                guard let self else { return }
+                shortcuts = value
+                for view in views.values { view.shortcuts = value }
+            }
         }
     }
 
@@ -140,8 +156,10 @@ final class AgentTabStore {
         model.onJump = { [weak self] target, id in self?.newTabPages[key]?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
         model.onSetDefaultKind = { [weak self] kind in self?.newTabPages[key]?.handler.setDefaultKind(kind) }
+        model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
+        view.shortcuts = shortcuts
         views[key] = view
         customization.start()
         return view
@@ -151,6 +169,19 @@ final class AgentTabStore {
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[key] != nil }
+    /// Focus changes and the page's capability mirror update one registry fact.
+    func setCheckpointFocus(_ key: String?) {
+        checkpointFocusTab = key
+        publishCheckpointAvailability()
+    }
+    private func publishCheckpointAvailability() {
+        guard let registry = actionRegistry else { return }
+        let available = checkpointFocusTab.flatMap { views[$0] }?.model.checkpointAvailable == true
+        var next = registry.context
+        if available { next.insert(.checkpointCaptureAvailable) }
+        else { next.remove(.checkpointCaptureAvailable) }
+        if next != registry.context { registry.context = next }
+    }
 
     /// The tab closed: stop its page and forget it.
     func close(_ key: String) {

@@ -1412,343 +1412,343 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "room create",
+      "cli_name" : "space create",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarBackground",
         "profile"
       ],
-      "id" : "room.new",
+      "id" : "space.new",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room new-window",
+      "cli_name" : "space new-window",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.newWindow",
+      "id" : "space.newWindow",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room new-workspace",
+      "cli_name" : "space new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.newWorkspace",
+      "id" : "space.newWorkspace",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room rename",
+      "cli_name" : "space rename",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.rename",
+      "id" : "space.rename",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room set-color",
+      "cli_name" : "space set-color",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.setColor",
+      "id" : "space.setColor",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-grey",
+      "cli_name" : "space color-grey",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.grey",
+      "id" : "space.color.grey",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-blue",
+      "cli_name" : "space color-blue",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.blue",
+      "id" : "space.color.blue",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-red",
+      "cli_name" : "space color-red",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.red",
+      "id" : "space.color.red",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-yellow",
+      "cli_name" : "space color-yellow",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.yellow",
+      "id" : "space.color.yellow",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-green",
+      "cli_name" : "space color-green",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.green",
+      "id" : "space.color.green",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-pink",
+      "cli_name" : "space color-pink",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.pink",
+      "id" : "space.color.pink",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-purple",
+      "cli_name" : "space color-purple",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.purple",
+      "id" : "space.color.purple",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-cyan",
+      "cli_name" : "space color-cyan",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.cyan",
+      "id" : "space.color.cyan",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "familyMember",
-      "cli_name" : "room color-orange",
+      "cli_name" : "space color-orange",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.color.orange",
+      "id" : "space.color.orange",
       "mcp" : "familyMember",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room clear-color",
+      "cli_name" : "space clear-color",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.clearColor",
+      "id" : "space.clearColor",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room set-icon",
+      "cli_name" : "space set-icon",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.setIcon",
+      "id" : "space.setIcon",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room clear-icon",
+      "cli_name" : "space clear-icon",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.clearIcon",
+      "id" : "space.clearIcon",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room set-defaults",
+      "cli_name" : "space set-defaults",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.setDefaults",
+      "id" : "space.setDefaults",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room delete",
+      "cli_name" : "space delete",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.delete",
+      "id" : "space.delete",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room move-left",
+      "cli_name" : "space move-left",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.moveLeft",
+      "id" : "space.moveLeft",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room move-right",
+      "cli_name" : "space move-right",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.moveRight",
+      "id" : "space.moveRight",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room move",
+      "cli_name" : "space move",
       "context_menu" : "dragGesture",
       "context_menus" : [
 
       ],
-      "id" : "room.move",
+      "id" : "space.move",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "room next",
+      "cli_name" : "space next",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
-      "id" : "room.next",
+      "id" : "space.next",
       "mcp" : "focusMove",
       "palette" : "offered"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "room previous",
+      "cli_name" : "space previous",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
-      "id" : "room.previous",
+      "id" : "space.previous",
       "mcp" : "focusMove",
       "palette" : "offered"
     },
     {
       "cli" : "focusMove",
-      "cli_name" : "room select-1-9",
+      "cli_name" : "space select-1-9",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
-      "id" : "room.selectByNumber",
+      "id" : "space.selectByNumber",
       "mcp" : "focusMove",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room switch",
+      "cli_name" : "space switch",
       "context_menu" : "focusMove",
       "context_menus" : [
 
       ],
-      "id" : "room.switch",
+      "id" : "space.switch",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace move-to-room",
+      "cli_name" : "workspace move-to-space",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
       ],
-      "id" : "workspace.moveToRoom",
+      "id" : "workspace.moveToSpace",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace duplicate-to-room",
+      "cli_name" : "workspace duplicate-to-space",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceRow"
       ],
-      "id" : "workspace.duplicateToRoom",
+      "id" : "workspace.duplicateToSpace",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "workspace-group move-to-room",
+      "cli_name" : "workspace-group move-to-space",
       "context_menu" : "offered",
       "context_menus" : [
         "workspaceGroup"
       ],
-      "id" : "workspaceGroup.moveToRoom",
+      "id" : "workspaceGroup.moveToSpace",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room set-theme",
+      "cli_name" : "space set-theme",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.setTheme",
+      "id" : "space.setTheme",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "room clear-theme",
+      "cli_name" : "space clear-theme",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "room.clearTheme",
+      "id" : "space.clearTheme",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -5020,23 +5020,23 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "browser-profile set-room-default",
+      "cli_name" : "browser-profile set-space-default",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "browserProfile.setRoomDefault",
+      "id" : "browserProfile.setSpaceDefault",
       "mcp" : "offered",
       "palette" : "offered"
     },
     {
       "cli" : "offered",
-      "cli_name" : "browser-profile clear-room-default",
+      "cli_name" : "browser-profile clear-space-default",
       "context_menu" : "offered",
       "context_menus" : [
         "profile"
       ],
-      "id" : "browserProfile.clearRoomDefault",
+      "id" : "browserProfile.clearSpaceDefault",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -5624,6 +5624,28 @@
       "palette" : "offered"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-continue-in",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.continueIn",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action agent-pane-create-checkpoint",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "id" : "agentPane.createCheckpoint",
+      "mcp" : "guiOnly",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "action agent-pane-search-chats",
       "context_menu" : "noTargetSurface",
@@ -5922,6 +5944,193 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud ssh",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudSSH",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud exec",
+      "context_menu" : "noTargetSurface",
+      "context_menus" : [
+
+      ],
+      "id" : "cloudExec",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud files-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFilesList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud file-read",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFileRead",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud file-write",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFileWrite",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud file-mkdir",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFileMkdir",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud file-remove",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFileRemove",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud file-stat",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFileStat",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud prepare-scp",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudPrepareSCP",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud tunnel-attach",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudTunnelAttach",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud tunnel-detach",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudTunnelDetach",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud tunnel-rotate-key",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudTunnelRotateKey",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud network-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudNetworkList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFirewallList",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-get",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFirewallGet",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-create",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFirewallCreate",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud firewall-delete",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudFirewallDelete",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud new-terminal-on-machine",
       "context_menu" : "offered",
       "context_menus" : [
@@ -5961,6 +6170,28 @@
         "cloudMachine"
       ],
       "id" : "cloudKillMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud pause-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudPauseMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud resume-machine",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "cloudResumeMachine",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -6005,6 +6236,17 @@
         "cloudMachine"
       ],
       "id" : "cloudResizeMachine",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud delete-snapshot",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "palette.cloud.deleteSnapshot",
       "mcp" : "offered",
       "palette" : "offered"
     },
@@ -6666,6 +6908,17 @@
       ],
       "id" : "appearance.titlebar.standard",
       "mcp" : "systemChange",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "settings customize-appearance",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "appearance.customize",
+      "mcp" : "guiOnly",
       "palette" : "offered"
     },
     {
@@ -7747,12 +8000,12 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "sidebar toggle-section-room",
+      "cli_name" : "sidebar toggle-section-space",
       "context_menu" : "offered",
       "context_menus" : [
         "sidebarSection"
       ],
-      "id" : "sidebar.section.toggleRoomScope",
+      "id" : "sidebar.section.toggleSpaceScope",
       "mcp" : "offered",
       "palette" : "offered"
     },

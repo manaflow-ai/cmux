@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// The Settings window's sections, in sidebar order. The raw value is the
@@ -16,7 +17,7 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
         case .keyboard: SettingsText.text("settings.section.keyboard", "Keyboard")
         case .notifications: SettingsText.text("settings.section.notifications", "Notifications")
         case .accounts: SettingsText.text("settings.section.accounts", "Accounts")
-        case .rooms: SettingsText.text("settings.section.rooms", "Rooms & Profiles")
+        case .rooms: SettingsText.text("settings.section.rooms", "Spaces & Profiles")
         case .machines: SettingsText.text("settings.section.machines", "Machines")
         case .advanced: SettingsText.text("settings.section.advanced", "Advanced")
         }
@@ -41,7 +42,11 @@ public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterabl
 
 /// Localized text of the settings schema (Localizable.xcstrings in this module).
 nonisolated enum SettingsText {
-    static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+    static func text(
+        _ key: StaticString,
+        _ value: String.LocalizationValue,
+        strings: ModuleResourceBundle = .settings
+    ) -> String {
+        strings.text(key, defaultValue: value)
     }
 }

@@ -24,12 +24,24 @@ public final class AgentPaneView: NSView {
             if customization != oldValue { applyCustomization() }
         }
     }
+    /// The app shortcuts the page shows (``AgentPaneShortcuts``), pushed
+    /// when a rebind changes them, after each load, and on the handshake.
+    public var shortcuts = AgentPaneShortcuts() {
+        didSet {
+            if shortcuts != oldValue { applyShortcuts() }
+        }
+    }
     private let navigation = AgentPaneNavigation()
     /// The composer's mic; nothing runs until the user starts it.
     let dictation: AgentPaneDictation
     private var crashReloads = AgentPaneCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     private var crashNotice: NSView?
+    /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
+    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
+    private var motionObservation: Task<Void, Never>?
+    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -86,6 +98,25 @@ public final class AgentPaneView: NSView {
         webView.navigationDelegate = navigation
         addSubview(webView)
         source.load(into: webView)
+        observeMotion()
+    }
+
+    private func observeMotion() {
+        motionObservation = Task { [weak self] in
+            for await _ in Observations({ Motion.speed }) {
+                guard let self else { return }
+                self.applyTheme()
+            }
+        }
+        // Reduce Motion is not observable through Observation.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
+        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
+            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
     }
 
     @available(*, unavailable)
@@ -182,6 +213,18 @@ public final class AgentPaneView: NSView {
         webView.evaluateJavaScript("window.cmuxAcpmuxBridge?.command?.(\"searchChats\");", completionHandler: nil)
     }
 
+    /// Opens the frontend's Continue in… chooser. The chooser owns target
+    /// selection and preparation; native actions do not create a second
+    /// handoff pipeline.
+    public func showContinueIn() {
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"continueIn\");")
+    }
+    /// Palette and page buttons enter the same inline checkpoint review.
+    public func showCreateCheckpoint() {
+        guard model.checkpointAvailable else { return }
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");")
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.
@@ -192,6 +235,12 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        motionObservation?.cancel()
+        motionObservation = nil
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
         dictation.close()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
         webView.navigationDelegate = nil
@@ -295,6 +344,12 @@ public final class AgentPaneView: NSView {
     func replayCustomization() {
         guard !customization.isEmpty else { return }
         applyCustomization()
+    }
+
+    /// Pushes ``shortcuts`` to the page.
+    func applyShortcuts() {
+        guard let script = shortcuts.script() else { return }
+        evaluateScript(script)
     }
 
     /// Pushes this view's scope tokens to the page (and to the area WebKit

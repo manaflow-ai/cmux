@@ -14,6 +14,7 @@ const dom = new JSDOM(
     "./conversation/conversation.css",
     "./changes/changes.css",
     "./composerControls.css",
+    "./composerStates.css",
   ]
     .map(css)
     .join("\n")}</style><div id=root></div>`,
@@ -28,6 +29,7 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "customElements",
     "Node",
+    "MutationObserver",
     "ResizeObserver",
     "IS_REACT_ACT_ENVIRONMENT",
   ].map((key) => [key, globals[key]]),
@@ -39,6 +41,7 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
   ResizeObserver: class {
     observe() {}
     unobserve() {}

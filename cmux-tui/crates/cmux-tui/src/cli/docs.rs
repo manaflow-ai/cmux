@@ -1,12 +1,13 @@
 //! Progressive, catalog-backed documentation for agents and scripts.
 
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::sync::OnceLock;
 
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{OutputMode, UsageError};
+use super::{GlobalArgs, OutputMode, UsageError};
 
 const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
@@ -15,6 +16,28 @@ const CATALOG_JSON: &str =
 pub(super) struct Plan {
     pub(super) query: String,
     pub(super) output: OutputMode,
+}
+
+/// Claims the local `docs` command before the resource parser sees it.
+pub(super) fn command(
+    args: &[String],
+    global: GlobalArgs,
+) -> Result<Option<super::command::ParsedCommand>, UsageError> {
+    if args.first().map(String::as_str) != Some("docs") {
+        return Ok(None);
+    }
+    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+        return Ok(Some(super::command::ParsedCommand::Help(Some("docs".to_owned()))));
+    }
+    Ok(Some(super::command::ParsedCommand::Docs(parse(&args[1..], global.output)?)))
+}
+
+pub(super) fn append_scope_help(scope: &str, text: Cow<'static, str>) -> Cow<'static, str> {
+    if has_scope_operations(scope) {
+        Cow::Owned(format!("{}\n{}", text, scope_help(scope)))
+    } else {
+        text
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -213,5 +236,16 @@ mod tests {
         assert!(has_scope_operations("sidebar"));
         assert!(has_scope_operations("pairing"));
         assert!(has_scope_operations("projection"));
+    }
+
+    #[test]
+    fn docs_search_preserves_json_output_mode() {
+        let plan = parse(
+            &["search".to_owned(), "browser".to_owned(), "navigate".to_owned()],
+            OutputMode::Json,
+        )
+        .unwrap();
+        assert_eq!(plan.query, "browser navigate");
+        assert_eq!(plan.output, OutputMode::Json);
     }
 }

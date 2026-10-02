@@ -2,13 +2,13 @@
   "actions.discovery.menuTitle": {
     "source": "Actions · cmux.json…",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
     }
   },
   "actions.discovery.dialogTitle": {
     "source": "Actions · cmux.json",
     "identityLocales": {
-      "fr": "The French UI uses the same established word for Actions; the translated catalog entry is still required."
+      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
     }
   },
   "mobile.ios106PairingUpdate.releaseLabel": {
@@ -233,28 +233,6 @@
   "agentSession.renderer.solid": {
     "class": "brand",
     "source": "Solid"
-  },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json…"
-        ]
-      }
-    }
-  },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
-    "identityLocales": {
-      "fr": {
-        "reason": "Actions is the standard French noun for this UI label, and cmux.json is an invariant filename. The translated French entry is still required.",
-        "values": [
-          "Actions · cmux.json"
-        ]
-      }
-    }
   },
   "agentSession.web.mentionMenuTitle": {
     "source": "Mention",
@@ -4297,16 +4275,21 @@
       "zh-Hans": "TextBox is the feature name; this locale already kept it untranslated before the beta suffix was removed."
     }
   },
-  "actions.discovery.menuTitle": {
-    "source": "Actions · cmux.json…",
+  "agentPane.handoff.plan": {
+    "source": "Plan",
     "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
+      "de": "Plan is the established German UI word for a plan; the translated catalog entry remains explicit.",
+      "fr": "Plan is the established French UI word for a plan; the translated catalog entry remains explicit.",
+      "es": "Plan is the established Spanish UI word for a plan; the translated catalog entry remains explicit."
     }
   },
-  "actions.discovery.dialogTitle": {
-    "source": "Actions · cmux.json",
+  "agentPane.checkpoint.base": {
+    "source": "Base",
     "identityLocales": {
-      "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
+      "fr": "Base is the established French UI word for a base; the translated catalog entry remains explicit.",
+      "es": "Base is the established Spanish UI word for a base; the translated catalog entry remains explicit.",
+      "it": "Base is the established Italian word for a base; the translated catalog entry remains explicit.",
+      "pt-BR": "Base is the established Portuguese word for a base; the translated catalog entry remains explicit."
     }
   }
 }

@@ -20,14 +20,42 @@ The first slice intentionally does not add an MCP server or a second SDK. It mea
 
 ## Execute slice
 
-The next slice should expose the existing generated TypeScript client through one runtime entry point:
+The execute prototype in the follow-up branch exposes the existing generated TypeScript client through one runtime entry point:
 
-- `cmux run <script.ts>` reads a bounded script from stdin or a named file and executes it with the generated client.
-- The MCP surface is exactly `cmux_docs` and `cmux_exec`; docs returns catalog excerpts, and exec runs the same script contract.
-- The runtime should be a pinned, embedded QuickJS or workerd isolate with no filesystem or network capability. The only host capability is the authenticated cmux socket, and every operation still passes the catalog's existing class, selector and mutation gating. The CLI and MCP paths must share the same permission check.
+- `cmux run <script.ts>` dispatches through `cmux-code-mode-runner`. The prototype runs Bun in a Linux `bwrap` namespace with no host network, no host home, read-only runtime and source mounts, a tmpfs for transient writes, and one explicitly bound cmux Unix socket. It fails closed when bwrap is unavailable; a macOS sandbox profile is a follow-up before shipping the command in the app bundle.
+- The MCP surface is exactly `cmux_docs` and `cmux_exec`; docs returns catalog excerpts, and exec writes a bounded temporary script then invokes the same sandbox runner. Both paths use the generated TypeScript Node client and the same authenticated socket.
+- The runtime has no ambient host filesystem or network capability. Every operation still passes the catalog's existing class, selector and mutation gating. The CLI and MCP paths share the runner and permission boundary.
 - Prefer the existing generated TypeScript SDK as the only public API. Regenerate its operation methods and declarations from the catalog rather than hand-writing a second client. The SDK and catalog permission contract are shared with `automations-runtime.md`; the interactive `cmux run` executor may use the same pinned workerd runtime or a smaller QuickJS host only if that host implements the exact same capability boundary and reviewable policy.
 
 A first runtime prototype should prefer the pinned workerd path already being evaluated by `automations-runtime.md`; use QuickJS only if the existing build and embedding path can keep the binary and policy surface smaller while preserving TypeScript support. Do not allow ambient `fs`, `net`, child processes or dynamic imports.
+
+## Catalog extension proposal: cloud and CUA
+
+The execute slice keeps one `cmux.protocol/2` socket and one typed resource
+catalog. Cloud and CUA must join that path through owner relays; adding names
+to the JSON catalog alone would make discovery disagree with the Rust enum,
+router, result validation and server dispatch.
+
+Cloud already has a separate generated catalog at
+`backend/catalog/cloud-operations.json` and a typed client under
+`backend/packages/protocol`. The cloud follow-up should add a host-owned
+broker that obtains credentials outside the sandbox, translates the merged
+catalog envelope to the cloud wire protocol, and returns typed results. The
+broker should first cover the cataloged cloud control-plane reads and
+mutations. Cloud VM lifecycle operations such as pause and resume need their
+own catalog entries and owner decision because the current `/api/vm` client is
+outside that catalog.
+
+CUA remains a later relay. The CUA host owns its authenticated socket and
+session credentials. The cmux-tui resource service should route typed `cua.*`
+operations to that owner before code mode exposes them. Candidate groups are
+session start/end and reads, timeline/frame reads, and the existing act/observe
+families. User-only stop, pause, resume and policy operations stay excluded
+from agent code mode unless the owner grants them explicitly.
+
+Until those relays land, `cmux run` and `cmux_exec` expose only the embedded
+cmux-tui catalog. A script must not open a second cloud or CUA socket, and the
+sandbox must not receive cloud bearer tokens or CUA launch credentials.
 
 ## Measurement
 
