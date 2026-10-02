@@ -20,8 +20,9 @@ extension ScreenContentView {
         let height = StripScrollbarView.bandHeight
         let band = CGRect(x: uncovered.minX + inset, y: bounds.height - height, width: max(0, uncovered.width - inset * 2), height: height)
         let offset = scroll.value
-        // Only scrolling flashes it (a spring step, a gesture, the wheel, the
-        // scrollbar); a resize or layout change that moves the offset does not.
+        // Only scrolling flashes it (a spring step or a reveal that snapped in
+        // its place, a gesture, the wheel, the scrollbar); a resize or layout
+        // change that moves the offset does not.
         let scrolled = scrollbarFlash && (scrollbarOffset.map { abs($0 - offset) > 0.25 } ?? true)
         scrollbarFlash = false
         scrollbarOffset = offset

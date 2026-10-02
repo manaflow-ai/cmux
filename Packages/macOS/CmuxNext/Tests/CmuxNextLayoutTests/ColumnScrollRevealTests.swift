@@ -133,6 +133,25 @@ struct ColumnScrollRevealTests {
         #expect(state.spring.value == 832)
     }
 
+    /// A snapped reveal reports the jump so the strip scrollbar shows as it
+    /// would for the spring's frames; an animated one runs frames instead.
+    @Test func aSnappedRevealReportsTheJump() {
+        var snapped = settledState(wide3, focused: "p0")
+        #expect(snapped.reduce(.sync(wide3, focused: "p2", source: .keyboard, animated: false)).snapped)
+        var animated = settledState(wide3, focused: "p0")
+        let effects = animated.reduce(.sync(wide3, focused: "p2", source: .keyboard, animated: true))
+        #expect(!effects.snapped)
+        #expect(effects.needsFrames)
+    }
+
+    @Test func aSyncThatKeepsTheOffsetReportsNoJump() {
+        // Every column fits: focusing another one moves nothing.
+        let strip = makeStrip([300, 300, 300])
+        var state = settledState(strip, focused: "p0")
+        #expect(!state.reduce(.sync(strip, focused: "p1", source: .keyboard, animated: false)).snapped)
+        #expect(!state.reduce(.sync(strip, focused: "p1", source: .keyboard, animated: false)).snapped)
+    }
+
     @Test func centerRequestCentersOnce() {
         var state = settledState(makeStrip([400, 400, 400, 400]), focused: "p0")
         state.reduce(.center("p1", animated: false))

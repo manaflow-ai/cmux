@@ -118,31 +118,46 @@ struct StickyColumnViewTests {
         #expect(abs((widths.first ?? 0) - 398.0 / 994.0) < 0.002)
     }
 
-    /// Runs with Reduce Motion both on and off: the Blacksmith macOS 26
-    /// runners have it on, where scrolls snap without a frame (#16607).
-    /// The test never awaits, so the override can't leak into another
-    /// main-actor test.
-    @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) {
+    /// Runs with Reduce Motion off and on: with it on (as on the Blacksmith
+    /// macOS 26 runners) the focus reveal snaps instead of springing, and
+    /// the `auto` thumb must show either way (#16607).
+    @Test(arguments: [false, true]) func theScrollbarShowsOnScrollAndHidesWhenOff(reduceMotion: Bool) async {
         Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = nil }
         let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
-        // A track click: scrolls the strip and shows the thumb whether it
-        // springs or snaps. The `auto` fade waits on makeRoot's manual
-        // clock, which never advances.
-        screen.page(to: screen.geometry.maxOffset)
+        view.model.focus("c")
+        await settle { screen.scroll.target > 0 }
         runToRest(view)
-        #expect(screen.scroll.value == screen.geometry.maxOffset)
+        // The `auto` fade waits on makeRoot's manual clock, which never advances.
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.
         #expect((report?.band.maxX ?? .infinity) <= 702)
         #expect(report?.thumb != nil)
         view.model.stripScrollbarOverride = .off
-        screen.updateScrollbar()
+        await settle { screen.scrollbar?.isHidden == true }
         #expect(screen.scrollbar?.isHidden == true)
+    }
+
+    /// A sync that leaves the offset where it is, and a window resize, keep
+    /// the `auto` thumb hidden.
+    @Test(arguments: [false, true]) func aSyncThatKeepsTheOffsetDoesNotShowTheScrollbar(reduceMotion: Bool) {
+        Motion.reduceMotionOverride = reduceMotion
+        defer { Motion.reduceMotionOverride = nil }
+        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
+        defer { window.close() }
+        let screen = view.screenViews["s"]!
+        screen.syncScroll(focused: "a", source: .programmatic, mode: .never, animated: !reduceMotion)
+        runToRest(view)
+        #expect(screen.scroll.value == 0)
+        #expect(screen.scrollbar?.isShown == false)
+        window.setContentSize(NSSize(width: 900, height: 600))
+        view.layoutSubtreeIfNeeded()
+        runToRest(view)
+        #expect(screen.scrollbar?.isShown == false)
     }
 
     @Test func noScrollbarWhenTheColumnsFit() {

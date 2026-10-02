@@ -11,9 +11,12 @@ extension ScreenContentView {
     }
 
     /// Feeds the current layout, geometry and focus to the reducer. Returns
-    /// true if the spring needs frames.
+    /// true if the spring needs frames. A reveal that snaps (animation off,
+    /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
+    /// replaces; `showsScrollbarOnSnap: false` keeps a window resize quiet.
     @discardableResult
-    func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true) -> Bool {
+    func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
+                    showsScrollbarOnSnap: Bool = true) -> Bool {
         lastFocused = focused
         guard let strip else {
             scrollState = ColumnScrollState()
@@ -22,7 +25,9 @@ extension ScreenContentView {
         }
         scrollState.mode = mode
         let animate = animated && !context.reduceMotion && bounds.width > 0
-        return apply(scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals)))
+        let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals))
+        if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
+        return apply(effects)
     }
 
     /// niri `center-column`. Returns true if the spring needs frames.
