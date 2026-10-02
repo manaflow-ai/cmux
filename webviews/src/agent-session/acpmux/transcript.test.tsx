@@ -1644,7 +1644,7 @@ describe("acpmux turn diff", () => {
       // Last turn comes from the transcript: nothing to refresh and no git patches to copy.
       await click(options);
       expect(options.getAttribute("aria-expanded")).toBe("true");
-      expect(rows().map((item) => [item.textContent, item.disabled])).toEqual([
+      expect(rows().map((item) => [item.textContent, item.getAttribute("aria-disabled") === "true"])).toEqual([
         ["Refresh", true],
         ["Word wrap", false],
         ["Switch to split diff", false],
@@ -1652,6 +1652,13 @@ describe("acpmux turn diff", () => {
         ["Copy git apply command", true],
       ]);
       expect(document.activeElement).toBe(row("Word wrap"));
+      // A disabled row is still in the menu for the keyboard and a screen reader, and does nothing.
+      await key(document.activeElement!, "ArrowUp");
+      expect(document.activeElement).toBe(row("Refresh"));
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect([rows().length, asked.length]).toEqual([5, 0]);
+      await key(document.activeElement!, "ArrowDown");
       // A row runs the same toggle as its toolbar button, and the menu then names the way back.
       await click(row("Word wrap"));
       expect(rows()).toEqual([]);
