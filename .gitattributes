@@ -39,6 +39,9 @@ cmux.xcodeproj/project.pbxproj merge=pbxproj-v1
 # CI's --check steps fail until it has. The driver command is `true`, a git
 # no-op that runs no checked-out code. Register it with
 # scripts/install-git-hooks.sh. GitHub ignores merge drivers, so a PR still
-# shows the conflict until its branch is merged locally.
+# shows the conflict until its branch is merged locally. The driver runs no
+# code, but it does keep one side: a branch that names another path here
+# would have that path's incoming changes dropped when a configured clone
+# merges into it. Review additions to these lines like a revert.
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html merge=cmux-generated-v1
 Resources/markdown-viewer/webviews-app/** merge=cmux-generated-v1

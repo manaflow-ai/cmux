@@ -23,7 +23,7 @@ Only Debug and tagged builds read the variable; Release always loads the bundled
 
 ## Merging feat-cmux-next
 
-The shipped page and the webviews app bundle are committed build output, so two branches that each rebuilt them always collide. With the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies instead of stopping on them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, rebuilds both bundles and stages them. CI's `--check` steps fail until it has run. GitHub ignores merge drivers, so the PR page still reports the conflict until the merge is pushed.
+The shipped page and the webviews app bundle are committed build output, so two branches that each rebuilt them always collide. With the clone's merge drivers registered (`./scripts/install-git-hooks.sh`, run by `setup.sh`), `git merge origin/feat-cmux-next` keeps this branch's copies instead of stopping on them. Resolve any source conflicts, then run `./scripts/cmux-next/regenerate-web-bundles.sh`, which syncs `node_modules` to the merged lockfile, rebuilds both bundles and stages them. CI's `--check` steps fail until it has run. GitHub ignores merge drivers, so the PR page still reports the conflict until the merge is pushed. Rebase, cherry-pick and `git stash pop` use the driver too, and in a rebase "ours" is the upstream, so each replayed commit loses its bundle change: run the script and commit after those as well.
 
 ## Comparing against Codex
 
