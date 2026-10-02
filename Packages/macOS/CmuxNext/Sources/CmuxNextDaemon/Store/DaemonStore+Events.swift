@@ -230,11 +230,11 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, to: workspaces); return .none
-        case .bookmarksChanged, .conversationChanged, .conversationTyping:
+        case .bookmarksChanged, .conversationChanged, .conversationTyping, .unknown: // .unknown: `apps-*` events of apps-v1
             sideEvents.deliver(event)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client, .unknown:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
             return .none
         }
     }
