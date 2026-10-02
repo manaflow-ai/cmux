@@ -84,9 +84,11 @@ const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// Rows are at most 760px wide, inside 18px side gutters (`.acpmux-row` in styles.css).
-const MAX_ROW_WIDTH = 760;
-export const transcriptRowWidth = (paneWidth: number) => Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 36));
+/// Rows are at most 736px wide, inside 26.5px side gutters (`.acpmux-row` in styles.css):
+/// Codex's transcript column.
+const MAX_ROW_WIDTH = 736;
+const ROW_GUTTER = 26.5;
+export const transcriptRowWidth = (paneWidth: number) => Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 2 * ROW_GUTTER));
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {

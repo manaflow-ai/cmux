@@ -12,11 +12,24 @@ public struct ColumnSnapshot: Sendable, Hashable, Decodable {
     /// Fraction of the frontend viewport width.
     public var width: Double
     public var layout: LayoutNode
+    /// Pinned to a viewport edge; nil scrolls (`sticky-columns-v1`).
+    public var sticky: StickySnapshot?
 
-    public init(id: ColumnID, width: Double, layout: LayoutNode) {
+    public init(id: ColumnID, width: Double, layout: LayoutNode, sticky: StickySnapshot? = nil) {
         self.id = id
         self.width = width
         self.layout = layout
+        self.sticky = sticky
+    }
+
+    enum CodingKeys: String, CodingKey { case id, width, layout, sticky }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(ColumnID.self, forKey: .id)
+        width = try c.decode(Double.self, forKey: .width)
+        layout = try c.decode(LayoutNode.self, forKey: .layout)
+        sticky = try? c.decodeIfPresent(StickySnapshot.self, forKey: .sticky)
     }
 }
 
