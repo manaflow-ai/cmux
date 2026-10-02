@@ -43,9 +43,9 @@ import PackageDescription
 //     handshake; the page talks to acpmux itself; no daemon)
 //   CmuxNextAgentActivity -> Design (Agent activity pane: computer use sessions, timeline, prototype layouts;
 //     a projection of the CUA host; no daemon; the App supplies the source; plans/cmux-next/computer-use.md)
-//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, JavaScriptCore
-//     prototype engine, prototype registry, App Store window; no daemon; the App supplies the
-//     operation sink; plans/cmux-next/app-platform.md)
+//   CmuxNextApps -> Design (app platform: manifest model, scene store + native renderer, the apps-v1
+//     client (install mirror + intent log, scene streams), App Store window; no daemon; the App
+//     supplies the AppsTransport; plans/cmux-next/app-platform.md)
 //   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
@@ -321,11 +321,10 @@ let package = Package(
             swiftSettings: uiSwiftSettings
         ),
         // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
-        // model, the scene store and native renderer, the JavaScriptCore
-        // prototype engine (DEV) that runs the engine-neutral runtime synced
-        // from cmux-tui/crates/cmux-app-host by
-        // scripts/cmux-next/sync-app-runtime.sh, the prototype app registry
-        // and the App Store window. The App supplies the operation sink.
+        // fields the UI renders, the scene store and native renderer, the
+        // client of the daemon's app supervisor (`apps-v1`) and the App Store
+        // window. The App supplies the transport; scopes.json and the sample
+        // manifests are synced by scripts/cmux-next/sync-app-runtime.sh.
         .target(
             name: "CmuxNextApps",
             dependencies: ["CmuxNextDesign"],

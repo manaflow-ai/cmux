@@ -14,22 +14,35 @@ nonisolated enum AppsStrings {
     static var noMatches: String { t("store.empty.noMatches", "No apps match") }
     static var noneInstalled: String { t("store.empty.noneInstalled", "No apps installed") }
     static var selectApp: String { t("store.empty.select", "Select an app") }
-    static var loadFailed: String { t("store.error.load", "Could not load the store") }
-    static var prototypeEngine: String { t("store.prototype.label", "Prototype engine") }
-    static var prototypeHelp: String {
-        t("store.prototype.help", "Apps run in-process in JavaScriptCore. Only first-party and local apps load.")
+    static var nothingListed: String { t("store.empty.disconnected", "Apps appear when cmux-tui is connected") }
+    static var unavailableHelp: String { t("store.disconnected.help", "Nothing can change until then.") }
+
+    /// Why the app supervisor cannot be reached (store banner, app sections).
+    static func unavailable(_ reason: AppsUnavailableReason) -> String {
+        switch reason {
+        case .needsNewerDaemon: t("store.disconnected.needsNewer", "Needs a newer cmux-tui")
+        case .notConnected: t("store.disconnected.notConnected", "cmux-tui is not connected")
+        }
     }
 
     static var install: String { t("store.action.install", "Install") }
     static var remove: String { t("store.action.remove", "Remove") }
     static var enabled: String { t("store.action.enabled", "Enabled") }
-    static var reload: String { t("store.action.reload", "Reload") }
+    static var hide: String { t("store.action.hide", "Hide") }
+    static var show: String { t("store.action.show", "Show") }
     static var logs: String { t("store.action.logs", "Logs") }
     static var hideLogs: String { t("store.action.hideLogs", "Hide Logs") }
     static var openRepository: String { t("store.action.repository", "Repository") }
     static var installedBadge: String { t("store.badge.installed", "Installed") }
     static var disabledBadge: String { t("store.badge.disabled", "Disabled") }
     static var localBadge: String { t("store.badge.local", "Local") }
+    static var hiddenBadge: String { t("store.badge.hidden", "Hidden") }
+    static var installedForEveryone: String { t("store.badge.default", "Installed for everyone") }
+    static var installedForEveryoneHelp: String {
+        t("store.badge.defaultHelp", "cmux installs this app for everyone. You can disable or hide it and revoke its scopes.")
+    }
+    static var defaultScopesNote: String { t("store.grants.defaultNote", "Granted for everyone. Revoke any scope below.") }
+    static var crashed: String { t("store.host.crashed", "The app stopped unexpectedly") }
 
     static var permissions: String { t("store.detail.permissions", "Permissions") }
     static var optionalPermissions: String { t("store.detail.optional", "Optional") }
@@ -75,12 +88,11 @@ nonisolated enum AppsStrings {
         }
     }
 
-    static func contribution(_ kind: AppContribution.Kind) -> String {
-        switch kind {
-        case .sidebarSection: t("store.contribution.section", "Sidebar section")
-        case .statusItem: t("store.contribution.statusItem", "Status item")
-        case .command: t("store.contribution.command", "Command")
-        default: kind.rawValue
+    static func implementation(_ implementation: AppImplementation) -> String {
+        switch implementation.interface {
+        case AppImplementation.section: t("store.contribution.section", "Sidebar section")
+        case AppImplementation.status: t("store.contribution.statusItem", "Status item")
+        default: implementation.interface
         }
     }
 }

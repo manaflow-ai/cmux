@@ -2,7 +2,8 @@ public import CmuxNextDesign
 public import SwiftUI
 
 /// The App Store window's content: a toolbar row (Discover / Installed,
-/// search, prototype label) and the selected tab.
+/// search), the disconnected banner while the supervisor is unreachable,
+/// and the selected tab.
 public struct AppStoreRootView: View {
     let model: AppStoreModel
     @Environment(\.appSceneColors) private var colors
@@ -15,13 +16,14 @@ public struct AppStoreRootView: View {
         VStack(spacing: 0) {
             toolbar
             Rectangle().fill(colors.separator).frame(height: Borders.width(1))
+            if let reason = model.client.unavailableReason { AppsDisconnectedBanner(reason: reason) }
             switch model.tab {
             case .discover: AppDiscoverView(model: model)
             case .installed: AppInstalledView(model: model)
             }
         }
         .background(colors.background)
-        .onAppear { if model.listings.isEmpty { model.refresh() } }
+        .onAppear { model.refresh() }
     }
 
     private var toolbar: some View {
@@ -64,5 +66,27 @@ public struct AppStoreRootView: View {
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("appStore.tab.\(tab.rawValue)")
+    }
+}
+
+/// Why nothing can change: the supervisor is unreachable. Every control
+/// below is disabled; nothing queues.
+struct AppsDisconnectedBanner: View {
+    let reason: AppsUnavailableReason
+    @Environment(\.appSceneColors) private var colors
+
+    var body: some View {
+        HStack(spacing: Metrics.space2) {
+            Image(systemName: "bolt.horizontal").font(.system(size: 11))
+            Text(AppsStrings.unavailable(reason)).font(Font(Typography.bodyEmphasized))
+            Text(AppsStrings.unavailableHelp).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
+            Spacer()
+        }
+        .foregroundStyle(colors.secondary)
+        .padding(.horizontal, Metrics.space5)
+        .padding(.vertical, Metrics.space2)
+        .background(colors.hover)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("appStore.disconnected")
     }
 }

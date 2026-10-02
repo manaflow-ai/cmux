@@ -52,7 +52,9 @@ struct AppStoreBadge: View {
     }
 }
 
-/// Install or Remove for a listing (user gesture; never automation).
+/// Install or Remove for a listing (a user gesture in this window, origin
+/// `user`; never automation). A default first-party app is installed for
+/// everyone and has no Remove. Disabled while the supervisor is unreachable.
 struct AppInstallButton: View {
     let model: AppStoreModel
     let id: String
@@ -60,24 +62,32 @@ struct AppInstallButton: View {
     @Environment(\.appSceneColors) private var colors
 
     var body: some View {
-        let installed = model.state(of: id)?.isInstalled == true
-        Button {
-            busy = true
-            // task-owner: one install/remove from a button press
-            Task {
-                if installed { try? await model.remove(id) } else { try? await model.install(id) }
-                busy = false
+        let state = model.state(of: id)
+        if state?.isDefault == true {
+            AppStoreBadge(text: AppsStrings.installedForEveryone)
+                .help(AppsStrings.installedForEveryoneHelp)
+                .accessibilityIdentifier("appStore.default.\(id)")
+        } else {
+            let installed = state?.installed == true
+            Button {
+                busy = true
+                // task-owner: one install/remove from a button press
+                Task {
+                    if installed { try? await model.remove(id) } else { try? await model.install(id) }
+                    busy = false
+                }
+            } label: {
+                Text(installed ? AppsStrings.remove : AppsStrings.install)
+                    .font(Font(Typography.bodyEmphasized))
+                    .foregroundStyle(installed ? colors.danger : colors.primary)
+                    .padding(.horizontal, Metrics.space4)
+                    .padding(.vertical, Metrics.space1 + 1)
+                    .background(Capsule().fill(installed ? colors.hover : colors.selection))
             }
-        } label: {
-            Text(installed ? AppsStrings.remove : AppsStrings.install)
-                .font(Font(Typography.bodyEmphasized))
-                .foregroundStyle(installed ? colors.danger : colors.primary)
-                .padding(.horizontal, Metrics.space4)
-                .padding(.vertical, Metrics.space1 + 1)
-                .background(Capsule().fill(installed ? colors.hover : colors.selection))
+            .buttonStyle(.plain)
+            .disabled(busy || !model.canChange)
+            .opacity(model.canChange ? 1 : 0.45)
+            .accessibilityIdentifier("appStore.install.\(id)")
         }
-        .buttonStyle(.plain)
-        .disabled(busy)
-        .accessibilityIdentifier("appStore.install.\(id)")
     }
 }

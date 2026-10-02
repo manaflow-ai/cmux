@@ -132,6 +132,137 @@
         }
       }
     },
+    "store.action.hide" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hide"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إخفاء"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sakrij"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjul"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ausblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ocultar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Masquer"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nascondi"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "非表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "លាក់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "숨기기"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjul"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukryj"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ocultar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скрыть"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ซ่อน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gizle"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Сховати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ẩn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隐藏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "隱藏"
+          }
+        }
+      }
+    },
     "store.action.hideLogs" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -525,137 +656,6 @@
         }
       }
     },
-    "store.action.reload" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "إعادة تحميل"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ponovo učitaj"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Genindlæs"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Neu laden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reload"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Recargar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Recharger"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ricarica"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "再読み込み"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ផ្ទុកឡើងវិញ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "다시 로드"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Last inn på nytt"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wczytaj ponownie"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Recarregar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Перезагрузить"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "โหลดใหม่"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Yeniden yükle"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Перезавантажити"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Tải lại"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "重新载入"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "重新載入"
-          }
-        }
-      }
-    },
     "store.action.remove" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -918,6 +918,399 @@
         }
       }
     },
+    "store.action.show" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "إظهار"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikaži"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Einblenden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Afficher"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បង្ហាញ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "표시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Vis"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokaż"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostrar"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показать"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Göster"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Показати"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hiện"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "显示"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "顯示"
+          }
+        }
+      }
+    },
+    "store.badge.default" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Installed for everyone"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مثبّت للجميع"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Instalirano za sve"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Installeret for alle"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Für alle installiert"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Instalada para todos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Installée pour tous"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Installata per tutti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "全員にインストール済み"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានដំឡើងសម្រាប់គ្រប់គ្នា"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "모두에게 설치됨"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Installert for alle"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zainstalowana dla wszystkich"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Instalado para todos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Установлено для всех"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ติดตั้งสำหรับทุกคน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Herkes için yüklü"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Установлено для всіх"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã cài cho mọi người"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已为所有人安装"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已為所有人安裝"
+          }
+        }
+      }
+    },
+    "store.badge.defaultHelp" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux installs this app for everyone. You can disable or hide it and revoke its scopes."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يثبّت cmux هذا التطبيق للجميع. يمكنك تعطيله أو إخفاؤه وإلغاء صلاحياته."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux instalira ovu aplikaciju za sve. Možete je onemogućiti ili sakriti i opozvati njena ovlaštenja."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux installerer denne app for alle. Du kan deaktivere eller skjule den og tilbagekalde dens tilladelser."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux installiert diese App für alle. Du kannst sie deaktivieren oder ausblenden und ihre Berechtigungen widerrufen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux instala esta app para todos. Puedes desactivarla u ocultarla y revocar sus permisos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux installe cette app pour tous. Vous pouvez la désactiver ou la masquer et révoquer ses autorisations."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux installa questa app per tutti. Puoi disattivarla o nasconderla e revocarne i permessi."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux はこのアプリを全員にインストールします。無効化や非表示、権限の取り消しができます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ដំឡើងកម្មវិធីនេះសម្រាប់គ្រប់គ្នា។ អ្នកអាចបិទ ឬលាក់វា ហើយដកសិទ្ធិរបស់វាបាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 이 앱을 모두에게 설치합니다. 비활성화하거나 숨기고 권한을 철회할 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux installerer denne appen for alle. Du kan deaktivere eller skjule den og trekke tilbake tillatelsene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux instaluje tę aplikację dla wszystkich. Możesz ją wyłączyć lub ukryć i odebrać jej uprawnienia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux instala este app para todos. Você pode desativá-lo ou ocultá-lo e revogar as permissões."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux устанавливает это приложение для всех. Его можно отключить или скрыть и отозвать разрешения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ติดตั้งแอปนี้สำหรับทุกคน คุณปิดหรือซ่อนแอปและเพิกถอนสิทธิ์ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux bu uygulamayı herkes için yükler. Devre dışı bırakabilir, gizleyebilir ve izinlerini iptal edebilirsiniz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux встановлює цей застосунок для всіх. Його можна вимкнути чи сховати й відкликати дозволи."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux cài ứng dụng này cho mọi người. Bạn có thể tắt hoặc ẩn và thu hồi quyền của nó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 为所有人安装此应用。你可以停用或隐藏它，并撤销其权限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 為所有人安裝此 App。你可以停用或隱藏它，並撤銷其權限。"
+          }
+        }
+      }
+    },
     "store.badge.disabled" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1045,6 +1438,137 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "已停用"
+          }
+        }
+      }
+    },
+    "store.badge.hidden" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hidden"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "مخفي"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skriveno"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjult"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ausgeblendet"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oculta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Masquée"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nascosta"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "非表示"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "បានលាក់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "숨김"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Skjult"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukryta"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Oculto"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Скрыто"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ซ่อนอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Gizli"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приховано"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã ẩn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已隐藏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "已隱藏"
           }
         }
       }
@@ -2752,137 +3276,6 @@
         }
       }
     },
-    "store.contribution.command" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "أمر"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Naredba"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kommando"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Befehl"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Command"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Comando"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Commande"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Comando"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "コマンド"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ពាក្យបញ្ជា"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "명령"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kommando"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Polecenie"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Comando"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Команда"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "คำสั่ง"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Komut"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Команда"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Lệnh"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "命令"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "指令"
-          }
-        }
-      }
-    },
     "store.contribution.section" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4455,6 +4848,530 @@
         }
       }
     },
+    "store.disconnected.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing can change until then."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا يمكن تغيير أي شيء حتى ذلك الحين."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Do tada se ništa ne može mijenjati."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet kan ændres indtil da."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bis dahin lässt sich nichts ändern."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hasta entonces no se puede cambiar nada."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien ne peut changer d’ici là."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fino ad allora non si può cambiare nulla."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "それまで変更はできません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រហូតដល់ពេលនោះ មិនអាចផ្លាស់ប្តូរអ្វីបានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그때까지는 아무것도 변경할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting kan endres før da."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Do tego czasu nic nie można zmienić."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada pode ser alterado até lá."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "До тех пор ничего нельзя изменить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "จะเปลี่ยนแปลงอะไรไม่ได้จนกว่าจะถึงตอนนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O zamana kadar hiçbir şey değiştirilemez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Доти нічого не можна змінити."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể thay đổi gì cho đến lúc đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在此之前无法进行任何更改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "在此之前無法進行任何變更。"
+          }
+        }
+      }
+    },
+    "store.disconnected.needsNewer" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Needs a newer cmux-tui"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتطلب إصدارًا أحدث من cmux-tui"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Potreban je noviji cmux-tui"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kræver en nyere cmux-tui"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Benötigt ein neueres cmux-tui"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Requiere un cmux-tui más reciente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nécessite un cmux-tui plus récent"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Richiede un cmux-tui più recente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "新しい cmux-tui が必要です"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ត្រូវការ cmux-tui ថ្មីជាងនេះ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "최신 cmux-tui가 필요합니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Krever en nyere cmux-tui"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wymaga nowszego cmux-tui"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Requer um cmux-tui mais recente"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Нужна более новая версия cmux-tui"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ต้องใช้ cmux-tui เวอร์ชันใหม่กว่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Daha yeni bir cmux-tui gerekiyor"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Потрібна новіша версія cmux-tui"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cần cmux-tui mới hơn"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要更新版本的 cmux-tui"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "需要更新版本的 cmux-tui"
+          }
+        }
+      }
+    },
+    "store.disconnected.notConnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux-tui is not connected"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui غير متصل"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui nije povezan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui er ikke forbundet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui ist nicht verbunden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui no está conectado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui n’est pas connecté"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui non è connesso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui に接続されていません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui មិនបានភ្ជាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui가 연결되지 않음"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui er ikke tilkoblet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui nie jest połączony"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui não está conectado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui не подключен"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui ไม่ได้เชื่อมต่อ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui bağlı değil"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui не підключено"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui chưa kết nối"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui 未连接"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui 未連線"
+          }
+        }
+      }
+    },
+    "store.empty.disconnected" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apps appear when cmux-tui is connected"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تظهر التطبيقات عند اتصال cmux-tui"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aplikacije se pojavljuju kada je cmux-tui povezan"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apps vises, når cmux-tui er forbundet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apps erscheinen, wenn cmux-tui verbunden ist"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las apps aparecen cuando cmux-tui está conectado"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les apps apparaissent quand cmux-tui est connecté"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le app compaiono quando cmux-tui è connesso"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui に接続するとアプリが表示されます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "កម្មវិធីបង្ហាញនៅពេល cmux-tui បានភ្ជាប់"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux-tui가 연결되면 앱이 표시됩니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apper vises når cmux-tui er tilkoblet"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Aplikacje pojawią się po połączeniu z cmux-tui"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Os apps aparecem quando o cmux-tui está conectado"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Приложения появятся после подключения cmux-tui"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แอปจะแสดงเมื่อเชื่อมต่อ cmux-tui"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uygulamalar cmux-tui bağlandığında görünür"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Застосунки з’являться після підключення cmux-tui"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ứng dụng xuất hiện khi cmux-tui đã kết nối"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "连接 cmux-tui 后显示应用"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "連線 cmux-tui 後顯示 App"
+          }
+        }
+      }
+    },
     "store.empty.noMatches" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -4848,133 +5765,133 @@
         }
       }
     },
-    "store.error.load" : {
+    "store.grants.defaultNote" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Granted for everyone. Revoke any scope below."
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعذّر تحميل المتجر"
+            "value" : "ممنوحة للجميع. ألغِ أي صلاحية أدناه."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nije moguće učitati trgovinu"
+            "value" : "Dodijeljeno svima. Opozovite bilo koje ovlaštenje ispod."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kunne ikke indlæse butikken"
+            "value" : "Givet til alle. Tilbagekald en tilladelse nedenfor."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Store konnte nicht geladen werden"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not load the store"
+            "value" : "Für alle erteilt. Widerrufe unten einzelne Berechtigungen."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "No se pudo cargar la tienda"
+            "value" : "Concedido para todos. Revoca cualquier permiso abajo."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Impossible de charger la boutique"
+            "value" : "Accordé à tous. Révoquez une autorisation ci-dessous."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Impossibile caricare lo store"
+            "value" : "Concesso a tutti. Revoca qualsiasi permesso qui sotto."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ストアを読み込めませんでした"
+            "value" : "全員に許可済み。下で個別に取り消せます。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនអាចផ្ទុកហាងបានទេ"
+            "value" : "បានផ្តល់សម្រាប់គ្រប់គ្នា។ ដកសិទ្ធិណាមួយខាងក្រោម។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "스토어를 불러올 수 없음"
+            "value" : "모두에게 허용됨. 아래에서 권한을 철회하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kunne ikke laste inn butikken"
+            "value" : "Gitt til alle. Trekk tilbake en tillatelse nedenfor."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nie można wczytać sklepu"
+            "value" : "Przyznane wszystkim. Odbierz dowolne uprawnienie poniżej."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Não foi possível carregar a loja"
+            "value" : "Concedido a todos. Revogue qualquer permissão abaixo."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не удалось загрузить магазин"
+            "value" : "Выдано всем. Отзовите любое разрешение ниже."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ไม่สามารถโหลดสโตร์ได้"
+            "value" : "อนุญาตสำหรับทุกคน เพิกถอนสิทธิ์ใดก็ได้ด้านล่าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mağaza yüklenemedi"
+            "value" : "Herkese verildi. Aşağıdan istediğiniz izni iptal edin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Не вдалося завантажити магазин"
+            "value" : "Надано всім. Відкличте будь-який дозвіл нижче."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Không thể tải cửa hàng"
+            "value" : "Đã cấp cho mọi người. Thu hồi quyền bất kỳ bên dưới."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "无法加载商店"
+            "value" : "已为所有人授予。可在下方撤销任一权限。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "無法載入商店"
+            "value" : "已為所有人授予。可在下方撤銷任一權限。"
           }
         }
       }
@@ -5372,264 +6289,133 @@
         }
       }
     },
-    "store.prototype.help" : {
+    "store.host.crashed" : {
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The app stopped unexpectedly"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعمل التطبيقات داخل العملية في JavaScriptCore. لا تُحمَّل إلا التطبيقات الرسمية والمحلية."
+            "value" : "توقف التطبيق بشكل غير متوقع"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aplikacije rade u istom procesu u JavaScriptCore. Učitavaju se samo aplikacije prve strane i lokalne aplikacije."
+            "value" : "Aplikacija se neočekivano zaustavila"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Apps kører i processen i JavaScriptCore. Kun førsteparts- og lokale apps indlæses."
+            "value" : "Appen stoppede uventet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Apps laufen im Prozess in JavaScriptCore. Nur Erstanbieter- und lokale Apps werden geladen."
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apps run in-process in JavaScriptCore. Only first-party and local apps load."
+            "value" : "Die App wurde unerwartet beendet"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Las apps se ejecutan en el proceso con JavaScriptCore. Solo se cargan apps propias y locales."
+            "value" : "La app se detuvo inesperadamente"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Les apps s'exécutent dans le processus avec JavaScriptCore. Seules les apps first party et locales sont chargées."
+            "value" : "L’app s’est arrêtée de façon inattendue"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Le app girano nel processo in JavaScriptCore. Si caricano solo app di prima parte e locali."
+            "value" : "L’app si è arrestata in modo imprevisto"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "アプリはJavaScriptCore内で同一プロセスとして動作します。ファーストパーティとローカルのアプリのみ読み込まれます。"
+            "value" : "アプリが予期せず停止しました"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កម្មវិធីដំណើរការក្នុងដំណើរការតែមួយនៅក្នុង JavaScriptCore។ មានតែកម្មវិធីផ្លូវការ និងកម្មវិធីក្នុងម៉ាស៊ីនប៉ុណ្ណោះដែលត្រូវបានផ្ទុក។"
+            "value" : "កម្មវិធីបានឈប់ដោយមិនរំពឹងទុក"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "앱은 JavaScriptCore에서 프로세스 내로 실행됩니다. 자사 앱과 로컬 앱만 로드됩니다."
+            "value" : "앱이 예기치 않게 중지됨"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Apper kjører i prosessen i JavaScriptCore. Bare førsteparts- og lokale apper lastes inn."
+            "value" : "Appen stoppet uventet"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aplikacje działają w procesie w JavaScriptCore. Ładowane są tylko aplikacje własne i lokalne."
+            "value" : "Aplikacja nieoczekiwanie się zatrzymała"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Os apps rodam no mesmo processo no JavaScriptCore. Só apps próprios e locais são carregados."
+            "value" : "O app parou inesperadamente"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Приложения работают внутри процесса в JavaScriptCore. Загружаются только собственные и локальные приложения."
+            "value" : "Приложение неожиданно остановилось"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "แอปทำงานภายในโปรเซสเดียวกันใน JavaScriptCore โหลดเฉพาะแอปของผู้พัฒนาเองและแอปในเครื่องเท่านั้น"
+            "value" : "แอปหยุดทำงานโดยไม่คาดคิด"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Uygulamalar JavaScriptCore içinde süreç içinde çalışır. Yalnızca birinci taraf ve yerel uygulamalar yüklenir."
+            "value" : "Uygulama beklenmedik şekilde durdu"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Застосунки працюють усередині процесу в JavaScriptCore. Завантажуються лише власні та локальні застосунки."
+            "value" : "Застосунок несподівано зупинився"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ứng dụng chạy trong cùng tiến trình bằng JavaScriptCore. Chỉ tải ứng dụng của nhà phát triển chính và ứng dụng cục bộ."
+            "value" : "Ứng dụng đã dừng đột ngột"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "App 在 JavaScriptCore 中以进程内方式运行。仅加载第一方和本地 App。"
+            "value" : "应用意外停止"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "App 在 JavaScriptCore 中以行程內方式執行。僅載入第一方與本機 App。"
-          }
-        }
-      }
-    },
-    "store.prototype.label" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "محرّك تجريبي"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prototipni pokretač"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prototypemotor"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prototyp-Engine"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Prototype engine"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Motor de prototipo"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Moteur prototype"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Motore prototipo"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "プロトタイプエンジン"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ម៉ាស៊ីនគំរូ"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "프로토타입 엔진"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prototypemotor"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Silnik prototypowy"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Mecanismo de protótipo"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Прототипный движок"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "เอนจินต้นแบบ"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Prototip motoru"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Прототипний рушій"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Công cụ nguyên mẫu"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "原型引擎"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "原型引擎"
+            "value" : "App 意外停止"
           }
         }
       }
