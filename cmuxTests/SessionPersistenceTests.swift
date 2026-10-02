@@ -4263,7 +4263,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-
     func testClaudeResumeCommandStripsSpaceSeparatedQuotedCmuxNodeOptionsRestoreModuleInHomeWithSpace() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -4287,7 +4286,6 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             "/bin/sh -c " + shellQuotedForTest("'env' 'NODE_OPTIONS=--require=\"/Users/a b/lib/user \\\"preload\\\".cjs\"' \"$([ -x \"${CMUX_CLAUDE_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CLAUDE_WRAPPER_SHIM\" || printf claude)\" '--resume' 'claude-session-quoted-separate-node-options' '--model' 'sonnet'")
         )
     }
-
 
     func testOpenCodeWrapperResumeCommandAndUnsupportedOhMyLaunchers() {
         let direct = SessionRestorableAgentSnapshot(
