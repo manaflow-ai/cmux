@@ -14131,6 +14131,17 @@ extension Workspace: BonsplitDelegate {
                 return
             }
 
+            // Bonsplit selects a neighboring tab after every close. Preserve
+            // the tab the user was already using when an automation caller
+            // closes a different tab in the same pane, so cleanup of another
+            // agent cannot steal keyboard input.
+            if let selectedTabId = controller.selectedTab(inPane: pane)?.id,
+               selectedTabId != tab.id,
+               tabs.contains(where: { $0.id == selectedTabId }) {
+                postCloseSelectTabId[tab.id] = selectedTabId
+                return
+            }
+
             let target: TabID? = {
                 if idx + 1 < tabs.count { return tabs[idx + 1].id }
                 if idx > 0 { return tabs[idx - 1].id }
@@ -14532,10 +14543,11 @@ extension Workspace: BonsplitDelegate {
 
         if let selectTabId,
            bonsplitController.allPaneIds.contains(pane),
-           bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }),
-           bonsplitController.focusedPaneId == pane {
+           bonsplitController.tabs(inPane: pane).contains(where: { $0.id == selectTabId }) {
             bonsplitController.selectTab(selectTabId)
-            applyTabSelection(tabId: selectTabId, inPane: pane)
+            if bonsplitController.focusedPaneId == pane {
+                applyTabSelection(tabId: selectTabId, inPane: pane)
+            }
         } else if let focusedPane = bonsplitController.focusedPaneId,
                   let focusedTabId = bonsplitController.selectedTab(inPane: focusedPane)?.id {
             applyTabSelection(tabId: focusedTabId, inPane: focusedPane)
