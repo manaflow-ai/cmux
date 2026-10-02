@@ -1,5 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
+import { EffortPicker } from "./EffortPicker";
+import { t } from "./i18n";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -54,7 +56,6 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
     name: option.name || option.value,
   }));
   const model = models.find((choice) => choice.id === summary?.model);
-  const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   const usage = summary?.usage;
 
   return (
@@ -72,6 +73,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
             </>
           }
           sections={[{ choices: modes, current: mode?.id, onPick: onMode }]}
+          heading={t("approval.title")}
           align="start"
         />
       )}
@@ -103,17 +105,12 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
         />
       )}
       {effort && efforts.length > 0 && (
-        <Picker
-          label={PICKER_LABELS.effort}
-          className="acpmux-effort"
-          button={
-            <>
-              <span>{effortName ?? PICKER_LABELS.effort}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={[{ choices: efforts, current: effort.currentValue, onPick: (value) => onEffort(effort.id, value) }]}
-          align="end"
+        <EffortPicker
+          efforts={efforts}
+          current={effort.currentValue}
+          model={model?.name ?? summary?.model}
+          chevron={<ChevronIcon />}
+          onPick={(value) => onEffort(effort.id, value)}
         />
       )}
       {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
@@ -181,6 +178,7 @@ export function Picker({
   align,
   warnUnrestricted = false,
   returnFocus = true,
+  heading,
 }: {
   label: string;
   className: string;
@@ -190,6 +188,8 @@ export function Picker({
   warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
+  /// A question over the choices, as Codex's approval menu asks it.
+  heading?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -292,7 +292,12 @@ export function Picker({
       {/* A native select cannot hold descriptions, sections or the Codex look. */}
       {open && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={label}>
+        <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={heading ?? label}>
+          {heading && (
+            <div className="acpmux-menu-heading" aria-hidden="true">
+              {heading}
+            </div>
+          )}
           {sections.map((section, s) => {
             const titled = section.title && sections.length > 1;
             return (
