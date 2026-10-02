@@ -195,3 +195,29 @@ Debt removed on the way: in-app JSC engine (after 3), `registry.json` (after 3),
 | Remote desktop | host handles, a native streaming surface, input with origin user only, visible control indicator |
 
 Drag and drop: typed items `{kind: file|doc|diff|text|url|task, handle|value, display}`; targets declare accepted kinds; drops between hosts copy or move through `fs.copy` on the owners.
+
+## 13. Step 3 contract: the Rust app host (2026-10-02)
+
+Coordinator answers applied: default first-party apps come from a deployment list and get their required scopes without a consent sheet (visible and revocable in Settings); cards are the default store layout and section look; agents may hide and unhide apps, never install them until the actor stamp lands.
+
+### 13.1 Processes and owners
+- **App supervisor**: a module of the cmux daemon (`cmux-tui-core::apps`, new files only), capability `apps-v1`. Owns, per machine: the install mirror (local `apps.json` in the daemon state dir until the `UserDO` install record syncs down; same fields as V9), grants, scope checks against `scopes.json`, the app bundle cache, per-app KV storage (SQLite, one table per app), the egress gate for `net.fetch`, and the app host processes. It routes app calls to the daemon's own op dispatcher with `actor = app:<id>`, `on_behalf_of = <user>`, origin `script` (or `user` when a live gesture token is presented by a mutation).
+- **App host**: crate `cmux-app-host` (`cmux-tui/crates/cmux-app-host`, binary `cmux-app-host`), one process per running app, QuickJS-ng through rquickjs, embeds `js/dist/cmux-app-runtime.js`, implements the runtime ABI (`js/ABI.md`) natively. Spawned by the supervisor with one end of a socketpair (fd 3); JSON lines both ways; memory limit 32 MiB, interrupt deadline 250 ms per entry, at most 64 pending calls, drains the job queue after every entry point. macOS: `sandbox_init` profile denying network, exec and file reads outside the bundle; Linux: seccomp + Landlock. Idle stop after the last mount closes plus a one-shot timer (setting `apps.idleStopSeconds`, default 60).
+- **Clients** (macOS app, TUI later, iOS via relay): mirror installs and scene streams; render scenes natively and web panes; send user events. No engine, no registry, no grants in the client.
+
+### 13.2 Daemon commands (capability `apps-v1`)
+| cmd | params | result / events |
+| --- | --- | --- |
+| `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, manifest}]}` |
+| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; `installed`/grant changes require origin `user`; `hidden` any origin |
+| `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
+| `apps-unmount` | `{mount_id}` | — |
+| `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
+| `apps-run` | `{app, op, args, idempotency_key}` | runs a catalog op of the app (palette, CLI `cmux apps run`, MCP); waits for the result |
+| `apps-logs` | `{app, follow?}` | log lines; follow streams `apps-log` events |
+| events | `apps-changed {revision}` (install mirror), `apps-host {app, state: running|stopped|crashed, reason?}` | |
+
+Every mutation carries an idempotency key and ends with `request-settled` like other daemon ops (OWNERSHIP-PRINCIPLES).
+
+### 13.3 What is deleted in the same step
+Swift: `AppEngine`, `AppGrants`, `AppRegistry`/`AppRegistryFile`, `AppOperationRouter` and the deferred sink, `AppManifestValidator*`, the JavaScriptCore watchdog; CmuxNextApps keeps the scene model and renderer, the App Store UI (over an `apps-v1` client), and the section provider. TypeScript: `tools/validate-manifest.ts`, `tools/json-schema.ts` (the Rust crate validates samples in its tests); the v1 schema and fixtures. Samples are rewritten on manifest v2 (`implements` `cmux.section/1`, `cmux.status/1`).
