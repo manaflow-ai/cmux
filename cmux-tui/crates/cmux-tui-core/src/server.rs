@@ -11000,6 +11000,7 @@ fn handle_request_with_cancellation(
         _ => None,
     };
     let shutdown_daemon = matches!(&cmd, Command::ShutdownDaemon { .. });
+    let mut reason = None;
     let response = match handle_command_with_cancellation(mux, client, cmd, writer, cancellation) {
         Ok(data) => Response {
             id,
@@ -11010,6 +11011,7 @@ fn handle_request_with_cancellation(
             error_delivery: None,
         },
         Err(error) => {
+            reason = conversations::error_reason(&error);
             let error_code = response_error_code(&error);
             let error_delivery =
                 error.downcast_ref::<DeliveryClassifiedError>().map(|error| error.delivery);
@@ -11024,7 +11026,7 @@ fn handle_request_with_cancellation(
         }
     };
     let response_ok = response.ok;
-    let sent = send_response(writer, response);
+    let sent = responses::send_response_with_reason(writer, response, reason);
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {

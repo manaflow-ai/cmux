@@ -24,7 +24,9 @@ use sha2::{Digest, Sha256};
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
-const SCHEMA_VERSION: i64 = 1;
+/// 2: the op ledger is keyed by actor too (`op_ledger_v2`) and the agent loop
+/// guard lives in `agent_guard`. Version 1 ledger rows are not consulted.
+const SCHEMA_VERSION: i64 = 2;
 /// Largest `tail` and `limit` a page request may ask for.
 pub(crate) const MAX_PAGE_MESSAGES: u32 = 500;
 /// The participant id of the Mac's own user in local conversations.
@@ -166,6 +168,19 @@ impl ConversationStore {
                participant TEXT NOT NULL,
                seq INTEGER NOT NULL CHECK(seq >= 0),
                PRIMARY KEY(conversation, participant)
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS op_ledger_v2 (
+               conversation TEXT NOT NULL,
+               actor TEXT NOT NULL,
+               idempotency_key TEXT NOT NULL,
+               fingerprint TEXT NOT NULL,
+               result_json TEXT NOT NULL,
+               PRIMARY KEY(conversation, actor, idempotency_key)
+             ) WITHOUT ROWID;
+             CREATE TABLE IF NOT EXISTS agent_guard (
+               conversation TEXT PRIMARY KEY NOT NULL,
+               agent_text_streak INTEGER NOT NULL CHECK(agent_text_streak >= 0),
+               last_agent_text_at TEXT
              ) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS agent_token (
                participant TEXT PRIMARY KEY NOT NULL,
@@ -342,9 +357,9 @@ impl ConversationStore {
             .ok_or_else(|| rejected(Reject::UnknownConversation))?;
         let existing: Option<(String, String)> = transaction
             .query_row(
-                "SELECT fingerprint, result_json FROM op_ledger
-                 WHERE conversation = ?1 AND idempotency_key = ?2",
-                params![conversation, idempotency_key],
+                "SELECT fingerprint, result_json FROM op_ledger_v2
+                 WHERE conversation = ?1 AND actor = ?2 AND idempotency_key = ?3",
+                params![conversation, actor, idempotency_key],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
@@ -379,13 +394,9 @@ impl ConversationStore {
         )
         .map_err(rejected)?;
         if let Op::MessageSend { parts, .. } = op {
-            // After every reducer rule (the conformance corpus order). Work cards are
-            // not counted, so read past them to the window's turns.
-            let window = (cmux_conversation::BUDGET_WINDOW * 4) as u32;
-            let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
-            recent.reverse();
-            cmux_conversation::check_agent_budget(&head, actor, parts, &recent, now_ms)
-                .map_err(rejected)?;
+            // After every reducer rule (the conformance corpus order), over the
+            // head's loop-guard counters (no row window to fill with work cards).
+            cmux_conversation::check_agent_streak(&head, actor, parts, now_ms).map_err(rejected)?;
         }
         write_head(&transaction, &commit.head)?;
         if let Some(message) = &commit.message {
@@ -397,9 +408,16 @@ impl ConversationStore {
             change: serde_json::to_value(&commit.change)?,
         };
         transaction.execute(
-            "INSERT INTO op_ledger(conversation, idempotency_key, fingerprint, result_json)
-             VALUES(?1, ?2, ?3, ?4)",
-            params![conversation, idempotency_key, fingerprint, serde_json::to_string(&result)?],
+            "INSERT INTO op_ledger_v2(conversation, actor, idempotency_key, fingerprint,
+                                      result_json)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                conversation,
+                actor,
+                idempotency_key,
+                fingerprint,
+                serde_json::to_string(&result)?,
+            ],
         )?;
         transaction.commit()?;
         Ok(OpOutcome { result, replayed: false })
@@ -461,6 +479,14 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
             Ok((participant, u64::try_from(seq).context("read cursor is negative")?))
         })
         .collect::<anyhow::Result<_>>()?;
+    let guard: (i64, Option<String>) = connection
+        .query_row(
+            "SELECT agent_text_streak, last_agent_text_at FROM agent_guard WHERE conversation = ?1",
+            params![id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or((0, None));
     Ok(Some(ConversationHead {
         id: id.to_string(),
         title,
@@ -471,6 +497,8 @@ fn load_head(connection: &Connection, id: &str) -> anyhow::Result<Option<Convers
         created_at,
         updated_at,
         read_cursors,
+        agent_text_streak: u32::try_from(guard.0).context("agent_text_streak is out of range")?,
+        last_agent_text_at: guard.1,
     }))
 }
 
@@ -494,6 +522,14 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
             head.created_at,
             head.updated_at,
         ],
+    )?;
+    transaction.execute(
+        "INSERT INTO agent_guard(conversation, agent_text_streak, last_agent_text_at)
+         VALUES(?1, ?2, ?3)
+         ON CONFLICT(conversation) DO UPDATE SET
+           agent_text_streak = excluded.agent_text_streak,
+           last_agent_text_at = excluded.last_agent_text_at",
+        params![head.id, i64::from(head.agent_text_streak), head.last_agent_text_at],
     )?;
     for (participant, seq) in &head.read_cursors {
         transaction.execute(
@@ -692,10 +728,10 @@ mod tests {
         connection
             .execute_batch(
                 "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-                 INSERT INTO meta VALUES('schema_version', '2');",
+                 INSERT INTO meta VALUES('schema_version', '3');",
             )
             .unwrap();
         let error = ConversationStore::initialize(connection).unwrap_err();
-        assert!(error.to_string().contains("unsupported conversation store schema 2"));
+        assert!(error.to_string().contains("unsupported conversation store schema 3"));
     }
 }
