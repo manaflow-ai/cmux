@@ -20,7 +20,9 @@ use crate::workspace_registry::{
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
 mod batch_close;
+mod layout_projection;
 pub(crate) use batch_close::{BatchCloseOutcome, BatchCloseTarget};
+use layout_projection::sync_layout_column_projection;
 
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
@@ -6890,33 +6892,6 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
-}
-
-fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
-    crate::model::normalize_sticky_columns(&mut layout.layout_columns);
-    let Some(first) = layout.layout_columns.first() else {
-        layout.viewport_splits.clear();
-        layout.viewport_base_width = None;
-        return;
-    };
-    layout.viewport_splits.clear();
-    layout.viewport_base_width = Some(first.width);
-    layout.zellij_auto_layout = None;
-    let mut root = first.root.clone();
-    let mut width_before = first.width;
-    for column in layout.layout_columns.iter().skip(1) {
-        let ratio = width_before / (width_before + column.width);
-        root = Node::Split {
-            id: column.id,
-            dir: SplitDir::Right,
-            ratio,
-            a: Box::new(root),
-            b: Box::new(column.root.clone()),
-        };
-        layout.viewport_splits.insert(column.id, column.width);
-        width_before += column.width;
-    }
-    layout.root = root;
 }
 
 fn sync_layout_column_widths(layout: &mut ScreenLayoutSnapshot) {

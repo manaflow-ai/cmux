@@ -1,0 +1,11 @@
+- heading "Dynamic" [level=1]
+- button "Load later"
+- button "Push state"
+- link "Open new tab":
+  - /url: /aria.html
+- button "Open popup"
+- button "Slow navigate"
+- button "Fetch"
+- paragraph: idle
+- button "Log"
+- button "Store"

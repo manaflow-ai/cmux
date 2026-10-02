@@ -1475,20 +1475,14 @@ fn viewport_screen() -> RegistryScreen {
         viewport: RegistryViewport {
             base_width: Some(1.0),
             columns: vec![
-                RegistryViewportColumn {
-                    id: base_column,
-                    width: 1.0,
-                    layout: first_column,
-                    auto_layout: None,
-                    sticky: None,
-                },
-                RegistryViewportColumn {
-                    id: boundary,
-                    width: 0.5,
-                    layout: RegistryLayoutNode::Leaf { pane: third },
-                    auto_layout: Some(vec![pane_id(3)]),
-                    sticky: None,
-                },
+                RegistryViewportColumn::new(base_column, 1.0, first_column, None, None),
+                RegistryViewportColumn::new(
+                    boundary,
+                    0.5,
+                    RegistryLayoutNode::Leaf { pane: third },
+                    Some(vec![pane_id(3)]),
+                    None,
+                ),
             ],
         },
     }

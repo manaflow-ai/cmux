@@ -1,0 +1,44 @@
+title: Input Fixture
+url: http://localhost:18765/input.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- heading "Input" [level=1]
+- textbox "Keys" [ref=e1]
+- button "Hover me" [ref=e2]
+- button "Double" [ref=e3]
+- button "Right click" [ref=e4]
+- generic [ref=e5]: "Drag"
+- text: "Drop zone"
+- generic "Scroller" [ref=e6] [scrollable]:
+  - text: "Row 0"
+  - text: "Row 1"
+  - text: "Row 2"
+  - text: "Row 3"
+  - text: "Row 4"
+  - text: "Row 5"
+  - text: "Row 6"
+  - text: "Row 7"
+  - text: "Row 8"
+  - text: "Row 9"
+  - text: "Row 10"
+  - text: "Row 11"
+  - text: "Row 12"
+  - text: "Row 13"
+  - text: "Row 14"
+  - text: "Row 15"
+  - text: "Row 16"
+  - text: "Row 17"
+  - text: "Row 18"
+  - text: "Row 19"
+  - text: "Row 20"
+  - text: "Row 21"
+  - text: "Row 22"
+  - text: "Row 23"
+  - text: "Row 24"
+  - text: "Row 25"
+  - text: "Row 26"
+  - text: "Row 27"
+  - text: "Row 28"
+  - text: "Row 29"
+- canvas "Canvas" [ref=e7]
+- text: "none"
+- textbox "Rich editor" [ref=e8]: "start"
+- textbox "Clipboard target" [ref=e9]

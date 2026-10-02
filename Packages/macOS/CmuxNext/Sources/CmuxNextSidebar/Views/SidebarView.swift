@@ -64,8 +64,8 @@ public final class SidebarView: NSView {
     /// An inline rename ended (commit or cancel). `byKeyboard` is true for
     /// Return, Escape or Tab; the host can return focus to its content.
     public var onRenameEnded: ((_ byKeyboard: Bool) -> Void)? {
-        get { list.onRenameEnded }
-        set { list.onRenameEnded = newValue }
+        get { list.inlineRename.onEnded }
+        set { list.inlineRename.onEnded = newValue }
     }
 
     /// A small view in the titlebar row, after the traffic lights (an
@@ -135,18 +135,18 @@ public final class SidebarView: NSView {
     /// Starts inline rename of a workspace (the "rename workspace" action's
     /// sidebar entrypoint). Commit emits `.rename`.
     public func beginRename(workspace id: WorkspaceID) {
-        list.beginRename(.workspace(id))
+        list.inlineRename.begin(.workspace(id))
     }
 
     /// Starts inline rename of a group. Commit emits `.renameGroup`.
     public func beginRename(group id: GroupID) {
-        list.beginRename(.group(id))
+        list.inlineRename.begin(.group(id))
     }
 
     /// Starts inline rename of the active workspace.
     public func renameActiveWorkspace() {
         guard let active = model.activeWorkspaceID else { return }
-        list.beginRename(.workspace(active))
+        list.inlineRename.begin(.workspace(active))
     }
 
     // MARK: Hierarchy

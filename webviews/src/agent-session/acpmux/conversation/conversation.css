@@ -484,7 +484,12 @@
 /* One right chevron, turned a quarter when open; on settled rows it shows on hover. */
 .cv-rotor {
   flex: none;
-  transition: transform 150ms ease-out;
+}
+/* With Reduce Motion on, the chevron snaps to its new angle. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-rotor {
+    transition: transform 150ms ease-out;
+  }
 }
 .cv-rotor.is-open {
   transform: rotate(90deg);

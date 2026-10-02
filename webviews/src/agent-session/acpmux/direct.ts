@@ -11,7 +11,16 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A new chat's working directory, inherited from the tab it was opened from. */
+  cwd?: string;
+  /** Text the composer starts with. Shown, never sent by itself. */
+  draft?: string;
 };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
+export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
 
 export type EventRecord = {
   sessionId?: string;
@@ -198,7 +207,7 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
-  private readonly host: AcpmuxHostConfig;
+  private host: AcpmuxHostConfig;
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -535,10 +544,12 @@ export class AcpmuxDirectClient {
     this.sessions = [...this.sessions.filter((item) => item.sessionId !== session.sessionId), this.withUnseen(session)];
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
-      this.queue = (session.queue ?? this.queue).map((entry: any) => ({
-        id: String(entry.promptId),
-        prompt: String(entry.prompt ?? entry.preview ?? ""),
-      }));
+      // A change that doesn't carry the queue keeps the one already mapped.
+      if (session.queue)
+        this.queue = session.queue.map((entry: any) => ({
+          id: String(entry.promptId),
+          prompt: String(entry.prompt ?? entry.preview ?? ""),
+        }));
     }
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
@@ -879,7 +890,9 @@ export class AcpmuxDirectClient {
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } });
+    const result = await this.request("session/new", newSessionParams(this.host, harness));
+    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
+    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
