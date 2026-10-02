@@ -81,6 +81,16 @@ os.environ['CMUX_CODE_PUPPY_HOOKS_DISABLED'] = '1'
 asyncio.run(exercise()); assert len(calls) == 8
 os.environ.pop('CMUX_CODE_PUPPY_HOOKS_DISABLED'); os.environ.pop('CMUX_SURFACE_ID')
 asyncio.run(exercise()); assert len(calls) == 8
+os.environ['CMUX_SURFACE_ID'] = 'surface'; os.environ['CMUX_AGENT_MANAGED_SUBAGENT'] = '1'
+asyncio.run(exercise()); assert len(calls) == 8
+os.environ.pop('CMUX_AGENT_MANAGED_SUBAGENT')
+os.environ['CMUX_BUNDLED_CLI_PATH'] = '/ambient'; os.environ['CMUX_SOCKET_PATH'] = '/ambient.sock'
+asyncio.run(exercise()); assert len(calls) == 16
+assert calls[8][0][:3] == ['/ambient','--socket','/ambient.sock']
+def unavailable(*args, **kwargs): raise OSError('not installed')
+module.subprocess.run = unavailable
+asyncio.run(exercise())
+assert os.environ['CMUX_CODE_PUPPY_PID'] == 'parent-pid'
 """#
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
