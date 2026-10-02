@@ -69,7 +69,7 @@ shortcuts for the agent to drive by hand.
 | LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
 | X (Twitter) | `twitter.getMe/getUser/getTweet/getTweetThread/getTimeline/search/getUserTweets/getBookmarks/tweet/reply/like/retweet/follow/DMs/block/mute` (no gate) | none | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
 | GitHub | guide | none | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
-| Linear | guide | none | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query()` (read-only GraphQL) |
+| Linear | guide | none | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query(text, variables, { operationName })` (read-only GraphQL) |
 | Jira | guide | none | `sites.jira.issue` (description and comments as Markdown), `.search(jql, { site })`, `.me` |
 | Other site guides (Airtable, Amazon, Asana, ClickUp, Confluence, Discord, Google Forms, Trello, Notion UI) | guide | none | none: they are hints, not tools; `snapshot()` and Playwright drive these sites |
 | Page assets | none | `pageAssets.list()`, `.bundle({ inventoryId, kinds, assetIds })` | `sites.pageAssets.list(page?)`, `.bundle(inventory, { kinds, assetIds, dir })`; also writes inline SVGs and fetches through the session |
@@ -125,6 +125,7 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 | `googleDrive.recent({ uid, limit })` | Drive's Recent view in a background tab, rows by `data-id` | read |
 | `github.diff`, `.file` | `/pull/N.diff`, `/raw/REF/PATH` with the session | read |
 | `linear.*` | client-api.linear.app GraphQL from a linear.app tab with the session | read |
+| `linear.query(text, variables, { operationName })` | the same; the document is first lexed and parsed as GraphQL (comments, commas, strings and block strings skipped). It is refused, with nothing sent, when it does not parse, holds a mutation or subscription anywhere, or holds several operations without an `operationName` naming one | read |
 | `jira.*` | `/rest/api/3/issue`, `/search/jql` (falls back to `/search`), `/myself`, same-origin | read |
 | `pageAssets.list(page?)`, `.bundle(inv, { kinds, assetIds, dir })` | DOM, computed styles, `@font-face`, resource timing; downloads with the session | read |
 | `webmcp.tools(page?)`, `.call(name, input)` | the page's `navigator.modelContext` implementation | read-only tools read; others write |
