@@ -14,6 +14,7 @@ import path from "node:path";
 import zlib from "node:zlib";
 import { loadRuntime, createDevBrowser, createNodeHost, createDevRepl } from "../lib/dev-driver.mjs";
 import { startFixtureServers } from "../lib/fixture-server.mjs";
+import { siteOf } from "../lib/public-suffix.mjs";
 
 const ns = loadRuntime();
 const T = ns.agentTools;
@@ -432,15 +433,21 @@ test("cookie and storage-state scope follow the Public Suffix List", async () =>
   }, { setupContext });
 });
 
-test("storage state: registrable domains", () => {
-  const d = T.registrableDomain;
+test("storage state: sites by the Public Suffix List (the dev backend's stand-in for the app's)", () => {
+  const d = siteOf;
   assert.equal(d("www.example.com"), "example.com");
   assert.equal(d("a.b.example.co.uk"), "example.co.uk");
+  assert.equal(d("a.x.co.at"), "x.co.at");
+  assert.equal(d("co.at"), "co.at");
   assert.equal(d("ada.github.io"), "ada.github.io");
+  assert.equal(d("a.b.ck"), "a.b.ck");
+  assert.equal(d("www.ck"), "www.ck");
+  assert.equal(d("foo.bar.unlisted"), "foo.bar.unlisted");
   assert.equal(d("localhost"), "localhost");
   assert.equal(d("127.0.0.1"), "127.0.0.1");
   assert.equal(d("[::1]"), "[::1]");
   assert.equal(d(".docs.google.com"), "google.com");
+  assert.equal(d("www.食狮.公司.cn"), "xn--85x722f.xn--55qx5d.cn");
 });
 
 test("markdown: chunks cut at block boundaries, repeat a table's header and cover the page", async () => {

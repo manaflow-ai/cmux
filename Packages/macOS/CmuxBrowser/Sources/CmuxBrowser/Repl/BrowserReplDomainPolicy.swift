@@ -195,6 +195,15 @@ public struct BrowserReplDomainPattern: Sendable, Equatable {
         return self.host.split(separator: ".").count == 2 && host == "www." + self.host
     }
 
+    /// Whether a host this pattern names receives cookies set on `domain`
+    /// (normalized): the domain itself or one of its subdomains.
+    func receivesCookies(on domain: String) -> Bool {
+        if hostMatches(domain) { return true }
+        if host == "*" { return true }
+        let named = host.hasPrefix("*.") ? String(host.dropFirst(2)) : host
+        return named.hasSuffix("." + domain)
+    }
+
     private static func glob(_ pattern: String, matches text: String) -> Bool {
         let escaped = NSRegularExpression.escapedPattern(for: pattern).replacingOccurrences(of: "\\*", with: ".*")
         return text.range(of: "^" + escaped + "$", options: .regularExpression) != nil
@@ -248,6 +257,31 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
             return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
         }
         if let hit = prohibited.first(where: { $0.matches(url, secure: false) }) {
+            return "prohibited by \(hit.raw) (session.prohibitedDomains)"
+        }
+        return nil
+    }
+
+    /// Why the session may not read, set or clear a cookie on `domain`, or
+    /// nil. A cookie belongs to a host, not an origin, so a pattern's scheme
+    /// and port do not narrow it. A cookie is in reach when a host an allowed
+    /// pattern names receives it (its domain, or a parent domain of it, as
+    /// `example.com` for `www.example.com`), and out of reach when its domain
+    /// is one a prohibited pattern names or an IP address under
+    /// `blockIPAddresses`.
+    public func cookieBlockReason(domain: String) -> String? {
+        guard isActive else { return nil }
+        var raw = domain.trimmingCharacters(in: .whitespaces)
+        while raw.hasPrefix(".") { raw.removeFirst() }
+        let host = BrowserReplHostName.normalize(raw)
+        guard !host.isEmpty else { return "the cookie names no domain" }
+        if blockIPAddresses, BrowserReplHostName.isIPAddress(host) {
+            return "IP addresses are blocked (session.blockIPAddresses)"
+        }
+        if let allowed, !allowed.contains(where: { $0.receivesCookies(on: host) }) {
+            return "not in session.allowedDomains (\(allowed.map(\.raw).joined(separator: ", ")))"
+        }
+        if let hit = prohibited.first(where: { $0.hostMatches(host) }) {
             return "prohibited by \(hit.raw) (session.prohibitedDomains)"
         }
         return nil

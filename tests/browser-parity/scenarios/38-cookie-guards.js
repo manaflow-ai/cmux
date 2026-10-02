@@ -9,7 +9,7 @@ const outcome = async (f) => {
     await f();
     return "done";
   } catch (e) {
-    if (/blocked/.test(e.message)) return "blocked";
+    if (e.code === "blocked" || /blocked/.test(e.message)) return "blocked";
     if (/profile/.test(e.message)) return "refused: profile";
     return `error: ${e.message}`;
   }

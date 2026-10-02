@@ -72,11 +72,14 @@ coordinates, `page.on("popup")`, `waitForEvent("download")`, `page.pdf()`,
 
 One Playwright call is scoped on purpose: driven tabs use the user's browser
 profile, so `page.context().clearCookies(options)` clears only the cookies
-of that page's site (its registrable domain, as `storageState` scopes), and
-Playwright's `name`, `domain` and `path` filters (strings or RegExps) narrow
-that. `{ all: true }` clears every site. On a tab with no site (`about:blank`)
-it throws unless `{ all: true }` is given or the tab uses a private or proxy
-store, which may be cleared whole.
+of that page's site (its registrable domain by the Public Suffix List, as
+`storageState` scopes), and Playwright's `name`, `domain` and `path` filters
+(strings or RegExps) narrow that. The driver decides the site from the tab,
+not from what the runtime sends. On the user's profile, `{ all: true }` and
+a tab with no site (`about:blank`) throw; a private or proxy store may be
+cleared whole. The domain policy covers cookies too: `cookies()` leaves out
+the cookies of blocked sites, and reading, setting or clearing cookies of a
+blocked URL, site or tab throws.
 
 ## Snapshot
 
@@ -371,6 +374,13 @@ agent -> cmux browser repl -> control socket -> REPL session (JavaScriptCore)
   per-frame script in an isolated content world, `repl-host.js`). Locators use
   Playwright's injected script (Apache-2.0).
 - Driver contract: [driver-protocol.md](driver-protocol.md).
+- Sites (registrable domains) for cookie scoping and `storageState` come from
+  the Public Suffix List macOS keeps in CFNetwork (`_CFHostIsDomainTopLevel`,
+  the list WebKit reads for its own site boundaries), asked by the native
+  session and driver (`BrowserReplPublicSuffixList`), so it follows OS
+  updates and nothing is vendored. Where CFNetwork does not export it, every
+  host is its own site (a narrower scope). The dev backend uses a small
+  stand-in (`tests/browser-parity/lib/public-suffix.mjs`).
 - The format studies and the representation comparison live in the private repository `manaflow-ai/cmux-browser-parity-private`.
 
 ## Tests

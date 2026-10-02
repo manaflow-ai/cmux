@@ -18,6 +18,8 @@ export class BoundaryError extends Error {
   }
 }
 
+import { siteOf } from "./public-suffix.mjs";
+
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const htmlEscape = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -169,10 +171,32 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
     if (hit) return `prohibited by ${hit.raw} (session.prohibitedDomains)`;
     return null;
   }
+  // Why a cookie on `domain` is out of the session's reach, as
+  // BrowserReplDomainPolicy.cookieBlockReason: hosts, not origins, so a
+  // pattern's scheme and port do not narrow it; an allowed pattern covers a
+  // cookie its host receives (on the host or a parent domain of it).
+  function cookieBlockReason(domain) {
+    if (!active()) return null;
+    const host = T.normalizeHost(String(domain || "").replace(/^\.+/, ""));
+    if (!host) return "the cookie names no domain";
+    if (policy.blockIPs && T.isIPHost(host)) return "IP addresses are blocked (session.blockIPAddresses)";
+    const hostOnly = (p) => ({ ...p, scheme: null, port: null });
+    const names = (p, h) => T.urlMatches(`http://${h}/`, hostOnly(p), false);
+    const receives = (p) => {
+      if (names(p, host) || p.host === "*") return true;
+      const named = String(p.host).replace(/^\*\./, "");
+      return named.endsWith("." + host);
+    };
+    if (policy.allowed && !policy.allowed.some(receives)) return `not in session.allowedDomains (${policy.allowed.map((p) => p.raw).join(", ")})`;
+    const hit = policy.prohibited.find((p) => names(p, host));
+    if (hit) return `prohibited by ${hit.raw} (session.prohibitedDomains)`;
+    return null;
+  }
   const policyJSON = () => ({ allowed: policy.allowed ? policy.allowed.map((p) => p.raw) : null, prohibited: policy.prohibited.map((p) => p.raw), blockIPs: policy.blockIPs, locked: policy.locked });
   function policyOp(op, args = {}) {
     if (op === "get") return policyJSON();
     if (op === "check") return blockReason(args.url || "");
+    if (op === "site") return siteOf(args.host || "");
     if (op !== "set") throw new BoundaryError("invalid", `policy: unknown operation ${op}`);
     const title = args.title || "session.domainPolicy";
     if (policy.locked) throw new BoundaryError("invalid", `${title}: the domain policy is locked for this session`);
@@ -227,7 +251,7 @@ export function createBoundary(T, { now = () => Date.now() } = {}) {
   // Wraps a dev driver the way the native session sits in front of the app's.
   function wrapDriver(driver) {
     if (typeof driver.setDomainPolicy === "function") {
-      policyListeners.add((p, reason) => driver.setDomainPolicy(p, reason));
+      policyListeners.add((p, reason) => driver.setDomainPolicy(p, reason, cookieBlockReason));
     }
     const redactError = (e) => {
       if (e && typeof e.message === "string" && matchers.length) e.message = redact(e.message);

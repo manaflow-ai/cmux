@@ -22,6 +22,23 @@ struct BrowserReplDomainPolicyTests {
         #expect(BrowserReplHostName.normalize("::1") == "[::1]")
     }
 
+    @Test("Cookies are in reach by host: an allowed host's own and parent-domain cookies, never a prohibited host's")
+    func cookieReach() throws {
+        let open = BrowserReplDomainPolicy()
+        #expect(open.cookieBlockReason(domain: ".anything.example") == nil)
+        let allowed = try policy(allowed: ["https://www.example.com:8443"])
+        #expect(allowed.cookieBlockReason(domain: "www.example.com") == nil)
+        #expect(allowed.cookieBlockReason(domain: ".example.com") == nil, "www.example.com receives example.com's cookies")
+        #expect(allowed.cookieBlockReason(domain: "api.example.com") != nil)
+        #expect(allowed.cookieBlockReason(domain: "other.org") != nil)
+        let prohibited = try policy(prohibited: ["http://127.0.0.1:9999", "*.evil.example"])
+        #expect(prohibited.cookieBlockReason(domain: "127.0.0.1") != nil, "a port does not narrow a host's cookies")
+        #expect(prohibited.cookieBlockReason(domain: ".evil.example") != nil)
+        #expect(prohibited.cookieBlockReason(domain: "a.evil.example") != nil)
+        #expect(prohibited.cookieBlockReason(domain: "localhost") == nil)
+        #expect(try policy(blockIPs: true).cookieBlockReason(domain: "[::1]") != nil)
+    }
+
     @Test("IP hosts in any form a URL parser reads as one")
     func ipHosts() {
         for host in ["127.0.0.1", "127.1", "2130706433", "0x7f.0.0.1", "[::1]"] {

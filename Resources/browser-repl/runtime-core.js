@@ -2678,10 +2678,12 @@
       };
     }
     // Playwright's clearCookies({ name, domain, path }), scoped like
-    // session.storageState: driven tabs use the user's profile, so only the
-    // cookies of this tab's site (its registrable domain) are cleared unless
-    // { all: true }. The driver matches strings exactly; RegExp filters are
-    // matched here and each match is cleared by its exact name, domain and path.
+    // session.storageState: driven tabs use the user's profile, so the driver
+    // clears only the cookies of this tab's site (its registrable domain,
+    // which the driver decides from the tab) and refuses { all: true } there;
+    // a private or proxy store may be cleared whole. The driver matches
+    // strings exactly; RegExp filters are matched here and each match is
+    // cleared by its exact name, domain and path.
     async _clearCookies(options = {}) {
       const title = "browserContext.clearCookies";
       if (options === null || typeof options !== "object") throw new Error(`${title}: options: expected an object, got ${JSON.stringify(options)}`);
@@ -2694,22 +2696,16 @@
       }
       // A lazy page has no tab yet; its store is the session's default one.
       const scope = String(this._targetId).startsWith("lazy:") ? {} : { targetId: this._targetId };
-      if (options.all) {
-        scope.all = true;
-      } else {
-        const url = String(this.url() || "");
-        const hostname = /^https?:/i.test(url) ? new URLImpl(url).hostname : "";
-        const siteOf = ns.agentTools && ns.agentTools.registrableDomain;
-        if (hostname) scope.site = siteOf ? siteOf(hostname) : hostname;
-      }
-      // A tab with no site: a private or proxy store may be cleared whole,
-      // the user's profile may not, and the driver knows which this is.
+      if (options.all) scope.all = true;
+      // The driver refuses a tab with no site, and { all: true }, on the
+      // user's profile, and knows which store this is.
       const clear = async (params) => {
         try {
           await this._session.call("cookies.clear", params);
         } catch (e) {
-          if (scope.all || scope.site || driverErrorCode(e) !== "invalid") throw e;
-          throw new Error(`${title}: the current tab (${this.url() || "none"}) has no site to scope to; open the site first, or pass { all: true } for every site in the profile`);
+          if (driverErrorCode(e) !== "invalid") throw e;
+          const message = String(e.message || "").replace(/^cookies\.clear: /, "");
+          throw new Error(`${title}: ${message}`);
         }
       };
       if (!Object.values(filters).some(isRegExp)) {

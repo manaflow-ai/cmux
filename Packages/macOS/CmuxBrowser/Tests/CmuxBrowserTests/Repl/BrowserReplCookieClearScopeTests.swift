@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import CmuxBrowser
@@ -16,43 +17,53 @@ struct BrowserReplCookieClearScopeTests {
         Cookie(name: "sid", domain: "api.example.com", path: "/v1"),
         Cookie(name: "sid", domain: ".notexample.com", path: "/"),
         Cookie(name: "sid", domain: "other.org", path: "/"),
+        Cookie(name: "sid", domain: "x.co.at", path: "/"),
+        Cookie(name: "sid", domain: ".y.co.at", path: "/"),
     ]
 
-    private func cleared(_ params: [String: Any], persistent: Bool = true) throws -> [String] {
-        let scope = try BrowserReplCookieClearScope(params: params, storeIsPersistent: persistent)
+    private static let suffixes = BrowserReplPublicSuffixList(isPublicSuffix: { ["com", "org", "at", "co.at"].contains($0) })
+
+    private func cleared(_ params: [String: Any], tab: String?, persistent: Bool = true) throws -> [String] {
+        let scope = try BrowserReplCookieClearScope(
+            params: params,
+            tabURL: tab.flatMap(URL.init(string:)),
+            storeIsPersistent: persistent,
+            publicSuffixes: Self.suffixes
+        )
         return Self.jar
             .filter { scope.includes(name: $0.name, domain: $0.domain, path: $0.path) }
             .map { "\($0.domain) \($0.name)" }
     }
 
-    @Test func refusesAnUnscopedClearOfAPersistentProfile() {
-        #expect(throws: BrowserReplCookieClearScope.Refusal.self) {
-            try cleared([:])
-        }
-        #expect(throws: BrowserReplCookieClearScope.Refusal.self) {
-            try cleared(["name": "sid", "site": ""])
-        }
+    @Test func theTabsSiteIsClearedWhateverSiteTheCallerNames() throws {
+        #expect(try cleared([:], tab: "https://www.example.com/a") == [".example.com sid", "www.example.com pref", "api.example.com sid"])
+        #expect(try cleared(["site": "other.org"], tab: "https://WWW.Example.com/") == [".example.com sid", "www.example.com pref", "api.example.com sid"])
     }
 
-    @Test func aSiteSelectsItsDomainAndSubdomainsOnly() throws {
-        #expect(try cleared(["site": "example.com"]) == [".example.com sid", "www.example.com pref", "api.example.com sid"])
-        #expect(try cleared(["site": "EXAMPLE.com"]).count == 3)
+    @Test func aSiteUnderAMultiLabelPublicSuffixStaysOnItsOwnDomain() throws {
+        #expect(try cleared([:], tab: "https://a.x.co.at/") == ["x.co.at sid"])
+    }
+
+    @Test func aTabWithNoSiteIsRefusedOnTheProfile() {
+        #expect(throws: BrowserReplCookieClearScope.Refusal.self) { try cleared([:], tab: "about:blank") }
+        #expect(throws: BrowserReplCookieClearScope.Refusal.self) { try cleared(["site": "example.com"], tab: nil) }
+    }
+
+    @Test func allIsRefusedOnTheProfile() {
+        #expect(throws: BrowserReplCookieClearScope.Refusal.self) { try cleared(["all": true], tab: "https://example.com/") }
     }
 
     @Test func filtersMatchExactlyInsideTheSite() throws {
-        #expect(try cleared(["site": "example.com", "name": "sid"]) == [".example.com sid", "api.example.com sid"])
-        #expect(try cleared(["site": "example.com", "domain": "api.example.com"]) == ["api.example.com sid"])
-        #expect(try cleared(["site": "example.com", "path": "/v1"]) == ["api.example.com sid"])
-        #expect(try cleared(["site": "example.com", "domain": "other.org"]).isEmpty)
-    }
-
-    @Test func allSelectsEverySiteAndOverridesSite() throws {
-        #expect(try cleared(["all": true]).count == Self.jar.count)
-        #expect(try cleared(["all": true, "site": "example.com", "name": "sid"]).count == 4)
+        #expect(try cleared(["name": "sid"], tab: "https://example.com/") == [".example.com sid", "api.example.com sid"])
+        #expect(try cleared(["domain": "api.example.com"], tab: "https://example.com/") == ["api.example.com sid"])
+        #expect(try cleared(["path": "/v1"], tab: "https://example.com/") == ["api.example.com sid"])
+        #expect(try cleared(["domain": "other.org"], tab: "https://example.com/").isEmpty)
     }
 
     @Test func aStoreThatIsNotPersistentMayBeClearedWhole() throws {
-        #expect(try cleared([:], persistent: false).count == Self.jar.count)
-        #expect(try cleared(["name": "pref"], persistent: false) == ["www.example.com pref"])
+        #expect(try cleared(["all": true], tab: "https://example.com/", persistent: false).count == Self.jar.count)
+        #expect(try cleared([:], tab: "about:blank", persistent: false).count == Self.jar.count)
+        #expect(try cleared(["name": "pref"], tab: nil, persistent: false) == ["www.example.com pref"])
+        #expect(try cleared([:], tab: "https://example.com/", persistent: false).count == 3)
     }
 }

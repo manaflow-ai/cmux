@@ -13,6 +13,12 @@ final class BrowserReplBoundary: @unchecked Sendable {
     let secrets = BrowserReplSecretStore()
     private let lock = NSLock()
     private var policy = BrowserReplDomainPolicy()
+    private let publicSuffixes: BrowserReplPublicSuffixList
+
+    /// - Parameter publicSuffixes: The list `site` answers come from.
+    init(publicSuffixes: BrowserReplPublicSuffixList = .system) {
+        self.publicSuffixes = publicSuffixes
+    }
 
     /// Methods whose results are images or documents; their pixels are
     /// masked by the driver instead.
@@ -63,7 +69,9 @@ final class BrowserReplBoundary: @unchecked Sendable {
 
     // MARK: Policy host (`__cmuxNative.policy`)
 
-    /// `get`, `check { url }` (the reason or null) or `set { allowed?,
+    /// `get`, `check { url }` (the reason or null), `site { host }` (the
+    /// host's registrable domain by the Public Suffix List, or the host when
+    /// it has none, as the driver scopes cookies) or `set { allowed?,
     /// prohibited?, blockIPs?, lock?, title }`; a given key replaces its
     /// value, `null` clears it. A locked policy refuses `set`.
     /// - Returns: The result and, for `set`, the new policy to give the driver.
@@ -73,6 +81,8 @@ final class BrowserReplBoundary: @unchecked Sendable {
             return (.success(domainPolicy.json), nil)
         case "check":
             return (.success(blockReason(args["url"] as? String ?? "").map { $0 as Any } ?? NSNull()), nil)
+        case "site":
+            return (.success(publicSuffixes.site(of: args["host"] as? String ?? "")), nil)
         case "set":
             let title = args["title"] as? String ?? "session.domainPolicy"
             do {

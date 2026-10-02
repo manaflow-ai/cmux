@@ -111,11 +111,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     private var currentPolicy: BrowserReplDomainPolicy { lock.withLock { domainPolicy } }
 
-    /// Methods that read or act on a page; refused while the page is one the
-    /// policy blocks.
+    /// Methods that read or act on a page or its cookies; refused while the
+    /// page is one the policy blocks.
     private static func isGuarded(_ method: String) -> Bool {
         method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
             || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
+            || method.hasPrefix("cookies.")
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {
@@ -1847,29 +1848,50 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func cookieStore(_ params: [String: Any]) throws -> WKHTTPCookieStore {
-        try cookieDataStore(params).httpCookieStore
+        try cookieTab(params).store.httpCookieStore
     }
 
+    /// The data store cookie calls use, and the tab it belongs to: the
+    /// target tab's, else the active tab's, else the default profile's.
     @MainActor
-    private func cookieDataStore(_ params: [String: Any]) throws -> WKWebsiteDataStore {
+    private func cookieTab(_ params: [String: Any]) throws -> (store: WKWebsiteDataStore, panel: BrowserPanel?) {
         if params["targetId"] != nil {
-            return try panel(params).webView.configuration.websiteDataStore
+            let panel = try panel(params)
+            return (panel.webView.configuration.websiteDataStore, panel)
         }
         let panels = try browserPanels()
         let preferred = activeTargetID.flatMap(UUID.init(uuidString:)).flatMap { id in panels.first { $0.id == id } }
             ?? panels.first
         if let preferred {
-            return preferred.webView.configuration.websiteDataStore
+            return (preferred.webView.configuration.websiteDataStore, preferred)
         }
-        return BrowserProfileStore.shared
+        let store = BrowserProfileStore.shared
             .websiteDataStore(for: BrowserPanel.resolvedProfileID(requested: nil))
+        return (store, nil)
     }
 
+
+    /// Refuses a cookie call on a URL the domain policy blocks.
+    @MainActor
+    private func checkCookieURLs(_ urls: [String], method: String) throws {
+        let policy = currentPolicy
+        for url in urls {
+            if let reason = policy.blockReason(url) {
+                throw Self.error("blocked", "\(method): \(url) is blocked: \(reason)")
+            }
+        }
+    }
+
+    /// Cookies of sites the domain policy blocks are never listed, set or
+    /// cleared (BrowserReplDomainPolicy.cookieBlockReason).
     @MainActor
     private func cookies(_ params: [String: Any]) async throws -> [[String: Any]] {
+        let rawURLs = params["urls"] as? [String] ?? []
+        try checkCookieURLs(rawURLs, method: "cookies.get")
+        let policy = currentPolicy
         let store = try cookieStore(params)
-        let all = await store.allCookies()
-        let urls = (params["urls"] as? [String])?.compactMap(URL.init(string:)) ?? []
+        let all = await store.allCookies().filter { policy.cookieBlockReason(domain: $0.domain) == nil }
+        let urls = rawURLs.compactMap(URL.init(string:))
         let filtered = urls.isEmpty ? all : all.filter { cookie in
             urls.contains { BrowserReplCapture.cookie(cookie, matches: $0) }
         }
@@ -1878,32 +1900,51 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
 
     @MainActor
     private func setCookies(_ params: [String: Any]) async throws -> Any? {
-        let store = try cookieStore(params)
+        let policy = currentPolicy
+        var cookies: [HTTPCookie] = []
         for json in params["cookies"] as? [[String: Any]] ?? [] {
             guard let cookie = HTTPCookie.browserRepl(from: json) else {
                 throw Self.error("invalid", "Invalid cookie \(json["name"] as? String ?? "")")
             }
-            await store.setCookie(cookie)
+            if let url = json["url"] as? String { try checkCookieURLs([url], method: "cookies.set") }
+            if let reason = policy.cookieBlockReason(domain: cookie.domain) {
+                throw Self.error("blocked", "cookies.set: a cookie on \(cookie.domain) is blocked: \(reason)")
+            }
+            cookies.append(cookie)
         }
+        let store = try cookieStore(params)
+        for cookie in cookies { await store.setCookie(cookie) }
         return nil
     }
 
-    /// Deletes the cookies `BrowserReplCookieClearScope` selects: the site
-    /// the runtime names (the current tab's) or, with `all`, every site, and
-    /// only those matching `name`, `domain` and `path`. The user's profile is
-    /// never cleared without one of the two; a private or proxy store may be.
+    /// Deletes the cookies `BrowserReplCookieClearScope` selects: those of
+    /// the site of the tab whose store this is (decided here, not by the
+    /// caller), narrowed by `name`, `domain` and `path`. `all` is refused on
+    /// the user's profile; a private or proxy store may be cleared whole.
+    /// Cookies of sites the domain policy blocks are left alone.
     @MainActor
     private func clearCookies(_ params: [String: Any]) async throws -> Any? {
-        let dataStore = try cookieDataStore(params)
+        let policy = currentPolicy
+        if let domain = params["domain"] as? String, !domain.isEmpty,
+           let reason = policy.cookieBlockReason(domain: domain) {
+            throw Self.error("blocked", "cookies.clear: \(domain) is blocked: \(reason)")
+        }
+        let (dataStore, panel) = try cookieTab(params)
         let scope: BrowserReplCookieClearScope
         do {
-            scope = try BrowserReplCookieClearScope(params: params, storeIsPersistent: dataStore.isPersistent)
+            scope = try BrowserReplCookieClearScope(
+                params: params,
+                tabURL: panel?.webView.url,
+                storeIsPersistent: dataStore.isPersistent,
+                publicSuffixes: .system
+            )
         } catch let refusal as BrowserReplCookieClearScope.Refusal {
             throw Self.error("invalid", refusal.message)
         }
         let store = dataStore.httpCookieStore
         for cookie in await store.allCookies()
-        where scope.includes(name: cookie.name, domain: cookie.domain, path: cookie.path) {
+        where scope.includes(name: cookie.name, domain: cookie.domain, path: cookie.path)
+            && policy.cookieBlockReason(domain: cookie.domain) == nil {
             await store.deleteCookie(cookie)
         }
         return nil

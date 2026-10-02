@@ -18,6 +18,7 @@ import os from "node:os";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createBoundary } from "./native-boundary.mjs";
+import { siteOf } from "./public-suffix.mjs";
 
 const require = createRequire(import.meta.url);
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -707,17 +708,41 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         return { base64: textPdf(text).toString("base64") };
       });
     },
-    "cookies.get": async ({ urls } = {}) => context.cookies(urls),
-    "cookies.set": async ({ cookies }) => context.addCookies(cookies),
-    // Scoped as in the app, where tabs use the user's profile: { site } (a
-    // registrable domain: cookies on it or its subdomains) or { all: true },
-    // narrowed by exact name, domain and path. An unscoped clear is refused.
-    "cookies.clear": async ({ site, all, name, domain, path } = {}) => {
-      if (!all && !site) throw new DriverError("invalid", "cookies.clear: pass { site } or { all: true }; the tab's profile is shared with the user");
-      const bareSite = String(site || "").toLowerCase().replace(/^\./, "");
+    // The session's domain policy covers cookies as in the app: blocked
+    // URLs are refused and blocked sites' cookies are never listed, set or
+    // cleared (driver.cookieBlockReason, from the native-boundary emulation).
+    "cookies.get": async ({ urls } = {}, driver) => {
+      for (const url of urls || []) {
+        const reason = driver.blockReason && driver.blockReason(url);
+        if (reason) throw new DriverError("blocked", `cookies.get: ${url} is blocked: ${reason}`);
+      }
+      return (await context.cookies(urls)).filter((c) => !(driver.cookieBlockReason && driver.cookieBlockReason(c.domain)));
+    },
+    "cookies.set": async ({ cookies }, driver) => {
+      for (const c of cookies || []) {
+        const reason = driver.blockReason && c.url ? driver.blockReason(c.url) : null;
+        if (reason) throw new DriverError("blocked", `cookies.set: ${c.url} is blocked: ${reason}`);
+        const domain = c.domain || (c.url ? new URL(c.url).hostname : "");
+        const cookieReason = driver.cookieBlockReason && driver.cookieBlockReason(domain);
+        if (cookieReason) throw new DriverError("blocked", `cookies.set: a cookie on ${domain} is blocked: ${cookieReason}`);
+      }
+      return context.addCookies(cookies);
+    },
+    // Scoped as in the app, where tabs use the user's profile: the driver
+    // clears the site (registrable domain) of the target tab, else the
+    // active tab, whatever site the caller names, narrowed by exact name,
+    // domain and path. A tab with no site and { all: true } are refused.
+    "cookies.clear": async ({ targetId, all, name, domain, path } = {}, driver) => {
+      if (all) throw new DriverError("invalid", "cookies.clear: { all: true } would clear every site in the user's browser profile, which a session may not do; clear the current tab's site instead (a private tab's store, or one from session.configure({ proxy }), may be cleared whole)");
+      if (domain && driver.cookieBlockReason && driver.cookieBlockReason(domain)) throw new DriverError("blocked", `cookies.clear: ${domain} is blocked: ${driver.cookieBlockReason(domain)}`);
+      const tab = targetId ? tabFor(targetId) : tabs.get(activeTarget);
+      const url = tab ? tab.page.url() : "";
+      const site = /^https?:/i.test(url) ? siteOf(new URL(url).hostname) : null;
+      if (!site) throw new DriverError("invalid", `cookies.clear: the tab (${url || "none"}) has no site to scope to; open the site first`);
       for (const c of await context.cookies()) {
-        const host = String(c.domain).toLowerCase().replace(/^\./, "");
-        if (!all && host !== bareSite && !host.endsWith("." + bareSite)) continue;
+        const host = String(c.domain).toLowerCase().replace(/^\.+/, "");
+        if (host !== site && !host.endsWith("." + site)) continue;
+        if (driver.cookieBlockReason && driver.cookieBlockReason(c.domain)) continue;
         if ((name && c.name !== name) || (domain && c.domain !== domain) || (path && c.path !== path)) continue;
         await context.clearCookies({ name: c.name, domain: c.domain, path: c.path });
       }
@@ -793,7 +818,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   // Reads and input on a tab whose page the session's policy blocks are
   // refused, as the app's driver does.
-  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond)/;
+  const GUARDED = /^(frame\.evaluate|input\.|tab\.screenshot|tab\.pdf|clipboard\.|filechooser\.respond|cookies\.)/;
 
   function createDriver() {
     const driver = {
@@ -802,10 +827,12 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       opened: new Set(),
       sessionName: null,
       blockReason: null,
+      cookieBlockReason: null,
       // Called by the native-boundary emulation, never by the runtime.
-      async setDomainPolicy(policy, blockReason) {
+      async setDomainPolicy(policy, blockReason, cookieBlockReason) {
         const active = !!(policy.allowed || policy.prohibited.length || policy.blockIPs);
         driver.blockReason = active ? blockReason : null;
+        driver.cookieBlockReason = active ? cookieBlockReason || null : null;
         await setContentRules(loadRuntime().agentTools.policyContentRules(policy));
       },
       async call(method, params = {}) {

@@ -143,8 +143,8 @@ Every event carries `targetId`.
 
 | Method | Params |
 | --- | --- |
-| `cookies.get` / `cookies.set` | `{ urls? }`, `{ cookies }` |
-| `cookies.clear` | `{ targetId?, site?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (the active tab's without `targetId`) on `site`, a registrable domain, and its subdomains, or on every site with `all: true`, narrowed by exact `name`, `domain` and `path`. Without `site` or `all` it fails with `invalid` when the store is a persistent profile (the user's cookies), and clears the whole store when it is not (a private tab's, the session's proxy store) |
+| `cookies.get` / `cookies.set` | `{ urls?, targetId? }`, `{ cookies, targetId? }`. A URL the domain policy blocks fails with `blocked`; `cookies.get` leaves out the cookies of blocked sites and `cookies.set` refuses one (see "Guards") |
+| `cookies.clear` | `{ targetId?, all?, name?, domain?, path? }`. Deletes the cookies of the target tab's store (the active tab's without `targetId`) on that tab's site, its registrable domain by the system's Public Suffix List (CFNetwork), and the site's subdomains, narrowed by exact `name`, `domain` and `path`. The driver takes the site from the tab; a `site` parameter is ignored. On a persistent profile (the user's cookies) a tab with no http(s) site and `all: true` fail with `invalid`; a store that is not persistent (a private tab's, the session's proxy store) is cleared whole for either. Cookies of sites the domain policy blocks are never cleared |
 | `clipboard.read` / `clipboard.write` | per-tab virtual clipboard `{ items: [{ type, base64 }] }`. Meta+C, Meta+X and Meta+V run the engine's own Copy, Cut and Paste against it, so the page gets trusted `copy`, `cut` and `paste` events with `clipboardData` (every type), and the system clipboard is neither read nor written. On WebKit, the general-pasteboard lookups WebKit itself makes (its pasteboard IPC answered through WebCore) get a private pasteboard from the start of one command until WebKit reports it done, also after the call has timed out (5 s, `timeout`), so a late paste or copy never reaches the system clipboard; lookups by any other code, `NSPasteboard.general` included, get the system pasteboard. Commands run one at a time: one that cannot start within 5 s because an earlier one is unfinished fails with `timeout` and does not run |
 
 ## Guards
@@ -175,6 +175,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   a blocked page, cancels main-frame navigations to blocked URLs in tabs
   the session created (`navigation.blocked`), and never navigates a user's
   tab away for the policy.
+- Cookies: the domain policy applies by host, since a cookie belongs to a
+  host and not an origin (a pattern's scheme and port do not narrow it).
+  `cookies.*` on a tab that shows a blocked page, and `cookies.get` or
+  `cookies.set` with a blocked URL, fail with `blocked`. A cookie is in
+  reach when a host an allowed pattern names receives it (its own domain
+  or a parent domain) and its domain is not one a prohibited pattern
+  names or, under `blockIPs`, an IP address; other cookies are left out of
+  `cookies.get`, refused by `cookies.set` and never cleared.
 
 ## Capabilities
 
@@ -202,7 +210,7 @@ structured values cross the boundary as JSON strings.
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
 | `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store, for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; the session redacts the URL, headers and a text body |
 | `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
-| `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
+| `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
 | `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |

@@ -1089,6 +1089,9 @@
     // Default scope: the sites (registrable domains) of one tab, so a saved
     // state never carries the rest of the user's profile by accident.
     // { all: true } saves everything; { urls } saves what those URLs see.
+    // The native session answers a host's site from the system's Public
+    // Suffix List, the one the driver scopes cookies.clear with.
+    const siteOf = (hostname) => policyHost("site", { host: String(hostname || "") });
     async function storageState(options = {}, fromPage) {
       if (options === null || typeof options !== "object") throw new Error(`session.storageState: options: expected an object, got ${JSON.stringify(options)}`);
       const urls = options.urls ? [].concat(options.urls) : null;
@@ -1098,9 +1101,9 @@
         const url = page && !page._closed ? String(page.url()) : "";
         const hostname = /^https?:/i.test(url) ? new core.URL(url).hostname : "";
         if (!hostname) throw new Error(`session.storageState: the current tab (${url || "none"}) has no site to scope to; open the site first, or pass { all: true } for the whole profile or { urls: [...] }`);
-        site = registrableDomain(hostname);
+        site = siteOf(hostname);
       }
-      const inScope = (hostname) => site === null || registrableDomain(hostname) === site;
+      const inScope = (hostname) => site === null || siteOf(hostname) === site;
       const cookies = (await session.call("cookies.get", urls ? { urls } : {})).filter((c) => inScope(String(c.domain || "")));
       const origins = new Map();
       for (const page of [...session.pages.values()]) {
@@ -1511,26 +1514,5 @@
     return c;
   };
 
-  // Multi-label public suffixes common enough to matter; any other host is
-  // treated as having a one-label suffix (example.com). This is a compact
-  // stand-in for the Public Suffix List: an unlisted multi-label suffix
-  // (e.g. a regional .gov.xx) scopes to the suffix plus one label too few.
-  const MULTI_SUFFIXES = new Set(("co.uk org.uk ac.uk gov.uk me.uk ltd.uk plc.uk net.uk co.jp ne.jp or.jp ac.jp go.jp " +
-    "com.au net.au org.au edu.au gov.au co.nz org.nz govt.nz co.in net.in org.in gov.in ac.in com.br net.br org.br gov.br " +
-    "com.cn net.cn org.cn gov.cn edu.cn com.hk org.hk com.tw org.tw co.kr or.kr com.sg edu.sg com.mx org.mx co.za org.za " +
-    "com.tr com.ar com.co com.pe com.my com.ph com.vn co.id co.il co.th com.ua com.pl com.es com.sa com.eg com.ng " +
-    "github.io gitlab.io pages.dev workers.dev vercel.app netlify.app herokuapp.com web.app firebaseapp.com " +
-    "appspot.com blogspot.com azurewebsites.net cloudfront.net amazonaws.com s3.amazonaws.com fly.dev onrender.com " +
-    "glitch.me repl.co ngrok.io ngrok-free.app trycloudflare.com").split(" "));
-  function registrableDomain(hostname) {
-    const h = String(hostname || "").toLowerCase().replace(/^\.+/, "").replace(/\.$/, "");
-    if (!h || h.startsWith("[") || /^\d+(\.\d+){3}$/.test(h) || !h.includes(".")) return h;
-    const labels = h.split(".");
-    for (let i = 1; i < labels.length; i++) {
-      if (MULTI_SUFFIXES.has(labels.slice(i).join("."))) return labels.slice(i - 1).join(".");
-    }
-    return labels.slice(-2).join(".");
-  }
-
-  ns.agentTools = { install, urlMatches, parsePattern, normalizeHost, policyContentRules, isIPHost, totp, base32Decode, sha1, crc32, buildApng, pngChunks, parseResults, markdownOfFrame, registrableDomain };
+  ns.agentTools = { install, urlMatches, parsePattern, normalizeHost, policyContentRules, isIPHost, totp, base32Decode, sha1, crc32, buildApng, pngChunks, parseResults, markdownOfFrame };
 })(typeof globalThis !== "undefined" ? globalThis : this);
