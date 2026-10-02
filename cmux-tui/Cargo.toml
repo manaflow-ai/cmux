@@ -19,6 +19,7 @@ members = [
     "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
@@ -37,11 +38,13 @@ members = [
     "crates/cmux-wg",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
+    "crates/cmux-motion",
 ]
 default-members = [
     "crates/cmux-cloud-cli",
     "bindings/rust",
     "bindings/rust-sidebar",
+    "bindings/rust-daemon-client",
     "crates/ghostty-vt-sys",
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
@@ -59,6 +62,7 @@ default-members = [
     "crates/cmux-wg",
     "crates/cmux-tasks-core",
     "crates/cmux-tasks",
+    "crates/cmux-motion",
 ]
 exclude = ["vendor/crossterm"]
 

@@ -16,3 +16,8 @@
 # iOS TestFlight publish path + App Store Connect config.
 /ios/scripts/upload-testflight.sh       @lawrencecchen
 /ios/Config/                            @lawrencecchen
+
+# Shared Rust crates of the GPUI lane (cmux2-gpui session; Lawrence). Moved
+# from manaflow-ai/cmux-gpui; the GPUI lane keeps ownership.
+/cmux-tui/bindings/rust-daemon-client/  @lawrencecchen
+/cmux-tui/crates/cmux-motion/           @lawrencecchen
