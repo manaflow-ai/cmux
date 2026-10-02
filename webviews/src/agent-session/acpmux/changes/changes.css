@@ -66,3 +66,5 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-fh-name:hover,.acpmux-fh-name:hover .acpmux-fh-dir{color:var(--agent-text)}
 .acpmux-fh-name:active,.acpmux-fh-name:active .acpmux-fh-dir{color:var(--agent-muted)}
 .acpmux-fh-dir{transition:color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+/* Why a file did not open, under the changes header until the next open. */
+.acpmux-diff-notice{padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}

@@ -5,9 +5,11 @@ extension OnboardingModel.Step {
     var galleryName: String {
         switch self {
         case .role: "Role"
+        case .firstTask: "First Task"
         case .defaultBrowser: "Default Browser"
         case .importData: "Import"
         case .theme: "Theme"
+        case .computerUse: "Computer Use"
         case .accounts: "Accounts"
         }
     }

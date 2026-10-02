@@ -23,6 +23,13 @@ final class AppOnboardingServices: OnboardingServices {
 
     var savedProfile: OnboardingProfile? { owner.profile }
 
+    var canRunFirstTask: Bool { services.agentTabs.canHostChat }
+    var firstTaskFolder: FirstTaskFolder { .live() }
+
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
+        owner.firstTaskView(cwd: cwd, prompt: prompt)
+    }
+
     func saveProfile(_ profile: OnboardingProfile) {
         owner.saveProfile(profile)
     }
@@ -118,6 +125,18 @@ final class AppOnboardingServices: OnboardingServices {
     func openExternal(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
+
+    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
+    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
+    /// grants `debug.onboarding grant` flips instead.
+    private(set) lazy var computerUsePermissions: (any ComputerUsePermissionSource)? = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
+            return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+        }
+        #endif
+        return AppComputerUsePermissionSource.local()
+    }()
 
     var hasAccountsStep: Bool { true }
 

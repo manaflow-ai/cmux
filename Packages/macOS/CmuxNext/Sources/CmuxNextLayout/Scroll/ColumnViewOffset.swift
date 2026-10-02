@@ -9,22 +9,25 @@ public nonisolated enum ColumnViewOffset {
     /// visible (with its padding); otherwise align the edge that needs less
     /// motion. A rect as wide as the view is left-aligned.
     public static func fit(_ rect: CGRect, current: CGFloat, strip: ColumnStrip) -> CGFloat {
-        let width = strip.viewportWidth
-        if width <= rect.width { return strip.clamp(rect.minX) }
+        // Measured in the uncovered window (F6): `lead` is what a floating
+        // leading dock covers, so the window starts at `current + lead`.
+        let width = strip.visibleWidth, lead = strip.leadingCover
+        if width <= rect.width { return strip.clamp(rect.minX - lead) }
         let pad = strip.padding(for: rect.width)
         let left = rect.minX - pad
         let right = rect.maxX + pad
-        if current <= left + 0.5 && right <= current + width + 0.5 { return strip.clamp(current) }
-        let toLeft = abs(current - left)
-        let toRight = abs(current + width - right)
-        return strip.clamp(toLeft <= toRight ? left : right - width)
+        let start = current + lead
+        if start <= left + 0.5 && right <= start + width + 0.5 { return strip.clamp(current) }
+        let toLeft = abs(start - left)
+        let toRight = abs(start + width - right)
+        return strip.clamp((toLeft <= toRight ? left : right - width) - lead)
     }
 
     /// Centered reveal (F2): the column in the middle; a
     /// column as wide as the view is left-aligned like `fit`.
     public static func center(_ rect: CGRect, current: CGFloat, strip: ColumnStrip) -> CGFloat {
-        if strip.viewportWidth <= rect.width { return fit(rect, current: current, strip: strip) }
-        return strip.clamp(rect.midX - strip.viewportWidth / 2)
+        if strip.visibleWidth <= rect.width { return fit(rect, current: current, strip: strip) }
+        return strip.clamp(rect.midX - strip.visibleWidth / 2 - strip.leadingCover)
     }
 
     /// On-overflow reveal (F3), plus the focused pane of a
@@ -43,7 +46,7 @@ public nonisolated enum ColumnViewOffset {
         if strip.isWide(column.frame), let pane, let paneFrame = column.paneFrames[pane] {
             // Inside a wide column the pane's own edges count, not its padding.
             if shows(paneFrame, current, strip) { return strip.clamp(current) }
-            let leftAligned = strip.clamp(column.frame.minX)
+            let leftAligned = strip.clamp(column.frame.minX - strip.leadingCover)
             if shows(paneFrame, leftAligned, strip) { return leftAligned }
             return fit(paneFrame, current: current, strip: strip)
         }
@@ -61,7 +64,7 @@ public nonisolated enum ColumnViewOffset {
             let a = strip.columns[source].frame
             let b = column.frame
             let span = max(a.maxX, b.maxX) - min(a.minX, b.minX) + strip.gap * 2
-            return span <= strip.viewportWidth + 0.5
+            return span <= strip.visibleWidth + 0.5
                 ? fit(b, current: current, strip: strip)
                 : center(b, current: current, strip: strip)
         }
@@ -69,9 +72,10 @@ public nonisolated enum ColumnViewOffset {
 
     /// The rect lies inside the viewport, or covers all of it.
     private static func shows(_ rect: CGRect, _ offset: CGFloat, _ strip: ColumnStrip) -> Bool {
-        let end = offset + strip.viewportWidth
-        let inside = rect.minX >= offset - 0.5 && rect.maxX <= end + 0.5
-        let covers = rect.minX <= offset + 0.5 && rect.maxX >= end - 0.5
+        let start = offset + strip.leadingCover
+        let end = start + strip.visibleWidth
+        let inside = rect.minX >= start - 0.5 && rect.maxX <= end + 0.5
+        let covers = rect.minX <= start + 0.5 && rect.maxX >= end - 0.5
         return inside || covers
     }
 
@@ -87,11 +91,11 @@ public nonisolated enum ColumnViewOffset {
     /// screen snaps to the center instead. Clamped to the strip, ascending.
     public static func snaps(strip: ColumnStrip, mode: CenterFocusedColumn) -> [Snap] {
         guard !strip.columns.isEmpty else { return [] }
-        let width = strip.viewportWidth
+        let width = strip.visibleWidth, lead = strip.leadingCover
         var result: [Snap] = []
         for (index, column) in strip.columns.enumerated() {
             let frame = column.frame
-            let centered = strip.clamp(width <= frame.width ? frame.minX : frame.midX - width / 2)
+            let centered = strip.clamp((width <= frame.width ? frame.minX : frame.midX - width / 2) - lead)
             if mode == .always {
                 result.append(Snap(offset: centered, column: index))
                 continue
@@ -101,8 +105,8 @@ public nonisolated enum ColumnViewOffset {
                 guard mode == .onOverflow, strip.columns.indices.contains(neighbor) else { return false }
                 return strip.columns[neighbor].frame.width + strip.gap * 3 + frame.width > width
             }
-            let left = overflows(index + 1) ? centered : strip.clamp(frame.minX - pad)
-            let right = overflows(index - 1) ? centered : strip.clamp(frame.maxX + pad - width)
+            let left = overflows(index + 1) ? centered : strip.clamp(frame.minX - pad - lead)
+            let right = overflows(index - 1) ? centered : strip.clamp(frame.maxX + pad - width - lead)
             result.append(Snap(offset: left, column: index))
             result.append(Snap(offset: right, column: index))
         }

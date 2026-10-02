@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SchemaValidator } from "../../tools/json-schema.ts"
-import { validatePackage } from "../../tools/validate-manifest.ts"
+import { checkPalette, validatePackage } from "../../tools/validate-manifest.ts"
 import { generate, scopeFor } from "../../tools/gen-cmux-global.ts"
 
 const root = join(import.meta.dir, "../..")
@@ -19,6 +19,27 @@ describe("manifest schema", () => {
       const expected = JSON.parse(readFileSync(join(fixtures, "invalid", f.replace(".json", ".expect.json")), "utf8"))
       const errors = schema.validate(JSON.parse(readFileSync(join(fixtures, "invalid", f), "utf8")))
       expect(errors.some((e) => e.path === expected.path && e.code === expected.code)).toBe(true)
+    })
+  }
+})
+
+// Palette fixtures live in fixtures/palette/ until the Swift manifest validator
+// (CmuxNextApps) knows contributes.paletteScopes; sync-app-runtime.sh copies only
+// fixtures/{valid,invalid}. They run the schema plus the manifest-level palette rules.
+describe("palette manifest fixtures", () => {
+  const dir = join(fixtures, "palette")
+  const check = (manifest: Record<string, unknown>) => {
+    const errors = schema.validate(manifest)
+    return errors.length ? errors : checkPalette(manifest).errors
+  }
+  for (const f of readdirSync(join(dir, "valid"))) {
+    test(`palette/valid/${f}`, () => expect(check(JSON.parse(readFileSync(join(dir, "valid", f), "utf8")))).toEqual([]))
+  }
+  for (const f of readdirSync(join(dir, "invalid")).filter((f) => !f.endsWith(".expect.json"))) {
+    test(`palette/invalid/${f}`, () => {
+      const expected = JSON.parse(readFileSync(join(dir, "invalid", f.replace(".json", ".expect.json")), "utf8"))
+      const errors = check(JSON.parse(readFileSync(join(dir, "invalid", f), "utf8")))
+      expect(errors.map((e) => `${e.path} ${e.code}`)).toContain(`${expected.path} ${expected.code}`)
     })
   }
 })
@@ -54,9 +75,27 @@ describe("package validation", () => {
     const r = validatePackage(pkg({ ...base, main: "src/m.js", files: ["dist/"] }, { "src/m.js": "var __cmuxAppExports = { a() {} }" }))
     expect(r.errors.map((e) => e.code)).toContain("path.notInFiles")
   })
+  const paletteManifest = (source: Record<string, unknown>, detail?: Record<string, unknown>) => ({
+    ...base,
+    main: "m.js",
+    contributes: { paletteScopes: [{ id: "notes", title: "Notes", source, ...(detail ? { detail } : {}) }] }
+  })
+  test("palette source and detail exports must exist in main", () => {
+    const r = validatePackage(pkg(paletteManifest({ kind: "snapshot", export: "corpus" }, { export: "noteDetail" }), { "m.js": "var __cmuxAppExports = { other: palette.snapshot(() => []) }" }))
+    expect(r.errors.map((e) => `${e.path} ${e.code}`)).toEqual(["/contributes/paletteScopes/0/source/export export.missing", "/contributes/paletteScopes/0/detail/export export.missing"])
+  })
+  test("a palette export of the wrong kind is reported", () => {
+    const r = validatePackage(pkg(paletteManifest({ kind: "query", export: "corpus" }), { "m.js": "var __cmuxAppExports = { corpus: palette.snapshot(() => [act('a.b', {})]) }" }))
+    expect(r.errors.map((e) => e.code)).toEqual(["export.kind"])
+  })
+  test("an op source outside the catalog is a warning", () => {
+    const r = validatePackage(pkg({ ...base, contributes: { paletteScopes: [{ id: "notes", title: "Notes", source: { kind: "op", op: "note.search", item: { id: "$.id", title: "$.t" } } }] } }))
+    expect(r.ok).toBe(true)
+    expect(r.warnings.map((e) => e.code)).toContain("op.unknown")
+  })
   test("sample apps are valid", () => {
     const samples = join(root, "../../../samples/apps")
-    for (const name of ["github-prs", "running-agents", "agent-status"]) {
+    for (const name of ["github-prs", "running-agents", "agent-status", "palette-notes"]) {
       const r = validatePackage(join(samples, name))
       expect({ name, errors: r.errors }).toEqual({ name, errors: [] })
     }

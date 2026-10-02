@@ -4985,127 +4985,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Sticky Overlay"
+            "value": "Toggle Floating Sticky Column"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل التراكب المثبت"
+            "value": "تبديل العمود الثابت العائم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi ljepljivi sloj"
+            "value": "Uključi/isključi plutajuću fiksnu kolonu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå fastgjort overlejring til/fra"
+            "value": "Slå flydende fastgjort kolonne til/fra"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angeheftetes Overlay umschalten"
+            "value": "Schwebende angeheftete Spalte umschalten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar superposición fija"
+            "value": "Alternar columna fija flotante"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Basculer la superposition épinglée"
+            "value": "Basculer la colonne épinglée flottante"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva sovrapposizione fissa"
+            "value": "Attiva/disattiva colonna fissa mobile"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "固定カラムのオーバーレイを切り替え"
+            "state": "translated",
+            "value": "固定カラムのフローティングを切り替え"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើកស្រទាប់ខ្ទាស់"
+            "value": "បិទ/បើកជួរឈរថេរអណ្ដែត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "고정 오버레이 전환"
+            "value": "플로팅 고정 열 전환"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå fast overlegg av/på"
+            "value": "Slå flytende fast kolonne av/på"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz przypiętą nakładkę"
+            "value": "Przełącz pływającą przypiętą kolumnę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar sobreposição fixa"
+            "value": "Alternar coluna fixa flutuante"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить закреплённое наложение"
+            "value": "Переключить плавающую закреплённую колонку"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับการซ้อนทับที่ปักหมุด"
+            "value": "สลับคอลัมน์ตรึงแบบลอย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sabit kaplamayı aç/kapat"
+            "value": "Yüzen sabit sütunu aç/kapat"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути закріплене накладання"
+            "value": "Перемкнути плаваючу закріплену колонку"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt lớp phủ đã ghim"
+            "value": "Bật/tắt cột ghim nổi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换固定叠加"
+            "value": "切换浮动固定列"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換固定疊加"
+            "value": "切換浮動固定欄"
           }
         }
       }

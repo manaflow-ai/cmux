@@ -283,6 +283,8 @@ nonisolated final class FakeDaemon: @unchecked Sendable {
     }
 }
 
+/// CI runs this suite in a `swift test` process of its own
+/// (.github/workflows/cmux-next.yml, "Run attach driver stress tests").
 @Suite(.timeLimit(.minutes(2)))
 struct TerminalAttachDriverStressTests {
     typealias Driver = TerminalAttachDriver<FakeLink>
