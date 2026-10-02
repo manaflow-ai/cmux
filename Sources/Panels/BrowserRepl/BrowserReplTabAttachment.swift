@@ -184,7 +184,8 @@ final class BrowserReplTabAttachment {
     /// Increments on every request start, so `networkidle` can tell a quiet
     /// period from one where requests started and finished.
     private(set) var requestGeneration = 0
-    private weak var agentScriptWebView: WKWebView?
+    /// The page agent's document-start user script in the tab's controller.
+    private let agentUserScript = BrowserReplAgentUserScript()
 
     init(panel: BrowserPanel) {
         panelID = panel.id
@@ -445,6 +446,7 @@ final class BrowserReplTabAttachment {
         for respond in fileChoosers.values { respond(nil) }
         fileChoosers.removeAll()
         uninstrument()
+        agentUserScript.release()
         applyContext(BrowserReplContextOptions(), sessionID: nil)
         releaseRenderHost()
         if let webView = occlusionDisabledWebView {
@@ -541,21 +543,13 @@ final class BrowserReplTabAttachment {
     /// agent world, so documents loaded from now on have it before their own
     /// scripts run. Frames already loaded get it on their first evaluation.
     func installAgentUserScriptIfNeeded(source: String) {
-        guard let webView = panel?.webView, webView !== agentScriptWebView else { return }
-        agentScriptWebView = webView
-        // The script stays in the controller after the session ends; the
-        // guard makes it a no-op once the agent-world handler is removed.
-        let guarded = """
-        if (globalThis.webkit && webkit.messageHandlers && webkit.messageHandlers.\(BrowserReplAgentPresenceHandler.name)) {
-        \(source)
-        }
-        """
-        webView.configuration.userContentController.addUserScript(WKUserScript(
-            source: guarded,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false,
-            in: BrowserReplAgentWorld.world
-        ))
+        guard let webView = panel?.webView else { return }
+        agentUserScript.install(
+            source: source,
+            presenceHandlerName: BrowserReplAgentPresenceHandler.name,
+            world: BrowserReplAgentWorld.world,
+            in: webView.configuration.userContentController
+        )
     }
 
     /// Requests in flight, or `nil` when the resource load SPI is unavailable.
