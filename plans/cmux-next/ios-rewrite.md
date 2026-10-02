@@ -19,7 +19,14 @@ in the new app (T1).
 
 Kept as code (moved or linked unchanged; nothing else of the old app survives):
 
-KEEP_LIST_PLACEHOLDER
+| Kept piece | Now in | Why |
+| --- | --- | --- |
+| `MobileAuthComposition`, `DeferredSignInHook`, `MobileAuthBuildPolicy`, `MobileKeychainAccessGroupPolicy`, `ProtectedDataAvailability` (from `ios/cmuxPackage/cmuxFeature`) | `CmuxiOSAuth/Composition` | the Stack sign-in graph: environment resolution from `CMUXAuthEnvironment`/`CMUXApiBaseURL`, Keychain token store with the same service and access group (signed-in users stay signed in), DEBUG auto-login that the dogfood launcher drives, project-switch handling |
+| Sign-in screens: `SignInView`, restore status, billing recovery, email-code policy, error presentation, OAuth providers, Game of Life header, small view helpers (from `CmuxMobileShellUI`, `CmuxMobileWorkspace`) | `CmuxiOSAuth/SignIn` | IOS1 allows keeping the sign-in flow; it is tested and localized (9 languages) |
+| `Packages/Shared/CMUXAuthCore`, `CmuxAuthRuntime`, `CMUXMobileCore`, `vendor/stack-auth-swift-sdk-prerelease` | unchanged | the Mac app uses them too; `AuthCoordinator` is the sign-in owner |
+| `Packages/iOS/CmuxMobileSupport` | unchanged | `L10n`, `UITestConfig`, keyboard dismissal, glass button styles; the Mac uses it too |
+| `Packages/macOS/CmuxPhonePush`, `ios/NotificationService` | unchanged | push key material and the extension; plain pushes pass through; revisit when the new transport defines sender keys |
+| The 38 sign-in strings of the app catalog | `ios/cmux/Resources/Localizable.xcstrings` | `L10n` reads the main bundle |
 
 Kept as configuration (identity must not change, IOS1):
 
@@ -33,12 +40,26 @@ Kept as configuration (identity must not change, IOS1):
 
 Deleted after the new app installs and signs in on the phone (step 3 in section 10):
 
-DELETE_LIST_PLACEHOLDER
+- `ios/cmuxPackage` (cmuxFeature, CmuxIrohReleaseGateSupport): iroh and irx runtime, pairing, the old root scene.
+- iOS-only packages: CmuxAgentChatUI, CmuxMobileAnalytics, CmuxMobileBrowser, CmuxMobileBrowserStream,
+  CmuxMobileCamera, CmuxMobileChanges, CmuxMobileCrashReporting, CmuxMobileDiagnostics,
+  CmuxMobilePairedMac, CmuxMobileShell, CmuxMobileShellUI, CmuxMobileSimulatorStream,
+  CmuxMobileTerminal, CmuxMobileTerminalKit, CmuxMobileToast, CmuxMobileTransport,
+  CmuxMobileWorkspace; Shared iOS-only CmuxAgentChat, CmuxClientConfig, CmuxSimulatorStreamKit,
+  CmuxWorkspacePresence.
+- `ios/cmuxUITests` and the `iroh-soak` test plan (they drive the old UI); new UI tests come with the new screens.
+- Kept because the Mac links them: CmuxMobileRPC, CmuxMobileSSH, CmuxMobileShellModel,
+  CmuxMobileSupport, CmuxMobileTunnel.
+- Same change edits what references the deleted paths: `ios/cmux.xcworkspace`, root
+  `cmux.xcworkspace`, `scripts/check-workspace-package-groups.py`,
+  `scripts/lint-ios-package-conventions.sh`, and the workflows `test-ios.yml`,
+  `test-feed-reply-providers.yml`, `reload-build.yml`, `ios-e2e.yml`, `ios-testflight.yml`,
+  `ios-screenshots.yml`, `ios-appstore-upload.yml`, `iroh-release-gate.yml`.
 
 ## 3. Architecture
 
 ```
-cmux.app (ios/App: UIApplication + UIScene entry, ~50 lines)
+cmux.app (ios/cmux: UIApplication + UIScene entry, ~30 lines)
   └─ CmuxiOSApp          composition root: dependencies, root flow (signed out -> sign-in, signed in -> Home)
        ├─ CmuxiOSAuth     adapter over the kept sign-in (Stack) + the DEBUG launch sign-in hook
        ├─ CmuxHomeUI      UIKit Home: list, transcript, composer, compose/invite, search, Chief creation
@@ -61,8 +82,8 @@ cmux.app (ios/App: UIApplication + UIScene entry, ~50 lines)
 
 | Path | Module | Owns |
 | --- | --- | --- |
-| `ios/App/` | app target sources | `@main` delegate, scene delegate, launch screen, asset catalog |
-| `ios/CmuxiOS/Package.swift` | package for the app's modules | iOS 18+ |
+| `ios/cmux/` | app target sources | `@main` delegate and scene delegate (one file), assets, string catalogs |
+| `ios/CmuxiOS/Package.swift` | package for the app's modules | iOS 17+ (the app's floor) |
 | `ios/CmuxiOS/Sources/CmuxiOSApp` | composition root | root flow, dependency container, DEV switches |
 | `ios/CmuxiOS/Sources/CmuxiOSAuth` | sign-in adapter | wraps the kept auth packages; `AuthGate` protocol |
 | `ios/CmuxiOS/Sources/CmuxHomeUI` | Home UI | list, transcript, composer, compose/invite, search |
@@ -152,7 +173,10 @@ per conversation; events are coalesced to one UI update per frame.
 
 1. Done: CmuxHomeCore (model, HomeSource, mirror + intent log, mock, tests).
 2. App shell: new target tree, repoint the `cmux-ios` scheme, kept sign-in, Home against the mock.
-   Fleet build, install on the phone, screenshots.
+   Fleet build, install on the phone, screenshots. Dogfood proof: launcher readiness mode
+   `app-receipt` (the DEBUG app writes a secret-free receipt after sign-in plus one authenticated
+   API call; a credential-free relaunch must report `session_source: restored`), selected by the
+   Info.plist key `CMUXDogfoodReadiness`; the old app keeps the Mac pairing gate.
 3. Delete the old app code listed in section 2 once step 2 passes the auth gate on the phone.
 4. Prototypes for Lawrence to pick: Home list density (comfortable, compact, stacked) and the
    compose/invite flow (inline To: field, invite sheet, contact picker first), behind a DEV switch.
@@ -162,4 +186,14 @@ per conversation; events are coalesced to one UI update per frame.
 
 ## 11. Open decisions
 
-DECISIONS_PLACEHOLDER
+- DECISION: raise the app's floor from iOS 17 to iOS 18? RECOMMEND: yes, after the first dogfood round,
+  because UIKit observation tracking and newer list APIs remove glue code; today the new packages
+  build for iOS 17 to keep the current floor.
+- DECISION: Home messages offline. RECOMMEND: keep U5 (nothing queues; the composer keeps a local
+  draft), because a queued send that fails later is worse than a disabled Send with a reason.
+- DECISION: transcript renderer. RECOMMEND: the shared rendering core from lane 16 (MessagesLab
+  `catalyst/` core with the row recycler) plus an iPhone screen layer here (keyboard machine, input
+  bar, chat column from MessagesLab `ios/`), because two copies of a 4,000-line engine diverge at
+  once. Until it lands, the transcript is a small interim list behind `TranscriptPresenting`.
+- DECISION: the same-tag Mac build in the dogfood pipeline. RECOMMEND: keep it for now (backend
+  origin check), add an iOS-only path once the app has no Mac dependency at all.
