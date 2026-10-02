@@ -575,6 +575,38 @@ so the focused pane is still findable. No accent hue. The accent uses of `Palett
 (Settings tint, omnibar and page info rings) do not change. Settings: Appearance > Focus
 Ring > Contrast; Debug Settings: Focus > Focus ring alpha overrides it.
 
+Focus indicator and tab bar background (2026-10-02, user: "ensure bg of tabbar negative
+space is same as rest of app. also we should visually differ the focused pane's tabs from
+unfocused panes tabs by making the latter more subtle. all this should be configurable by
+the user."):
+- `appearance.tabBarBackground`: `window` (default) paints no strip fill, so the space
+  around and between the tabs is the window's own background (the titlebar and pane gaps,
+  whatever the backdrop: opaque, translucent or glass); where the sheet shows another color
+  (a workspace theme of the other lightness than its room) the strip paints the pane's
+  window color instead (`TabBarBackground.paintsStripFill`). `darker` is the previous
+  shaded strip (`Palette.stripBackground`). The sidebar has its own vibrancy backdrop, so in
+  a translucent or glass window it differs from the sheet (as before this change).
+- `appearance.focusIndicator`: `border` (the ring only), `tabs` (no ring; the other panes'
+  tabs draw subtler), `both` (default, with the subtle ring), `none`. With one pane nothing
+  is marked. The tabs cue needs no border, so it works with `appearance.borders` none.
+- Mechanism: `ScreenContentView.updateChrome` computes `ChromeEmphasis.forPane` per pane
+  and gates the ring on `marksBorder`; `PaneContentChrome.setChromeEmphasis` reaches
+  `PaneContentView`, whose strip roots its own child `ThemeScope`; `ThemeScope.setEmphasis`
+  applies `ThemeTokens.emphasized` to that scope's own views only (children and the content
+  keep the plain colors), and the scope repaint is the same path a theme change uses.
+  No Tabs code changes; no accent hue.
+- Debug Settings (Focus): `focus.indicator` and `focus.tabBarBackground` override the
+  settings; `focus.inactiveTabStyle` is the prototype switch (`fade` default: text, icons
+  and pills fade toward the background; `tonal`: every text tier steps down, the selected
+  pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
+  `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),
+  2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
+  opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
+- With `appearance.borders` none the unfocused panes' dim stands in for the ring only when
+  `focusIndicator` is `border`; with `tabs` or `both` the tab cue is the focus cue.
+- Chrome lane (WindowBackdrop, cc-pane-chrome) reads `DesignSettings.shared
+  .effectiveFocusIndicator` and `.effectiveTabBarBackground`.
+
 Resize rule (2026-09-30): the ring's layers move in the same call that sets the overlay's
 frame (`PaneOverlayView.setFrameSize`), so the pass that places the panes places the ring,
 even when the plane lives in the overlay panel above Chromium pages, whose own layout pass

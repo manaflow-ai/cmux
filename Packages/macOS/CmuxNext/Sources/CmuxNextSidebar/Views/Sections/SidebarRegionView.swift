@@ -12,6 +12,8 @@ final class SidebarRegionView: NSView {
         var collapsed: Set<LayoutSectionID>
         var look: SectionsLookVariant
         var metrics: SidebarRegionMetrics
+        /// `appearance.borders`: lines, or the tonal step under none.
+        var drawsLines: Bool
     }
 
     let region: SidebarRegion
@@ -24,6 +26,10 @@ final class SidebarRegionView: NSView {
     private var itemViews: [LayoutItemID: SidebarItemRowView] = [:]
     private var headerViews: [LayoutSectionID: SidebarSectionHeaderView] = [:]
     private var cardLayers: [CALayer] = []
+    /// Section lines (lines looks), or under `appearance.borders = none`
+    /// the tonal step: every other section a shade lighter.
+    private var lineLayers: [CALayer] = []
+    private var drawsLines = true
 
     init(region: SidebarRegion) {
         self.region = region
@@ -64,7 +70,10 @@ final class SidebarRegionView: NSView {
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
                 liveItems.insert(id)
                 let view = itemViews[id] ?? makeItem(id)
-                let style: SidebarItemRowView.Style = if case .tile = row.kind { .tile } else { section.look == .builtIn ? .builtIn : .list }
+                let style: SidebarItemRowView.Style = switch row.kind {
+                case .tile: content.look == .tray ? .tile : .icon
+                default: section.look == .builtIn ? .builtIn : .list
+                }
                 view.configure(content.infos[id] ?? .fallback(for: item.ref), style: style)
                 view.frame = row.frame
             }
@@ -90,6 +99,16 @@ final class SidebarRegionView: NSView {
             card.frame = frame
             card.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
         }
+        drawsLines = Borders.drawsLines
+        let lineFrames = drawsLines ? layoutResult.separators
+            : content.look.separatesSections ? layoutResult.sectionFrames.enumerated().filter { $0.offset % 2 == 1 }.map(\.element) : []
+        while lineLayers.count > lineFrames.count { lineLayers.removeLast().removeFromSuperlayer() }
+        while lineLayers.count < lineFrames.count {
+            let line = CALayer()
+            layer?.insertSublayer(line, at: 0)
+            lineLayers.append(line)
+        }
+        for (line, frame) in zip(lineLayers, lineFrames) { line.frame = frame }
         CATransaction.commit()
         needsDisplay = true
     }
@@ -123,6 +142,8 @@ final class SidebarRegionView: NSView {
     override func updateLayer() {
         performWithTheme {
             for card in cardLayers { card.backgroundColor = Palette.hoverFill.cgColor }
+            let lineColor = drawsLines ? Palette.separator : Palette.hoverFill.withAlphaComponent(Palette.hoverFill.alphaComponent * 0.6)
+            for line in lineLayers { line.backgroundColor = lineColor.cgColor }
         }
     }
 

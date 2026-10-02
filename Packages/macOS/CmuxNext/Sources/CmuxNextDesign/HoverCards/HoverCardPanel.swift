@@ -70,8 +70,9 @@ final class HoverCardPanel: NSPanel {
             body = newBody
         }
         // The card draws in the theme scope of the view it describes and
-        // follows that scope's changes while it shows.
-        let scope = themeAnchor?.themeScope ?? parent.themeScope
+        // follows that scope's changes while it shows, at full strength even
+        // over an unfocused pane's subtle strip.
+        let scope = (themeAnchor?.themeScope ?? parent.themeScope).fullStrength
         scope.adopt(self)
         scope.addResponder(self)
         self.applyTheme = applyTheme

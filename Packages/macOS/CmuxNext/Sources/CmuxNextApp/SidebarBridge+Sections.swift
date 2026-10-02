@@ -4,11 +4,10 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import Observation
 
-// Sidebar sections (plans/cmux-next/sidebar-sections.md): built-in items
-// run their registry action as the user; pinned workspaces select. Layout
-// ops go to the workspace store once it serves `sidebar-layout-v1`; until
-// then they are refused, except in DEV with the local prototype switch,
-// which edits the in-memory layout (never saved).
+// Sidebar sections (plans/cmux-next/sidebar-sections.md): every window
+// draws `SidebarLayoutService.document`; built-in items run their registry
+// action as the user; pinned workspaces select; layout ops go to the
+// service, which refuses them until the store serves `sidebar-layout-v1`.
 extension SidebarBridge {
     /// The registry action each built-in runs.
     static let builtInActions: [SidebarBuiltIn: ActionID] = [
@@ -35,9 +34,11 @@ extension SidebarBridge {
         let model = model
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
+        let service = services.sidebarLayout
         sectionsObservation = Task { [weak self] in
-            for await layout in Observations({ model.layout }) {
+            for await layout in Observations({ service.document }) {
                 guard self != nil else { return }
+                if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout) { registry.action(for: $0) != nil }
                 if model.itemInfo != infos { model.itemInfo = infos }
             }
@@ -59,8 +60,9 @@ extension SidebarBridge {
         return infos
     }
 
+    /// A layout change from this sidebar (a drag, an inline edit): sent to
+    /// the layout owner; a refusal shows in the refusal HUD.
     func applyLayoutOp(_ op: SidebarLayoutOp) {
-        guard DevTools.isEnabled, SidebarSectionTunables.localPrototype.override == true else { return }
-        model.apply(.layout(op))
+        do { try services.sidebarLayout.send(op) } catch { services.registry.refuse(String(describing: error)) }
     }
 }

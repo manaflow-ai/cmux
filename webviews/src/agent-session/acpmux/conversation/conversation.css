@@ -36,6 +36,18 @@
 
 /* ---------- User bubble ---------- */
 
+/* The date over the first prompt of a day (DateLine.tsx). */
+.cv-date-line {
+  display: block;
+  padding-top: 8px;
+  text-align: center;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: 20px;
+  letter-spacing: var(--cv-tracking, 0.045px);
+  color: var(--cv-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 .cv-user {
   flex: 1;
   min-width: 0;

@@ -144,25 +144,31 @@ prototyping; it is never persisted.
 
 ## 6. Surfaces
 
-Every action is a registry action with a surface plan (actions.md); `check-action-surfaces.sh`
-enforces it.
+Every action is a registry action with an inline surface plan
+(`CmuxNextActions/Catalog/SidebarSectionActionCatalog.swift`); `check-action-surfaces.sh` enforces
+it. Target kinds `sidebar-item` (`itm_…` or a built-in name such as `home`) and `sidebar-section`
+(`sec_…`); right-click contexts `sidebarItem` and `sidebarSection`. The palette asks for the target
+(`SidebarSectionTargetSource`). CLI verbs are `cmux sidebar <verb>` (Rust CLI, requested from
+feat-cmux-next-99; until then `cmux action run <id>`); MCP follows the CLI.
 
-| Action id | Palette | CLI verb (Rust CLI, requested from feat-cmux-next-99) | Right-click | MCP |
-| --- | --- | --- | --- | --- |
-| `sidebar.section.add` | Add Section… | `cmux sidebar section add [--region top|middle|bottom] [--title T] [--look built-in|list]` | sidebar background, section header | yes |
-| `sidebar.section.rename` | Rename Section | `cmux sidebar section rename <sec> <title>` | section header | yes |
-| `sidebar.section.moveToTop` / `moveToMiddle` / `moveToBottom` | Move Section to Top/Scrolling/Bottom | `cmux sidebar section move <sec> --region R [--index N]` | section header > Move | yes |
-| `sidebar.section.setLook` | Section Look > Built-in / List | `cmux sidebar section set <sec> --look L` | section header > Appearance | yes |
-| `sidebar.section.setMaxRows` | Section Height… | `cmux sidebar section set <sec> --max-rows N|auto` | section header > Options | yes |
-| `sidebar.section.toggleRoomScope` | Show in This Room Only / All Rooms | `cmux sidebar section set <sec> --room <id>|all` | section header > Options | yes |
-| `sidebar.section.toggleCollapsed` | Collapse/Expand Section | exempt `focusMove` (view state) | section header | follows CLI |
-| `sidebar.section.remove` | Remove Section | `cmux sidebar section remove <sec>` | section header | yes |
-| `sidebar.item.add` (built-ins: `sidebar.home.add`, `sidebar.settings.add`, …) | Add Home to Sidebar … | `cmux sidebar item add <builtin|ws_…|tab_…|room|url> [--section S] [--index N]` | sidebar background > Add | yes |
-| `sidebar.item.remove` (`sidebar.home.remove` alias) | Remove Home from Sidebar | `cmux sidebar item remove <itm|builtin>` | item row | yes |
-| `sidebar.item.move` | — | `cmux sidebar item move <itm> --section S --index N` | drag gesture (exempt `dragGesture`) | yes |
-| `workspace.pinToSection` / `tab.pinToSection` | Pin to Section… | `cmux workspace pin <ws> --section S`, `cmux tab pin <tab> --section S` | workspace row and tab menus > Move > Pin to Section | yes |
-| `sidebar.layout.reset` | Reset Sidebar Layout | `cmux sidebar reset` | sidebar background > Options | yes |
-| `sidebar.layout.show` | — | `cmux sidebar layout [--json]` (reads the document) | — | yes |
+| Action id | Palette | CLI verb | Right-click |
+| --- | --- | --- | --- |
+| `sidebar.home.add` | Add Home to Sidebar | `sidebar add-home` | background > New |
+| `sidebar.home.remove` | Remove Home from Sidebar | `sidebar remove-home` | (the Home row's Remove from Sidebar) |
+| `sidebar.item.add` (`item` = home, settings, account, notifications, history, bookmarks; `section`) | Add to Sidebar… | `sidebar add-item` | background > New, section |
+| `sidebar.item.remove` | Remove from Sidebar | `sidebar remove-item` | item |
+| `sidebar.section.add` (`title`, `region`) | New Section… | `sidebar add-section` | background > New, section |
+| `sidebar.section.rename` (`title`) | Rename Section… | `sidebar rename-section` | section |
+| `sidebar.section.moveToTop` / `moveToScrolling` / `moveToBottom` | Move Section to … | `sidebar move-section-top` / `-scrolling` / `-bottom` | section > Move |
+| `sidebar.section.useBuiltInLook` / `useListLook` | Built-in Look / List Look | `sidebar section-look-built-in` / `section-look-list` | section > Appearance |
+| `sidebar.section.toggleRoomScope` | Show Only in This Room | `sidebar toggle-section-room` | section > Options |
+| `sidebar.section.setMaxRows` (`rows`, 0 = automatic) | Set Section Height… | `sidebar set-section-height` | section > Options |
+| `sidebar.section.toggleCollapsed` | Collapse or Expand Section | exempt `focusMove` (view state) | section |
+| `sidebar.section.remove` (destructive, confirms) | Remove Section | `sidebar remove-section` | section |
+| `sidebar.layout.reset` (destructive, confirms) | Reset Sidebar Layout | `sidebar reset` | background > Options |
+
+Still to add: pin a workspace or tab to a section (`workspace.pinToSection`, `tab.pinToSection`), a
+read verb (`sidebar layout --json`), and the customizations in section 10.
 
 Drag and drop: items drag within and between sections of any region (the insertion line and gap
 come from the same `DropResolver` geometry as workspace rows); workspace rows dragged onto an items
@@ -176,26 +182,31 @@ visual order; Return activates.
 
 ## 7. Prototypes (Debug Settings > Sidebar)
 
-- `sidebar.sections.look` = `quiet` | `card` | `tray`:
-  - quiet: built-in rows are icon + label with no pill at rest, a 1 px hairline (respects
-    `appearance.borders`) separates sticky regions from the scrolling list; headers are small caps
-    in secondary text.
-  - card: each sticky region sits in a rounded inset card (subtle fill, no border), headers inside.
-  - tray: built-in items in a top region lay out as an icon grid (Arc favorites style); bottom
-    region as a single row of icon buttons; list-look sections unchanged.
-- `sidebar.sections.noun` = sections | shelves (menu and header copy).
-- `sidebar.sections.roomModel` = shared | perRoom (mock only: shows model B).
+`sidebar.sections.look` (Lawrence wants more than three; he is "generally not a big fan of labels"):
 
-Screenshots come from a throwaway demo executable that links CmuxNextSidebar with the mock model.
+- quiet: icon + label rows, no fill at rest; a hairline separates the sticky bands from the list.
+- card: each section of a sticky band sits in a rounded inset card.
+- tray: built-in sections as an icon grid (Arc favorites).
+- lines: no headers and no labels on section boundaries; a thin line between every section and
+  between subsections (the shared `Borders` metric; under `appearance.borders = none` a tonal step
+  instead of a line). Rows keep icon + label.
+- lines-icons: lines, and built-in items show icons only (a compact row of icon buttons per
+  built-in section); list-look sections keep their labels.
+
+Every look: section titles are optional per section and the new looks hide them; sticky bands and
+the middle list show gradient edge fades while more content is hidden (the shared
+`ScrollEdgeFadeView`). Rooms model B is mocked in the screenshots by scoping every section to one
+room. The menus' noun stays "Section"; "Shelf" copy is listed in the report instead of a runtime
+switch (descriptor titles are built once at launch).
 
 ## 8. Phases
 
-1. This doc. Pure document model + reducer + tests (Swift), default layout. *(landing)*
-2. Sidebar view: three regions, built-in and list looks, three look variants, Home as an item,
-   scroll caps, mock + screenshots.
-3. App: registry actions with surface plans, right-click and palette, Cmd-1 rule, Home lead's
-   `home.show` as the Home item's action (replaces the hard-wired Home row from the Home branch),
-   collapse in `WindowState`.
+1. Done (9c2d458fb75, 96e8343fec6): pure document model + reducer + tests, default layout.
+2. Done (9ef77a69a9b, 3c7de1001eb): sticky bands, built-in and list looks, quiet/card/tray, Home as
+   an item, scroll caps.
+3. Registry actions with surface plans, App-wide `SidebarLayoutService`, palette targets. Then:
+   lines and lines-icons looks, optional titles, edge fades, the room bar's hover-only "+", Cmd-1 rule
+   and the Home item's highlight after Home lands, collapse saved in `WindowState`.
 4. Store: `sidebar-layout-v1` in cmux-tui-core personal store (Rust reducer, proptest for L1-L3 and
    idempotency), client mirror + intent log, Rust CLI verbs. Coordinated with the state-module owner
    and the Rust CLI session.
@@ -203,10 +214,32 @@ Screenshots come from a throwaway demo executable that links CmuxNextSidebar wit
 
 ## 9. Open decisions for Lawrence
 
-- Name: sections (recommended) or shelves.
-- Rooms: model A (one layout, room-scoped sections; recommended) or B (layout per room).
+- Name: sections (recommended) or shelves. "Shelf" copy: New Shelf…, Rename Shelf…, Move Shelf to Top, Remove Shelf, Set Shelf Height….
+- Rooms: model A approved (2026-10-02).
 - Defaults: bottom = Settings + Account, or only Settings (account lives in the room bar today).
 - Scroll policy default: sticky regions grow until they reach their share of the sidebar height (top
   1/3, bottom 1/4), then scroll inside; per-section `maxRows` overrides. Alternative: never scroll,
   the middle shrinks to a minimum of 3 rows.
 - Collapse state per window (recommended) or synced per user.
+
+## 10. Customizations
+
+What users and agents will want, in priority order; bold ones are built in this round.
+
+Per section: **hide in other rooms (room scope)**, **collapse (per window)**, **max height**, **look
+(built-in / list)**, **title shown or hidden**, compact density (row height), sort (manual, name,
+recent), filter (machine, agent status, unread only), counts and badges on the header, icon and color
+for the header.
+Per item: **remove**, **move between sections and regions (reducer; drag in phase 5)**, rename (a
+display title override), icon and color override, open in a new window.
+Layout: **reset to defaults**, import/export as JSON (`sidebar layout --json` and
+`sidebar import-layout`), per-room layouts if model A proves too coarse.
+App-wide: the look (setting once Lawrence picks; Debug Settings switch now), band height shares,
+edge fades on or off (follows Reduce Transparency).
+
+## 11. The window rail
+
+Lawrence (2026-10-02): sections subsume Leo's window rail (#16740). The rail becomes a region and a
+look of sections: a leading vertical region whose sections draw as icon columns (the lines-icons
+look turned vertical). Leo's lane builds the rail look on top of the section layout; shared files go
+through the coordinator.
