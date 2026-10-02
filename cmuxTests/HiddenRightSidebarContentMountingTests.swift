@@ -73,6 +73,7 @@ struct HiddenRightSidebarContentMountingTests {
             onResumeSession: nil,
             onOpenSession: nil,
             onOpenFilePreview: { _ in },
+            onRevealInCmux: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
             customSidebarDataContext: { _ in [:] }

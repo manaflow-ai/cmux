@@ -2118,6 +2118,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             onResumeSession: nil,
             onOpenSession: nil,
             onOpenFilePreview: { _ in },
+            onRevealInCmux: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},
             customSidebarDataContext: { _ in [:] }
@@ -3863,6 +3864,27 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
             FileExternalOpenText.openExternally,
             FileExternalOpenText.revealInFinder,
         ])
+    }
+
+    func testFileExplorerExternalOpenMenuOffersRevealInCmux() throws {
+        let fileURL = URL(fileURLWithPath: "/tmp/project/.env")
+        let menu = NSMenu()
+
+        FileExplorerExternalOpenMenuItems(
+            fileURL: fileURL,
+            target: NSObject(),
+            action: Selector(("open:"))
+        ).add(to: menu)
+
+        let revealItem = try XCTUnwrap(
+            menu.items.first { $0.title == FileExternalOpenText.revealInCmux },
+            "File Explorer's external-open menu should offer a terminal split at the file's directory"
+        )
+        let request = try XCTUnwrap(revealItem.representedObject as? FileExplorerExternalOpenRequest)
+        XCTAssertEqual(request.fileURL, fileURL)
+        guard case .revealInCmux = request.action else {
+            return XCTFail("Expected the menu item to dispatch the reveal action")
+        }
     }
 
     func testCmdClickSupportedFileRoutingDefaultsToReadableRegularFilesOnly() throws {

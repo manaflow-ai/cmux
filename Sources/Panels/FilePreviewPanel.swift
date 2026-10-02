@@ -143,6 +143,10 @@ enum FileExternalOpenText {
     static var revealInFinder: String {
         String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder")
     }
+
+    static var revealInCmux: String {
+        String(localized: "fileExplorer.contextMenu.revealInCmux", defaultValue: "Reveal in cmux")
+    }
 }
 
 enum FileExternalOpenMenuFactory {

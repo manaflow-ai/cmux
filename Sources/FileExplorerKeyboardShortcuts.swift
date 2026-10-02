@@ -2,6 +2,30 @@ import AppKit
 import CmuxSettings
 import CmuxWorkspaces
 
+@MainActor
+extension Workspace {
+    /// Opens a terminal split in the directory containing a local file.
+    @discardableResult
+    func revealFileInCmux(filePath: String, sourcePanelId: UUID? = nil) -> Bool {
+        guard !usesRemoteDirectoryProvenance else { return false }
+        let sourcePanelId = sourcePanelId ?? focusedPanelId
+        guard let sourcePanelId, panels[sourcePanelId] != nil else { return false }
+
+        let directoryPath = URL(fileURLWithPath: filePath)
+            .deletingLastPathComponent()
+            .standardizedFileURL
+            .path
+        guard !directoryPath.isEmpty else { return false }
+
+        return newTerminalSplit(
+            from: sourcePanelId,
+            orientation: .horizontal,
+            focus: true,
+            workingDirectory: directoryPath
+        ) != nil
+    }
+}
+
 /// Perform the configured action for opening a local file from the file explorer.
 @MainActor
 func performFileExplorerFileOpen(path: String, onOpenFilePreview: (String) -> Void) {

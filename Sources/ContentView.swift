@@ -1952,6 +1952,9 @@ struct ContentView: View {
             onOpenFilePreview: { filePath in
                 openFilePreviewFromSidebar(filePath: filePath)
             },
+            onRevealInCmux: { filePath in
+                revealFileInCmuxFromSidebar(filePath: filePath)
+            },
             onOpenAsPane: { mode in
                 openRightSidebarToolPane(mode)
             },
@@ -2396,6 +2399,11 @@ struct ContentView: View {
         sidebarSelectionState.selection = .tabs
         FileExplorerPreviewCoordinator(store: fileExplorerStore).open(path: filePath, workspace: workspace,
             pane: paneId, isCurrent: { tabManager.selectedTabId == workspace.id })
+    }
+
+    private func revealFileInCmuxFromSidebar(filePath: String) {
+        guard let workspace = tabManager.selectedWorkspace else { return }
+        _ = workspace.revealFileInCmux(filePath: filePath)
     }
 
     private func syncFileExplorerDirectory() {

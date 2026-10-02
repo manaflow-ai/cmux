@@ -22,28 +22,29 @@ struct FileExplorerExternalOpenMenuItems {
             openItem.target = target
             openItem.representedObject = FileExplorerExternalOpenRequest(
                 fileURL: fileURL,
-                applicationURL: primaryApplication.url
+                action: .open(applicationURL: primaryApplication.url)
             )
             menu.addItem(openItem)
 
-            guard !otherApplications.isEmpty else { return }
-            let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
-            for application in otherApplications {
-                let appItem = NSMenuItem(
-                    title: application.displayName,
-                    action: action,
-                    keyEquivalent: ""
-                )
-                appItem.target = target
-                appItem.representedObject = FileExplorerExternalOpenRequest(
-                    fileURL: fileURL,
-                    applicationURL: application.url
-                )
-                openWithMenu.addItem(appItem)
+            if !otherApplications.isEmpty {
+                let openWithMenu = NSMenu(title: FileExternalOpenText.openWithMenu)
+                for application in otherApplications {
+                    let appItem = NSMenuItem(
+                        title: application.displayName,
+                        action: action,
+                        keyEquivalent: ""
+                    )
+                    appItem.target = target
+                    appItem.representedObject = FileExplorerExternalOpenRequest(
+                        fileURL: fileURL,
+                        action: .open(applicationURL: application.url)
+                    )
+                    openWithMenu.addItem(appItem)
+                }
+                let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
+                openWithItem.submenu = openWithMenu
+                menu.addItem(openWithItem)
             }
-            let openWithItem = NSMenuItem(title: FileExternalOpenText.openWithMenu, action: nil, keyEquivalent: "")
-            openWithItem.submenu = openWithMenu
-            menu.addItem(openWithItem)
         } else {
             let openItem = NSMenuItem(
                 title: FileExternalOpenText.openExternally,
@@ -51,8 +52,23 @@ struct FileExplorerExternalOpenMenuItems {
                 keyEquivalent: ""
             )
             openItem.target = target
-            openItem.representedObject = FileExplorerExternalOpenRequest(fileURL: fileURL, applicationURL: nil)
+            openItem.representedObject = FileExplorerExternalOpenRequest(
+                fileURL: fileURL,
+                action: .open(applicationURL: nil)
+            )
             menu.addItem(openItem)
         }
+
+        let revealInCmuxItem = NSMenuItem(
+            title: FileExternalOpenText.revealInCmux,
+            action: action,
+            keyEquivalent: ""
+        )
+        revealInCmuxItem.target = target
+        revealInCmuxItem.representedObject = FileExplorerExternalOpenRequest(
+            fileURL: fileURL,
+            action: .revealInCmux
+        )
+        menu.addItem(revealInCmuxItem)
     }
 }
