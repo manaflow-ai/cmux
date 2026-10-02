@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c. */
+/* cmux-tui mux protocol 12, IR 68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "06426902f6b840fe5bda861cd89adf95557247009953da568266a7381b1a1f9c" as const;
+export const SDK_IR_SHA256 = "68f320c61aea43c8086b6eb581a5d4f6411714c3749b5177b44c3806a2e34d87" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1178,6 +1178,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Bootstrap and navigation failures are asynchronous browser-state outcomes."
+    ]
+  },
+  "new-conversation-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "conversation-tabs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "owner is local or cloud; conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
     ]
   },
   "new-frontend-browser-tab": {
@@ -7510,7 +7520,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "enum",
           "values": [
             "pty",
-            "browser"
+            "browser",
+            "conversation"
           ]
         }
       },
@@ -13151,6 +13162,79 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "SurfaceResult"
+    }
+  },
+  "new-conversation-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "new-frontend-browser-tab": {

@@ -184,8 +184,7 @@ fn terminal_history_read(
 /// Bounded plain-text window over one terminal's journaled output stream.
 /// Unlike the other content reads it does not require a live surface: like
 /// `terminal.wait_exit` it resolves through the durable exit receipt, so it
-/// answers for exited terminals under both exit policies (kept views and
-/// detached ones).
+/// answers for exited terminals under both exit policies (kept views and detached ones).
 fn terminal_output_read(
     mux: &Arc<Mux>,
     request: &ParsedResourceRequest,
@@ -1133,6 +1132,7 @@ fn resolve_browser_surface(
         path.browser.ok_or_else(|| ResourceError::not_found("browser", "<resolved>"))?;
     let (_, surface) = browser_surface_for_id(mux, &browser_id)
         .ok_or_else(|| ResourceError::not_found("browser", browser_id.as_str()))?;
+    mux.refuse_conversation_browser(&surface)?;
     Ok((browser_id, surface))
 }
 

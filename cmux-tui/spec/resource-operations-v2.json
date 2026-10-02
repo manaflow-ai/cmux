@@ -1879,7 +1879,8 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
           }
         },
@@ -8420,6 +8421,20 @@
           "client": "required"
         },
         "fields": {
+          "capabilities": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "max_items": 64
+            },
+            "description": "Additive capabilities of the requesting connection, as in raw set-client-info (for example conversation-tabs-v1). Only the requesting connection may declare them."
+          },
           "name": {
             "required": false,
             "type": {
