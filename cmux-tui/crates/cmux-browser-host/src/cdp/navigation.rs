@@ -129,6 +129,9 @@ impl Inner {
                 }
             }
         }
+        if !dialog_open {
+            self.refresh_title(&session);
+        }
         let state = self.lock();
         let tab = state
             .tabs
@@ -160,6 +163,37 @@ impl Inner {
             json!({"width": width as i64, "height": height as i64, "deviceScaleFactor": 0, "mobile": false}),
         )?;
         Ok(Value::Null)
+    }
+}
+
+impl Inner {
+    /// Reads `document.title` in the main frame's agent world: the target's
+    /// title from `Target.targetInfoChanged` can lag the document.
+    fn refresh_title(&self, session: &super::driver::Session) {
+        let context = {
+            let state = self.lock();
+            let Some(tab) = state.tabs.get(&session.target_id) else {
+                return;
+            };
+            tab.main_frame.as_ref().and_then(|frame| {
+                tab.contexts.get(&(frame.clone(), super::state::World::Agent)).copied()
+            })
+        };
+        let Some(context) = context else {
+            return;
+        };
+        let reply = self.conn.call(
+            Some(&session.session_id),
+            "Runtime.evaluate",
+            json!({"expression": "document.title", "contextId": context, "returnByValue": true}),
+            Duration::from_secs(2),
+        );
+        if let Ok(reply) = reply
+            && let Some(title) = reply["result"]["value"].as_str()
+            && let Some(tab) = self.lock().tabs.get_mut(&session.target_id)
+        {
+            tab.title = title.to_owned();
+        }
     }
 }
 

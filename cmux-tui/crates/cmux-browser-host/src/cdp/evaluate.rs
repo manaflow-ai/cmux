@@ -128,8 +128,7 @@ impl Inner {
                 let declaration = format!(
                     "function (handles, ...args) {{ const a = globalThis.__cmuxPageAgent; \
                      const els = handles.map((h) => {{ const e = a && a.resolveHandle ? a.resolveHandle(h) : null; \
-                     if (!e) throw new Error({marker:?} + h); return e; }}); return ({source})(...els, ...args); }}",
-                    marker = STALE_MARKER
+                     if (!e) throw new Error({STALE_MARKER:?} + h); return e; }}); return ({source})(...els, ...args); }}",
                 );
                 (self.context(&session, &frame_id, World::Agent, deadline)?, declaration)
             }
