@@ -269,12 +269,9 @@ export function visibleLayoutRange(layoutModel: ConversationLayout, scrollTop: n
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-<<<<<<< HEAD
 import { isFoldedCopy, WORKED } from "./conversation/turns";
-=======
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
->>>>>>> origin/feat-cmux-next-pane-markdown
 
 /// The pane header: the agent the session runs (its first prompt already titles the session
 /// picker and opens the transcript), and a status only when it says something to act on.
