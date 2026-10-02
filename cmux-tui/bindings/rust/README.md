@@ -122,6 +122,45 @@ let _request = cmux::raw::PingRequest::default();
 # let _ = old_id;
 ```
 
+`cmux::raw::ByteAttachment` attaches one terminal in byte mode on its own
+connection, the way the cmux-next app does. It advertises its capabilities
+with `set-client-info` before attaching, then splits into a reader for one
+thread and a `Clone + Send + Sync` writer for input (`send`), grid reports,
+geometry claims and release, and detach.
+`open` fails with `MissingCapability` when the daemon lacks
+`view-attachment-lease-v1`, `view-attachment-detach-v1`, or
+`attach-initial-size`. The SDK never reconnects; after
+`AttachmentItem::Ended(reason)`, `reason.reattach()` says whether to open a
+new attachment.
+
+```rust,no_run
+use cmux::raw::{AttachTarget, AttachmentItem, ByteAttachment, CellSize, ClientConfig};
+# fn attach(terminal: cmux::TerminalId, generation: String) -> cmux::Result<()> {
+let config = ClientConfig::default();
+let target = AttachTarget::Terminal { id: terminal, generation };
+let ByteAttachment { writer, mut reader, .. } =
+    ByteAttachment::open(&config, target, CellSize::new(80, 24), Default::default())?;
+std::thread::spawn(move || writer.send_bytes(b"ls\r"));
+while let Some(item) = reader.next() {
+    match item? {
+        AttachmentItem::VtState(replay) | AttachmentItem::Resized(replay) => {
+            let _ = (replay.data, replay.pending);
+        }
+        AttachmentItem::Output { data, .. } => drop(data),
+        AttachmentItem::Ended(reason) => println!("ended: {reason:?}, {:?}", reason.reattach()),
+        _ => {}
+    }
+}
+# Ok(())
+# }
+```
+
+The `socket-path-hash` feature (on by default) derives the SHA-256 socket
+path for session names too long for a Unix socket path. Embedders that always
+pass an explicit socket path can build with `default-features = false` and
+drop the `sha2` dependency; deriving such a path then returns
+`Error::InvalidArgument`.
+
 The optional `cmux-sidebar` companion provides Ratatui rendering and input
 forwarding without adding Ratatui to this base crate.
 
