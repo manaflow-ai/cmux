@@ -146,6 +146,12 @@ frames for them, and `attach-surface` refuses them. Tabs report
 `browser_renderer:"frontend"` and `browser_engine`. CDP browser tabs keep
 their existing behavior and report `browser_renderer:"daemon"`.
 
+`frontend-browser-history-v1` adds `set-frontend-browser-history` and
+`get-frontend-browser-history`: a frontend stores an opaque JSON object (at
+most 64 KiB) per frontend-rendered browser tab, such as its back/forward
+entries and scroll, and reads it back after a relaunch. `history:null`
+clears it. The daemon never journals it or puts it in the tree.
+
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),
 `move-tab-to-split` (pane edge), `move-tab-to-column` (new strip column),

@@ -13,6 +13,8 @@ use crate::workspace_registry::{
     new_workspace_group_id, validate_workspace_group_id,
 };
 
+mod frontend_browser_history;
+
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
 ///
@@ -778,46 +780,6 @@ impl Mux {
                 Err(error)
             }
         }
-    }
-
-    /// Record the URL, title, or favicon a frontend-rendered browser
-    /// reports. `favicon_url: Some(None)` clears the favicon.
-    pub fn update_frontend_browser_tab(
-        &self,
-        surface: SurfaceId,
-        url: Option<String>,
-        title: Option<String>,
-        favicon_url: Option<Option<String>>,
-    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
-        let runtime =
-            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
-        let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
-            anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
-        })?;
-        let (record, changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let result = registry.update_frontend_browser(
-                browser_id.as_str(),
-                url.as_deref(),
-                title.as_deref(),
-                favicon_url.as_ref().map(Option::as_deref),
-            )?;
-            if result.1 {
-                self.reload_presentation(&registry)?;
-            }
-            result
-        };
-        if changed {
-            if let Some(browser) = runtime.as_browser() {
-                browser.set_frontend_location(url, title.clone());
-            }
-            self.publish_journal_event();
-            if let Some(title) = title {
-                self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
-            }
-            self.emit_tab_changed(surface);
-        }
-        Ok((record, changed))
     }
 }
 
