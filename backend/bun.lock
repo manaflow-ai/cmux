@@ -57,6 +57,15 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/network-policy": {
+      "name": "@cmux/network-policy",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "26.6.2",
+        "typescript": "7.0.2",
+        "vitest": "4.1.11",
+      },
+    },
     "packages/ownership": {
       "name": "@cmux/ownership",
       "version": "0.0.0",
@@ -135,6 +144,8 @@
     "@cmux/dashboard": ["@cmux/dashboard@workspace:apps/dashboard"],
 
     "@cmux/db": ["@cmux/db@workspace:db"],
+
+    "@cmux/network-policy": ["@cmux/network-policy@workspace:packages/network-policy"],
 
     "@cmux/ownership": ["@cmux/ownership@workspace:packages/ownership"],
 
