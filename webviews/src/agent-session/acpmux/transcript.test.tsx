@@ -1725,7 +1725,7 @@ describe("acpmux live turn status", () => {
       act(async () =>
         root.render(
           createElement(VirtualTranscript, {
-            rows: turnView(rows, new Set(), working),
+            rows: turnView(rows, new Set(), { working }),
             onToggleActivity: () => {},
             expanded: new Set<string>(),
           }),
@@ -1901,6 +1901,43 @@ describe("acpmux shell calls", () => {
       expect(shell?.textContent).toBe("Shell$ bun test1 failExit code 1");
       expect(dom.window.document.querySelector(".cv-tool-output")?.textContent).toBe("{ apps: [] }");
       expect(dom.window.document.querySelectorAll(".cv-shell")).toHaveLength(1);
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});
+
+describe("acpmux timestamp lines", () => {
+  /// Codex dates a turn that starts over an hour after the last answer; the pane showed no
+  /// date at all.
+  test("a turn over an hour after the previous answer draws its time above it", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const at = Date.now() - 20 * 60_000;
+    const rows: AcpmuxRow[] = [
+      { id: "u", version: 1, at: at - 3 * 36e5, kind: "user", text: "find SOTA harness research" },
+      { id: "a", version: 1, at: at - 3 * 36e5 + 60_000, kind: "assistant", text: "RLMs lead." },
+      { id: "u2", version: 1, at, kind: "user", text: "and since then?" },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set()),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      // One over the thread's first prompt (over an hour old), one over the late prompt.
+      const lines = [...dom.window.document.querySelectorAll("time.cv-date-line")];
+      expect(lines.map((line) => line.getAttribute("datetime"))).toEqual([
+        new Date(at - 3 * 36e5).toISOString(),
+        new Date(at).toISOString(),
+      ]);
+      // "Today", or "Yesterday" when the test runs just after midnight.
+      expect(lines[1]!.textContent).toMatch(/^(Today|Yesterday) \d{1,2}:\d{2}\s[AP]M$/);
     } finally {
       await act(async () => root.unmount());
       restore();

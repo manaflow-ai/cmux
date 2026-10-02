@@ -4,9 +4,12 @@
 // virtualized transcript still lays out one row per entry. After codex-atlas-clone's
 // derive.ts (`deriveTurn`, `formatDuration`).
 import type { AcpmuxRow } from "../model";
+import { timestampTurns } from "./timestamps";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
+/// A row added by this pass: the timestamp line over a turn (timestamps.ts).
+export const DATE = "date";
 /// Rows added for the turn still running: "Thinking" until it has output, then a ticking
 /// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
 export const THINKING = "thinking";
@@ -42,12 +45,18 @@ const isEdit = (row: AcpmuxRow) =>
   (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
 
 /// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
-/// turn is still running (the snapshot's `isWorking`).
-export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, working = false): AcpmuxRow[] {
+/// turn is still running (the snapshot's `isWorking`); `now` dates the turns (timestamps.ts).
+export function turnView(
+  rows: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
+  { now = Date.now(), working = false }: { now?: number; working?: boolean } = {},
+): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   let index = 0;
   // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
   while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+  const loadedFromStart = index === 0;
+  const turns: { user: AcpmuxRow; turn: AcpmuxRow[]; held: AcpmuxRow[] }[] = [];
   while (index < rows.length) {
     const user = rows[index++]!;
     const turn: AcpmuxRow[] = [];
@@ -58,12 +67,23 @@ export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<strin
       const row = rows[index++]!;
       (row.kind === "user" ? held : turn).push(row);
     }
-    const live = working && index >= rows.length;
-    out.push(user, ...shapeTurn(user, turn, expanded, live), ...held);
+    turns.push({ user, turn, held });
   }
+  const dated = timestampTurns(
+    turns.map(({ user, turn }) => ({ promptAt: user.at, answerAt: [...turn].reverse().find(isAnswer)?.at })),
+    now,
+    loadedFromStart,
+  );
+  turns.forEach(({ user, turn, held }, at) => {
+    if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
+    // Only the last turn can still be running.
+    const live = working && at === turns.length - 1;
+    out.push(user, ...shapeTurn(user, turn, expanded, live), ...held);
+  });
   return out;
 }
 
+const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
 function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>, live: boolean): AcpmuxRow[] {
