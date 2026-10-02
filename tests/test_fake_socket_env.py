@@ -19,6 +19,8 @@ LAUNCHED_BY_CMUX = {
     "CMUX_WORKSPACE_ID": "workspace:9",
     "CMUX_SURFACE_ID": "surface:9",
     "CMUX_TAB_ID": "tab:9",
+    "CMUX_PANEL_ID": "panel:9",
+    "CMUX_PANE_ID": "pane:9",
     "CMUX_RELAY_ID": "relay",
     "CMUX_RELAY_TOKEN": "11" * 32,
     "HOME": "/Users/me",
@@ -35,6 +37,8 @@ class CliEnvironmentTests(unittest.TestCase):
         self.assertEqual(env["HOME"], "/Users/me")
         self.assertEqual(env["PATH"], "/usr/bin:/bin")
         self.assertEqual(env["CMUX_CLI_SENTRY_DISABLED"], "1")
+        self.assertNotIn("CMUX_PANEL_ID", env)
+        self.assertNotIn("CMUX_PANE_ID", env)
 
     def test_the_fake_socket_is_set_under_both_names_the_cli_reads(self) -> None:
         with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):
