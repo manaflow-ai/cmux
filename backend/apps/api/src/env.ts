@@ -1,5 +1,6 @@
 import type { AccountIndexDO } from "./account-index-do.ts"
 import type { ConnectionDO } from "./connection-do.ts"
+import type { FeedDO } from "./feed-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
@@ -22,6 +23,8 @@ export interface Env {
   readonly AUTOMATION_RUN: Workflow<AutomationRunParams>
   /** One ConnectionDO per owner team: integration connections; sealed credentials beside them. */
   readonly CONNECTION_DO: DurableObjectNamespace<ConnectionDO>
+  /** One FeedDO per user: the feed of notices and requests (plans/cmux-next/feed.md). */
+  readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
   /** Where provider redirects land (the dashboard's /integrations/callback). */

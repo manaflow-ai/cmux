@@ -22,6 +22,11 @@ public struct PaletteItem: Identifiable {
     public var alternate: PaletteCommand?
     /// Further commands for the Actions menu.
     public var secondary: [PaletteCommand]
+    /// Runs on Cmd-W and keeps the palette open: closes the row's object
+    /// (Search Tabs closes the tab, or forgets a closed one). The row
+    /// leaves the list and the next row is selected. Also listed in the
+    /// Actions menu.
+    public var closeCommand: PaletteCommand?
     /// Key for usage tracking; defaults to `id`. Nil disables tracking.
     public var frecencyKey: String?
     /// Score adjustment applied after matching; positive ranks higher.
@@ -42,6 +47,7 @@ public struct PaletteItem: Identifiable {
         primary: PaletteCommand,
         alternate: PaletteCommand? = nil,
         secondary: [PaletteCommand] = [],
+        closeCommand: PaletteCommand? = nil,
         frecencyKey: String? = nil,
         rankBias: Int = 0,
         actionID: ActionID? = nil
@@ -58,6 +64,7 @@ public struct PaletteItem: Identifiable {
         self.primary = primary
         self.alternate = alternate
         self.secondary = secondary
+        self.closeCommand = closeCommand
         self.frecencyKey = frecencyKey ?? id
         self.rankBias = rankBias
         self.actionID = actionID
@@ -68,6 +75,7 @@ public struct PaletteItem: Identifiable {
         var commands = [primary]
         if let alternate { commands.append(alternate) }
         commands += secondary
+        if let closeCommand { commands.append(closeCommand) }
         return commands
     }
 }

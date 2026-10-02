@@ -13,9 +13,12 @@ public nonisolated struct TaskLabelItem: Codable, Sendable, Hashable, Identifiab
     public var id: String
     public var name: String
     public var color: Int
+    /// Deleted labels arrive archived; the mirror drops them.
+    public var archived: Bool = false
 }
 
 public nonisolated struct TaskProjectItem: Codable, Sendable, Hashable, Identifiable {
     public var id: String
     public var name: String
+    public var archived: Bool = false
 }

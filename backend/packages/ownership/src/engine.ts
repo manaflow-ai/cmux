@@ -200,7 +200,7 @@ export class OwnerEngine<S, P = unknown> {
       // Only row-mode owners have rows: a JSON domain's mirror replays the reducer, so it must
       // never read or write rows the mirror cannot see.
       const rows = this.options.rowMode ? readOnly(this.rows) : EMPTY_ROWS
-      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, now: at, tx, newId: idFactory(tx), rows })
+      const r = this.domain.reduce(this.state, frame.op, frame.params as P, { principal, origin, now: at, tx, newId: idFactory(tx), rows })
       if (r.ok && (r.writes?.length ?? 0) > 0) {
         if (!this.options.rowMode) throw new Error(`${frame.op}: row writes need rowMode on stream ${this.stream}`)
         checkWrites(r.writes!)
@@ -265,7 +265,10 @@ export class OwnerEngine<S, P = unknown> {
           )
         }
       }
-      if (!this.options.mutants?.noLedger) {
+      // A retryable reject (rate limit, full) is not decided: like an authorization failure it is not
+      // recorded, so a retry with the same key is evaluated again instead of replaying the reject.
+      const retryableReject = !decision.ok && decision.frame.retryable
+      if (!this.options.mutants?.noLedger && !retryableReject) {
         this.sql.exec(
           `INSERT INTO ${t.ledger} (identity, idempotency_key, tx, op, params_hash, ok, reply, sequence, revision, actor, origin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           identity,

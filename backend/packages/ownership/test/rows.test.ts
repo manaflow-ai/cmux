@@ -24,7 +24,7 @@ type Params = { id: string; text?: string }
 const logDomain: Domain<Head, Params> = {
   initial: () => ({ last: 0, count: 0 }),
   reduce: (head, op, p, ctx) => {
-    const cur = ctx.rows.get<{ text: string }>("msg", p.id)
+    const cur = ctx.rows!.get<{ text: string }>("msg", p.id)
     if (op === "add") {
       if (cur) return { ok: false, code: "exists", message: "exists" }
       const n = head.last + 1

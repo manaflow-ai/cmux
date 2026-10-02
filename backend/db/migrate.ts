@@ -36,6 +36,9 @@ export const phaseOf = (sql: string): Phase | undefined => sql.match(/^--\s*phas
 type Node = Record<string, any>
 const kind = (stmt: Node) => Object.keys(stmt)[0]!
 
+/** Extensions an expand migration may add (available on PlanetScale Postgres 18; additive only). */
+const ALLOWED_EXTENSIONS = new Set(["pg_trgm", "btree_gin"])
+
 /** Expand = only additions the deployed code survives. Everything else is contract. */
 const expandProblems = (stmts: Array<Node>): Array<string> => {
   const problems: Array<string> = []
@@ -69,6 +72,9 @@ const expandProblems = (stmts: Array<Node>): Array<string> => {
             problems.push(`ALTER TABLE ${cmd.subtype} is a contract change`)
           }
         }
+        break
+      case "CreateExtensionStmt":
+        if (!b.if_not_exists || !ALLOWED_EXTENSIONS.has(b.extname)) problems.push(`CREATE EXTENSION must be IF NOT EXISTS and one of ${[...ALLOWED_EXTENSIONS].join(", ")}`)
         break
       case "UpdateStmt":
       case "InsertStmt":

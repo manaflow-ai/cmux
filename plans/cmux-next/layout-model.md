@@ -180,6 +180,8 @@ an emptied column or dock, unpinning on E2) is decided by the store in the same 
 
 ## Focus and scroll (client view state; user-initiated only)
 
+- K0. Focus after close picks only neighbors that are still in the closed pane's column after
+  the change (TLC finding); a row lifted into a dock is no longer "above" it.
 - K1. Cmd-Opt-arrows move geometrically across the frame with history (focus.md 4a): up from a
   strip column's top visible row goes to the top dock, down from the bottom to the bottom dock,
   left from the first visible strip column to the left dock (today). From the top dock, down
@@ -253,6 +255,12 @@ Screenshots and recordings are listed in "Evidence".
 
 ## Evidence (2026-10-02)
 
+- TLA+ (`formal/LayoutRows.tla`, `FRAME = TRUE`): docks on four edges, `PinRow`, orientation;
+  invariants R1 to R6, E3, E7, view validity and focus locality pass at one client and two ops
+  (595,522 states); three mutants fail. The runs found two gaps, both fixed in the rules:
+  `PinRow` on the only row of the last strip column (now rejected) and a close-focus successor
+  that followed a row lifted into a dock (candidates must stay in the closed pane's column).
+  Details in formal/README.md. proptest waits for the reducer step.
 - Geometry: `LayoutModelPrototypeTests` (7 tests) pin the frame in both orientations and both
   edges, docks drawn from plain columns, the grid's shared rows and holes, and off = real layout.
 - Live build lmproto-v1 (fleet job a5dbd34f2414ad8ecd984564): the tunables switch live and the

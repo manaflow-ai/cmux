@@ -92,6 +92,15 @@ Priority: P0 = an app cannot do its core job without it; P1 = the app works but 
 | B10 | `notification.ack` client id for apps | inbox | the host sets `client_id = app:<id>` for app calls so read state is shared across clients through the daemon ledger | session host | P1 |
 | B11 | Spec 6.5 forbids account and credential ops for all apps; the CodeRouter app needs a carve-out for first-party and reviewed apps, through host-owned flows only | coderouter | restricted scopes (section 4) may hold credential flows that take or return secret handles; the raw "never" list stays | spec (coordinator) | P0 for coderouter |
 
+## 3.6 Store layout (Lawrence, 2026-10-02)
+
+Cards: the App Store uses cards by default (`apps.store.layout = grid`), and app sidebar sections use the card look by default (`apps.section.look = card`). The list and split store layouts and the native and minimal section looks stay behind the DEV/NIGHTLY switch until they are removed.
+
+## 3.7 Install defaults and hiding (Lawrence, 2026-10-02)
+
+- First-party apps are installed by default; sample apps are opt-in.
+- A user can install an app and hide it: no presence in the sidebar, palette, menus or menu bar, while CLI, MCP and automations can still run it when the user allows that. Hide is distinct from disable and uninstall, per user and synced. State model, ops, surfaces and tests: plans/cmux-next/app-platform-critique.md C7.
+
 ## 4. Tiers (D51)
 
 | | first-party | Verified | unverified |
@@ -228,3 +237,17 @@ Shape (decided, first example Tasks in plans/cmux-next/tasks.md section 13): `se
 ### 10.3 What native panes change for the gap list
 
 A native pane removes the editor gap (N1) for notes and the keyboard list gap (N5) for search panes, but only for first-party apps; the scene API still needs them for everyone else and for the sidebar sections. The prototypes keep their scene-tree panes so the public API stays proven; a native notes editor is the one exception recommended now.
+
+## 11. Email as a feed source (Lawrence 2026-10-02: email is mostly part of the feed)
+
+There is no mail store and no mail app with its own model. Mail reaches the user as feed items, owned by the feed (lane 9); this section is the lane 3 proposal to the feed lead.
+
+- Source: a mail connection in the one integration model (`ConnectionDO`, provider Gmail or IMAP/JMAP; credentials stay in the gateway). A feed source (`cmux.feed.source/1`, run by the integrations side or an app server with `instances: user`) receives provider push (Gmail watch, JMAP push, IMAP IDLE in the server; never polling from a client) and posts one feed item per thread.
+- Storage rule (spec integrations.md S2: email is never stored): the feed item holds ids only (`connection`, `thread_id`, last `message_id`, `history_id`, received time) plus the triage state. Subject, participants and snippet are fetched through `mail.get` when a client renders the item and are held only in that client's memory; a feed item for mail therefore has a display resolver (the mail source) instead of stored title and body. Question for the feed lead: support resolver-backed items whose display fields are never persisted.
+- Item kind: `notify mail.thread` for threads that need no answer, `request reply` when the user's rules or an agent mark the thread as needing a reply. Display fields resolved on render (never stored): `thread {subject, participants (display names; addresses only on open), message_count, last_message_at, labels}`, a snippet, attachments as handles, and `unsubscribe` metadata.
+- Thread updates replace the item's content and bump its revision (one item per thread, `thread` group key = provider thread id), so the feed never shows one row per message.
+- Triage actions are feed actions mapped to provider ops by the source: done (archive), snooze (the feed owner wakes it; the source only mirrors the label), mark read (provider seen flag), label, mute thread, unsubscribe.
+- Reply: `feed.respond {item, value: {body, reply_all?, attachments?: handles}}`, origin user; the source sends through the gateway (`send-external`, never an agent tool without approval). Agents may draft: `feed.draft {item, body}` creates a draft visible in the item, which the user edits and sends.
+- Reading a message body: `cmux.viewer/1` for `message/rfc822` (sanitized HTML in a sandboxed web view with remote images blocked until the user allows them per sender) opened from the item.
+- Search: the mail source implements `cmux.search.provider/1` against the provider's search API.
+- Questions for the feed lead: (1) does the feed item support a replaceable body and a per-thread group key with revision bumps; (2) does `feed.respond` carry rich values (body + attachment handles); (3) who owns drafts (feed owner vs mail source); (4) per-source triage action mapping (done = archive) declared by the source; (5) privacy: addresses and bodies fetched on open only, not stored in the feed.

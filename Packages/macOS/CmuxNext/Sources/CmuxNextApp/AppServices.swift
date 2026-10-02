@@ -161,8 +161,9 @@ final class AppServices {
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in
             crashRecovery.marker?.installHandlers()
-            // Chromium resets signal actions at start; SIGTERM stays a quit.
-            QuitSignal.ignoreProcessSignal()
+            // Chromium resets signal actions at start and catches SIGINT and
+            // SIGHUP itself; they stay requested quits.
+            QuitSignal.reclaim()
         }
         cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a

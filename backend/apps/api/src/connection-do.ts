@@ -176,6 +176,37 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
    * The Worker authenticated the principal and, for complete, verified the
    * signed state and that it names this principal.
    */
+  /**
+   * RPC from TeamDO, once per team: returns the integration fields this
+   * projection enforces and, in the same commit, locks them as source
+   * team_policy, so from then on only TeamDO's pushes change them (review P1-1).
+   * Idempotent: a repeated call replays the lock and returns the locked values.
+   */
+  async adoptIntegrationPolicy(team: string): Promise<{ ok: true; policy: { allowed_providers: ReadonlyArray<string> | null; github: { scope: string; require_org_admin: boolean; repo_allowlist: ReadonlyArray<string> | null } } } | { ok: false; message: string }> {
+    const engine = this.bind(team)
+    const fields = (p: ReturnType<typeof policyOf>) => ({
+      allowed_providers: p.allowed_providers,
+      github: { scope: p.github.scope, require_org_admin: p.github.require_org_admin, repo_allowlist: p.github.repo_allowlist }
+    })
+    const current = fields(policyOf(engine.currentState))
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", policy: current, applied_by: "team_policy:adopt" }, `integration-adopt:${team}`)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    if (rej) return { ok: false, message: rej.message }
+    return { ok: true, policy: fields(policyOf(engine.currentState)) }
+  }
+
+  /**
+   * RPC from TeamDO: the team's TeamPolicy (single writer) replaces and locks
+   * this projection (spec/enterprise.md 4.6). Idempotent by key; a newer
+   * version always carries the full slice.
+   */
+  async applyTeamPolicy(team: string, params: { policy: unknown; applied_by: string }, idempotencyKey: string): Promise<{ ok: boolean; message?: string }> {
+    this.bind(team)
+    const res = this.submitSystem("integration.policy.apply_managed", { source: "team_policy", ...params }, idempotencyKey)
+    const rej = res.frames.find((f): f is RejectFrame => f.t === "reject")
+    return rej ? { ok: false, message: rej.message } : { ok: true }
+  }
+
   async external(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string; redirect_uri?: string; state?: { conn: string; provider: string } }): Promise<ExternalReply> {
     const engine = this.bind(entity)
     const identity = principal.identity

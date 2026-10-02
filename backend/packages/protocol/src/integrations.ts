@@ -72,8 +72,9 @@ export const TeamIntegrationPolicy = Schema.Struct({
     /** When set, ops and events are further limited to these repositories. */
     repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))
   }),
-  source: Schema.Literals(["default", "admin", "sso", "mdm"]),
-  /** Managed (sso, mdm) policies are locked: team admins cannot change them. */
+  /** team_policy: TeamDO's TeamPolicy (the single writer, spec/enterprise.md 4) pushed here for enforcement. */
+  source: Schema.Literals(["default", "admin", "sso", "mdm", "team_policy"]),
+  /** Managed (sso, mdm, team_policy) policies are locked: change them where they are owned. */
   locked: Schema.Boolean,
   updated_at: Schema.NullOr(Schema.Int),
   updated_by: Schema.NullOr(Schema.String)
@@ -297,7 +298,7 @@ export const ConnectionActivateParams = Schema.Struct({
 })
 
 export const PolicyApplyManagedParams = Schema.Struct({
-  source: Schema.Literals(["sso", "mdm"]),
+  source: Schema.Literals(["sso", "mdm", "team_policy"]),
   policy: PolicyFields,
   /** Who or what applied it (for example an IdP connection id or an MDM profile id). */
   applied_by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200))

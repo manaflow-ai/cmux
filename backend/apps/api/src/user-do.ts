@@ -46,14 +46,15 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */
-  async installGrant(entity: string, install: string, grant: string): Promise<{ ok: true; op_classes: ReadonlyArray<string> } | { ok: false }> {
+  async installGrant(entity: string, install: string, grant: string): Promise<{ ok: true; op_classes: ReadonlyArray<string>; kind: string; email: string | null } | { ok: false }> {
     const engine = this.existing()
     if (!engine || engine.stream !== `user:${entity}`) return { ok: false }
     const state = engine.currentState
     const inst = state.installs[install]
     const g = state.grants[grant]
     if (!inst || inst.revoked_at !== null || inst.grant !== grant || !g || g.revoked_at !== null || (g.expires_at !== null && g.expires_at <= Date.now())) return { ok: false }
-    return { ok: true, op_classes: g.op_classes }
+    // The email from the user's last Stack session, so other owners can check email-domain rules for installs.
+    return { ok: true, op_classes: g.op_classes, kind: inst.kind, email: state.user?.email ?? null }
   }
 
   async challenge(entity: string, install: string): Promise<{ ok: true; nonce: string; expires_at: number } | { ok: false; message: string }> {
