@@ -20,7 +20,8 @@ const MINI_RUNTIME: &str = r#"
   globalThis.events = [];
   globalThis.__cmuxHostOnEvent = (name, payload) => { events.push([name, JSON.parse(payload)]); };
   globalThis.print = (...a) => n.print("log", a.map(String).join(" "));
-  globalThis.__cmuxReplEval = (code) => (async () => { const r = await (0, eval)("(async () => {" + code + "})()"); if (r !== undefined) print(JSON.stringify(r)); })();
+  globalThis.lastOptions = null;
+  globalThis.__cmuxReplEval = (code, options) => (globalThis.lastOptions = options ?? null, async () => { const r = await (0, eval)("(async () => {" + code + "})()"); if (r !== undefined) print(JSON.stringify(r)); })();
 })();
 "#;
 
@@ -190,4 +191,51 @@ fn fetch_answers_through_the_result_callback() {
         Duration::from_secs(5),
     );
     assert_eq!(lines(&out), vec!["\"unsupported\""]);
+}
+
+#[test]
+fn dropping_the_session_stops_its_thread() {
+    let (vm, host) = session(0);
+    assert_eq!(lines(&vm.eval("return 1;", Duration::from_secs(5))), vec!["1"]);
+    drop(vm);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Arc::strong_count(&host) > 1 {
+        assert!(Instant::now() < deadline, "the VM thread still holds the host");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn timers_that_spin_after_an_evaluation_are_interrupted() {
+    let (vm, _) = session(0);
+    let first = vm.eval("setTimeout(() => { for (;;) {} }, 10); return 'scheduled';", Duration::from_secs(5));
+    assert_eq!(lines(&first), vec!["\"scheduled\""]);
+    let started = Instant::now();
+    let next = vm.eval("await new Promise((r) => setTimeout(r, 50)); return 'alive';", Duration::from_secs(20));
+    assert_eq!(lines(&next), vec!["\"alive\""], "{next:?}");
+    assert!(started.elapsed() < Duration::from_secs(20));
+}
+
+#[test]
+fn zero_delay_repeating_timers_do_not_starve_input() {
+    let (vm, _) = session(0);
+    let first = vm.eval("__cmuxNative.setTimer(777, 0, true); return 'spinning';", Duration::from_secs(5));
+    assert_eq!(lines(&first), vec!["\"spinning\""]);
+    let next = vm.eval("return 'answered';", Duration::from_secs(5));
+    assert_eq!(lines(&next), vec!["\"answered\""]);
+}
+
+#[test]
+fn huge_timer_delays_do_not_crash_the_session() {
+    let (vm, _) = session(0);
+    vm.eval("setTimeout(() => {}, 1e15); return 1;", Duration::from_secs(5));
+    assert_eq!(lines(&vm.eval("return 2;", Duration::from_secs(5))), vec!["2"]);
+}
+
+#[test]
+fn eval_options_reach_the_runtime() {
+    let (vm, _) = session(0);
+    vm.eval_with("return 1;", Duration::from_secs(5), &json!({"maxOutput": 0}));
+    let out = vm.eval("return globalThis.lastOptions;", Duration::from_secs(5));
+    assert_eq!(lines(&out), vec![r#""{\"maxOutput\":0}""#]);
 }
