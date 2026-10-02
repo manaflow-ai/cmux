@@ -87,7 +87,9 @@ final class QuitCoordinator {
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
-        services.crashRecovery.quitBegan()
+        // Awaited (bounded) so `quitting` is on disk before the quit can end
+        // the process; the write itself runs off the main thread.
+        await services.crashRecovery.quitBegan()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
