@@ -123,10 +123,13 @@ struct StickyColumnViewTests {
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
+        // Reproduces the flake: the Blacksmith macOS 26 runners that fail it
+        // have Reduce Motion on, so the focus reveal snaps without a frame
+        // and nothing flashes the thumb.
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
         view.model.focus("c")
-        // Reproduces the flake: on a starved main actor `settle`'s 5 s
-        // deadline passed before the model observation applied the focus,
-        // so the strip had not scrolled when the frames ran.
+        await settle { screen.scroll.target > 0 }
         runToRest(view)
         // The `auto` fade waits on makeRoot's manual clock, which never advances,
         // so a loaded runner can't hide the thumb before this check (#16607).
