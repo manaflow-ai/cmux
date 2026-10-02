@@ -220,7 +220,9 @@ extension PaneController {
     /// Moves a tab into `target` at `index` (display order), optimistic.
     func move(_ id: StripTabID, toPane target: PaneController, index: Int) {
         guard let tab = tab(id) else { return }
-        if target !== self { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
+        // Focus follows only a move this client's user started (CLI and
+        // agents never change this client's focus unless they ask).
+        if target !== self, services.viewChangeAllowed { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
             guard !ok else { return }
             self?.resyncStrip()

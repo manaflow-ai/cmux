@@ -62,6 +62,13 @@ extension TabDragSession {
         /// Workspace items: the current outcome and the sidebar lit for it.
         var workspaceOutcome: WorkspaceDragOutcome = .cancel
         var workspaceHighlight: CGRect?
+        /// Option was held at the drop: file the tabs away, no view change.
+        var filesAway = false
+        /// The dragged tabs, focus first (read at the drop, before a move
+        /// can close the source pane).
+        var revealTabs: [String] = []
+        /// The workspace the tabs landed in, for a reveal that shows it.
+        var landedWorkspaceID: String?
         weak var workspaceSidebar: SidebarTabDropTarget?
 
         init(source: Source, lifecycle: TabDragLifecycle, ghost: TabDragGhostPanel, motion: TabDragGhostMotion, point: CGPoint) {

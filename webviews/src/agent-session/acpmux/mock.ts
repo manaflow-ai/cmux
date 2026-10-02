@@ -8,7 +8,7 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 export type MockActions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
 
 const sessionId = "mock-session";
-const catalog = [{ id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
+const catalog = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
 
 export function mockSnapshot(rows: AcpmuxRow[], isWorking = false): AcpmuxSnapshot {
   return {
