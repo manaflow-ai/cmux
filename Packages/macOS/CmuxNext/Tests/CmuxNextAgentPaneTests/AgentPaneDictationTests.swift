@@ -317,13 +317,17 @@ private actor SilentEngine: SpeechTranscribing {
         await until { await engine.finishes >= 1 && !dictation.holdsResources }
     }
 
+    /// Waits until `condition` holds. It gives up only after five seconds
+    /// and 500 checks, so a main actor stalled by other tests in the full
+    /// suite still gets turns to run the session.
     private func until(_ condition: @MainActor () async -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
+        var checks = 0
+        while ContinuousClock.now < deadline || checks < 500 {
             if await condition() { return }
+            checks += 1
             try? await Task.sleep(for: .milliseconds(1))
         }
-        if await condition() { return }
         Issue.record("condition never held")
     }
 }

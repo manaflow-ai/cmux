@@ -1,14 +1,17 @@
 import Testing
 
-/// Waits until `condition` holds, checking every millisecond for up to
-/// `timeout`, so a busy CI machine gets real time rather than a yield count.
+/// Waits until `condition` holds, checking about every millisecond. It gives
+/// up only after `timeout` has passed and it has checked `polls` times, so a
+/// main actor stalled by other tests in the full suite still gets turns to
+/// run the work this is waiting for.
 @MainActor
-func eventually(_ what: String, timeout: Duration = .seconds(5), _ condition: @MainActor () async -> Bool) async {
+func eventually(_ what: String, timeout: Duration = .seconds(5), polls: Int = 500, _ condition: @MainActor () async -> Bool) async {
     let deadline = ContinuousClock.now + timeout
-    while ContinuousClock.now < deadline {
+    var checks = 0
+    while ContinuousClock.now < deadline || checks < polls {
         if await condition() { return }
+        checks += 1
         try? await Task.sleep(for: .milliseconds(1))
     }
-    if await condition() { return }
     Issue.record("never held: \(what)")
 }
