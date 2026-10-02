@@ -1,6 +1,6 @@
 import Foundation
 
-/// Extension keyword sessions (`chrome.omnibox`, Chrome's keyword mode).
+/// Extension keyword sessions (`chrome.omnibox` keyword mode).
 /// The keyword and a typed space, or Tab after the exact keyword, start a
 /// session; the field then holds only the text after the keyword and every
 /// change goes to the extension (`keywordInput`), whose suggestions come
@@ -17,7 +17,7 @@ nonisolated extension OmnibarStep {
         return true
     }
 
-    /// Tab after the exact keyword (Chrome "Press Tab to search").
+    /// Tab after the exact keyword ("Press Tab to search").
     mutating func startKeywordOnTab() -> Bool {
         guard state.keyword == nil, state.phase == .editing, !state.isComposing,
               state.popup.selected ?? 0 == 0,
@@ -40,7 +40,7 @@ nonisolated extension OmnibarStep {
     }
 
     /// Ends the session without Enter. `restoreText` puts the keyword back
-    /// in front of the typed text (Backspace at the start, Chrome).
+    /// in front of the typed text (Backspace at the start).
     mutating func leaveKeyword(restoreText: Bool) {
         guard let keyword = state.keyword else { return }
         state.keyword = nil

@@ -65,6 +65,9 @@ import Testing
         defer { try? FileManager.default.removeItem(at: url) }
         let store = GalleryReviewStore(url: url)
         let gallery = OnboardingGalleryController(store: store, makeServices: { _ in self.sample() }, previewAppearance: { _ in })
+        // The gallery opens on Role; review starts on Default Browser, after First Task.
+        gallery.handle(.nextScreen)
+        gallery.handle(.nextScreen)
         gallery.handle(.nextVariant)
         gallery.handle(.nextVariant)
         gallery.handle(.pick)
@@ -78,7 +81,7 @@ import Testing
         #expect(store.pick(for: .defaultBrowser) == browser)
         #expect(store.pick(for: .importData) == OnboardingModel.Step.importData.variants[0].id)
         let summary = GalleryReviewStore.summary(store.review)
-        #expect(summary.hasPrefix("Default Browser: C (note: too much copy) · Import: A · Theme: —"))
+        #expect(summary.hasPrefix("Role: — · First Task: — · Default Browser: C (note: too much copy) · Import: A · Theme: —"))
         // A relaunch finds position, picks and notes.
         let reloaded = GalleryReviewStore(url: url)
         #expect(reloaded.review == store.review)

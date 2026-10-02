@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router"
 import { useState, type FormEvent } from "react"
 import { signIn } from "../lib/server"
 import { setSignedIn, useSignedIn } from "../lib/session"
+import { takeReturnPath } from "../lib/return-path"
 
 export const Route = createFileRoute("/")({ component: SignIn })
 
@@ -21,6 +22,9 @@ function SignIn() {
     setBusy(false)
     if ("error" in r) return setError(r.error)
     setSignedIn(true)
+    // An invite page sends people here to sign in first; return them to it (fragment included).
+    const next = takeReturnPath()
+    if (next) return window.location.assign(next)
     await navigate({ to: "/devices" })
   }
 

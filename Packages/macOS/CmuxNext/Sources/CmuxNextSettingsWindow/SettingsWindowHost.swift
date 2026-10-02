@@ -37,6 +37,10 @@ public import SwiftUI
     /// Accounts: provider sign-ins and CodeRouter accounts, drawn in the
     /// window's theme `tokens` (nil hides the section's content).
     func accountsView(tokens: ThemeTokens) -> AnyView?
+    /// The value a number setting at `path` resolves to while cmux.json
+    /// leaves it unset (the window opacity from the Ghostty config), shown
+    /// by its slider; nil uses the descriptor's placeholder.
+    func derivedNumber(at path: [String]) -> Double?
 }
 
 extension SettingsWindowHost {
@@ -46,6 +50,7 @@ extension SettingsWindowHost {
     public func acceptsTheme(_ text: String) -> Bool { false }
     public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
     public func accountsView(tokens: ThemeTokens) -> AnyView? { nil }
+    public func derivedNumber(at path: [String]) -> Double? { nil }
 }
 
 /// One row of a list section (a room, a machine).

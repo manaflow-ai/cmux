@@ -127,7 +127,7 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
   // Not persisted: in Chrome style this flag also sets the profile's
   // "restore on startup" to the last session, and with tabbed windows
   // Chromium then restores old tabs into the first new window. The daemon
-  // owns tabs; session cookies end with the app, as in Chrome's default.
+  // owns tabs; session cookies end when the app quits.
   settings.persist_session_cookies = false;
   // Each profile is its own request context with its own default list.
   if (!g_accept_languages.empty()) {

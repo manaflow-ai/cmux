@@ -5,10 +5,12 @@ public import CmuxNextTabs
 public struct TabItemMapping {
     public static let shared = Self()
     /// `fallbackTitle` names a tab whose program set no title yet
-    /// (localized by the App).
+    /// (localized by the App), and a browser tab on the New Tab or blank
+    /// page, whose recorded title is that page's address.
     public func item(_ tab: TabModel, fallbackTitle: String) -> StripTabItem {
-        let title = tab.displayTitle.isEmpty ? fallbackTitle : tab.displayTitle
         let isBrowser = tab.kind == .browser
+        let untitled = tab.displayTitle.isEmpty || (isBrowser && Self.isBlankPageAddress(tab.displayTitle))
+        let title = untitled ? fallbackTitle : tab.displayTitle
         let busy = StatusMapping.shared.loading(tab)
         var item = StripTabItem(
             id: StripTabID(tab.id),
@@ -25,6 +27,13 @@ public struct TabItemMapping {
         if busy.state.isLoading { item.indicator = busy.state }
         item.busyStyle = busy.style
         return item
+    }
+
+    /// The New Tab page's and the blank page's addresses
+    /// (`BrowserNewTabPage` in CmuxNextBrowser), which a page that never
+    /// names itself keeps as its title.
+    static func isBlankPageAddress(_ text: String) -> Bool {
+        ["chrome://newtab/", "chrome://newtab", "about:blank"].contains(text.lowercased())
     }
 
     func status(_ tab: TabModel) -> TabStatus {

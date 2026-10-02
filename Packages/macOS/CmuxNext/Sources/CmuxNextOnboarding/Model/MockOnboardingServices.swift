@@ -21,12 +21,22 @@ public final class MockOnboardingServices: OnboardingServices {
     public var reports: [ImportProgress]?
     public var passwordStore = false
     public var accountsView: NSView?
+    /// The first task's chat; nil leaves the step out of the flow.
+    public var firstTaskView: NSView?
+    /// A fresh temporary folder, so the mock never writes to ~/cmux.
+    public var firstTaskFolder = FirstTaskFolder(url: FileManager.default.temporaryDirectory
+        .appending(path: "cmux-first-task-\(UUID().uuidString)", directoryHint: .isDirectory))
     /// Picked screen variants, by step.
     public var variantIDs: [OnboardingModel.Step: String] = [:]
+    /// The role step's answer: what `savedProfile` returns and `saveProfile` replaces.
+    public var savedProfile: OnboardingProfile?
     public let defaultApps: any DefaultAppRegistering
 
     public private(set) var appliedAppearance: [(String?, Density)] = []
     public private(set) var opened: [URL] = []
+    public private(set) var revealed: [URL] = []
+    /// Each chat the first-task step asked for: its folder and prompt.
+    public private(set) var firstTaskRequests: [(cwd: URL, prompt: String)] = []
     public private(set) var ended: Bool?
     public private(set) var plans: [ImportPlan] = []
 
@@ -58,14 +68,43 @@ public final class MockOnboardingServices: OnboardingServices {
     }
 
     public func canImportPasswords() async -> Bool { passwordStore }
+    /// What the Touch ID sheet answers, and the reasons it was shown with.
+    public var passwordAuthorization = true
+    public private(set) var authorizationReasons: [String] = []
+    /// While true, a Touch ID request waits for ``answerAuthorizations()``
+    /// (the sheet is up).
+    public var holdsAuthorization = false
+    private var pendingAuthorizations: [CheckedContinuation<Void, Never>] = []
+    public func authorizePasswordRead(reason: String) async -> Bool {
+        authorizationReasons.append(reason)
+        if holdsAuthorization { await withCheckedContinuation { pendingAuthorizations.append($0) } }
+        return passwordAuthorization
+    }
+
+    /// Ends every Touch ID sheet that is up, with `passwordAuthorization`.
+    public func answerAuthorizations() {
+        let pending = pendingAuthorizations
+        pendingAuthorizations = []
+        for continuation in pending { continuation.resume() }
+    }
 
     public func openExternal(_ url: URL) { opened.append(url) }
+
+    public var canRunFirstTask: Bool { firstTaskView != nil }
+    public func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
+        firstTaskRequests.append((cwd, prompt))
+        return firstTaskView
+    }
+
+    public func revealInFinder(_ url: URL) { revealed.append(url) }
 
     public var hasAccountsStep: Bool { accountsView != nil }
     public func makeAccountsStepView() -> NSView? { accountsView }
 
     public func variantID(for step: OnboardingModel.Step) -> String? { variantIDs[step] }
     public func setVariantID(_ id: String?, for step: OnboardingModel.Step) { variantIDs[step] = id }
+
+    public func saveProfile(_ profile: OnboardingProfile) { savedProfile = profile }
 
     public func onboardingDidEnd(completed: Bool) { ended = completed }
 
@@ -74,6 +113,7 @@ public final class MockOnboardingServices: OnboardingServices {
         let services = MockOnboardingServices()
         services.themeChoices = themes
         services.accountsView = accountsView
+        services.firstTaskView = ThemedView()
         services.passwordStore = true
         func profile(_ browser: ImportBrowser, _ directory: String, _ name: String) -> BrowserSourceProfile {
             let passwords: DataAvailability = browser.family == .chromium ? .available : .absent

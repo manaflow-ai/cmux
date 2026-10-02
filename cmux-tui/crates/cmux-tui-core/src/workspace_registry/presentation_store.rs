@@ -37,6 +37,8 @@ pub(crate) use saved_tab_groups::{
     delete_saved_tab_group_in, put_saved_tab_group_in, read_saved_tab_groups,
 };
 
+mod frontend_browser_history;
+
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
@@ -99,7 +101,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     )?;
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
-    migrate_workspace_presentation_add_marked_unread(transaction)
+    migrate_workspace_presentation_add_marked_unread(transaction)?;
+    frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
 /// Add the hosting app's install id to frontend browser records of
@@ -257,7 +260,7 @@ pub struct PresentationSnapshot {
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
     /// `conversation-tabs-v1` records keyed by public browser id.
     pub conversation_tabs: HashMap<String, ConversationTabRecord>,
-    /// Chrome-style tab groups of every pane.
+    /// Tab groups of every pane.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
@@ -269,7 +272,7 @@ pub struct PresentationSnapshot {
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
 }
 
-/// Chrome's tab group colors. Frontends render them as muted tints.
+/// The nine tab group colors. Frontends render them as muted tints.
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
@@ -282,7 +285,7 @@ pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A tab group name may be empty (Chrome shows the color dot only).
+/// A tab group name may be empty (the strip then shows only the color dot).
 pub fn validate_tab_group_name(value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         value.chars().count() <= MAX_PRESENTATION_TEXT_CHARS,

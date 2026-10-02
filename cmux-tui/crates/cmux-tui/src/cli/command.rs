@@ -23,9 +23,10 @@ use screen::{parse_screen, parse_screen_strings};
 
 pub(super) enum ParsedCommand {
     Help(Option<String>),
+    Docs(super::docs::Plan),
+    CodeMode(super::code_mode::Plan),
     Command { global: GlobalArgs, plan: CommandPlan },
 }
-
 pub(super) enum CommandPlan {
     Server(super::lifecycle::ServerPlan),
     AgentHooks(crate::agent_hook_install::Plan),

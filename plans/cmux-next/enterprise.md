@@ -104,7 +104,7 @@ Lawrence: "make sure we support MDM the way most enterprises do it, like if they
 | Step | Content | Tests |
 | --- | --- | --- |
 | M1 | Status file written by the config layer after each applied load (atomic write, only on change), conflicts per E2 | Swift: content, no token value, conflict detection, write only on change; landed in PR 16783 (71a826d67d3) |
-| M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer + workerd |
+| M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer tests; landed with the follow-up push |
 | M3 | Per-vendor guides `docs/mdm/vendors.md` (Jamf Pro, Kandji/Iru, Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, generic), DDM legacy-profile declaration example, osquery/Fleet query examples | in PR 16783; vendor menu paths and the DDM declaration shape UNVERIFIED against live consoles |
 | M4 | `cmux mdm status --json` in the Rust CLI (reads the status file) | testbox |
 | M5 | Rust config crate reader (`core-foundation`) and `/etc/cmux/policy.json` with the shared precedence vectors | testbox |
@@ -133,3 +133,45 @@ Source: worker review of 6aa4a6e1170, PR 16783 and PR 16774. Failing test commit
 | LOW stale team policy read | `setTeamPolicy` ignores an older version of the same team | PR 16783 |
 | LOW CFPreferencesAppSynchronize without a deadline; settings.get reads the user file | open | |
 | LOW one install in several teams; allowed_domains adds little while acceptance exists | open, by design until DomainDO | |
+
+## Follow-ups after PR 16774 merged (7dbf31f1324)
+
+- Lock precedence (coordinator decision, consistent with E2): an SSO- or MDM-managed ConnectionDO lock always wins over TeamPolicy. `integration.policy.apply_managed {source: team_policy}` is a no-op under such a lock; TeamDO copies nothing from it, settles the version without retrying and returns `integration_managed_by` in `team.policy.get`. Tested with a lock committed through ConnectionDO's own system op (nothing writes these locks yet).
+- Snapshot cost: hidden events are coalesced into one filtered snapshot per subscriber per batch (250 ms one-shot timer, one view per identity); `OwnerEngine.snapshot` skips the ledger query for an empty pending list.
+- M2 device compliance landed in the same push.
+
+## Spec proposal: shared teams (for the coordinator; backend lead reviews)
+
+Needed by SSO just-in-time membership, SCIM and every team-admin op (today every session maps to the user's personal team, and team-admin ops refuse shared teams).
+
+1. Membership rows in `TeamDO`: `members: {user -> {role, joined_at, source: personal | invite | sso | scim, status: active | suspended}}`. TeamDO is the single writer; the outbox projects `memberships` (exists). Roles: `owner | admin | member` (the existing enum). Invariants: every team has at least one active owner; the personal team has exactly its user, as owner; a suspended member's ops are refused by every owner.
+2. Ops: `team.create {display_name}` (creates a shared team; the caller is owner), `team.member.invite {email, role}` (admins; Stack team invitation or an invite token), `team.member.provision {user, role, source}` (system: SSO JIT and SCIM, with the source's actor), `team.member.set_role`, `team.member.suspend | remove` (destructive: revokes the member's grants on team resources and team SSH certificates in the same commit; the last owner cannot leave), `team.list` (UserDO read: the user's teams).
+3. Team selection in tokens: the short-lived install JWT gets a `team` claim chosen at mint (`/v1/auth/token {team?}`), default the personal team. UserDO checks membership through a `TeamDO.memberRole(user)` RPC at mint and on refresh (revocation within one token lifetime); session tokens select the team with an `x-cmux-team` header checked the same way. Owners keep checking the role from their own state (owner-side check, never the claim alone).
+4. UserDO keeps the user's team list (projection of TeamDO membership events, written by a system op from TeamDO), so `team.list` and the dashboard's team switcher need no scan.
+5. Migration: personal teams unchanged; the `kind` field (`personal | stack`) gains `shared`; Stack teams mirror into shared teams later through the same `team.member.provision` op.
+
+Strongest objection: a team claim in the token can go stale when a member is removed. Answer: owners check the member row on every op (the claim only routes), and refresh re-checks at mint, so removal takes effect at once for ops and within one token lifetime for routing.
+
+### Backend lead review of the shared-teams proposal (2026-10-02)
+
+Accepted with these changes. These changes align the proposal with spec H5: Contacts, Grants and Team never imply each other, and roles are bundles of default grants.
+
+1. Role set: `guest | member | admin | owner | billing`. This replaces `owner | admin | member`. A role is a named bundle of default grants that TeamDO stores (`team_roles: role -> [grant]`). Ops check grants, never role names. The bundles:
+   - `owner`: all grants.
+   - `admin`: all grants except owner transfer and team deletion.
+   - `member`: the team resources by default.
+   - `billing`: billing and invoices only, with no resource access.
+   - `guest`: no default grants. A guest reaches only resources that their owners grant one by one.
+   An admin cannot grant `owner` and cannot raise anyone above their own role. The invariant becomes "at least one active `owner`". `billing` never counts as an owner.
+2. Team is not Contact. Membership never creates a Contact, a DM or reachability to a member's chief. Compose never adds members. `team.member.invite` stays a separate, explicit sheet (H5). Team policy may limit DMs inside the team. It never opens them.
+3. Removal and suspension revoke, in the same commit, every grant whose basis is the membership. That covers the default bundle and the team SSH certificates. Explicit Grants have a `basis` field (`team:<id>` or `direct`). A direct grant from a resource owner outlives the membership only when its basis is `direct` and the resource is not a team resource.
+4. JIT and SCIM: `team.member.provision` defaults to `member`. An IdP group gives `admin` or `owner` only through a mapping that an admin set in the SSO connection (an audited op). Raw IdP claims never give a role.
+5. The token team claim is accepted as proposed: the claim routes, and owners check the member row. The same check applies to `x-cmux-team`. TeamDO stays the source of truth. Stack teams mirror into TeamDO only through `team.member.provision` (D4: Stack is the identity source, not the membership source).
+6. Order: after Home stage B and stage C. SSO JIT membership and SCIM wait for it.
+
+Open decisions for Lawrence:
+- (a) Does a guest count as a paid seat?
+- (b) May `billing` read the audit log?
+- (c) May an `admin` remove another `admin`, or only an owner?
+
+Pending verification (the enterprise lead's OIDC callback): the Stack server calls (user search, create user, create session) ran only against a fake. Verify them against the real Stack project on staging the next time auth code changes, before SSO sign-in is enabled for a real connection.

@@ -69,9 +69,9 @@ public final class AgentActivityMockSource: AgentActivitySource {
             Spec(id: "cua_c_02", machine: AgentActivityModel.localMachine, machineName: "This Mac", label: "codex-safari-repro",
                  kind: "codex", agent: "Codex", attribution: .credential, workspace: "cmux", terminal: "codex · issue 16502",
                  color: "#30A46C", apps: ["Safari"], status: .active, minutesAgo: 1, steps: 16, errors: 0),
-            Spec(id: "cua_n_03", machine: AgentActivityModel.localMachine, machineName: "This Mac", label: "figma-export",
+            Spec(id: "cua_n_03", machine: AgentActivityModel.localMachine, machineName: "This Mac", label: "slides-export",
                  kind: "mux", agent: "Atlas (mux)", attribution: .credential, workspace: "design", terminal: "mux",
-                 color: "#D6409F", apps: ["Figma"], status: .paused, minutesAgo: 6, steps: 9, errors: 0),
+                 color: "#D6409F", apps: ["Keynote"], status: .paused, minutesAgo: 6, steps: 9, errors: 0),
             Spec(id: "cua_n_04", machine: AgentActivityModel.localMachine, machineName: "This Mac", label: "settings-probe",
                  kind: "cli", agent: "cmux-cua call", attribution: .none, workspace: "—", terminal: "zsh",
                  color: "#F5A524", apps: ["System Settings"], status: .ended(.userStop), minutesAgo: 42, steps: 5, errors: 2),
@@ -136,7 +136,7 @@ public final class AgentActivityMockSource: AgentActivitySource {
         switch app {
         case "Numbers": "Expenses Q3.numbers"
         case "Safari": "Issue 16502 · GitHub"
-        case "Figma": "Onboarding v4"
+        case "Keynote": "Onboarding v4"
         case "Xcode": "cmux.xcodeproj"
         case "GIMP": "batch-042.png"
         default: app

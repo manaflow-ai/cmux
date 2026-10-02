@@ -4,7 +4,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextTabs
 
-/// Chrome-style tab group actions (architecture.md section 7): create,
+/// Tab group actions (architecture.md section 7): create,
 /// membership, rename, nine colors, collapse, ungroup, close, reorder, move
 /// to split/column/workspace/window, new tab in group, and saved groups.
 /// All need the daemon's `tab-groups-v1`; without it every action is
@@ -145,14 +145,14 @@ enum TabGroupHandlers {
         run("update-tab-group", pane: pane, ctx) { c, t in _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t) }
     }
 
-    /// Collapses (moving selection out of the group, like Chrome) or expands.
+    /// Collapses (moving selection out of the group) or expands.
     private static func setCollapsed(_ value: Bool?, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (group, pane) = group(invocation, ctx) else { return }
         let current = pane.tabGroups.first { $0.id == group }?.collapsed ?? false
         let collapsed = value ?? !current
         guard collapsed != current else { return }
         if collapsed, let controller = ctx.services.paneController(for: pane) {
-            // Chrome's rule (`TabGroupOrdering`), shared with screen groups.
+            // The collapse rule (`TabGroupOrdering`), shared with screen groups.
             let strip = controller.stripModel
             let stripGroup = CmuxNextTabs.TabGroupID(group.rawValue)
             let collapsedGroups = Set(strip.groups.filter(\.isCollapsed).map(\.id))

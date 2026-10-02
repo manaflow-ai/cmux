@@ -1,13 +1,15 @@
 public import Foundation
 
 /// The daemon's launch snapshot (`launch-snapshot-v1`): the last settled
-/// `list-workspaces` tree and this app's window records, which cmux-tui
-/// keeps in a read-only file next to its session registry. The app reads it
+/// `list-workspaces` tree with its personal state and this app's window
+/// records, which cmux-tui keeps in a read-only file next to its session registry. The app reads it
 /// before it connects to draw the last known layout at once, then replaces
 /// it with the live tree after the handshake. It is a cache, never a source
 /// of truth: nothing is written back from it, and a missing or unreadable
 /// file only means the launch shows the connecting state as before.
 public struct LaunchSnapshot: Sendable {
+    /// The tree, with `personal` from the file (`list-personal`) so the
+    /// provisional sidebar filters and groups as the live one will.
     public var tree: DaemonTree
     /// The window records (`WindowStateStore`'s document), when saved.
     public var windows: WindowStateDocument?
@@ -32,7 +34,9 @@ public struct LaunchSnapshot: Sendable {
             guard record.schemaVersion == WindowStateDocument.schemaVersion, record.projection != .null else { return nil }
             return try? WindowStateDocument(jsonValue: record.projection)
         }
-        return LaunchSnapshot(tree: file.tree, windows: windows, session: file.session, writtenAtMs: file.writtenAtMs)
+        var tree = file.tree
+        tree.personal = file.personal
+        return LaunchSnapshot(tree: tree, windows: windows, session: file.session, writtenAtMs: file.writtenAtMs)
     }
 
     /// Reads the snapshot at `path` (from `LaunchSnapshotLocation`).
@@ -48,10 +52,12 @@ public struct LaunchSnapshot: Sendable {
         var session: String
         var writtenAtMs: UInt64?
         var tree: DaemonTree
+        /// Absent in a file from an older daemon.
+        var personal: PersonalState?
         var frontendProjections: [FrontendProjection]?
 
         enum CodingKeys: String, CodingKey {
-            case session, tree
+            case session, tree, personal
             case schemaVersion = "schema_version"
             case writtenAtMs = "written_at_ms"
             case frontendProjections = "frontend_projections"

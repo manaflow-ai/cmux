@@ -240,6 +240,7 @@
       "focus-direction",
       "focus-pane",
       "forget-session",
+      "get-frontend-browser-history",
       "get-frontend-projection",
       "get-size-state",
       "identify",
@@ -326,6 +327,7 @@
       "set-client-sizing",
       "set-column-sticky",
       "set-default-colors",
+      "set-frontend-browser-history",
       "set-personal-terminal",
       "set-personal-workspace",
       "set-profile-follows",
@@ -399,7 +401,16 @@
       "unregister-browser-provider",
       "shutdown-daemon",
       "pairing-response",
-      "url-open"
+      "url-open",
+      "conversation-list",
+      "conversation-create",
+      "conversation-snapshot",
+      "conversation-history",
+      "conversation-search",
+      "conversation-op",
+      "conversation-typing",
+      "conversation-bind",
+      "conversation-agent-token"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -465,6 +476,18 @@
     },
     {
       "name": "config-reload-requested",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "conversation-typing",
       "streams": [
         "subscribe"
       ]

@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// Fills `BrowserChromeView.extensionSlot` like Chrome's toolbar: the pinned
-/// extension actions of the bound tab in Chromium's order (icon plus native
+/// Fills `BrowserChromeView.extensionSlot` with the pinned extension
+/// actions of the bound tab in Chromium's order (icon plus native
 /// badge), then the Extensions (puzzle) button, which is always there for a
 /// tab with extensions. Pinned actions beyond `visibleLimit` (the pane's
 /// room, `BrowserToolbarLayout`) are reached through that menu. Click runs
@@ -130,8 +130,8 @@ final class ExtensionActionToolbar {
     }
 
     /// Where `id`'s popup anchors, in the tab's content view coordinates:
-    /// its button, or the Extensions button when it is not shown (as Chrome
-    /// anchors a popup it pops out of the menu).
+    /// its button, or the Extensions button when it is not shown (a popup
+    /// opened from the menu).
     func anchorRect(for id: String) -> CGRect? {
         guard let anchor = anchorView else { return nil }
         let source: NSView = buttons[id] ?? puzzle

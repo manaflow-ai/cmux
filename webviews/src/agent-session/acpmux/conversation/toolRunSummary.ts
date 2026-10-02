@@ -1,8 +1,8 @@
-// A run of tool calls between two pieces of text, summarized as Codex does once it settles:
+// A run of tool calls between two pieces of text, summarized once it settles:
 // "Edited a file, read files, ran commands", opened to list the calls.
 import type { AcpmuxActivity } from "../model";
 
-/// What a call did, in the order Codex names them in a run's summary.
+/// What a call did, in the order a run's summary names them.
 export type ToolRunCategory = "used" | "edited" | "read" | "searched" | "web" | "ran";
 
 const ORDER: ToolRunCategory[] = ["used", "edited", "read", "searched", "web", "ran"];
@@ -36,7 +36,7 @@ export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
 }
 
 /// The categories a run's calls fall in, in summary order. Searches count as reads when the
-/// run also reads files, as Codex's "Read files, ran commands" does.
+/// run also reads files, as in "Read files, ran commands".
 export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCategory[] {
   const present = new Set(items.filter((item) => item.tool).map((item) => toolRunCategory(item.tool!.kind)));
   if (present.has("read")) present.delete("searched");

@@ -85,7 +85,7 @@ import Testing
     }
 
     @Test func narrowTabsCreateCloseLayersOnlyOnTheSelectedTab() {
-        // Chrome: a narrow inactive tab has no x even while hovered; the
+        // A narrow inactive tab has no x even while hovered; the
         // narrow selected tab keeps its x.
         let h = Harness(count: 100)
         let cell = h.strip.cells[TabID("t2")]!

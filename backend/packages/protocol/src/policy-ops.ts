@@ -15,7 +15,13 @@ export const TeamPolicyGet = def({
   target: "team_policy",
   principals: ["session", "install"],
   params: Schema.Struct({ version: Schema.optionalKey(PolicyVersionNumber) }),
-  result: Schema.Struct({ team: TeamId, policy: TeamPolicy, revision: Schema.String }),
+  result: Schema.Struct({
+    team: TeamId,
+    policy: TeamPolicy,
+    /** ConnectionDO holds an SSO or MDM lock that overrides the integration keys (reported, E2). */
+    integration_managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])),
+    revision: Schema.String
+  }),
   errors: ["auth.unauthenticated", "auth.forbidden", "selector.not_found"],
   docs: "Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys.",
   cli: { path: "team policy get", visible: true },
@@ -71,4 +77,19 @@ export const TeamPolicyRollback = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const policyOps = [TeamPolicyGet, TeamPolicyHistory, TeamPolicyUpdate, TeamPolicyRollback] as const
+export const TeamIntegrationReleaseLock = def({
+  name: "team.integration.release_lock",
+  owner: "cloud:TeamDO",
+  class: "mutation",
+  risk: "mutate-shared",
+  target: "team_policy",
+  principals: ["session"],
+  params: Schema.Struct({ reason: Schema.optionalKey(PolicyReason) }),
+  result: Schema.Struct({ released: Schema.Literals(["sso", "mdm"]) }),
+  errors: [...mutationErrors, "selector.not_found"],
+  docs: "Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again.",
+  cli: { path: "team integration release-lock", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const policyOps = [TeamIntegrationReleaseLock, TeamPolicyGet, TeamPolicyHistory, TeamPolicyUpdate, TeamPolicyRollback] as const

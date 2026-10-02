@@ -1,7 +1,7 @@
 import CmuxNextDaemon
 import CmuxNextTabs
 
-// Chrome-style tab group intents -> daemon tab group commands. The strip
+// Tab group intents -> daemon tab group commands. The strip
 // applies nothing itself; the store echo updates it. Any rejection
 // (including a daemon without tab-groups-v1) re-pushes the daemon's
 // authoritative membership into the strip. A daemon with state resources

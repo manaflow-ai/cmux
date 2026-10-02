@@ -14,6 +14,7 @@ const dom = new JSDOM(
     "./conversation/conversation.css",
     "./changes/changes.css",
     "./composerControls.css",
+    "./composerStates.css",
   ]
     .map(css)
     .join("\n")}</style><div id=root></div>`,
@@ -28,6 +29,7 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "customElements",
     "Node",
+    "MutationObserver",
     "ResizeObserver",
     "IS_REACT_ACT_ENVIRONMENT",
   ].map((key) => [key, globals[key]]),
@@ -39,6 +41,7 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
   ResizeObserver: class {
     observe() {}
     unobserve() {}
@@ -61,6 +64,8 @@ const { createRoot } = await import("react-dom/client");
 const { Composer } = await import("./Composer");
 const { CodeBlock } = await import("./conversation/CodeBlock");
 const { ShellBlock } = await import("./conversation/ShellBlock");
+const { Markdown } = await import("./conversation/Markdown");
+const { ScopeMenu } = await import("./changes/ScopeMenu");
 const { applyAgentTheme } = await import("../shared/theme");
 
 const theme: AgentSessionTheme = {
@@ -145,6 +150,12 @@ describe("agent pane edges follow appearance.borders", () => {
           { className: "acpmux-shell" },
           createElement(CodeBlock, { code: "let x = 1", lang: "text" }),
           createElement(ShellBlock, { command: "ls", output: "a", exitCode: 0 }),
+          createElement(Markdown, null, "- [ ] open task\n- [x] done task"),
+          createElement(
+            "div",
+            { className: "acpmux-diff-tools" },
+            createElement(ScopeMenu, { scope: "lastTurn", onScope: () => {} }),
+          ),
           createElement(Composer, { snapshot, chips: () => null, onSend: () => {}, onStop: () => {} }),
         ),
       ),
@@ -169,6 +180,34 @@ describe("agent pane edges follow appearance.borders", () => {
       const colors = insetColors(edge(selector));
       expect(colors.length).toBeGreaterThan(0);
       for (const color of colors) expect(`${selector}: ${color}`).toBe(`${selector}: transparent`);
+    }
+  });
+
+  // The task checkbox and the changes view's scope pill and toolbar draw a plain ring; under
+  // none it goes, and the open checkbox shows as a fill instead so it does not vanish.
+  const checkboxes = [".cv-checkbox:not(.is-checked)", ".cv-checkbox.is-checked"];
+  const pills = [".acpmux-diff-scope", ".acpmux-diff-tools"];
+  const rings = [...checkboxes, ...pills];
+  test("none: the checkbox, scope pill and toolbar rings are gone; the open checkbox is a fill", async () => {
+    await render("none");
+    for (const selector of checkboxes) expect(`${selector}: ${edge(selector)}`).toBe(`${selector}: none`);
+    for (const selector of pills) {
+      const colors = insetColors(edge(selector));
+      expect(`${selector}: ${colors.length}`).not.toBe(`${selector}: 0`);
+      for (const color of colors) expect(`${selector}: ${color}`).toBe(`${selector}: transparent`);
+    }
+    const open = dom.window.document.querySelector(".cv-checkbox:not(.is-checked)")!;
+    expect(resolve(open, dom.window.getComputedStyle(open).getPropertyValue("background"))).toMatch(
+      /^color-mix\(in srgb,\s*rgba\(205, 214, 244, 1\.0\) 9%/,
+    );
+  });
+
+  test("default: the checkbox, scope pill and toolbar keep their rings", async () => {
+    await render("default");
+    for (const selector of rings) {
+      const colors = insetColors(edge(selector));
+      expect(`${selector}: ${colors.length}`).not.toBe(`${selector}: 0`);
+      for (const color of colors) expect(color).toMatch(/^color-mix\(in srgb,\s*rgba\(205, 214, 244, 1\.0\)/);
     }
   });
 

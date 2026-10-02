@@ -12,7 +12,7 @@
 //! `action.run` carries an idempotency key and waits for its work by default
 //! (plans/cmux-next/state-ownership.md, section 4).
 
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, IsTerminal, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -27,7 +27,7 @@ mod run;
 
 /// Scopes that belong to the app, whatever follows.
 pub(super) const APP_SCOPES: &[&str] =
-    &["app", "action", "settings", "window", "events", "history", "bookmark", "accounts"];
+    &["app", "action", "settings", "window", "events", "history", "bookmark", "accounts", "open"];
 
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
@@ -53,8 +53,15 @@ pub(super) enum ActionName {
 }
 
 #[derive(Debug, PartialEq)]
+pub(super) struct OpenRequest {
+    method: &'static str,
+    params: Value,
+}
+
+#[derive(Debug, PartialEq)]
 pub(super) enum AppCommand {
     Call { method: &'static str, params: Value, timeout: Duration, pick: Option<&'static str> },
+    Open { requests: Vec<OpenRequest> },
     Events { params: Value },
 }
 
@@ -75,6 +82,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let call =
         |method, params| AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None };
     let command = match (scope.as_str(), rest.first().map(String::as_str)) {
+        ("open", _) => parse_open(rest)?,
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
@@ -184,6 +192,143 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
+}
+
+/// `cmux open` opens paths and URLs through the app control socket.
+fn parse_open(args: &[String]) -> Result<AppCommand, UsageError> {
+    let environment = std::env::vars().collect::<std::collections::HashMap<_, _>>();
+    parse_open_with(
+        args,
+        std::io::stdin().is_terminal() && std::io::stdout().is_terminal(),
+        &environment,
+    )
+}
+
+fn parse_open_with(
+    args: &[String],
+    interactive: bool,
+    environment: &std::collections::HashMap<String, String>,
+) -> Result<AppCommand, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    let mut explicit_focus = None;
+    let mut targets = Vec::new();
+    let mut index = 0;
+    let mut literal = false;
+    while index < args.len() {
+        let arg = &args[index];
+        if literal {
+            targets.push(arg.clone());
+            index += 1;
+            continue;
+        }
+        if arg == "--" {
+            literal = true;
+            index += 1;
+            continue;
+        }
+        let (name, inline) =
+            arg.split_once('=').map_or((arg.as_str(), None), |(name, value)| (name, Some(value)));
+        match name {
+            "--focus" => {
+                let value = inline.map(str::to_owned).or_else(|| {
+                    args.get(index + 1)
+                        .filter(|value| matches!(value.as_str(), "true" | "false"))
+                        .cloned()
+                });
+                if inline.is_none() && value.is_some() {
+                    index += 1;
+                }
+                explicit_focus = Some(
+                    value
+                        .as_deref()
+                        .unwrap_or("true")
+                        .parse::<bool>()
+                        .map_err(|_| UsageError::new("--focus must be true|false"))?,
+                );
+            }
+            "--no-focus" => {
+                if inline.is_some() {
+                    return Err(UsageError::new("--no-focus does not take a value"));
+                }
+                explicit_focus = Some(false);
+            }
+            _ if name.starts_with('-') => {
+                return Err(UsageError::new(messages.unexpected_argument.replace("{value}", arg)));
+            }
+            _ => targets.push(arg.clone()),
+        }
+        index += 1;
+    }
+    if targets.is_empty() {
+        return Err(UsageError::new("open requires at least one path or URL"));
+    }
+    let focus =
+        explicit_focus.unwrap_or_else(|| default_focus_for_user_open(environment, interactive));
+    let mut requests = Vec::new();
+    let mut pending_files = Vec::new();
+    let flush_files = |requests: &mut Vec<OpenRequest>, pending: &mut Vec<String>| {
+        if pending.is_empty() {
+            return;
+        }
+        let paths = std::mem::take(pending);
+        requests.push(OpenRequest {
+            method: "file.open",
+            params: json!({"paths": paths, "focus": focus}),
+        });
+    };
+    for target in targets {
+        if target.starts_with("http://")
+            || target.starts_with("https://")
+            || target.starts_with("mailto:")
+        {
+            flush_files(&mut requests, &mut pending_files);
+            requests.push(OpenRequest {
+                method: "browser.open_split",
+                params: json!({"url": target, "focus": focus}),
+            });
+        } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
+            flush_files(&mut requests, &mut pending_files);
+            requests.push(OpenRequest {
+                method: "workspace.create",
+                params: json!({"cwd": target, "focus": focus, "activate": focus}),
+            });
+        } else {
+            pending_files.push(target);
+        }
+    }
+    flush_files(&mut requests, &mut pending_files);
+    Ok(AppCommand::Open { requests })
+}
+
+fn default_focus_for_user_open(
+    environment: &std::collections::HashMap<String, String>,
+    interactive: bool,
+) -> bool {
+    match environment.get("CMUX_FOCUS_NEW").map(String::as_str) {
+        Some("1") => return true,
+        Some("0") => return false,
+        _ => {}
+    }
+    if !interactive {
+        return false;
+    }
+    [
+        "CODEX_CI",
+        "CODEX_THREAD_ID",
+        "CODEX_SESSION_ID",
+        "CODEX_SANDBOX",
+        "CODEX_MANAGED_BY_BUN",
+        "CLAUDECODE",
+        "CLAUDE_CODE",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "CLAUDE_CODE_SESSION_ID",
+        "OPENCODE",
+        "OPENCODE_PORT",
+        "OPENCODE_SESSION_ID",
+        "AI_AGENT",
+    ]
+    .iter()
+    .all(|key| environment.get(*key).is_none_or(|value| value.trim().is_empty()))
 }
 
 /// `cli` when a person runs the command at a terminal, else `script`.
@@ -413,7 +558,7 @@ pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -
     let command = run_action(name, args, ActionName::Cli).ok()?;
     let socket = socket_path(global).ok()?;
     let stream = connect(&socket).ok()?;
-    match call(global, stream, command) {
+    match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction(_) => None,
     }
@@ -434,14 +579,32 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
     };
-    call(global, stream, command)
+    call(global, &mut stream, command)
 }
 
-fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran {
+fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
     let (method, mut params, timeout, pick) = match command {
         AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
         AppCommand::Events { params } => {
-            return Ran::Done(stream_events(&mut stream, params, global.output));
+            return Ran::Done(stream_events(stream, params, global.output));
+        }
+        AppCommand::Open { requests } => {
+            let mut status = 0;
+            for request in requests {
+                if let Ran::Done(code) = call(
+                    global,
+                    stream,
+                    AppCommand::Call {
+                        method: request.method,
+                        params: request.params,
+                        timeout: READ_TIMEOUT,
+                        pick: None,
+                    },
+                ) {
+                    status = status.max(code);
+                }
+            }
+            return Ran::Done(status);
         }
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
@@ -457,7 +620,7 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
-    let response = match request_with_retry(&mut stream, method, &params, timeout) {
+    let response = match request_with_retry(stream, method, &params, timeout) {
         Ok(response) => response,
         Err(error) => {
             let code = failure("app.transport", &error, global.output, 3);

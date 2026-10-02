@@ -1,6 +1,6 @@
 # cmux next: layout model (proposal)
 
-Status: proposal 2026-10-02 by the layout model lead (rows work continues inside this lane).
+Status: decided 2026-10-02 (section "Decisions"); was a proposal by the layout model lead (rows work continues inside this lane).
 Not the spec: the coordinator writes the spec from this ("spec proposal: layout model").
 Builds on rows.md (columns of rows, approved), sticky-column.md (left and right sticky columns,
 implemented), column-sizing.md and OWNERSHIP-PRINCIPLES.md (binding).
@@ -32,8 +32,8 @@ columns, rows, all four edges and both orientations.
 | column | a vertical band of the strip; a vertical stack of rows (rows.md) |
 | row | a horizontal band of a column; holds one split tree |
 | dock | a column pinned to a screen edge: left, right, top or bottom; at most one per edge |
-| pinned | dock mode that takes space from the strip (code and wire name today: `docked`) |
-| overlay | dock mode that floats over the strip; the strip gets an inset at that edge |
+| docked | dock mode that takes space from the strip (UI "Docked"; wire `docked`) |
+| floating | dock mode that floats over the strip; the strip gets an inset at that edge (UI "Floating"; wire `overlay`) |
 | frame | the four docks around the strip |
 | orientation | per screen: `column_major` (side docks own the corners) or `row_major` (top/bottom docks own the corners) |
 
@@ -114,7 +114,8 @@ v1), scroll offsets and focus are client view state.
   (pinned) or under overlay side docks; rows of the strip live in the space between the side
   docks. Row-major: top and bottom docks first, full width; left and right docks span between
   their inner edges; the strip's columns live in the space between the top and bottom docks.
-  The strip takes the rest in both. A dock's extent (width for left/right, height for
+  The docks that do not own the corners sit between the owners' inner edges in either mode,
+  so no dock ever covers another (found live). The strip takes the rest in both. A dock's extent (width for left/right, height for
   top/bottom) is the same share in both orientations; only its length changes.
 - F2. Pinned: the strip's viewport ends at the dock's inner edge. Overlay: the strip keeps the
   full extent on that axis and gets an inset of the dock plus a gap at that edge; at rest
@@ -245,13 +246,9 @@ Screenshots and recordings are listed in "Evidence".
 
 ## Ownership of the work
 
-- Layout model lead: this proposal, the reducer ops, the daemon (`edge-docks-v1`, side table,
-  `column.update` integration), the TLA+ model, the prototypes.
-- App four-edge geometry (F1 to F6: `StickyStripGeometry`, `ScreenGeometry`,
-  `ScreenContentView+Sticky` stacking, clip, hit testing and navigation frames,
-  `DropZoneGeometry.target(atView:)`, scrollbar placement, the scroll reducer insets): a
-  separate task for the sticky-column geometry owner, assigned by the coordinator after
-  Lawrence picks the model.
+The layout model lead owns all of it (decision 6): the reducer ops, the daemon (`edge-docks-v1`,
+side table, `column.update` integration), the TLA+ model, the prototypes and the app four-edge
+geometry (F1 to F6), coordinated with the sticky column lane and the close-focus rules.
 
 ## Evidence (2026-10-02)
 
@@ -263,12 +260,29 @@ Screenshots and recordings are listed in "Evidence".
   Details in formal/README.md. proptest waits for the reducer step.
 - Geometry: `LayoutModelPrototypeTests` (7 tests) pin the frame in both orientations and both
   edges, docks drawn from plain columns, the grid's shared rows and holes, and off = real layout.
-- Live build lmproto-v1 (fleet job a5dbd34f2414ad8ecd984564): the tunables switch live and the
-  app stayed in the background (`app_active` false, no key window). The screenshots are not
-  evidence of the design: the seed made two full-width columns, and the sticky view path places
-  sticky panes by edge rather than by the geometry frame, so the band draws as a right column.
-  Live rendering of the prototypes is UNVERIFIED until the view path reads the frame (part of
-  the app geometry task above). No recordings were made.
+- Live (2026-10-02, fleet job 60f8504c062867ad815f580a, tag lmproto-v1, no-activate, window-only
+  captures; the app never took focus): the real geometry path draws top and bottom docks in both
+  orientations and both modes. Screenshots: column-major bottom docked, row-major bottom docked,
+  column-major top floating, row-major top floating, the real layout, and the grid (B) with its
+  hole. Stepped recordings (one window frame per settled state, focus moves driving the strip;
+  not real time, because per-frame capture runs far slower than real time on this machine):
+  column-major bottom docked (strip offset 0, 142, 0) and row-major top floating (0, 476, 952,
+  714). Files: cmuxterm-hq `artifacts/layout-model/`. The prototype tunable still decides which
+  columns are docks, because no daemon serves `edge-docks-v1` yet.
+- The live check found that a floating corner owner covered the other dock (row-major floating
+  top over the left dock's tab strip); F1 now keeps the non-owners between the owners' inner
+  edges in either mode.
+
+## Status of F1 to F6 (app)
+
+Done: F1 and F1a (four edges, both orientations, no dock covers another), F2 (the strip's
+vertical range; floating bands inset it), F3 (band shares), F4 (stacking by corner ownership;
+the strip scrollbar above a bottom dock), F5 (cover, uncovered and clip on both axes; hit
+testing over covers), the `layout.frameOrientation` setting, and the guard that keeps top and
+bottom from the daemon until `edge-docks-v1`.
+Not done yet: F6 (reveal and snap points that use the uncovered range in `ColumnStrip`), a
+resize handle on a band's inner edge, the drop edge bands (DD1), "Docked"/"Floating" UI labels
+for the existing sticky actions and settings, and the daemon's `edge-docks-v1`.
 
 ## Verification plan
 
@@ -287,13 +301,15 @@ Screenshots and recordings are listed in "Evidence".
 4. App: four-edge geometry, top/bottom bands, reveal under overlays, drop bands.
 5. Surfaces: actions above.
 
-## Decisions for Lawrence
+## Decisions (Lawrence, 2026-10-02, through the coordinator)
 
-1. Model A, the frame (recommended), against B, the grid, or C, stacked strips.
-2. Decided (L2): both orientations exist, per screen. Open: the default for new screens,
-   column-major (recommended: left/right, the excellent pair, never shrink) or row-major; and
-   whether Settings offers a default orientation (recommended: yes, `layout.frameOrientation`).
-3. Top/bottom docks hold one split tree that fits (recommended for v1), or a horizontally
-   scrolling strip of their own.
-4. UI names "Pinned" and "Overlay" (recommended; the wire keeps `docked`), or keep "Docked".
-5. Per-column sticky rows (a header pinned above its own column) later, or never.
+1. Design A, the frame with four docks.
+2. Default orientation for new screens: column-major; Settings and cmux.json offer the default
+   as `layout.frameOrientation` (`columnMajor` | `rowMajor`).
+3. Top and bottom docks hold one split tree in v1 (E3).
+4. UI names: "Docked" (takes space) and "Floating" (floats over the strip). "Pinned" stays
+   reserved for pinned tabs in panes, so this note's "pinned" mode is shown as Docked; the wire
+   keeps `docked` and `overlay`.
+5. Per-column sticky rows: later.
+6. The layout model lead also owns the app four-edge geometry (F1 to F6), coordinated with the
+   sticky column lane and the close-focus rules; live rendering with recordings is the evidence.

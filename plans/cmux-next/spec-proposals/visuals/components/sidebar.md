@@ -101,7 +101,7 @@ Band caps: `sidebar.topBandMaxShare` (1/3) and `sidebar.bottomBandMaxShare` (0.2
 
 Sidebar icon buttons: sidebarHeaderHeight square, radius itemCornerRadius, SF Symbol smallIconSize semibold, tint textSecondary, hover fill hoverFill; no distinct pressed state (`SidebarIconButton.swift:17-60 (SidebarIconButton)`).
 
-Workspace hover card: glass panel (overlay material), radius panelCornerRadius, shown 0.6 s after the pointer rests on a row, offset space2 from the row (`WorkspaceHoverCard.swift:16 (WorkspaceHoverCardController.delay)`, `CmuxNextDesign/HoverCards/HoverCardPanel.swift (HoverCardPanel)`). Material target: the overlay fallbacks in [design-tokens.md](../design-tokens.md#4-materials), opaque under Reduce Transparency; the panel calls `Glass.makePanel` directly today (code fix in progress in a separate lane). UNVERIFIED screenshot: hover cards follow the real pointer through the hover coordinator; `debug.mouse action:hover` did not open one. Diagram:
+Workspace hover card: glass panel (overlay material), radius panelCornerRadius, shown 0.6 s after the pointer rests on a row, offset space2 from the row (`WorkspaceHoverCard.swift:16 (WorkspaceHoverCardController.delay)`, `CmuxNextDesign/HoverCards/HoverCardPanel.swift (HoverCardPanel)`). Material: the overlay fallbacks in [design-tokens.md](../design-tokens.md#4-materials), opaque under Reduce Transparency, through `Glass.makeOverlayPanel`. UNVERIFIED screenshot: hover cards follow the real pointer through the hover coordinator; `debug.mouse action:hover` did not open one. Diagram:
 
 ```
  sidebar row  ┃ ┌──────────────────────────┐  glass, glassTint, radius 10/12

@@ -96,6 +96,19 @@ export type CronSpec = {
 /** A device (hardware) that groups installs. */
 export type DeviceId = string
 
+export type DeviceStatus = {
+  readonly install: InstallId
+  readonly user: string
+  readonly policy_version: number
+  readonly app_version: string
+  readonly mdm_keys: ReadonlyArray<string>
+  readonly conflicts: ReadonlyArray<string>
+  readonly reported_at: number
+}
+
+/** A lowercase DNS name such as acme.com. */
+export type EmailDomain = string
+
 export type EnrollmentToken = {
   readonly id: EnrollmentTokenId
   readonly label: string
@@ -349,6 +362,31 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+export type SsoConnection = {
+  readonly id: SsoConnectionId
+  readonly kind: "oidc"
+  readonly state: "draft" | "active" | "disabled"
+  readonly domains: ReadonlyArray<EmailDomain>
+  readonly oidc: {
+    readonly issuer: string
+    readonly client_id: string
+    readonly scopes: ReadonlyArray<string>
+    readonly authorization_endpoint: string | null
+    readonly token_endpoint: string | null
+    readonly jwks_uri: string | null
+  }
+  readonly secret_set: boolean
+  readonly secret_generation?: number
+  readonly jit: {
+    readonly enabled: boolean
+    readonly default_role: "member" | "admin"
+  }
+  readonly created_at: number
+  readonly updated_at: number
+}
+
+export type SsoConnectionId = string
+
 export type Step = {
   readonly type: "sleep"
   readonly seconds: number
@@ -363,6 +401,18 @@ export type TargetPolicy = {
   readonly kind: "host"
   readonly host: HostId
   readonly fallback: "cloud_vm" | "wait" | "fail"
+}
+
+export type TeamDomain = {
+  readonly domain: EmailDomain
+  readonly state: "pending" | "verified" | "lost" | "lapsed"
+  readonly record_name: string
+  readonly record_value: string
+  readonly requested_at: number
+  readonly expires_at: number
+  readonly verified_at: number | null
+  readonly last_checked_at?: number
+  readonly check_failures?: number
 }
 
 /** A team; a personal account is a team of one. */
@@ -563,6 +613,7 @@ export type UserProfile = {
   readonly id: UserId
   readonly stack_user_id: string
   readonly email: string | null
+  readonly email_verified?: boolean
   readonly display_name: string
   readonly personal_team: TeamId
 }
@@ -665,6 +716,38 @@ export interface CloudOps {
       readonly secret: string
       readonly scheme: string
     }
+  }
+  /** Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
+  readonly "domain.claim": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: TeamDomain
+  }
+  /** The team's claimed and verified email domains (owners and admins). */
+  readonly "domain.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly domains: ReadonlyArray<TeamDomain>
+      readonly revision: string
+    }
+  }
+  /** Give up a claimed or verified domain (owners and admins). Another team may then verify it. */
+  readonly "domain.release": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: {
+      readonly domain: EmailDomain
+    }
+  }
+  /** Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins). */
+  readonly "domain.verify": {
+    readonly params: {
+      readonly domain: EmailDomain
+    }
+    readonly result: TeamDomain
   }
   /** Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
   readonly "feed.adopt": {
@@ -869,6 +952,124 @@ export interface CloudOps {
       }>
     }
   }
+  /** Allow a validated path through the caller's private network. */
+  readonly "firewall.create": {
+    readonly params: {
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** Delete one firewall rule owned by the caller. */
+  readonly "firewall.delete": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly rule_id: string
+    }
+  }
+  /** Read one firewall rule owned by the caller. */
+  readonly "firewall.get": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** List firewall rules attached to the caller's private network. */
+  readonly "firewall.list": {
+    readonly params: {
+      readonly vpc_id?: string
+      readonly vm_id?: string
+      readonly tunnel_id?: string
+    }
+    readonly result: {
+      readonly rules: ReadonlyArray<{
+        readonly id: string
+        readonly action: "allow"
+        readonly source: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly destination: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly description?: string
+      }>
+    }
+  }
   /** Comment on a GitHub issue or pull request as the cmux GitHub App installation. */
   readonly "github.issue.comment": {
     readonly params: {
@@ -1014,6 +1215,18 @@ export interface CloudOps {
       }>
     }
   }
+  /** List the caller-owned private Cloud networks. */
+  readonly "network.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly networks: ReadonlyArray<{
+        readonly id: string
+        readonly cidr: string | null
+        readonly cidrV6: string | null
+        readonly scope: "user" | "team"
+      }>
+    }
+  }
   /** Post a message to a Slack channel as the cmux bot. */
   readonly "slack.post_as_bot": {
     readonly params: {
@@ -1022,6 +1235,66 @@ export interface CloudOps {
       readonly text: string
     }
     readonly result: unknown
+  }
+  /** Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team. */
+  readonly "sso.connection.activate": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+    }
+    readonly result: SsoConnection
+  }
+  /** Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it. */
+  readonly "sso.connection.create": {
+    readonly params: {
+      readonly issuer: string
+      readonly client_id: string
+      readonly domains: ReadonlyArray<EmailDomain>
+      readonly scopes?: ReadonlyArray<string>
+      readonly jit?: {
+        readonly enabled: boolean
+        readonly default_role: "member" | "admin"
+      }
+    }
+    readonly result: SsoConnection
+  }
+  /** Disable a connection (owners and admins): sign-in discovery stops routing to it. */
+  readonly "sso.connection.disable": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+    }
+    readonly result: SsoConnection
+  }
+  /** The team's SSO connections, without secrets (owners and admins). */
+  readonly "sso.connection.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly connections: ReadonlyArray<SsoConnection>
+      readonly revision: string
+    }
+  }
+  /** Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events. */
+  readonly "sso.connection.set_secret": {
+    readonly params: {
+      readonly connection: SsoConnectionId
+      readonly client_secret: string
+    }
+    readonly result: SsoConnection
+  }
+  /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
+  readonly "team.device.compliance": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly policy_version: number
+      readonly devices: ReadonlyArray<{
+        readonly device: ManagedDevice
+        readonly status: DeviceStatus | null
+        readonly compliant: boolean
+        readonly reasons: ReadonlyArray<string>
+      }>
+      readonly revision: string
+    }
   }
   /** Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance. */
   readonly "team.device.enroll": {
@@ -1052,6 +1325,16 @@ export interface CloudOps {
     readonly result: {
       readonly install: InstallId
     }
+  }
+  /** Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
+  readonly "team.device.report_status": {
+    readonly params: {
+      readonly policy_version: number
+      readonly app_version: string
+      readonly mdm_keys: ReadonlyArray<string>
+      readonly conflicts: ReadonlyArray<string>
+    }
+    readonly result: DeviceStatus
   }
   /** Read a team's directory: members and enrolled hosts (U2). */
   readonly "team.directory": {
@@ -1092,6 +1375,15 @@ export interface CloudOps {
     }
     readonly result: EnrollmentToken
   }
+  /** Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
+  readonly "team.integration.release_lock": {
+    readonly params: {
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly released: "sso" | "mdm"
+    }
+  }
   /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
   readonly "team.policy.get": {
     readonly params: {
@@ -1100,6 +1392,7 @@ export interface CloudOps {
     readonly result: {
       readonly team: TeamId
       readonly policy: TeamPolicy
+      readonly integration_managed_by: "sso" | "mdm" | null
       readonly revision: string
     }
   }
@@ -1132,6 +1425,39 @@ export interface CloudOps {
     }
     readonly result: TeamPolicy
   }
+  /** Attach an owned WireGuard tunnel to an owned private network. */
+  readonly "tunnel.attach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Detach an owned WireGuard tunnel from an owned private network. */
+  readonly "tunnel.detach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Rotate an owned tunnel's WireGuard public key without changing its address. */
+  readonly "tunnel.rotate-key": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly client_public_key: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly client_public_key: string
+    }
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -1153,6 +1479,10 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "domain.claim": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "domain.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "domain.verify": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
@@ -1167,6 +1497,10 @@ export const cloudOpMeta = {
   "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "firewall.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "firewall.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
@@ -1182,18 +1516,30 @@ export const cloudOpMeta = {
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.release": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.report_status": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.directory": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.integration.release_lock": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 

@@ -8,7 +8,9 @@
 mod app;
 #[cfg(unix)]
 mod coderouter;
+mod code_mode;
 mod command;
+mod docs;
 mod federation;
 mod lifecycle;
 #[cfg(unix)]

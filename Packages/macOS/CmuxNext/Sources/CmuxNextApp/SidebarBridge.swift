@@ -177,7 +177,7 @@ final class SidebarBridge {
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
         case .layoutItem(let id):
-            return registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue))
+            return layoutItemMenu(id)
         case .layoutSection(let id):
             return registry.makeContextMenu(for: .sidebarSection, target: ActionTargetRef(kind: .sidebarSection, id: id.rawValue))
         }

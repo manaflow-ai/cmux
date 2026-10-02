@@ -1,0 +1,532 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/cmux-app/2.json",
+  "title": "cmux app manifest v2 (cmux-app.json)",
+  "description": "Platform v2 (plans/cmux-next/app-platform.md section 12): an app is a manifest, a catalog fragment and implementations of typed interfaces.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "id",
+    "name",
+    "version",
+    "description",
+    "engines"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "manifestVersion": {
+      "const": 2
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "name": {
+      "$ref": "#/$defs/text"
+    },
+    "version": {
+      "$ref": "#/$defs/semver"
+    },
+    "description": {
+      "$ref": "#/$defs/text"
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "url": {
+          "$ref": "#/$defs/https"
+        }
+      }
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^https://github\\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+$"
+    },
+    "license": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "icon": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/path"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "symbol"
+          ],
+          "properties": {
+            "symbol": {
+              "$ref": "#/$defs/symbol"
+            }
+          }
+        }
+      ]
+    },
+    "screenshots": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "categories": {
+      "type": "array",
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "sidebar",
+          "agents",
+          "git",
+          "editors",
+          "files",
+          "productivity",
+          "communication",
+          "monitoring",
+          "themes",
+          "browser",
+          "cloud",
+          "developer-tools",
+          "samples",
+          "fun"
+        ]
+      }
+    },
+    "keywords": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "string",
+        "maxLength": 32
+      }
+    },
+    "engines": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmux"
+      ],
+      "properties": {
+        "cmux": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where the app's code runs.",
+      "properties": {
+        "main": {
+          "$ref": "#/$defs/path",
+          "description": "Classic script for the QuickJS app host (built by cmux apps pack)."
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "root"
+          ],
+          "properties": {
+            "root": {
+              "$ref": "#/$defs/path"
+            },
+            "csp": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        }
+      }
+    },
+    "catalog": {
+      "$ref": "#/$defs/path",
+      "description": "Catalog fragment (operation-catalog format): the app's ops, events and their surfaces (V1)."
+    },
+    "implements": {
+      "type": "object",
+      "maxProperties": 32,
+      "propertyNames": {
+        "$ref": "#/$defs/interfaceName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/implementation"
+      }
+    },
+    "consumes": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/interfaceName"
+      }
+    },
+    "scopes": {
+      "$ref": "#/$defs/scopes"
+    },
+    "optionalScopes": {
+      "$ref": "#/$defs/scopes"
+    },
+    "handles": {
+      "type": "object",
+      "maxProperties": 16,
+      "description": "Handles the app may ask the user for, with the reason shown when it asks (V6).",
+      "propertyNames": {
+        "enum": [
+          "root",
+          "host",
+          "credential",
+          "document",
+          "diff"
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "server": {
+      "$ref": "#/$defs/server"
+    },
+    "settings": {
+      "type": "object",
+      "required": [
+        "type",
+        "properties"
+      ],
+      "properties": {
+        "type": {
+          "const": "object"
+        },
+        "properties": {
+          "type": "object"
+        }
+      }
+    },
+    "strings": {
+      "$ref": "#/$defs/path",
+      "description": "Directory with <lang>.json string tables for cmux.t()."
+    },
+    "variants": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "values",
+          "default"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/localId"
+          },
+          "title": {
+            "$ref": "#/$defs/text"
+          },
+          "values": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 8,
+            "items": {
+              "$ref": "#/$defs/localId"
+            }
+          },
+          "default": {
+            "$ref": "#/$defs/localId"
+          }
+        }
+      }
+    },
+    "activation": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "string",
+        "pattern": "^(onStartup|onInterface:[a-z][a-z0-9.]*/[0-9]+|onOp:[a-z][a-zA-Z0-9_.-]{0,95}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+      }
+    },
+    "files": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "x-cmux-devOnly": {
+      "type": "boolean"
+    }
+  },
+  "$defs": {
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "https": {
+      "type": "string",
+      "pattern": "^https://",
+      "maxLength": 2048
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/@-]+$"
+    },
+    "symbol": {
+      "type": "string",
+      "pattern": "^[a-z0-9.]{1,64}$"
+    },
+    "localId": {
+      "type": "string",
+      "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$"
+    },
+    "exportName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+    },
+    "interfaceName": {
+      "type": "string",
+      "pattern": "^cmux\\.[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*/[1-9][0-9]*$"
+    },
+    "text": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        {
+          "type": "object",
+          "required": [
+            "en"
+          ],
+          "propertyNames": {
+            "pattern": "^[a-z]{2}(?:-[A-Za-z]{2,4})?$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        }
+      ]
+    },
+    "scopes": {
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external)|actions:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|power:write|mcp:expose)$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One interface implementation: exactly one of export (scene, QuickJS), web (a page under runtime.web.root) or native (a view built into cmux, first-party only).",
+      "properties": {
+        "export": {
+          "$ref": "#/$defs/exportName"
+        },
+        "web": {
+          "$ref": "#/$defs/path"
+        },
+        "native": {
+          "type": "string",
+          "pattern": "^[a-z][a-zA-Z0-9.-]{0,63}$"
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "symbol": {
+          "$ref": "#/$defs/symbol"
+        },
+        "types": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "description": "Uniform type identifiers or language ids the implementation handles."
+        },
+        "schemes": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9+.-]{0,31}$"
+          }
+        },
+        "options": {
+          "type": "object",
+          "description": "Interface-specific options, validated against the interface schema."
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "export"
+          ]
+        },
+        {
+          "required": [
+            "web"
+          ]
+        },
+        {
+          "required": [
+            "native"
+          ]
+        }
+      ]
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "instances",
+        "hosts"
+      ],
+      "description": "The app's server implements its catalog ops; the daemon on the chosen host supervises it; one instance per tenant (single writer).",
+      "properties": {
+        "kind": {
+          "enum": [
+            "native",
+            "js"
+          ]
+        },
+        "binaries": {
+          "type": "object",
+          "description": "Native only: per-platform name of a binary shipped with cmux (never a downloaded file).",
+          "propertyNames": {
+            "enum": [
+              "darwin-arm64",
+              "darwin-x64",
+              "linux-arm64",
+              "linux-x64"
+            ]
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "minProperties": 1
+        },
+        "args": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "string",
+            "maxLength": 256
+          }
+        },
+        "instances": {
+          "enum": [
+            "user",
+            "team",
+            "machine"
+          ]
+        },
+        "hosts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "local",
+              "team-vm",
+              "cmux-server"
+            ]
+          }
+        },
+        "data": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "class"
+            ],
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/localId"
+              },
+              "class": {
+                "enum": [
+                  "durable",
+                  "ephemeral",
+                  "synced"
+                ]
+              }
+            }
+          }
+        },
+        "scopes": {
+          "$ref": "#/$defs/scopes",
+          "description": "The server principal's own scopes."
+        },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "start": {
+              "enum": [
+                "onDemand",
+                "always"
+              ]
+            },
+            "idleStopSeconds": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "native"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "binaries"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

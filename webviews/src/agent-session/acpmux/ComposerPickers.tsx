@@ -2,6 +2,8 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { t } from "./i18n";
+import { ModelPicker } from "./ModelPicker";
+import { registerPicker } from "./pickerOpeners";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -15,6 +17,47 @@ export const PICKER_LABELS = {
   context: "{percent}% of context used",
 };
 
+/// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
+export type Combo = { harness: string; model: string; effort?: string; effortName?: string };
+/// A combo counts as used once it has held this long: model and effort land in separate updates.
+export const RECENT_SETTLE_MS = 1500;
+const RECENTS_KEY = "cmux.acpmux.recentModels";
+
+/// The viewer's recent combos, newest first. Storage can be missing or blocked; then there are none.
+export function loadRecents(): Combo[] {
+  try {
+    const value: unknown = JSON.parse(localStorage.getItem(RECENTS_KEY) ?? "[]");
+    return Array.isArray(value)
+      ? value.filter(
+          (combo): combo is Combo =>
+            typeof combo?.harness === "string" &&
+            typeof combo.model === "string" &&
+            (combo.effort === undefined || typeof combo.effort === "string") &&
+            (combo.effortName === undefined || typeof combo.effortName === "string"),
+        )
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/// Puts `combo` first, once, and keeps the list short. Saving is best effort.
+/// It builds on what is stored now, so another pane's newer combos aren't written over.
+export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
+  const key = (other: Combo) => `${other.harness}\u0000${other.model}\u0000${other.effort ?? ""}`;
+  const same = (other: Combo) => key(other) === key(combo);
+  const known = new Set<string>();
+  const merged = [...loadRecents(), ...recents].filter((other) => !known.has(key(other)) && known.add(key(other)));
+  if (merged[0] && same(merged[0])) return merged;
+  const next = [combo, ...merged.filter((other) => !same(other))].slice(0, 12);
+  try {
+    localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
+  } catch {
+    // Private windows and blocked storage keep the list for this page only.
+  }
+  return next;
+}
+
 export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
 type Props = {
@@ -22,14 +65,28 @@ type Props = {
   onModel(modelId: string): void;
   onMode(modeId: string): void;
   onEffort(configId: string, value: string): void;
+  /// How long a combo must hold before it counts as recent (tests shorten it).
+  settleMs?: number;
+  /// Starts a new chat in another harness (the model picker offers it).
+  onHarness?(harness: string): void;
+  /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
+  measurePickerRoom?(menu: HTMLElement): number;
 };
 
-/// The composer bar's controls, as Codex, Claude and T3 Code draw them: the
+/// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
 /// Plan/Build toggle after the attach button, then the model and the effort as
 /// two dropdowns and the context used at the right. Groups are set apart by a
 /// hairline; each control shows only when the agent offers it.
-export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) {
+export function ComposerPickers({
+  snapshot,
+  onModel,
+  onMode,
+  onEffort,
+  onHarness,
+  settleMs = RECENT_SETTLE_MS,
+  measurePickerRoom,
+}: Props) {
   const summary = snapshot.summary;
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
@@ -56,6 +113,64 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
     name: option.name || option.value,
   }));
   const model = models.find((choice) => choice.id === summary?.model);
+  const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
+  // Recents follow what the session actually runs, whichever control changed it,
+  // once it settles: a switch passes through the new model with the old effort.
+  const [recents, setRecents] = useState(loadRecents);
+  const harness = summary?.harness;
+  const current = summary?.model;
+  const currentEffort = effort?.currentValue;
+  const offersEffort = effort !== undefined;
+  useEffect(() => {
+    if (!harness || !current || (offersEffort && !currentEffort)) return;
+    const timer = setTimeout(
+      () =>
+        setRecents((list) =>
+          rememberCombo(list, { harness, model: current, effort: currentEffort, effortName: effortName }),
+        ),
+      settleMs,
+    );
+    return () => clearTimeout(timer);
+  }, [harness, current, currentEffort, offersEffort, effortName, settleMs]);
+  // A combo for another model sends the model first, then its effort once the
+  // agent reports that model and offers the effort; anything else drops it.
+  const pending = useRef<
+    { sessionId?: string; from?: string; model: string; effort: string; reached?: boolean } | undefined
+  >(undefined);
+  const effortId = effort?.id;
+  const effortValues = (effort?.options ?? []).map((option) => option.value).join("\u0000");
+  useEffect(() => {
+    const wanted = pending.current;
+    if (!wanted) return;
+    // Dropped on a session switch, or once the session moves off the picked model (or never reaches it).
+    const away = current !== wanted.model && (current !== wanted.from || wanted.reached);
+    if (wanted.sessionId !== summary?.sessionId || away) {
+      pending.current = undefined;
+      return;
+    }
+    if (current === wanted.model) wanted.reached = true;
+    if (current !== wanted.model || !effortId || !effortValues.split("\u0000").includes(wanted.effort)) return;
+    pending.current = undefined;
+    if (wanted.effort !== currentEffort) onEffort(effortId, wanted.effort);
+  }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
+  // One pick of a model and effort: the model first, then the effort once the agent reports
+  // that model offering it (the effect above); the same model only changes the effort.
+  const land = (pickedModel: string, pickedEffort?: string) => {
+    // Any new pick replaces a combo still waiting on its effort.
+    pending.current = undefined;
+    if (pickedModel !== current) {
+      pending.current = pickedEffort
+        ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+        : undefined;
+      onModel(pickedModel);
+    } else if (
+      effort &&
+      pickedEffort &&
+      pickedEffort !== currentEffort &&
+      efforts.some((choice) => choice.id === pickedEffort)
+    )
+      onEffort(effort.id, pickedEffort);
+  };
   const usage = summary?.usage;
 
   return (
@@ -91,26 +206,35 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
       )}
       <span className="acpmux-chips-spacer" />
       {models.length > 0 && (
-        <Picker
-          label={PICKER_LABELS.model}
-          className="acpmux-model"
-          button={
-            <>
-              <span className="acpmux-model-name">{model?.name ?? summary?.model ?? PICKER_LABELS.model}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={[{ choices: models, current: model?.id, onPick: onModel }]}
-          align="end"
+        <ModelPicker
+          catalog={snapshot.catalog}
+          harness={harness}
+          model={current}
+          label={model?.name ?? summary?.model ?? PICKER_LABELS.model}
+          efforts={efforts}
+          effort={currentEffort}
+          recents={recents}
+          onLand={land}
+          onEffort={(value) => {
+            pending.current = undefined;
+            if (effort) onEffort(effort.id, value);
+          }}
+          onHarness={onHarness}
+          measureRoom={measurePickerRoom}
         />
       )}
       {effort && efforts.length > 0 && (
         <EffortPicker
+          label={PICKER_LABELS.effort}
           efforts={efforts}
           current={effort.currentValue}
           model={model?.name ?? summary?.model}
           chevron={<ChevronIcon />}
-          onPick={(value) => onEffort(effort.id, value)}
+          onPick={(value) => {
+            // An effort picked by hand wins over one a combo is still waiting to send.
+            pending.current = undefined;
+            onEffort(effort.id, value);
+          }}
         />
       )}
       {usage && usage.size > 0 && <ContextRing used={usage.used} size={usage.size} />}
@@ -119,12 +243,12 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   );
 }
 
-/// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
+/// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
   return /(^|[-_])plan$/i.test(modeId);
 }
 
-/// How much of the context window the session has used, as Claude draws it: a ring that fills.
+/// How much of the context window the session has used, as a ring that fills.
 export function ContextRing({ used, size }: { used: number; size: number }) {
   const fraction = Math.min(1, Math.max(0, used / size));
   const percent = Math.round(fraction * 100);
@@ -159,12 +283,13 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
   );
 }
 
-/// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
+/// Modes that skip approvals (such as "Full access") draw in the theme's warning color.
 export function unrestricted(modeId: string): boolean {
   return /bypass|full|yolo|dangerous|auto[-_ ]?approve/i.test(modeId);
 }
 
-export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void };
+/// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
+export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
 
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
@@ -188,7 +313,7 @@ export function Picker({
   warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
-  /// A question over the choices, as Codex's approval menu asks it.
+  /// A question over the choices, as an approval menu asks it.
   heading?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -221,6 +346,17 @@ export function Picker({
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt.
     trigger.current?.focus();
   };
+  const showRef = useRef(show);
+  showRef.current = show;
+  // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
+  useEffect(
+    () =>
+      registerPicker(label, () => {
+        if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+        showRef.current();
+      }),
+    [label],
+  );
   const close = () => {
     setOpen(false);
     trigger.current?.focus();
@@ -228,9 +364,9 @@ export function Picker({
   const pick = (index: number) => {
     const row = rows[index];
     if (!row) return;
+    if (sections[row.section].onPick(row.choice.id) === "keep") return;
     if (returnFocus) close();
     else setOpen(false);
-    sections[row.section].onPick(row.choice.id);
   };
   const keyDown = (event: React.KeyboardEvent) => {
     if (!open) {
@@ -247,7 +383,7 @@ export function Picker({
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const step = event.key === "ArrowDown" ? 1 : -1;
-      setActive((selected + step + rows.length) % rows.length);
+      if (rows.length > 0) setActive((selected + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
@@ -278,85 +414,88 @@ export function Picker({
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox"
         className="acpmux-picker-button"
+        data-menu={label}
         aria-label={label}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open ? `${menuId}-${selected}` : undefined}
+        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         onClick={() => (open ? setOpen(false) : show())}
       >
         {button}
       </button>
-      {/* A native select cannot hold descriptions, sections or the Codex look. */}
+      {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        <div className={`acpmux-menu acpmux-menu-${align}`} id={menuId} role="listbox" aria-label={heading ?? label}>
-          {heading && (
-            <div className="acpmux-menu-heading" aria-hidden="true">
-              {heading}
-            </div>
-          )}
-          {sections.map((section, s) => {
-            const titled = section.title && sections.length > 1;
-            return (
-              <div
-                key={s}
-                className="acpmux-menu-section"
-                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                role="group"
-                aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
-                aria-label={titled ? undefined : label}
-              >
-                {titled && (
-                  <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
-                    {section.title}
-                  </div>
-                )}
-                {section.choices.map((choice) => {
-                  index += 1;
-                  const at = index;
-                  const current = choice.id === section.current;
-                  return (
-                    <div
-                      key={choice.id}
-                      id={`${menuId}-${at}`}
-                      data-value={choice.id}
-                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={at === selected}
-                      aria-checked={section.current === undefined ? undefined : current}
-                      className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
-                      onMouseMove={() => {
-                        if (at !== selected) setActive(at);
-                      }}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        pick(at);
-                      }}
-                    >
-                      {choice.icon}
-                      <span className="acpmux-menu-text">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                        {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
-                      </span>
-                      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
-                      {current && <CheckIcon />}
-                    </div>
-                  );
-                })}
+        <div className={`acpmux-menu acpmux-menu-${align}`}>
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <div id={menuId} role="listbox" aria-label={heading ?? label}>
+            {heading && (
+              <div className="acpmux-menu-heading" aria-hidden="true">
+                {heading}
               </div>
-            );
-          })}
+            )}
+            {sections.map((section, s) => {
+              const titled = section.title && sections.length > 1;
+              return (
+                <div
+                  key={s}
+                  className="acpmux-menu-section"
+                  // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                  role="group"
+                  aria-labelledby={titled ? `${menuId}-group-${s}` : undefined}
+                  aria-label={titled ? undefined : label}
+                >
+                  {titled && (
+                    <div className="acpmux-menu-header" id={`${menuId}-group-${s}`}>
+                      {section.title}
+                    </div>
+                  )}
+                  {section.choices.map((choice) => {
+                    index += 1;
+                    const at = index;
+                    const current = choice.id === section.current;
+                    return (
+                      <div
+                        key={choice.id}
+                        id={`${menuId}-${at}`}
+                        data-value={choice.id}
+                        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={at === selected}
+                        aria-checked={section.current === undefined ? undefined : current}
+                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                        onMouseMove={() => {
+                          if (at !== selected) setActive(at);
+                        }}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          pick(at);
+                        }}
+                      >
+                        {choice.icon}
+                        <span className="acpmux-menu-text">
+                          <span className="acpmux-menu-label">{choice.name}</span>
+                          {choice.description && <span className="acpmux-menu-description">{choice.description}</span>}
+                        </span>
+                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {current && <CheckIcon />}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
     </span>
   );
 }
 
-// Icons from the Codex chrome (a 16px grid drawn at 18px, stroke in currentColor).
+// Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
 function Icon({ children, size = 18 }: { children: React.ReactNode; size?: number }) {
   return (
     <svg
@@ -386,6 +525,18 @@ export const ShieldIcon = () => (
 export const ChevronIcon = () => (
   <Icon size={14}>
     <path d="M4.6 6.3 8 9.6l3.4-3.3" />
+  </Icon>
+);
+export const ChevronRightIcon = () => (
+  <Icon>
+    <path d="m6.25 4.25 3.5 3.75-3.5 3.75" />
+  </Icon>
+);
+/// 16px in the model menu's search; the + menu draws it at its items' 18px.
+export const SearchIcon = ({ size = 16 }: { size?: number }) => (
+  <Icon size={size}>
+    <circle cx="7" cy="7" r="4.25" />
+    <path d="m10.25 10.25 3 3" />
   </Icon>
 );
 export const CheckIcon = () => (

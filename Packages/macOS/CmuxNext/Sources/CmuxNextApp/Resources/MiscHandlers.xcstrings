@@ -4061,6 +4061,268 @@
           }
         }
       }
+    },
+    "handlers.misc.failed.continueInNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue in… requires focus; use cmux acp continue for a headless handoff."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「…」で続行するにはフォーカスが必要です。UI なしで引き継ぐには cmux acp continue を使ってください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب المتابعة في… التركيز؛ استخدم cmux acp continue للتسليم من دون واجهة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nastavak u… zahteva fokus; koristite cmux acp continue za predaju bez sučelja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsæt i… kræver fokus; brug cmux acp continue til en hovedløs overdragelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weiter in… erfordert den Fokus; für eine Übergabe ohne Oberfläche verwenden Sie cmux acp continue."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar en… requiere el foco; usa cmux acp continue para una transferencia sin interfaz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuer dans… nécessite le focus ; utilisez cmux acp continue pour un transfert sans interface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continua in… richiede il focus; usa cmux acp continue per un passaggio senza interfaccia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្តក្នុង… ត្រូវការការផ្ដោត; ប្រើ cmux acp continue សម្រាប់ការផ្ទេរដោយគ្មាន UI។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음에서 계속…하려면 포커스가 필요합니다. UI 없는 핸드오프에는 cmux acp continue를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortsett i… krever fokus; bruk cmux acp continue for en håndover uten brukergrensesnitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontynuuj w… wymaga fokusu; użyj cmux acp continue do przekazania bez interfejsu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continuar em… requer foco; use cmux acp continue para uma transferência sem interface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для продолжения в… нужен фокус; используйте cmux acp continue для передачи без интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ดำเนินการต่อใน… ต้องมีโฟกัส ใช้ cmux acp continue สำหรับการส่งต่องานแบบไม่มี UI"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şurada devam et… için odak gerekir; arayüzsüz aktarım için cmux acp continue kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для продовження в… потрібен фокус; використовуйте cmux acp continue для передачі без інтерфейсу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiếp tục trong… cần tiêu điểm; dùng cmux acp continue để bàn giao không có giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "继续使用…需要焦点；无界面交接请使用 cmux acp continue。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繼續使用…需要焦點；無介面交接請使用 cmux acp continue。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.checkpointNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チェックポイントのレビューにはフォーカスが必要です。ヘッドレスキャプチャにはgit.checkpoint.createを使用します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب مراجعة نقطة التفتيش التركيز. استخدم git.checkpoint.create لالتقاط الصور بدون رأس."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregled kontrolnih tačaka zahtijeva fokus. Koristite git.checkpoint.create za snimanje bez glave."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrolpunktsgennemgang kræver fokus. Brug git.checkpoint.create til en hovedløs optagelse."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checkpoint-Review erfordert Fokus. Verwenden Sie git.checkpoint.create für eine kopflose Aufnahme."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La revisión del punto de control requiere concentración. Utilice git.checkpoint.create para una captura sin cabeza."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'examen des points de contrôle nécessite de la concentration. Utilisez git.checkpoint.create pour une capture sans tête."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La revisione del checkpoint richiede attenzione. Usa git.checkpoint.create per una cattura senza testa."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិនិត្យមើលចំណុចត្រួតពិនិត្យទាមទារការផ្តោតអារម្មណ៍ ។ ប្រើ git.checkpoint.create សម្រាប់ការចាប់យកដោយគ្មានក្បាល ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "체크포인트 검토에 집중해야 합니다. git.checkpoint.create를 사용하여 헤드리스 캡처를 수행합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollpunktgjennomgang krever fokus. Bruk git.checkpoint.create for et hodeløst bilde."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przegląd punktu kontrolnego wymaga skupienia. Użyj git.checkpoint.create do przechwytywania bezgłowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A revisão do ponto de verificação requer foco. Use git.checkpoint.create para uma captura sem cabeça."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рассмотрение контрольных точек требует сосредоточенности. Используйте git.checkpoint.create для безголового захвата."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การตรวจสอบจุดตรวจสอบต้องให้ความสำคัญใช้ git.checkpoint.create เพื่อจับภาพแบบไม่มีหัว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrol noktası incelemesi odaklanmayı gerektirir. Başsız bir çekim için git.checkpoint.create kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Огляд контрольних точок вимагає зосередженості. Використовуйте git.checkpoint.create для захоплення без голови."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Việc xem xét các điểm kiểm tra đòi hỏi sự tập trung. Sử dụng git.checkpoint.create để chụp không đầu."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "检查点审核需要重点关注。使用git.checkpoint.create进行无头捕获。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檢查點審查需要專注。使用git.checkpoint.create進行無頭擷取。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

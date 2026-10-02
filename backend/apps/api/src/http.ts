@@ -20,6 +20,7 @@ import { HttpRouter, HttpServer } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { authenticate, mintAccessToken, publicJwks, withGrantClasses } from "./auth.ts"
 import type { Env } from "./env.ts"
+import type { DomainReply } from "./team-domain-external.ts"
 import type { ExternalReply } from "./connection-do.ts"
 import { automationHookPath, automationHookSecret } from "./ingress/automation-hook.ts"
 import { providers } from "./integrations/providers.ts"
@@ -42,6 +43,7 @@ const toPrincipal = (p: CurrentPrincipalShape): Principal => ({
   ...(p.grant ? { grant: p.grant } : {}),
   stack_user_id: p.stack_user_id,
   ...(p.email !== undefined ? { email: p.email } : {}),
+  ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
   ...(p.display_name ? { display_name: p.display_name } : {})
 })
 
@@ -179,6 +181,16 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         }
         // Integration ops with external effects run in the ConnectionDO's own ledger (connection-do.ts).
         if (payload.op === "integration.complete" || providerOpNames.has(payload.op)) return yield* externalOp(principal, frame)
+        // DNS checks and the domain's DomainDO run in TeamDO, outside its reducer (team-domain-external.ts).
+        if (payload.op === "domain.verify" || payload.op === "domain.release") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).domainOp(p.team!, p, frame)), catch: unreachable })
+        }
+        // The client secret travels only in this request, never in an op's params, event or ledger.
+        if (payload.op === "sso.connection.set_secret" || payload.op === "sso.connection.activate") {
+          const p = yield* principalFor("cloud:TeamDO", principal)
+          return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
+        }
         if (payload.op === "integration.connect") {
           const provider = (payload.params as { provider?: string } | null)?.provider
           const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
@@ -277,6 +289,7 @@ const AuthorizationLive = Layer.succeed(Authorization)(
           ...(p.grant ? { grant: p.grant } : {}),
           stack_user_id: p.stack_user_id ?? "",
           ...(p.email !== undefined ? { email: p.email } : {}),
+          ...(p.email_verified !== undefined ? { email_verified: p.email_verified } : {}),
           ...(p.display_name ? { display_name: p.display_name } : {})
         }
         return yield* Effect.provideService(httpEffect, CurrentPrincipal, shape)

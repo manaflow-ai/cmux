@@ -11,7 +11,7 @@ import CmuxNextTabs
 /// protocol-v2 state operation with an idempotency key where the daemon
 /// serves `state-resources-v1` (workspace-store ops, OWNERSHIP-PRINCIPLES),
 /// else the raw command. Collapse state is shared store state (the daemon's
-/// group record), like tab groups and Chrome's synced groups.
+/// group record), like tab groups.
 @MainActor
 enum ScreenGroupCommands {
     static func create(_ screens: [ScreenModel], in workspace: WorkspaceModel, name: String?, color: GroupColor?, daemon: DaemonService) {
@@ -44,7 +44,7 @@ enum ScreenGroupCommands {
 
     /// Collapses or expands. Collapsing a group that holds the shown screen
     /// first shows the nearest visible screen to its right, else its left
-    /// (Chrome's rule, `TabGroupOrdering`, the same one pane tab strips use).
+    /// (`TabGroupOrdering`, the same rule pane tab strips use).
     static func setCollapsed(_ ref: ScreenGroupRef, _ collapsed: Bool) {
         if collapsed, let content = ref.content, let active = content.layoutModel.activeScreenID?.rawValue,
            ref.members.contains(where: { $0.id == active }) {

@@ -125,20 +125,13 @@ final class WorkspaceRowView: SidebarRowView {
     }
 
     override func updateLayer() {
-        guard let layer else { return }
         performWithTheme {
             title.textColor = Palette.textPrimary
             subtitle.textColor = Palette.textSecondary
             // Fills only, no borders: drop target, multi-selection, hover.
-            if isDropTarget {
-                layer.backgroundColor = Palette.selectionFill.cgColor
-            } else if isSecondarySelected {
-                layer.backgroundColor = Palette.secondarySelectionFill.cgColor
-            } else if isHovered {
-                layer.backgroundColor = Palette.hoverFill.cgColor
-            } else {
-                layer.backgroundColor = nil
-            }
+            paintFill(isDropTarget ? Palette.selectionFill
+                : isSecondarySelected ? Palette.secondarySelectionFill
+                : isHovered ? Palette.hoverFill : nil)
         }
     }
 
@@ -157,7 +150,7 @@ final class WorkspaceRowView: SidebarRowView {
         switch iconKind {
         case nil: side = 0
         case .swatch?: side = SidebarStyle.dotSize + Metrics.space1
-        case .symbol?: side = SidebarStyle.iconBox
+        case .symbol?, .emoji?: side = SidebarStyle.iconBox
         }
         icon.frame = NSRect(x: leading, y: (b.height - side) / 2, width: side, height: side)
 

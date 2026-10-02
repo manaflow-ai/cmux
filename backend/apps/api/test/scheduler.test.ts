@@ -153,7 +153,8 @@ describe("automations end to end (workerd)", () => {
     let attempts = 0
     while (attempts === 0 && Date.now() < deadline) {
       await inDO(scheduler(team), async (_i, state) => {
-        attempts = state.storage.sql.exec("SELECT attempts FROM do_entity").toArray()[0]!.attempts as number
+        // Per-channel backoff (outbox.ts): the PlanetScale projection channel is ''.
+        attempts = Number(state.storage.sql.exec("SELECT COALESCE(MAX(attempts), 0) AS a FROM own_outbox_backoff").toArray()[0]!.a)
       })
       if (attempts === 0) await new Promise((r) => setTimeout(r, 50))
     }

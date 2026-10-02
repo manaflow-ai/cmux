@@ -17,7 +17,7 @@ import PackageDescription
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
-//   CmuxNextSettingsWindow -> Settings, Design, Actions (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
+//   CmuxNextSettingsWindow -> Settings, Design, Actions, Wakeups (the Settings window, SwiftUI; the App supplies SettingsWindowHost)
 //   CmuxNextControl -> Actions, Settings, Daemon (app control socket; no UI; Compat/ forwards cmux CLI verbs to cmux-tui)
 //   CmuxNextCloud -> CMUXAuthCore, CmuxAuthRuntime (Stack auth, /api/vm REST,
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
@@ -28,6 +28,8 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHome -> Design, Wakeups (Home conversations: virtualized CALayer transcript, list, composer;
+//     no daemon; the App maps the conversation mirror and intent log into HomeTranscriptSource)
 //   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
@@ -47,6 +49,9 @@ import PackageDescription
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
 //   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
+//   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
+//     over a projection of `server.status`; no daemon; the App supplies the source;
+//     plans/cmux-next/server.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -98,11 +103,13 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextMallocZone",
+                "CmuxNextHome",
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTabs",
                 "CmuxNextSidebar",
                 "CmuxNextPalette",
@@ -128,6 +135,7 @@ let package = Package(
                 "CmuxNextAgentActivity",
                 "CmuxNextApps",
                 "CmuxNextTasks",
+                "CmuxNextServer",
             ],
             resources: [
                 .process("Resources"),
@@ -226,6 +234,23 @@ let package = Package(
         ),
         // Chromium's EarlyMallocZoneRegistration, run first thing in main.
         .target(name: "CmuxNextMallocZone"),
+        // Home (plans/cmux-next/home.md section 3): the native conversation
+        // renderer (paged window, prefix-sum layout, background raster,
+        // render-server send motion), the conversation list and composer.
+        .target(
+            name: "CmuxNextHome",
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings,
+            linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .testTarget(
+            name: "CmuxNextHomeTests",
+            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
@@ -346,6 +371,22 @@ let package = Package(
         .testTarget(
             name: "CmuxNextFeedTests",
             dependencies: ["CmuxNextFeed"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
+        // menubar panel, pairing, approver sheet and health prototypes over a
+        // projection of `server.status`. The App supplies the source.
+        .target(
+            name: "CmuxNextServer",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerTests",
+            dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -503,6 +544,7 @@ let package = Package(
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextCopyMode",
+                "CmuxNextTerminalFind",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
@@ -521,6 +563,20 @@ let package = Package(
             name: "CmuxNextTerminalGeometryTests",
             dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The terminal find bar's state and search flow (count, next/previous,
+        // reveal, close). No GhosttyKit, so it has tests; CmuxNextTerminal
+        // wires it to Ghostty's search bindings and draws the bar. No default
+        // main-actor isolation: its value types are test arguments, which
+        // Swift Testing builds off the main actor.
+        .target(
+            name: "CmuxNextTerminalFind",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTerminalFindTests",
+            dependencies: ["CmuxNextTerminalFind"],
+            swiftSettings: daemonSwiftSettings
         ),
         // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
         // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
@@ -635,7 +691,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextActions", "CmuxNextWakeups"],
             resources: [
                 .process("Localizable.xcstrings"),
             ],

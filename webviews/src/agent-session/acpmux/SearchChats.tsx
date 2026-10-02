@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
 import { t } from "./i18n";
+import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "./shortcuts";
 
 /** How many chats the palette lists (⌃1 to ⌃9 open them). */
 export const SEARCH_CHAT_LIMIT = 9;
@@ -19,7 +20,7 @@ const chatTitle = (session: AcpmuxSessionEntry) => session.displayTitle ?? sessi
 
 type Row = { key: string; label: string; meta?: string; shortcut?: string; run(): void };
 
-/// Cmd-K "Search chats" (codex-atlas-clone search.png): the newest chats filtered by title as
+/// Cmd-K "Search chats" (reference prototype search.png): the newest chats filtered by title as
 /// you type, then quick actions. Arrow keys move the highlight, Enter opens it, Ctrl-1 to
 /// Ctrl-9 open a listed chat, Escape or a click outside closes. Query and highlight are view
 /// state; opening a chat goes through the pane's chat.select action.
@@ -44,7 +45,10 @@ export function SearchChats({
     run: () => onSelect(session.sessionId),
   }));
   const needle = query.trim().toLowerCase();
-  const actions: Row[] = [{ key: "new-chat", label: t("search.newChat"), shortcut: "⌘N", run: onNewChat }].filter(
+  // The palette opens and closes on the app's Search chats shortcut, as the user bound it.
+  const toggle = useShortcut(SHORTCUT_ACTIONS.searchChats);
+  // New chat starts one in this pane; no app shortcut does that, so it shows none.
+  const actions: Row[] = [{ key: "new-chat", label: t("search.newChat"), run: onNewChat }].filter(
     (row) => !needle || row.label.toLowerCase().includes(needle),
   );
   const rows = [...chats, ...actions];
@@ -103,6 +107,7 @@ export function SearchChats({
           type="search"
           spellCheck={false}
           aria-label={t("search.title")}
+          title={withShortcut(t("search.title"), toggle)}
           placeholder={t("search.placeholder")}
           value={query}
           onChange={(event) => {

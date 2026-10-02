@@ -10,6 +10,8 @@ import CmuxNextSettings
 /// every step without synthetic input. Returns the state after the action.
 ///
 /// `action`: `open` (`step`), `state`, `next`, `back`, `skip`, `close`,
+/// `role` (`role`), `describe` (`text`), `suggest_tasks` (`on`),
+/// `first_task` (`task`: note, chart),
 /// `theme` (`name`, empty for the Ghostty theme), `detect`,
 /// `toggle_profile` (`id`), `toggle_kind` (`kind`), `import`,
 /// `cancel_import`, `claim` (`claim`), `gallery` (opens the review tool),
@@ -32,6 +34,10 @@ enum DebugOnboarding {
         case "back": model.back()
         case "skip": model.skipStep()
         case "close": model.finish(completed: false)
+        case "role": if let role = params["role"]?.stringValue.flatMap(OnboardingRole.init(rawValue:)) { model.role.select(role) }
+        case "describe": model.role.describe(params["text"]?.stringValue ?? "")
+        case "first_task": if let task = params["task"]?.stringValue.flatMap(FirstTask.init(rawValue:)) { model.firstTask.pick(task) }
+        case "suggest_tasks": model.role.suggestTasks = params["on"]?.boolValue ?? !model.role.suggestTasks
         case "theme": model.theme.select(params["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
         case "detect": model.importer.redetect()
         case "toggle_profile":
@@ -64,6 +70,16 @@ enum DebugOnboarding {
         result["key"] = .bool(controller.window?.isKeyWindow ?? false)
         result["step"] = .string(model.step.rawValue)
         result["steps"] = .array(model.steps.map { .string($0.rawValue) })
+        result["role"] = model.role.role.map { .string($0.rawValue) } ?? .null
+        result["other_role"] = .string(model.role.otherRole)
+        result["suggest_tasks"] = .bool(model.role.suggestTasks)
+        result["saved_profile"] = onboarding.profile.map { profile in
+            .object(["role": profile.role.map { .string($0.rawValue) } ?? .null, "other_role": profile.otherRole.map(JSONValue.string) ?? .null,
+                     "suggest_tasks": .bool(profile.suggestTasks)])
+        } ?? .null
+        result["first_task"] = model.firstTask.task.map { .string($0.rawValue) } ?? .null
+        result["first_task_folder"] = .string(model.firstTask.folder.url.path)
+        result["first_task_outputs"] = .array(model.firstTask.outputs.map { .string($0.lastPathComponent) })
         result["theme"] = model.theme.selected.map(JSONValue.string) ?? .null
         result["themes"] = .array(model.theme.choices.map { .string($0.name ?? "") })
         result["import_phase"] = .string(phaseName(model.importer.phase))

@@ -13,6 +13,8 @@ use crate::workspace_registry::{
     new_workspace_group_id, validate_workspace_group_id,
 };
 
+mod frontend_browser_history;
+
 /// Per-snapshot data the tree serializer adds to the live [`State`]:
 /// unread notification markers and the shared presentation metadata.
 ///
@@ -764,66 +766,6 @@ impl Mux {
                 Err(error)
             }
         }
-    }
-
-    /// Record the URL, title, favicon, or owner (the hosting app's install
-    /// id) a frontend-rendered browser reports. `favicon_url: Some(None)`
-    /// clears the favicon.
-    pub fn update_frontend_browser_tab(
-        &self,
-        surface: SurfaceId,
-        url: Option<String>,
-        title: Option<String>,
-        favicon_url: Option<Option<String>>,
-        owner: Option<String>,
-    ) -> anyhow::Result<(FrontendBrowserRecord, bool)> {
-        let runtime =
-            self.surface(surface).ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?;
-        let browser_id = self.frontend_browser_id(&runtime).ok_or_else(|| {
-            anyhow::anyhow!("surface {surface} is not a frontend-rendered browser")
-        })?;
-        // `conversation-tabs-v1`: a conversation tab's row never gets a page.
-        self.refuse_conversation_tab(&runtime)?;
-        if let Some(owner) = &owner {
-            crate::state::window_record_store::validate_key("owner", owner)?;
-        }
-        let (mut record, mut changed) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
-            let result = registry.update_frontend_browser(
-                browser_id.as_str(),
-                url.as_deref(),
-                title.as_deref(),
-                favicon_url.as_ref().map(Option::as_deref),
-            )?;
-            if result.1 {
-                self.reload_presentation(&registry)?;
-            }
-            result
-        };
-        // The owner commits on the state path, so the tab's `extra.owner`
-        // reaches `session.events` with the snapshot (invariant 4).
-        if let Some(owner) = owner
-            && record.owner.as_deref() != Some(owner.as_str())
-        {
-            let tab = runtime
-                .resource_identity()
-                .map(|identity| identity.tab_id.to_string())
-                .ok_or_else(|| anyhow::anyhow!("surface {surface} has no public tab id"))?;
-            self.commit_browser_owner(&tab, &owner)?;
-            record.owner = Some(owner);
-            changed = true;
-        }
-        if changed {
-            if let Some(browser) = runtime.as_browser() {
-                browser.set_frontend_location(url, title.clone());
-            }
-            self.publish_journal_event();
-            if let Some(title) = title {
-                self.emit(MuxEvent::TitleChanged { surface, title: Arc::from(title) });
-            }
-            self.emit_tab_changed(surface);
-        }
-        Ok((record, changed))
     }
 }
 

@@ -66,8 +66,8 @@ extension WindowManager {
         for window in registry.value.windows {
             let state = state(for: window.id)
             let room = state.profileID
-            // Its room was deleted (here or by another client).
-            if home.personal.isLoaded, home.profile(state.profileID) == nil {
+            // Its room was deleted (here or by another client); cached rooms can lag.
+            if home.personal.isLoaded, !home.isProvisional, home.profile(state.profileID) == nil {
                 state.enterProfile(WindowProfiles.fallback(for: state, members: window.workspaceIDs, machines: machines) ?? .defaultProfile)
             }
             var visible = WindowProfiles.visible(window.workspaceIDs, profile: state.profileID, machines: machines)

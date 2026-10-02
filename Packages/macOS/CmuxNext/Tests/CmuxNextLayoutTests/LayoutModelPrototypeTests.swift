@@ -40,14 +40,14 @@ import Testing
         let band = try! #require(g.panes["p4"])
         // The left dock keeps the full height: corners belong to the side docks.
         #expect(left.minY == 0 && left.height == 600)
-        // 600 * 0.3 = 180 high, from the left dock's inner edge plus a gap to one gap from the right edge.
-        #expect(band.minY == 420 && band.height == 180)
+        // (600 - 6) * 0.3 - 6 = 172 high, from the left dock's inner edge plus a gap to one gap from the right edge.
+        #expect(band.minY == 428 && band.height == 172)
         #expect(band.minX == left.maxX + 6)
         #expect(band.maxX == 994)
         #expect(g.fixedPanes.isSuperset(of: ["p0", "p4"]))
         // Strip panes end above the band and its gap.
         for pane: PaneID in ["p1", "p2", "p3"] {
-            #expect((g.panes[pane]?.maxY ?? .infinity) <= 414)
+            #expect((g.panes[pane]?.maxY ?? .infinity) <= 422)
         }
         #expect(g.columnOrder == ["c1", "c2"])
     }
@@ -57,7 +57,7 @@ import Testing
         let band = try! #require(g.panes["p4"])
         #expect(band.minX == 6 && band.maxX == 994)
         // The left dock stops above the bottom band and its gap.
-        #expect((g.panes["p0"]?.maxY ?? .infinity) <= 414)
+        #expect((g.panes["p0"]?.maxY ?? .infinity) <= 422)
     }
 
     @Test func frameDocksAtTheTopShiftTheStripDown() {
@@ -65,7 +65,7 @@ import Testing
         #expect(g.panes["p4"]?.minY == 0)
         #expect(g.panes["p0"]?.minY == 0 && g.panes["p0"]?.height == 600)
         for pane: PaneID in ["p1", "p2", "p3"] {
-            #expect((g.panes[pane]?.minY ?? 0) >= 186)
+            #expect((g.panes[pane]?.minY ?? 0) >= 178)
         }
     }
 
@@ -73,7 +73,7 @@ import Testing
         let plain: ScreenLayout = .columns(["a", "b", "c"].map { LayoutColumn(id: ColumnID($0), width: 0.3, root: .leaf(PaneID("p\($0)"))) })
         let g = ScreenGeometry.compute(plain, viewport: viewport, style: style(.frameDocks))
         // The last column becomes the bottom band, the first the full-height left dock.
-        #expect(g.panes["pc"]?.maxY == 600 && g.panes["pc"]?.minY == 420)
+        #expect(g.panes["pc"]?.maxY == 600 && g.panes["pc"]?.minY == 428)
         #expect(g.panes["pa"]?.minY == 0 && g.panes["pa"]?.height == 600)
         #expect(g.columnOrder == ["b"])
     }

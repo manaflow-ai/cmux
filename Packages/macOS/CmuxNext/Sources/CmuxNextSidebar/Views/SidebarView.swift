@@ -29,7 +29,7 @@ public final class SidebarView: NSView {
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
-    /// No rubber band while every row fits (Finder's sidebar).
+    /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list

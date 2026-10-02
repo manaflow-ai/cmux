@@ -2,7 +2,8 @@
   "grant": [
     "feed:read",
     "feed:write",
-    "actions:run"
+    "actions:run",
+    "workspace:read"
   ],
   "scopes": {
     "feed.list": {
@@ -17,7 +18,15 @@
       "scope": "feed:read",
       "class": "read"
     },
-    "feed.mark": {
+    "feed.read": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.archive": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.unarchive": {
       "scope": "feed:write",
       "class": "mutation"
     },
@@ -25,7 +34,11 @@
       "scope": "feed:write",
       "class": "mutation"
     },
-    "feed.respond": {
+    "feed.answer": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.cancel": {
       "scope": "feed:write",
       "class": "mutation"
     }
@@ -34,581 +47,661 @@
     "feed.list": {
       "items": [
         {
-          "id": "feed_01",
-          "urgency": "high",
-          "needsResponse": true,
-          "subject": {
-            "workspace": "workspace_1",
-            "workspaceName": "api-server",
-            "terminal": "terminal_1",
-            "tab": "tab_1",
-            "agent": "agent_1"
+          "id": "fi_volumename0000000000",
+          "home": "cloud",
+          "body": "",
+          "priority": "high",
+          "dedupe_key": null,
+          "thread": null,
+          "context": {},
+          "attachments": [],
+          "actions": [],
+          "open": null,
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 7,
+          "revision": 1,
+          "created_at": 1790947436669,
+          "updated_at": 1790947436669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "input",
+          "title": "Name for the backup volume?",
+          "poster": {
+            "kind": "automation",
+            "scope": "run_backup",
+            "label": "nightly-backup"
           },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:35:44.496Z",
-          "updatedAt": "2026-10-02T11:35:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "request",
-          "requestKind": "choice",
-          "title": "Which retry strategy should the webhook sender use?",
-          "body": "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
-          "source": {
-            "kind": "agent",
-            "id": "agent_1",
-            "name": "Claude"
-          },
-          "thread": "agent_1:turn_14",
-          "response": {
-            "type": "choice",
-            "options": [
-              {
-                "value": "exponential",
-                "label": "Exponential backoff"
+          "prompt": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "volume": {
+                  "type": "string",
+                  "title": "Volume name"
+                }
               },
-              {
-                "value": "fixed",
-                "label": "Fixed 30 s delay"
-              },
-              {
-                "value": "queue",
-                "label": "Move failures to a retry queue"
-              }
-            ]
-          },
-          "open": {
-            "action": "tab.show",
-            "args": {
-              "tab": "tab_1"
+              "required": [
+                "volume"
+              ]
             }
           }
         },
         {
-          "id": "feed_02",
-          "urgency": "normal",
-          "needsResponse": true,
-          "subject": {
-            "workspace": "workspace_2",
-            "workspaceName": "web-dashboard",
-            "terminal": "terminal_2",
-            "tab": "tab_2",
-            "agent": "agent_2"
-          },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:32:44.496Z",
-          "updatedAt": "2026-10-02T11:32:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "request",
-          "requestKind": "approve",
-          "title": "Run npm install --save chart-kit?",
-          "body": "npm install --save chart-kit",
-          "source": {
-            "kind": "agent",
-            "id": "agent_2",
-            "name": "Codex"
-          },
-          "thread": "agent_2:turn_3",
-          "response": {
-            "type": "approve"
-          },
-          "open": {
-            "action": "tab.show",
-            "args": {
-              "tab": "tab_2"
-            }
-          }
-        },
-        {
-          "id": "feed_03",
-          "urgency": "normal",
-          "needsResponse": true,
-          "subject": {
+          "id": "fi_signin00000000000000",
+          "home": "cloud",
+          "body": "",
+          "priority": "high",
+          "dedupe_key": null,
+          "thread": "session_14",
+          "context": {
             "workspace": "workspace_1",
-            "workspaceName": "api-server",
-            "browser": "browser_1",
-            "agent": "agent_1"
+            "browser_tab": "browser_1"
           },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:28:44.496Z",
-          "updatedAt": "2026-10-02T11:28:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "request",
-          "requestKind": "sign-in",
-          "title": "Sign in to the staging dashboard",
-          "body": "The agent needs a signed-in session to check the deploy logs.",
-          "source": {
-            "kind": "agent",
-            "id": "agent_1",
-            "name": "Claude"
-          },
-          "thread": "agent_1:turn_14",
-          "response": {
-            "type": "external"
-          },
+          "attachments": [],
+          "actions": [],
           "open": {
             "action": "browser.duplicateRight",
             "args": {
-              "browser": "browser_1"
+              "browser_tab": "browser_1"
             }
-          }
-        },
-        {
-          "id": "feed_04",
-          "urgency": "normal",
-          "needsResponse": true,
-          "subject": {},
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:17:44.496Z",
-          "updatedAt": "2026-10-02T11:17:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "request",
-          "requestKind": "input",
-          "title": "Name for the backup volume?",
-          "source": {
-            "kind": "run",
-            "id": "run_7",
-            "name": "nightly-backup"
           },
-          "response": {
-            "type": "text",
-            "placeholder": "volume name"
-          }
-        },
-        {
-          "id": "feed_05",
-          "urgency": "normal",
-          "needsResponse": true,
-          "subject": {
-            "url": "https://github.com/example-org/payments/pull/412"
-          },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T10:57:44.496Z",
-          "updatedAt": "2026-10-02T10:57:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "request",
-          "requestKind": "review",
-          "title": "Add idempotency keys to refunds",
-          "body": "example-org/payments #412 · requested by river",
-          "source": {
-            "kind": "integration",
-            "id": "github",
-            "name": "GitHub"
-          },
-          "thread": "github:example-org/payments#412",
-          "open": {
-            "action": "openBrowser",
-            "args": {
-              "url": "https://github.com/example-org/payments/pull/412"
-            }
-          }
-        },
-        {
-          "id": "feed_06",
-          "urgency": "high",
-          "needsResponse": false,
-          "subject": {
-            "url": "https://github.com/example-org/api-server/pull/88"
-          },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T10:27:44.496Z",
-          "updatedAt": "2026-10-02T10:27:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            },
-            {
-              "id": "rerun",
-              "title": "Re-run Failed Checks",
-              "kind": "custom",
-              "target": {
-                "action": "openBrowser",
-                "args": {
-                  "url": "https://github.com/example-org/api-server/pull/88/checks"
-                }
-              }
-            }
-          ],
-          "kind": "notify",
-          "title": "Checks failing: Retry webhook delivery with backoff",
-          "body": "example-org/api-server #88 · 2 failed: unit tests, integration",
-          "source": {
-            "kind": "integration",
-            "id": "github",
-            "name": "GitHub"
-          },
-          "thread": "github:example-org/api-server#88",
-          "open": {
-            "action": "openBrowser",
-            "args": {
-              "url": "https://github.com/example-org/api-server/pull/88"
-            }
-          }
-        },
-        {
-          "id": "feed_08",
-          "urgency": "normal",
-          "needsResponse": false,
-          "subject": {
-            "workspace": "workspace_2",
-            "workspaceName": "web-dashboard"
-          },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:34:44.496Z",
-          "updatedAt": "2026-10-02T11:34:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "watch",
-          "title": "Deploying web-dashboard preview",
-          "body": "Step 3 of 5: building assets",
-          "source": {
-            "kind": "run",
-            "id": "run_8",
-            "name": "preview-deploy"
-          }
-        },
-        {
-          "id": "feed_07",
-          "urgency": "normal",
-          "needsResponse": false,
-          "subject": {
-            "workspace": "workspace_2",
-            "workspaceName": "web-dashboard",
-            "terminal": "terminal_2",
-            "tab": "tab_2",
-            "agent": "agent_2"
-          },
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": null,
-          "createdAt": "2026-10-02T11:23:44.496Z",
-          "updatedAt": "2026-10-02T11:23:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
-          "actions": [
-            {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
-            }
-          ],
-          "kind": "notify",
-          "title": "Finished: dark mode toggle",
-          "body": "Added the toggle to settings and updated 3 tests.",
-          "source": {
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": true,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 9,
+          "revision": 1,
+          "created_at": 1790948096669,
+          "updated_at": 1790948096669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "sign-in",
+          "title": "Sign in to the staging dashboard",
+          "poster": {
             "kind": "agent",
-            "id": "agent_2",
-            "name": "Codex"
+            "scope": "inst:install_mac/agent:agent_1",
+            "label": "Claude",
+            "install": "install_mac",
+            "agent": "agent_1"
           },
+          "prompt": {
+            "origin": "https://staging.example.com",
+            "url": "https://staging.example.com/login",
+            "browser_tab": "browser_1",
+            "reason": "Read the deploy logs"
+          }
+        },
+        {
+          "id": "fi_npminstall0000000000",
+          "home": "cloud",
+          "body": "",
+          "priority": "high",
+          "dedupe_key": null,
+          "thread": "session_3",
+          "context": {
+            "workspace": "workspace_2",
+            "tab": "tab_2",
+            "terminal": "terminal_2"
+          },
+          "attachments": [],
+          "actions": [],
           "open": {
-            "action": "tab.show",
+            "action": "tab.focus",
             "args": {
               "tab": "tab_2"
             }
+          },
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 10,
+          "revision": 1,
+          "created_at": 1790948336669,
+          "updated_at": 1790948336669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "approve",
+          "title": "Run npm install --save chart-kit?",
+          "poster": {
+            "kind": "agent",
+            "scope": "inst:install_mac/agent:agent_2",
+            "label": "Codex",
+            "install": "install_mac",
+            "agent": "agent_2"
+          },
+          "prompt": {
+            "action": {
+              "type": "command",
+              "summary": "Install a charting package",
+              "command": "npm install --save chart-kit",
+              "cwd": "~/web-dashboard"
+            },
+            "scopes": [
+              "once",
+              "session"
+            ]
           }
         },
         {
-          "id": "feed_09",
-          "urgency": "normal",
-          "needsResponse": false,
-          "subject": {},
-          "status": "open",
-          "snoozedUntil": null,
-          "seenAt": "2026-10-02T09:57:44.496Z",
-          "createdAt": "2026-10-02T08:37:44.496Z",
-          "updatedAt": "2026-10-02T08:37:44.496Z",
-          "revision": "1",
-          "expiresAt": null,
+          "id": "fi_retrychoice000000000",
+          "home": "cloud",
+          "body": "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
+          "priority": "high",
+          "dedupe_key": null,
+          "thread": "session_14",
+          "context": {
+            "workspace": "workspace_1",
+            "tab": "tab_1",
+            "terminal": "terminal_1"
+          },
+          "attachments": [],
+          "actions": [],
+          "open": {
+            "action": "tab.focus",
+            "args": {
+              "tab": "tab_1"
+            }
+          },
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 12,
+          "revision": 1,
+          "created_at": 1790948516669,
+          "updated_at": 1790948516669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "choice",
+          "title": "Which retry strategy should the webhook sender use?",
+          "poster": {
+            "kind": "agent",
+            "scope": "inst:install_mac/agent:agent_1",
+            "label": "Claude",
+            "install": "install_mac",
+            "agent": "agent_1"
+          },
+          "prompt": {
+            "questions": [
+              {
+                "id": "strategy",
+                "question": "Which retry strategy?",
+                "multi": false,
+                "allow_other": false,
+                "options": [
+                  {
+                    "id": "exponential",
+                    "label": "Exponential backoff"
+                  },
+                  {
+                    "id": "fixed",
+                    "label": "Fixed 30 s delay"
+                  },
+                  {
+                    "id": "queue",
+                    "label": "Move failures to a retry queue"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": "fi_refunds0000000000000",
+          "home": "cloud",
+          "body": "example-org/payments #412 · requested by river",
+          "priority": "normal",
+          "dedupe_key": null,
+          "thread": "pr:example-org/payments#412",
+          "context": {
+            "url": "https://github.com/example-org/payments/pull/412"
+          },
+          "attachments": [],
+          "actions": [],
+          "open": {
+            "action": "url.open",
+            "args": {
+              "url": "https://github.com/example-org/payments/pull/412"
+            }
+          },
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 5,
+          "revision": 1,
+          "created_at": 1790946236669,
+          "updated_at": 1790946236669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "review",
+          "title": "Add idempotency keys to refunds",
+          "poster": {
+            "kind": "integration",
+            "scope": "conn_github",
+            "label": "GitHub"
+          },
+          "prompt": {
+            "subject": "pr",
+            "ref": "https://github.com/example-org/payments/pull/412"
+          }
+        },
+        {
+          "id": "fi_dropdbs0000000000000",
+          "home": "cloud",
+          "body": "",
+          "priority": "normal",
+          "dedupe_key": null,
+          "thread": null,
+          "context": {
+            "workspace": "workspace_2"
+          },
+          "attachments": [],
+          "actions": [],
+          "open": null,
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 6,
+          "revision": 1,
+          "created_at": 1790947136669,
+          "updated_at": 1790947136669,
+          "closed_at": null,
+          "type": "request",
+          "kind": "confirm",
+          "title": "Delete 4 stale preview databases?",
+          "poster": {
+            "kind": "automation",
+            "scope": "run_deploy",
+            "label": "preview-deploy"
+          },
+          "prompt": {
+            "statement": "They belong to closed pull requests and have no traffic for 14 days.",
+            "confirm_label": "Delete",
+            "destructive": true
+          }
+        },
+        {
+          "id": "fi_previewup00000000000",
+          "home": "cloud",
+          "body": "web-dashboard, 3 pages changed",
+          "priority": "low",
+          "dedupe_key": null,
+          "thread": null,
+          "context": {
+            "workspace": "workspace_2"
+          },
+          "attachments": [],
+          "actions": [],
+          "open": null,
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 2,
+          "order": 11,
+          "revision": 1,
+          "created_at": 1790948456669,
+          "updated_at": 1790948456669,
+          "closed_at": null,
+          "type": "notice",
+          "kind": "notice",
+          "title": "Preview deployed",
+          "poster": {
+            "kind": "automation",
+            "scope": "run_deploy",
+            "label": "preview-deploy"
+          }
+        },
+        {
+          "id": "fi_darkmode000000000000",
+          "home": "cloud",
+          "body": "Added the toggle to settings and updated 3 tests.",
+          "priority": "normal",
+          "dedupe_key": null,
+          "thread": "session_3",
+          "context": {
+            "workspace": "workspace_2",
+            "tab": "tab_2",
+            "terminal": "terminal_2"
+          },
+          "attachments": [],
+          "actions": [],
+          "open": {
+            "action": "tab.focus",
+            "args": {
+              "tab": "tab_2"
+            }
+          },
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 8,
+          "revision": 1,
+          "created_at": 1790947796669,
+          "updated_at": 1790947796669,
+          "closed_at": null,
+          "type": "notice",
+          "kind": "notice",
+          "title": "Finished: dark mode toggle",
+          "poster": {
+            "kind": "agent",
+            "scope": "inst:install_mac/agent:agent_2",
+            "label": "Codex",
+            "install": "install_mac",
+            "agent": "agent_2"
+          }
+        },
+        {
+          "id": "fi_checksfail0000000000",
+          "home": "cloud",
+          "body": "example-org/api-server #88 · 2 failed: unit tests, integration",
+          "priority": "high",
+          "dedupe_key": null,
+          "thread": "pr:example-org/api-server#88",
+          "context": {
+            "url": "https://github.com/example-org/api-server/pull/88"
+          },
+          "attachments": [],
           "actions": [
             {
-              "id": "open",
-              "title": "Open",
-              "kind": "open"
-            },
-            {
-              "id": "done",
-              "title": "Done",
-              "kind": "done"
-            },
-            {
-              "id": "snooze",
-              "title": "Snooze",
-              "kind": "snooze"
+              "id": "checks",
+              "label": "View Checks"
             }
           ],
-          "kind": "notify",
-          "title": "Disk space low",
+          "open": {
+            "action": "url.open",
+            "args": {
+              "url": "https://github.com/example-org/api-server/pull/88"
+            }
+          },
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": null,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 4,
+          "revision": 1,
+          "created_at": 1790944436669,
+          "updated_at": 1790944436669,
+          "closed_at": null,
+          "type": "notice",
+          "kind": "notice",
+          "title": "Checks failing: Retry webhook delivery with backoff",
+          "poster": {
+            "kind": "integration",
+            "scope": "conn_github",
+            "label": "GitHub"
+          }
+        },
+        {
+          "id": "fi_diskspace00000000000",
+          "home": "cloud",
           "body": "Less than 5 GB free on the build volume",
-          "source": {
+          "priority": "normal",
+          "dedupe_key": null,
+          "thread": null,
+          "context": {},
+          "attachments": [],
+          "actions": [],
+          "open": null,
+          "state": "open",
+          "answer": null,
+          "cancel": null,
+          "needs_mac": false,
+          "expires_at": 1791035036669,
+          "read_at": 1790942636669,
+          "seen_at": null,
+          "archived_at": null,
+          "snoozed_until": null,
+          "count": 1,
+          "order": 3,
+          "revision": 1,
+          "created_at": 1790937836669,
+          "updated_at": 1790937836669,
+          "closed_at": null,
+          "type": "notice",
+          "kind": "notice",
+          "title": "Disk space low",
+          "poster": {
             "kind": "app",
-            "id": "cmux/disk-monitor",
-            "name": "Disk Monitor"
+            "scope": "app:example/disk-monitor",
+            "label": "Disk Monitor"
           }
         }
       ],
+      "next": null,
+      "revision": "",
       "groups": [
         {
+          "key": "",
+          "label": "",
+          "items": [
+            "fi_volumename0000000000",
+            "fi_refunds0000000000000",
+            "fi_checksfail0000000000",
+            "fi_diskspace00000000000"
+          ]
+        },
+        {
           "key": "workspace_1",
-          "label": "api-server",
-          "itemIds": [
-            "feed_01",
-            "feed_03"
+          "label": "workspace_1",
+          "items": [
+            "fi_signin00000000000000",
+            "fi_retrychoice000000000"
           ]
         },
         {
           "key": "workspace_2",
-          "label": "web-dashboard",
-          "itemIds": [
-            "feed_02",
-            "feed_08",
-            "feed_07"
-          ]
-        },
-        {
-          "key": "none",
-          "label": "Other",
-          "itemIds": [
-            "feed_04",
-            "feed_05",
-            "feed_06",
-            "feed_09"
+          "label": "workspace_2",
+          "items": [
+            "fi_npminstall0000000000",
+            "fi_dropdbs0000000000000",
+            "fi_previewup00000000000",
+            "fi_darkmode000000000000"
           ]
         }
-      ],
-      "cursor": null,
-      "revision": "1",
-      "counts": {
-        "unseen": 8,
-        "open": 9,
-        "needsResponse": 5,
-        "urgent": 2,
-        "snoozed": 1
-      }
+      ]
     },
     "feed.counts": {
-      "unseen": 8,
-      "open": 9,
-      "needsResponse": 5,
-      "urgent": 2,
-      "snoozed": 1
+      "open_requests": 6,
+      "unread": 9,
+      "by_priority": {
+        "high": 4,
+        "normal": 2
+      },
+      "by_poster_kind": {
+        "agent": 4,
+        "automation": 3,
+        "integration": 2
+      }
     },
-    "feed.get": {
-      "id": "feed_01",
-      "urgency": "high",
-      "needsResponse": true,
-      "subject": {
-        "workspace": "workspace_1",
-        "workspaceName": "api-server",
-        "terminal": "terminal_1",
-        "tab": "tab_1",
-        "agent": "agent_1"
-      },
-      "status": "open",
-      "snoozedUntil": null,
-      "seenAt": null,
-      "createdAt": "2026-10-02T11:35:44.496Z",
-      "updatedAt": "2026-10-02T11:35:44.496Z",
-      "revision": "1",
-      "expiresAt": null,
-      "actions": [
-        {
-          "id": "open",
-          "title": "Open",
-          "kind": "open"
+    "feed.read": {
+      "items": []
+    },
+    "feed.archive": {
+      "items": []
+    },
+    "feed.snooze": {
+      "items": []
+    },
+    "feed.answer": {
+      "item": {
+        "id": "fi_volumename0000000000",
+        "home": "cloud",
+        "body": "",
+        "priority": "high",
+        "dedupe_key": null,
+        "thread": null,
+        "context": {},
+        "attachments": [],
+        "actions": [],
+        "open": null,
+        "state": "open",
+        "answer": null,
+        "cancel": null,
+        "needs_mac": false,
+        "expires_at": 1791035036669,
+        "read_at": null,
+        "seen_at": null,
+        "archived_at": null,
+        "snoozed_until": null,
+        "count": 1,
+        "order": 7,
+        "revision": 1,
+        "created_at": 1790947436669,
+        "updated_at": 1790947436669,
+        "closed_at": null,
+        "type": "request",
+        "kind": "input",
+        "title": "Name for the backup volume?",
+        "poster": {
+          "kind": "automation",
+          "scope": "run_backup",
+          "label": "nightly-backup"
         },
-        {
-          "id": "done",
-          "title": "Done",
-          "kind": "done"
-        },
-        {
-          "id": "snooze",
-          "title": "Snooze",
-          "kind": "snooze"
-        }
-      ],
-      "kind": "request",
-      "requestKind": "choice",
-      "title": "Which retry strategy should the webhook sender use?",
-      "body": "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
-      "source": {
-        "kind": "agent",
-        "id": "agent_1",
-        "name": "Claude"
-      },
-      "thread": "agent_1:turn_14",
-      "response": {
-        "type": "choice",
-        "options": [
-          {
-            "value": "exponential",
-            "label": "Exponential backoff"
-          },
-          {
-            "value": "fixed",
-            "label": "Fixed 30 s delay"
-          },
-          {
-            "value": "queue",
-            "label": "Move failures to a retry queue"
+        "prompt": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "volume": {
+                "type": "string",
+                "title": "Volume name"
+              }
+            },
+            "required": [
+              "volume"
+            ]
           }
-        ]
-      },
-      "open": {
-        "action": "tab.show",
-        "args": {
-          "tab": "tab_1"
         }
       }
     },
-    "feed.mark": {
-      "revision": "2"
-    },
-    "feed.snooze": {
-      "revision": "2"
-    },
-    "feed.respond": {
-      "revision": "2"
+    "feed.cancel": {
+      "item": {
+        "id": "fi_volumename0000000000",
+        "home": "cloud",
+        "body": "",
+        "priority": "high",
+        "dedupe_key": null,
+        "thread": null,
+        "context": {},
+        "attachments": [],
+        "actions": [],
+        "open": null,
+        "state": "open",
+        "answer": null,
+        "cancel": null,
+        "needs_mac": false,
+        "expires_at": 1791035036669,
+        "read_at": null,
+        "seen_at": null,
+        "archived_at": null,
+        "snoozed_until": null,
+        "count": 1,
+        "order": 7,
+        "revision": 1,
+        "created_at": 1790947436669,
+        "updated_at": 1790947436669,
+        "closed_at": null,
+        "type": "request",
+        "kind": "input",
+        "title": "Name for the backup volume?",
+        "poster": {
+          "kind": "automation",
+          "scope": "run_backup",
+          "label": "nightly-backup"
+        },
+        "prompt": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "volume": {
+                "type": "string",
+                "title": "Volume name"
+              }
+            },
+            "required": [
+              "volume"
+            ]
+          }
+        }
+      }
     },
     "action.run": null,
+    "workspace.list": [
+      {
+        "id": "workspace_1",
+        "session_id": "session_1",
+        "name": "api-server",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_2",
+        "session_id": "session_1",
+        "name": "web-dashboard",
+        "index": 1,
+        "focused": false
+      }
+    ],
     "app.storage.get": null,
     "app.storage.set": {}
   }

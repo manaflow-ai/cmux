@@ -133,3 +133,46 @@ import Testing
         }
     }
 }
+
+/// `appearance.statusIndicator.honorStatusStyle` and `status.*`.
+@Suite struct StatusBehaviorSettingsTests {
+    func parse(_ text: String) throws -> CmuxConfigSnapshot {
+        CmuxConfigSnapshot.parse(try JSONC.parse(text), validDensities: [], validMetrics: [])
+    }
+
+    @Test func defaultsMatchTheDocumentedValues() throws {
+        let snapshot = try parse("{}")
+        #expect(snapshot.statusIndicator.honoredStyleSources == Set(StatusReport.Source.allCases))
+        #expect(snapshot.statusBehavior == StatusBehaviorSettings())
+        #expect(snapshot.statusBehavior.inferCommandBusy)
+        #expect(snapshot.statusBehavior.inferCommandBusyAfter == 3)
+        #expect(snapshot.statusBehavior.runNotifyMinimumSeconds == 10)
+        #expect(!snapshot.statusBehavior.runNotifyWhenVisible)
+    }
+
+    @Test func honorStatusStyleTakesABoolOrAListOfSources() throws {
+        #expect(try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": false}}}"#).statusIndicator.honoredStyleSources.isEmpty)
+        let some = try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": ["explicit", "run"]}}}"#)
+        #expect(some.statusIndicator.honoredStyleSources == [.explicit, .run])
+        let bad = try parse(#"{"appearance": {"statusIndicator": {"honorStatusStyle": ["nope"]}}}"#)
+        #expect(bad.statusIndicator.honoredStyleSources == Set(StatusReport.Source.allCases))
+        #expect(bad.diagnostics.count == 1)
+    }
+
+    @Test func readsEveryBehaviorField() throws {
+        let behavior = try parse(#"""
+        {"status": {"inferCommandBusy": false, "inferCommandBusyAfter": 7, "runNotifyMinimumSeconds": 30, "runNotifyWhenVisible": true}}
+        """#).statusBehavior
+        #expect(!behavior.inferCommandBusy)
+        #expect(behavior.inferCommandBusyAfter == 7)
+        #expect(behavior.runNotifyMinimumSeconds == 30)
+        #expect(behavior.runNotifyWhenVisible)
+    }
+
+    @Test func schemaListsTheBehaviorSettings() {
+        for path in [["appearance", "statusIndicator", "honorStatusStyle"], ["status", "inferCommandBusy"],
+                     ["status", "inferCommandBusyAfter"], ["status", "runNotifyMinimumSeconds"], ["status", "runNotifyWhenVisible"]] {
+            #expect(SettingsSchema.descriptor(for: path) != nil)
+        }
+    }
+}

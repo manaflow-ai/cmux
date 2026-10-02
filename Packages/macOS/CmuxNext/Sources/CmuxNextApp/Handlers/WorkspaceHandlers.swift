@@ -75,7 +75,7 @@ enum WorkspaceHandlers {
         panel.allowsMultipleSelection = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, let url = panel.url else { return }
-            createAndShow(context, name: url.lastPathComponent, cwd: url.path)
+            createAndShow(context, name: WorkspaceSpawn.folderName(url.path), cwd: url.path)
         }
         if let window = context.activeWindow?.window {
             panel.beginSheetModal(for: window, completionHandler: completion)

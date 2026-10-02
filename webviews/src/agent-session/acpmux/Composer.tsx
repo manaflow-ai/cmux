@@ -1,16 +1,30 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
-import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
+import {
+  ArrowUpIcon,
+  AtIcon,
+  PaperclipIcon,
+  Picker,
+  PlusIcon,
+  SearchIcon,
+  SlashIcon,
+  StopIcon,
+} from "./ComposerPickers";
+import { FileSearch } from "./FileSearch";
+import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
+import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import { t } from "./i18n";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
 const STOP_GUARD_MS = 600;
 
 export const COMPOSER_LABELS = {
-  placeholder: "Ask anything, @ for context, / for commands",
+  placeholder: "Do anything",
   add: "Add",
   mention: "Mention a file or folder",
   attach: "Attach files or images",
@@ -38,21 +52,42 @@ type Props = {
   accessory?: React.ReactNode;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Searches the session's files; the + menu offers Search files only when set.
+  searchFiles?: FileSearchSource;
+  /// Starts a new chat in another project; the tray's project pill chooses only when set.
+  onProject?(cwd: string): void;
 };
 
-/// The prompt box with the agent's `/` command menu, drawn as Codex's composer:
+/// The prompt box with the agent's `/` command menu:
 /// the prompt over a bar with + at the left, the mode and model chips, and a
 /// round Send button at the right, which turns into Stop while a turn runs and
 /// the prompt is empty. Enter sends and
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leading, accessory, onAttach }: Props) {
+export function Composer({
+  snapshot,
+  chips: Chips,
+  onSend,
+  onStop,
+  draft,
+  leading,
+  accessory,
+  onAttach,
+  searchFiles,
+  onProject,
+}: Props) {
+  const [findingFiles, setFindingFiles] = useState(false);
+  // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
+  useEffect(() => setFindingFiles(false), [searchFiles]);
+  // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
+  // main column), not inside the composer the slash menu anchors to.
+  const form = useRef<HTMLFormElement>(null);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
-  const textarea = useRef<HTMLTextAreaElement>(null);
+  const field = useRef<MarkdownFieldHandle>(null);
   const pendingCaret = useRef<number | undefined>(undefined);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -76,7 +111,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
   });
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
-    if (!draft || textarea.current?.value) return;
+    if (!draft || field.current?.value()) return;
     setText((current) => seededText(current, draft));
     setCaret(draft.length);
     pendingCaret.current = draft.length;
@@ -90,8 +125,8 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
   // A live command update can shrink the list under the selection.
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
-    if (pendingCaret.current === undefined || !textarea.current) return;
-    textarea.current.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    if (pendingCaret.current === undefined || !field.current) return;
+    field.current.setCaret(pendingCaret.current);
     pendingCaret.current = undefined;
   });
 
@@ -104,14 +139,14 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
     const next = applyCommand(text, caret, command);
     pendingCaret.current = next.caret;
     edit(next.text, next.caret);
-    textarea.current?.focus();
+    field.current?.focus();
   };
   /// The draft without what + wrote over it, while the text is still exactly that.
   const unwrapped = () => {
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  const submit = (event: React.SyntheticEvent) => {
+  const submit = (event: { preventDefault(): void }) => {
     event.preventDefault();
     const prompt = unwrapped().trim();
     plusDraft.current = undefined;
@@ -122,15 +157,24 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
     onSend(prompt);
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
-  const mention = () => {
+  // Writes "@" at the caret, or "@path " for a file picked in Search files.
+  const mention = (path?: string) => {
     if (composing.current) return;
-    const at = textarea.current?.selectionStart ?? text.length;
+    const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
-    const insert = before && !/\s$/.test(before) ? " @" : "@";
+    // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
+    // is markdown, which takes backslash escapes as its own, so a quote in a name is left as is.
+    const mentioned = path && /\s/.test(path) ? `"${path}"` : path;
+    const spaced = !before || /(\s|&#x20;|&#32;|&nbsp;)$/i.test(before);
+    const shown = (spaced ? "@" : " @") + (mentioned ? `${mentioned} ` : "");
+    // Escaped, the path reads as typed text (`__init__.py` is not bold); the caret counts what shows.
+    const insert = shown.replace(/[\\`*_[\]~<]/g, "\\$&");
     plusDraft.current = undefined;
-    pendingCaret.current = at + insert.length;
-    edit(before + insert + text.slice(at), at + insert.length);
-    textarea.current?.focus();
+    pendingCaret.current = caret + shown.length;
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(at).replace(/^\s+$/, "");
+    edit(before + insert + after, caret + shown.length);
+    field.current?.focus();
   };
   // + then Commands opens the agent's commands: the menu reads the
   // text before the caret, so "/" ahead of the draft opens it and a pick keeps
@@ -144,14 +188,14 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
     plusDraft.current = { written: next, original: text };
     pendingCaret.current = 1;
     edit(next, 1);
-    textarea.current?.focus();
+    field.current?.focus();
   };
   const stopTurn = () => {
     if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
   };
-  const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
-    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
+    if (event.isComposing || event.keyCode === 229) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
@@ -185,7 +229,6 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
       pick(matches[selected].command);
     }
   };
-  const track = (event: React.SyntheticEvent<HTMLTextAreaElement>) => setCaret(event.currentTarget.selectionStart);
 
   const stop = snapshot.isWorking && !text.trim();
   // Focus leaving the composer closes the menu and takes back what + wrote.
@@ -197,7 +240,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
     else if (open) setDismissed(text);
   };
   return (
-    <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+    <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
       {snapshot.queue.length > 0 && (
         <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
           {snapshot.queue.map((entry) => (
@@ -210,7 +253,34 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
           ))}
         </ol>
       )}
-      <ComposerContext summary={snapshot.summary} />
+      <ComposerContext
+        summary={snapshot.summary}
+        sessions={snapshot.sessions}
+        onProject={
+          onProject &&
+          ((cwd) => {
+            onProject(cwd);
+            field.current?.focus();
+          })
+        }
+      />
+      {findingFiles &&
+        searchFiles &&
+        form.current?.parentElement &&
+        createPortal(
+          <FileSearch
+            search={searchFiles}
+            onClose={() => {
+              setFindingFiles(false);
+              field.current?.focus();
+            }}
+            onPick={(path) => {
+              setFindingFiles(false);
+              mention(path);
+            }}
+          />,
+          form.current.parentElement,
+        )}
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
@@ -222,29 +292,26 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
             onPick={pick}
           />
         )}
-        {/* A textarea that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
-        <textarea
-          ref={textarea}
-          className="acpmux-composer-field"
-          aria-label={COMPOSER_LABELS.prompt}
-          name="prompt"
-          rows={1}
-          placeholder={COMPOSER_LABELS.placeholder}
+        {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
+        <MarkdownField
+          ref={field}
+          className="acpmux-composer-prompt"
           value={text}
-          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={open ? "acpmux-slash-menu" : undefined}
-          aria-autocomplete="list"
-          aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-          onChange={(event) => edit(event.target.value, event.target.selectionStart)}
-          onSelect={track}
-          onKeyDown={keyDown}
-          onCompositionStart={() => {
-            composing.current = true;
+          placeholder={COMPOSER_LABELS.placeholder}
+          attributes={{
+            role: "combobox",
+            "aria-label": COMPOSER_LABELS.prompt,
+            "aria-multiline": "true",
+            "aria-expanded": String(open),
+            "aria-controls": open ? "acpmux-slash-menu" : undefined,
+            "aria-autocomplete": "list",
+            "aria-activedescendant": open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined,
           }}
-          onCompositionEnd={() => {
-            composing.current = false;
+          onChange={(markdown, at) => edit(markdown, at)}
+          onCaret={setCaret}
+          onKeyDown={keyDown}
+          onCompositionChange={(value) => {
+            composing.current = value;
           }}
         />
         <div className="acpmux-composer-bar">
@@ -262,11 +329,19 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
                       ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
                       : []),
                   ],
-                  onPick: (id) => (id === "attach" ? onAttach?.() : id === "mention" ? mention() : openCommands()),
+                  onPick: (id) =>
+                    id === "attach"
+                      ? onAttach?.()
+                      : id === "mention"
+                        ? mention()
+                        : id === "files"
+                          ? setFindingFiles(true)
+                          : openCommands(),
                 },
               ]}
             />
@@ -294,7 +369,7 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, draft, leadin
                 type="submit"
                 className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
                 aria-label={COMPOSER_LABELS.send}
-                title={COMPOSER_LABELS.send}
+                title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
@@ -384,4 +459,15 @@ function Highlighted({ name, ranges }: { name: string; ranges: [number, number][
   }
   if (at < name.length) parts.push(name.slice(at));
   return <>{parts}</>;
+}
+
+/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
+/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one.
+function markdownOffset(markdown: string, shown: number): number {
+  let index = 0;
+  for (let count = 0; count < shown && index < markdown.length; count++) {
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(markdown.slice(index));
+    index += escape ? escape[0].length : 1;
+  }
+  return index;
 }

@@ -314,8 +314,23 @@ jobs:
         run: scripts/cmux-next/prefix-ghosttykit-archives.sh GhosttyKit.xcframework
 
       - name: Build package and tests
+        id: build-tests
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
+
+      - name: Regenerate action surface export
+        working-directory: Packages/macOS/CmuxNext
+        run: |
+          CMUX_UPDATE_ACTION_SURFACES=1 \
+            swift test --skip-build --filter ActionSurfaceParityTests
+
+      - name: Upload regenerated action surface files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: action-surface-regen
+          path: |
+            plans/cmux-next/action-surfaces.json
+            plans/cmux-next/actions.md
 
       - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
@@ -335,25 +350,12 @@ jobs:
         timeout-minutes: 5
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
-      - name: Run package tests (excluding control deadline and WebKit driver tests)
+      - name: Run package tests (excluding control deadline, WebKit driver and attach stress tests)
         timeout-minutes: 20
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests
-
-      # The WebKit driver tests drive real WKWebViews against wall-clock load
-      # deadlines (5-15 s) through main-actor navigation callbacks. Beside the
-      # package's ~3000 main-actor tests the callbacks queued behind them for
-      # longer than the deadlines (run 37007006384: page.goto timeouts, and a
-      # late commit of a new tab's about:blank met a later navigation's wait).
-      # Like the control tests, they get a process of their own.
-      - name: Run WebKit driver package tests
-        timeout-minutes: 10
-        working-directory: Packages/macOS/CmuxNext
-        env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "420"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests --skip CmuxNextBrowserAutomationTests --skip TerminalAttachDriverStressTests
 
       - name: Run control package tests
         timeout-minutes: 20
@@ -361,6 +363,31 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "900"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+
+      # The WebKit driver tests drive real WKWebViews against wall-clock load
+      # deadlines through main-actor navigation callbacks. They run after the
+      # control tests, in a process of their own: the package's other main-actor tests do not delay
+      # those callbacks, and a WebKit failure does not skip the control tests.
+      - name: Run WebKit driver package tests
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "420"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextBrowserAutomationTests
+
+      # The attach driver stress tests run 80 seeded cases at once, each with
+      # its own typist, overflow and main-actor layout tasks. In the shared
+      # process they queued behind every other main-actor suite (and slowed
+      # them) past the time limits on loaded runners; alone, the run is bounded
+      # by its fixed work. Runs whenever the build succeeded, even after a failed
+      # test step.
+      - name: Run attach driver stress tests
+        if: ${{ !cancelled() && steps.build-tests.outcome == 'success' }}
+        timeout-minutes: 10
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "420"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter TerminalAttachDriverStressTests
 
   release-compile:
     needs: macos-placement

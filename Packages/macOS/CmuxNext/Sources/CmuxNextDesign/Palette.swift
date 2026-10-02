@@ -25,12 +25,22 @@ public struct Palette {
     /// (load error, sad tab): the terminal background, opaque, because a
     /// page is opaque and a stale page must not show through.
     public static var pageBackground: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.pageBackground) }
+    /// Settings and other utility windows: the window background without
+    /// the terminal's opacity, so their text reads the same whatever the
+    /// main windows' transparency or material.
+    public static var utilityWindowBackground: NSColor {
+        color(\.windowBackground, opaque: true, dynamic: PaletteDynamic.utilityWindowBackground)
+    }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
     public static var elevatedBackground: NSColor { color(\.elevatedBackground, dynamic: PaletteDynamic.elevatedBackground) }
     /// Every pane's tab strip: a shade darker than the window.
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
+    /// The sidebar's tonal step over the window backdrop.
+    public static var sidebarStep: NSColor { color(\.sidebarStep, dynamic: PaletteDynamic.sidebarStep) }
+    /// The tab strip's tonal step over the window backdrop.
+    public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }

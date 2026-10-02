@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
@@ -16,6 +17,9 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     private(set) var controller: OnboardingWindowController?
+    /// The role step's saved answer, read off the main thread at launch;
+    /// "Onboarding…" opens the step with it.
+    private(set) var profile: OnboardingProfile?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -30,6 +34,47 @@ final class OnboardingService {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))
+        let state = state
+        // task-owner: one-shot launch read of the onboarding state file
+        Task { [weak self] in
+            let saved = await Task.detached { state.profile() }.value
+            guard let self, profile == nil else { return }
+            profile = saved
+        }
+    }
+
+    /// Keeps the role step's answer (a small file write, off the main thread).
+    func saveProfile(_ answer: OnboardingProfile) {
+        profile = answer
+        let state = state
+        write("onboarding profile") { try state.saveProfile(answer) }
+    }
+
+    /// The last state file write; each write waits for it, so a profile
+    /// save can't land after `markDone` and undo it.
+    private var lastWrite: Task<Void, Never>?
+
+    /// Runs one small state file write off the main thread, after the one before.
+    private func write(_ label: String, _ work: @escaping @Sendable () throws -> Void) {
+        let previous = lastWrite
+        let logger = logger
+        // task-owner: one small file write, chained after the previous one
+        lastWrite = Task.detached {
+            await previous?.value
+            do { try work() } catch { logger.error("\(label, privacy: .public): \(String(describing: error), privacy: .public)") }
+        }
+    }
+
+    /// The first task's chat, kept while the window is open so the step
+    /// shows the same chat when the user comes back to it.
+    private var firstTask: (cwd: URL, prompt: String, view: AgentPaneView)?
+
+    func firstTaskView(cwd: URL, prompt: String) -> AgentPaneView? {
+        if let firstTask, firstTask.cwd == cwd, firstTask.prompt == prompt { return firstTask.view }
+        firstTask?.view.close()
+        let view = services.agentTabs.standaloneView(seed: AgentPaneSeed(cwd: cwd.path, prompt: prompt))
+        firstTask = view.map { (cwd, prompt, $0) }
+        return view
     }
 
     var isShowing: Bool { controller != nil }
@@ -77,6 +122,9 @@ final class OnboardingService {
         let controller = OnboardingWindowController(model: model)
         controller.onClose = { [weak self] in
             self?.controller = nil
+            // The task's session stays in acpmux (the agent may still be working); only the page closes.
+            self?.firstTask?.view.close()
+            self?.firstTask = nil
         }
         self.controller = controller
         controller.present()
@@ -98,11 +146,8 @@ final class OnboardingService {
 
     func markDone(completed: Bool) {
         let state = state
-        let logger = logger
-        // task-owner: one small file write, off the main thread
-        Task.detached {
-            do { try state.markDone(completed: completed) } catch { logger.error("onboarding state: \(String(describing: error), privacy: .public)") }
-        }
+        let profile = profile
+        write("onboarding state") { try state.markDone(completed: completed, profile: profile) }
     }
 
     /// Imported history and bookmarks go into each browser profile's

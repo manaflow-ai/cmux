@@ -5,7 +5,8 @@ import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { verifyChain, type AuditRecord } from "../src/domains/team-audit.ts"
-import { devicePolicyFor } from "../src/domains/team-enrollment.ts"
+import { complianceFor, devicePolicyFor } from "../src/domains/team-enrollment.ts"
+import { teamSubscriberView } from "../src/domains/team-visibility.ts"
 
 const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace }
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -97,6 +98,26 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     // The member's own accepted install: allowed. An admin: allowed for any.
     expect(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(MEMBER)).ok).toBe(true)
     expect(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER)).ok).toBe(true)
+  })
+
+  it("status reports drive per-device compliance; members see only their own status (M2)", () => {
+    let s = ok(teamDomain.reduce(baseState(), "team.policy.update", { changes: [{ key: "telemetry.level", value: { value: "off", mode: "enforced" } }], expected_version: 0 }, ctx())).state as TeamState
+    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(MEMBER, INST))).state as TeamState
+    s = ok(teamDomain.reduce(s, "team.device.enroll", {}, asInstall(OWNER, INST2))).state as TeamState
+    expect(complianceFor(s).devices.map((d) => d.reasons)).toEqual([["no status report"], ["no status report"]])
+    s = ok(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: ["ui.animationSpeed"], conflicts: [] }, asInstall(MEMBER, INST))).state as TeamState
+    s = ok(teamDomain.reduce(s, "team.device.report_status", { policy_version: 0, app_version: "1.0", mdm_keys: [], conflicts: ["ui.animationSpeed"] }, asInstall(OWNER, INST2))).state as TeamState
+    const c = complianceFor(s)
+    expect(c.devices.map((d) => [d.device.install, d.compliant])).toEqual([[INST, true], [INST2, false]])
+    expect(c.devices[1]!.reasons).toEqual(["applied policy v0, current v1", "MDM overrides team policy: ui.animationSpeed"])
+    // Same report again: no change. Agents cannot report.
+    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: ["ui.animationSpeed"], conflicts: [] }, asInstall(MEMBER, INST))).toMatchObject({ ok: true, changed: false })
+    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1.0", mdm_keys: [], conflicts: [] }, ctx(MEMBER, { kind: "agent", agent: "agent_x", install: INST }))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // Only managed installs report; releasing an install drops its status.
+    expect(teamDomain.reduce(s, "team.device.report_status", { policy_version: 1, app_version: "1", mdm_keys: [], conflicts: [] }, asInstall(MEMBER, "inst_00000000000000000009"))).toMatchObject({ ok: false, code: "selector.not_found" })
+    expect((ok(teamDomain.reduce(s, "team.device.release", { install: INST2 }, ctx(OWNER))).state as TeamState).device_status?.[INST2]).toBeUndefined()
+    const memberView = teamSubscriberView({ ...s, members: { ...s.members } }, { identity: `user:${MEMBER}`, user: MEMBER, kind: "session" })
+    expect(Object.keys(memberView.device_status ?? {})).toEqual([INST])
   })
 
   it("every admin action appends one record to a hash chain that verifies, and tampering breaks it", async () => {

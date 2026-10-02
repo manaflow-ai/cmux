@@ -57,7 +57,7 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     /// Set when the page's content process ended (the "sad tab"). Cleared
     /// when a navigation starts (Reload).
     public var processExit: BrowserProcessExit?
-    /// The page stopped handling input (Chrome's "Page unresponsive").
+    /// The page stopped handling input ("Page unresponsive").
     public var isUnresponsive: Bool
 
     public init(

@@ -12,7 +12,7 @@ public nonisolated enum MotionTunables {
         .appear: (SpringParameters(response: 0.18, dampingFraction: 0.9), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Tab close, group collapse, row removal, sidebar hide."),
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),
-        .scroll: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Tab strip reveal, niri column reveal, wheel notch, fling snap."),
+        .scroll: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Tab strip reveal, strip column reveal, wheel notch, fling snap."),
         .screen: (SpringParameters(response: 0.22, dampingFraction: 0.9), "Screen switch slide."),
         .track: (SpringParameters(response: 0.12, dampingFraction: 0.9), "Drop-zone overlay and the drag ghost jumping between targets."),
         .selection: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Sidebar selection pill."),
@@ -35,12 +35,14 @@ public nonisolated enum MotionTunables {
         .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
         .lift: (0.12, "Sidebar drag lift shadow."),
         .theme: (0.16, "Room, workspace or terminal theme switch."),
+        .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
     ]
 
     static let fades: [MotionFade: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionFade.allCases.map { token in
         let entry = fadeDefaults[token] ?? (0.1, "")
         return (token, Tunable.number("motion.fade.\(token.rawValue)", .fades, "\(token.rawValue) fade", help: entry.1,
-                                      default: entry.0, range: 0...1, step: 0.01, unit: .seconds, code: "MotionTunables.fadeDefaults[.\(token.rawValue)]"))
+                                      default: entry.0, range: 0...(token == .highlight ? 3 : 1), step: 0.01, unit: .seconds,
+                                      code: "MotionTunables.fadeDefaults[.\(token.rawValue)]"))
     })
 
     static let loopDefaults: [MotionLoop: (TimeInterval, String)] = [

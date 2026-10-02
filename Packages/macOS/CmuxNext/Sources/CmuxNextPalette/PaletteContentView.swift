@@ -14,7 +14,8 @@ final class PaletteContentView: NSView {
 
     let searchBar = PaletteSearchBar()
     private let stage = FlippedView()
-    private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// The panel's material: glass, or opaque under Reduce Transparency.
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let body = FlippedView()
     private let topRule = NSView()
     private let bottomRule = NSView()
@@ -47,7 +48,7 @@ final class PaletteContentView: NSView {
         wantsLayer = true
         layer?.masksToBounds = false
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = body
+        glass.contentView.addSubview(body)
         emptyTitle.stringValue = PaletteStrings.noResults
         emptyHint.stringValue = PaletteStrings.noResultsHint
         emptyTitle.alignment = .center
@@ -196,7 +197,7 @@ final class PaletteContentView: NSView {
         stage.frame = bounds
         glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width, height: PaletteLayout.height)
         glass.cornerRadius = PaletteLayout.cornerRadius
-        body.frame = glass.bounds
+        body.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let width = body.bounds.width
         var y: CGFloat = 0
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
@@ -243,7 +244,7 @@ final class PaletteContentView: NSView {
     /// scope of the window it opens over).
     private func applyColors() {
         performWithTheme {
-            glass.tintColor = Palette.glassTint
+            glass.applyTheme()
             topRule.layer?.backgroundColor = Palette.separator.cgColor
             bottomRule.layer?.backgroundColor = Palette.separator.cgColor
             let shadow = NSShadow()
@@ -265,7 +266,7 @@ final class PaletteContentView: NSView {
 
     // MARK: Animation
 
-    /// Opens like Linear's command menu: a fade and an `appear` spring from
+    /// Opens with a fade and an `appear` spring from
     /// `Motion.panelOpenScale` about the panel's center. Reopening while the
     /// close still runs continues from what is on screen instead of
     /// restarting from zero.

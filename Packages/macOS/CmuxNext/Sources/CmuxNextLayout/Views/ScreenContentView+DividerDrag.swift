@@ -78,7 +78,7 @@ extension ScreenContentView {
             let width: CGFloat
             switch drag.stickyEdge {
             case .right?: width = max(drag.container.maxX - (point.x - drag.grabOffset), drag.minimumA)
-            case .left?, nil: width = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
+            case .left?, .top?, .bottom?, nil: width = max(point.x - drag.grabOffset - drag.container.minX, drag.minimumA)
             }
             let viewport = drag.stickyEdge == nil ? geometry.stripWidth : bounds.width
             let fraction = ColumnStripGeometry.fraction(forPixelWidth: width, viewportWidth: viewport, gap: style.stripGap)

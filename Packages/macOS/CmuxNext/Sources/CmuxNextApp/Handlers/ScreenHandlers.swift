@@ -5,7 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 
-/// Screen actions (tmux-style windows inside a workspace). Screens have no
+/// Screen actions (windows inside a workspace). Screens have no
 /// chrome until a workspace holds two or more; then the bottom screen bar
 /// shows them. Every verb runs through `ScreenCommands`, the same path the
 /// bar's clicks, drags, and editor use.
@@ -83,7 +83,7 @@ enum ScreenHandlers {
             guard let content = ctx.content(invocation) else { return }
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let screens = content.layoutModel.screens
-            // 9 is the last screen, like Chrome's Cmd-9.
+            // 9 is always the last screen, as Cmd-9 is the last tab.
             let index = number == 9 ? screens.count - 1 : number - 1
             guard screens.indices.contains(index) else { return ctx.refuse(RefusalStrings.screenCount(screens.count)) }
             ScreenCommands.select(screens[index].id, in: content)

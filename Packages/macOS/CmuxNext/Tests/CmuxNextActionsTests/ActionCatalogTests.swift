@@ -73,15 +73,15 @@ import Testing
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
         .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
         .screen: 62,
-        .tab: 77, // + Show Tab (`tab.focus`, state-ownership.md 3), + New Tab of the pane kind, + Search Tabs (tab-search.md)
+        .tab: 77, // + Show Tab (`tab.focus`), New Tab of the pane kind, New Tab Page, + Search Tabs (tab-search.md)
         .terminal: 35, // + Set / Reset Terminal Theme
-        .browser: 110, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions
-        .sidebar: 54, // + 24 sidebar section actions (sidebar-sections.md 6)
+        .browser: 111, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV
+        .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
         .notifications: 18,
-        .agents: 20, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats
-        .cloud: 28, // + accounts.show, refresh, reauthenticate, connect, remove
+        .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint
+        .cloud: 48, // + cloud file and tunnel/network/firewall actions
         .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 52, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps
+        .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
     ]
 
     @Test func everyKeyboardShortcutIDExists() {
@@ -109,6 +109,18 @@ import Testing
             #expect(!descriptor.symbol.isEmpty, "\(descriptor.id)")
             #expect(!descriptor.surfaces.isEmpty, "\(descriptor.id)")
         }
+    }
+
+    @Test func cloudMachineIOActionsAreTerminalAndReachable() throws {
+        let ssh = try #require(ActionCatalog.all.first { $0.id == "cloudSSH" })
+        #expect(ssh.startsTerminal)
+        #expect(ssh.cliName == "cloud ssh")
+        #expect(ssh.surfacePlan.contextMenus.map(\.context) == [.cloudMachine])
+
+        let exec = try #require(ActionCatalog.all.first { $0.id == "cloudExec" })
+        #expect(exec.startsTerminal)
+        #expect(exec.cliName == "cloud exec")
+        #expect(exec.arguments.map(\.name) == ["command"])
     }
 
     @Test func standardCatalogHasNoUnresolvableShortcutConflicts() {

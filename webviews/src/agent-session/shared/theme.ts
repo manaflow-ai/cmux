@@ -21,7 +21,15 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   shadow: "--agent-shadow",
   palette: null,
   borders: null,
+  motion: null,
 };
+
+const motionVariables = {
+  hover: "--agent-motion-hover",
+  focus: "--agent-motion-focus",
+  fadeIn: "--agent-motion-in",
+  fadeOut: "--agent-motion-out",
+} as const;
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
   if (typeof document === "undefined") {
@@ -29,7 +37,7 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
   const root = document.documentElement;
   root.dataset.theme = theme.isDark ? "dark" : "light";
-  applyCodexDocumentMetadata();
+  applyAgentDocumentMetadata();
   root.classList.toggle("dark", theme.isDark);
   root.classList.toggle("electron-dark", theme.isDark);
   root.classList.toggle("light", !theme.isDark);
@@ -48,6 +56,13 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
     }
     root.style.setProperty(variable, String(theme[key]));
   }
+  // A theme without motion clears the host's durations, so the stylesheet defaults apply.
+  for (const [key, variable] of Object.entries(motionVariables) as Array<[keyof typeof motionVariables, string]>) {
+    const seconds = theme.motion?.[key];
+    if (typeof seconds === "number" && Number.isFinite(seconds) && seconds >= 0) {
+      root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
+    } else root.style.removeProperty(variable);
+  }
   // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
   for (let index = 0; index < 16; index += 1) {
     const color = theme.palette?.[index];
@@ -56,20 +71,20 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   }
 }
 
-export function applyCodexDocumentMetadata(): void {
+export function applyAgentDocumentMetadata(): void {
   if (typeof document === "undefined") {
     return;
   }
   const root = document.documentElement;
-  root.dataset.codexWindowType = "electron";
+  root.dataset.agentWindowType = "electron";
   root.dataset.windowType = "electron";
-  root.dataset.codexOs = codexOs();
+  root.dataset.agentOs = agentOs();
   if (document.body) {
-    document.body.dataset.codexWindowType = "electron";
+    document.body.dataset.agentWindowType = "electron";
   }
 }
 
-function codexOs(): string {
+function agentOs(): string {
   if (typeof navigator === "undefined") {
     return "unknown";
   }

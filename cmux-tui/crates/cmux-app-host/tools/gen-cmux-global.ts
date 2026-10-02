@@ -118,6 +118,7 @@ export function generate(): Record<string, string> {
     "app.storage.delete": { scope: "storage:local", class: "mutation" },
     "app.storage.keys": { scope: "storage:local", class: "read" },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
+    "clipboard.write": { scope: "clipboard:write", class: "mutation" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" }
   }
   Object.assign(scopes, hostOps)
@@ -160,7 +161,8 @@ declare namespace Cmux {
 ${typeDecls.join("\n")}
 }
 
-interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string }
+interface CmuxAbortSignal { readonly aborted: boolean; readonly reason: unknown; onabort: ((ev: { type: "abort" }) => void) | null; addEventListener(type: "abort", fn: () => void): void; removeEventListener(type: "abort", fn: () => void): void; throwIfAborted(): void }
+interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string; /** Rejects the call with \`aborted\` when the signal fires. */ signal?: CmuxAbortSignal }
 type CmuxOp<P, R> = ((params?: P, options?: CmuxCallOptions) => Promise<R>) & { readonly opName: string }
 type CmuxSignal<T> = () => T
 interface CmuxLive<T> { (): T | undefined; error(): CmuxError | null; loading(): boolean; refresh(): void }
@@ -179,15 +181,54 @@ ${render(root, "  ")}
   net: { fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<CmuxFetchResponse> }
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; settings(): Record<string, unknown> }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> } }
+  /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
+  gesture(): string | null
+  /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
+  t(key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>): string
+  palette: CmuxPalette
+  act: typeof act
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
+
+// Palette scopes (contributes.paletteScopes). Items are plain data: at most 2 KiB each, 10000 per snapshot, 200 per batch, no functions.
+/** A typed reference to a catalog action or op, or an app command \`app:<id>#<command>\`. */
+interface CmuxActionRef { id: string; args: Record<string, unknown>; title?: string; symbol?: string }
+interface CmuxPaletteItem {
+  id: string; title: string; subtitle?: string; symbol?: string; keywords?: string[]
+  accessory?: { date?: number | string; text?: string; badge?: string | number; symbol?: string }
+  /** Return runs the first, Cmd-Return the second; Tab (default drill) lists them all. */
+  actions?: CmuxActionRef[]
+  /** Tab drills into this scope with the item as context (default \`actions\`). */
+  drill?: string
+  /** A scope row: Return or Tab enters this scope. */
+  enters?: string
+}
+interface CmuxPaletteContext { readonly scope: string; readonly generation: number; readonly signal: CmuxAbortSignal; readonly context?: string; readonly filter?: string; readonly session?: string }
+interface CmuxPaletteDetail { markdown?: string; metadata?: Array<{ label: string; value: string; symbol?: string }>; actions?: CmuxActionRef[] }
+interface CmuxPaletteCached { readonly __cmuxPaletteCached: true }
+type CmuxPaletteSource<F> = F & { readonly __cmuxPaletteKind: "snapshot" | "query" | "detail" }
+interface CmuxPalette {
+  /** The whole candidate set; the host ranks it and caches it. Runs once per invalidation, never per keystroke. */
+  snapshot(fn: (ctx: CmuxPaletteContext) => CmuxPaletteItem[] | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(ctx: CmuxPaletteContext) => Promise<CmuxPaletteItem[]>>
+  /** Per query: every \`yield\` is a batch; a new query aborts the old generator through \`ctx.signal\`. */
+  query(fn: (query: string, ctx: CmuxPaletteContext) => AsyncIterable<CmuxPaletteItem[] | CmuxPaletteCached> | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(query: string, ctx: CmuxPaletteContext) => unknown>
+  /** Detail of the highlighted row (layout listWithDetail). */
+  detail(fn: (itemId: string, ctx: { scope: string; signal: CmuxAbortSignal }) => CmuxPaletteDetail | null | Promise<CmuxPaletteDetail | null>): CmuxPaletteSource<(itemId: string) => unknown>
+  /** Yield from a query source: the last complete result of the longest cached prefix of the query (provisional until the first live batch). */
+  cached(): CmuxPaletteCached
+}
+declare const palette: CmuxPalette
+declare function act(op: string, args?: Record<string, unknown>, overrides?: { title?: string; symbol?: string }): CmuxActionRef
+/** The second argument of a command export. \`cmux\` here carries the invocation's user gesture until the command settles (origin user); the global \`cmux\` does not. */
+interface CmuxCommandContext { readonly app: { id: string; version: string }; readonly gesture?: string; readonly cmux: CmuxGlobal }
 
 // Reactivity and views (the old cmux JS sidebar API).
 declare function signal<T>(initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]
 declare function computed<T>(fn: () => T): CmuxSignal<T>
 declare function effect(fn: () => void): () => void
+declare function onCleanup(fn: () => void): void
 type Bindable<T> = T | (() => T)
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this

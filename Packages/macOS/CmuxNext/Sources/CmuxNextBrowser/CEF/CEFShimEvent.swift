@@ -40,7 +40,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// The renderer stopped handling input (hang monitor, 15 s).
     case renderUnresponsive(browser: Int32)
     case renderResponsive(browser: Int32)
-    /// A Chrome command that would open a Chromium window; the shim blocked
+    /// A Chromium command that would open a Chromium window; the shim blocked
     /// it (`IDC_*` id).
     case chromeCommand(browser: Int32, command: Int32)
     /// The navigation guard cancelled a main-frame navigation to `url`.

@@ -148,10 +148,24 @@ extension SidebarLayoutDocument {
     /// `room`, in region order (top, middle, bottom) split at the
     /// workspaces section. Items sections in the middle region draw in the
     /// band next to the list; they scroll with it in phase 5
-    /// (plans/cmux-next/sidebar-sections.md 8).
-    public func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
+    /// (plans/cmux-next/sidebar-sections.md 8). Pure, so the rail's
+    /// nonisolated layout reads it too.
+    public nonisolated func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
         let ordered = SidebarRegion.allCases.flatMap { sections(in: $0, room: room) }
         guard let split = ordered.firstIndex(where: { $0.content == .workspaces }) else { return (ordered, []) }
         return (Array(ordered[..<split]), Array(ordered[(split + 1)...]))
+    }
+}
+
+extension Array where Element == LayoutSection {
+    /// These sections without the items in `hidden` (items that draw
+    /// nothing, such as a hidden app's); the layout keeps them.
+    public func hidingItems(_ hidden: Set<LayoutItemID>) -> [LayoutSection] {
+        guard !hidden.isEmpty else { return self }
+        return map { section in
+            var section = section
+            section.items.removeAll { hidden.contains($0.id) }
+            return section
+        }
     }
 }

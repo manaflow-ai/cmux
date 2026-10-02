@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextSidebar
 
 /// Workspace verbs that change what a workspace holds: duplicate (layout and
 /// directories, new terminals), merge into another workspace, move a pane
@@ -129,8 +130,8 @@ enum WorkspaceStructureHandlers {
             guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })
             else { return nil }
             // Once the daemon reports it: below the pane's workspace, the
-            // other tabs follow in order, and the window shows it (tmux
-            // break-pane selects the new window).
+            // other tabs follow in order, and the window shows it (the new
+            // workspace is selected).
             services.windows.claim(workspaceID: key.rawValue, in: state, select: allowed)
             services.windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
                 if let created = services.workspace(id: id) { moveTabs(rest, into: created, context) {} }
@@ -157,9 +158,7 @@ enum WorkspaceStructureHandlers {
 enum WorkspaceIconValue {
     static func isValid(_ value: String) -> Bool {
         guard !value.isEmpty else { return false }
-        if value.count == 1, let scalar = value.unicodeScalars.first, scalar.properties.isEmojiPresentation || value.unicodeScalars.count > 1 {
-            return true
-        }
+        if WorkspaceIcon.isEmoji(value) { return true }
         return NSImage(systemSymbolName: value, accessibilityDescription: nil) != nil
     }
 }

@@ -2,14 +2,15 @@
 // Load order: this file, then the app's `main` (an IIFE that sets
 // `__cmuxAppExports`), then the host calls `__cmuxAppInit`. ABI: ../ABI.md.
 
-import { cmux, CmuxError, deliverEvent, fireTimer, log, resolveCall, state, type Native } from "./cmux.ts"
+import { cmux, CmuxError, createCmux, deliverEvent, fireTimer, log, resolveCall, sharedMembers, state, type Native } from "./cmux.ts"
 import { installCompat } from "./compat-sidebar-data.ts"
 import { menuHandler, mount, mountExists, nodeRecord, sendPendingOps, setSceneSink, unmount } from "./materialize.ts"
-import { batch, computed, effect, flush, signal, untrack } from "./reactive.ts"
+import { act, palette, paletteCancel, paletteDetail, paletteOpen, setPaletteScopes } from "./palette.ts"
+import { batch, computed, effect, flush, onCleanup, signal, untrack } from "./reactive.ts"
 import * as views from "./view.ts"
 
 const g = globalThis as Record<string, unknown>
-export const RUNTIME_VERSION = "1.0.0"
+export const RUNTIME_VERSION = "1.1.0"
 
 const exportsOf = (): Record<string, unknown> => (g.__cmuxAppExports as Record<string, unknown> | undefined) ?? {}
 
@@ -40,8 +41,9 @@ function runHandler(label: string, fn: (() => unknown) | undefined) {
 function install() {
   const native = g.__cmuxAppNative as Native | undefined
   if (native) state.native = native
-  // Globals for app code (the old custom sidebar API plus `cmux`).
-  Object.assign(g, views, { cmux, signal, computed, effect, untrack, CmuxError })
+  // Globals for app code (the old custom sidebar API plus `cmux`, `palette` and `act`).
+  Object.assign(sharedMembers, { palette, act })
+  Object.assign(g, views, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act })
   if (typeof g.console === "undefined") {
     g.console = { log: (...a: unknown[]) => log("info", ...a), info: (...a: unknown[]) => log("info", ...a), warn: (...a: unknown[]) => log("warn", ...a), error: (...a: unknown[]) => log("error", ...a), debug: (...a: unknown[]) => log("debug", ...a) }
   }
@@ -51,10 +53,23 @@ function install() {
   g.__cmuxAppInit = (initJSON: string) =>
     entry("init", () => {
       if (!state.native && g.__cmuxAppNative) state.native = g.__cmuxAppNative as Native
-      const init = JSON.parse(initJSON || "{}") as { app?: { id: string; version: string }; settings?: Record<string, unknown>; apiVersion?: string; ops?: string[] }
+      const init = JSON.parse(initJSON || "{}") as {
+        app?: { id: string; version: string }
+        settings?: Record<string, unknown>
+        apiVersion?: string
+        ops?: string[]
+        knownOps?: string[]
+        locale?: string
+        strings?: Record<string, string>
+        paletteScopes?: unknown[]
+      }
       if (init.app) state.app = init.app
       if (init.apiVersion) state.apiVersion = init.apiVersion
       state.allowedOps = Array.isArray(init.ops) ? new Set(init.ops) : null
+      state.knownOps = Array.isArray(init.knownOps) ? new Set(init.knownOps) : null
+      state.locale = init.locale ?? "en"
+      state.strings = init.strings ?? {}
+      setPaletteScopes(init.paletteScopes)
       state.settings[1](init.settings ?? {})
       return ""
     }, "init failed")
@@ -88,6 +103,16 @@ function install() {
       const record = nodeRecord(nodeId)
       if (!record || record.mount.id !== mountId) return
       const payload = payloadJSON ? JSON.parse(payloadJSON) : {}
+      // The host attests user events with a gesture token; it is ambient only while the handler runs synchronously.
+      state.gesture = typeof payload.gesture === "string" ? payload.gesture : null
+      try {
+        dispatchEvent(record, event, payload)
+      } finally {
+        state.gesture = null
+      }
+    }, undefined)
+
+  function dispatchEvent(record: NonNullable<ReturnType<typeof nodeRecord>>, event: string, payload: Record<string, any>) {
       switch (event) {
         case "menu":
           runHandler("menu", menuHandler(record, Array.isArray(payload.path) ? payload.path : []) as (() => unknown) | undefined)
@@ -111,16 +136,26 @@ function install() {
         default:
           runHandler(event, record.handlers[event] as (() => unknown) | undefined)
       }
-    }, undefined)
+  }
 
-  g.__cmuxAppRunCommand = (exportName: string, argsJSON: string, cbId: number) =>
+  // ctxJSON (optional): `{gesture?}`. A gesture is the host-minted user-gesture token of this invocation
+  // (palette-scopes.md 6.7 B2): calls through `ctx.cmux` carry it until the command settles; the global
+  // `cmux` does not carry it (an app may still pass `{gesture: ctx.gesture}` explicitly, like a token from cmux.gesture()).
+  g.__cmuxAppRunCommand = (exportName: string, argsJSON: string, cbId: number, ctxJSON?: string) =>
     entry("command", () => {
       const fn = exportsOf()[exportName]
-      const done = (ok: boolean, body: unknown) => state.native?.commandDone(cbId, ok, JSON.stringify(body ?? null))
+      let live = true
+      const done = (ok: boolean, body: unknown) => {
+        live = false
+        state.native?.commandDone(cbId, ok, JSON.stringify(body ?? null))
+      }
       if (typeof fn !== "function") return done(false, { code: "export.missing", message: `the app does not export ${exportName}` })
       const failure = (e: unknown) => (e instanceof CmuxError ? { code: e.code, message: e.message, details: e.details ?? null } : { code: "command.failed", message: describe(e) })
       try {
-        const r = fn(JSON.parse(argsJSON || "{}"), { app: state.app })
+        const invocation = (ctxJSON ? JSON.parse(ctxJSON) : {}) as { gesture?: unknown }
+        const gesture = typeof invocation.gesture === "string" && invocation.gesture ? invocation.gesture : undefined
+        const ctx = { app: state.app, gesture, cmux: createCmux(() => (live ? gesture : undefined)) }
+        const r = fn(JSON.parse(argsJSON || "{}"), ctx)
         Promise.resolve(r).then(
           (v) => done(true, { value: v ?? null }),
           (e) => done(false, failure(e))
@@ -129,6 +164,11 @@ function install() {
         done(false, failure(e))
       }
     }, undefined)
+
+  g.__cmuxAppPaletteOpen = (scopeId: string, kind: string, query: string, generation: number, ctxJSON: string, reqId: number): string =>
+    entry("paletteOpen", () => paletteOpen(scopeId, kind, query, generation, ctxJSON, reqId), "palette open failed")
+  g.__cmuxAppPaletteCancel = (reqId: number) => entry("paletteCancel", () => paletteCancel(reqId), undefined)
+  g.__cmuxAppPaletteDetail = (scopeId: string, itemId: string, reqId: number) => entry("paletteDetail", () => paletteDetail(scopeId, itemId, reqId), undefined)
 
   g.__cmuxAppResolve = (cbId: number, ok: boolean, json: string) => entry("resolve", () => resolveCall(cbId, ok, json), undefined)
   g.__cmuxAppEvent = (subId: number, json: string) => entry("event", () => deliverEvent(subId, json), undefined)

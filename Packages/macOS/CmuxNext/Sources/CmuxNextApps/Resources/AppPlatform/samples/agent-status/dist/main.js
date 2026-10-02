@@ -19,9 +19,10 @@
     renderStatus: () => renderStatus
   });
   async function focusTerminal(terminal) {
+    const gesture = cmux.gesture() ?? undefined;
     const t = await cmux.terminal.get({ terminal });
     if (t.tab_id)
-      await cmux.tab.focus({ tab: t.tab_id });
+      await cmux.tab.focus({ tab: t.tab_id }, { gesture });
   }
   function renderStatus() {
     const agents = cmux.live("agent.list", {});

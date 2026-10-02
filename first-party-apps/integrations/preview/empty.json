@@ -1,0 +1,80 @@
+{
+  "scopes": {
+    "integration.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.policy.get": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.connect": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.tools.list": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.tools.policy.set": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.catalog.preview": {
+      "scope": "integration:read",
+      "class": "read"
+    },
+    "integration.share": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.reauth": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "integration.revoke": {
+      "scope": "integration:write",
+      "class": "mutation"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "integration.list": {
+      "connections": [],
+      "providers": [
+        {
+          "provider": "github",
+          "configured": true
+        },
+        {
+          "provider": "linear",
+          "configured": true
+        },
+        {
+          "provider": "slack",
+          "configured": true
+        },
+        {
+          "provider": "google_calendar",
+          "configured": true
+        }
+      ],
+      "revision": "r12"
+    },
+    "integration.policy.get": {
+      "allowed_providers": null,
+      "github": {
+        "scope": "linking_user_repos",
+        "require_org_admin": false,
+        "repo_allowlist": null
+      },
+      "source": "default",
+      "locked": false,
+      "updated_at": null,
+      "updated_by": null
+    }
+  }
+}

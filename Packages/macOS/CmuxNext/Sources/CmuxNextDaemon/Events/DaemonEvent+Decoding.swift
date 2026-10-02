@@ -10,6 +10,7 @@ extension DaemonEvent {
         case .paneAdded(let d), .paneClosed(let d): d.clientTransactionID
         case .tabAdded(let d), .tabClosed(let d), .tabRenamed(let d), .tabChanged(let d): d.clientTransactionID
         case .treeChanged(let transaction), .layoutChanged(_, let transaction): transaction
+        case .conversationChanged(let event): event.transaction
         default: nil
         }
     }
@@ -62,6 +63,8 @@ extension DaemonEvent {
             case "bookmarks-changed":
                 let e = try d(EventPayload.BookmarksChanged.self)
                 return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
+            case "conversation-changed": return .conversationChanged(try d(ConversationEvent.self))
+            case "conversation-typing": return .conversationTyping(try d(ConversationTyping.self))
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")

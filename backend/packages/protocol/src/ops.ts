@@ -18,7 +18,9 @@ import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { feedOps } from "./feed.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
+import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
+import { networkOps } from "./network-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -164,7 +166,9 @@ export const cloudOps = [
   ...integrationOps,
   ...feedOps,
   ...policyOps,
-  ...enrollmentOps
+  ...networkOps,
+  ...enrollmentOps,
+  ...ssoOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

@@ -19,10 +19,10 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
+    @Test func defaultBandsAreHomeAboveSettingsCustomizeAndAccountBelow() {
         let bands = defaults.bands(room: nil)
-        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home)])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
@@ -182,4 +182,25 @@ import Testing
         #expect(settings.accessibilityPerformPress())
         #expect(sent == [.activateItem(LayoutItemID("itm_settings"))])
     }
+
+    // MARK: Hidden apps (D55)
+
+    @Test func hiddenItemsDrawNothingAndStayInTheLayout() throws {
+        let model = SidebarModel()
+        var doc = SidebarLayoutDocument.defaults
+        doc.sections[0].items.append(LayoutItem(id: LayoutItemID("itm_app"), ref: .app("manaflow-ai/github-prs")))
+        model.layout = doc
+        model.itemInfo = [LayoutItemID("itm_app"): SidebarItemInfo(title: "PRs", symbol: "app", isHidden: true)]
+        let view = SidebarView(model: model)
+        view.frame = NSRect(x: 0, y: 0, width: 260, height: 700)
+        view.layoutSubtreeIfNeeded()
+        #expect(view.aboveRegion.itemView(LayoutItemID("itm_app")) == nil)
+        #expect(view.aboveRegion.itemView(LayoutItemID("itm_home")) != nil)
+        #expect(model.layout.item(LayoutItemID("itm_app")) != nil)
+        model.itemInfo = [LayoutItemID("itm_app"): SidebarItemInfo(title: "PRs", symbol: "app")]
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        #expect(view.aboveRegion.itemView(LayoutItemID("itm_app")) != nil)
+    }
+
 }

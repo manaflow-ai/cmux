@@ -15,8 +15,12 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var isActive: Bool
     /// The reference no longer resolves (a closed workspace): drawn dimmed.
     public var isMissing: Bool
+    /// Not drawn at all (a hidden app, D55); the item stays in the layout.
+    public var isHidden: Bool
 
-    public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false) {
+    public init(title: String, symbol: String, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false, isMissing: Bool = false,
+                isHidden: Bool = false) {
+        self.isHidden = isHidden
         self.title = title
         self.symbol = symbol
         self.color = color
@@ -36,6 +40,11 @@ extension SidebarBuiltIn {
         case .notifications: "bell"
         case .history: "clock.arrow.circlepath"
         case .bookmarks: "bookmark"
+        case .appStore: "bag"
+        case .newTerminal: "apple.terminal"
+        case .newBrowser: "globe"
+        case .newAgentChat: "bubble.left.and.text.bubble.right"
+        case .customize: "paintbrush"
         }
     }
 
@@ -48,6 +57,11 @@ extension SidebarBuiltIn {
         case .notifications: SectionStrings.notifications
         case .history: SectionStrings.history
         case .bookmarks: SectionStrings.bookmarks
+        case .appStore: SectionStrings.appStore
+        case .newTerminal: SectionStrings.newTerminal
+        case .newBrowser: SectionStrings.newBrowser
+        case .newAgentChat: SectionStrings.newAgentChat
+        case .customize: SectionStrings.customize
         }
     }
 
@@ -65,6 +79,7 @@ extension SidebarItemInfo {
         case LayoutItemRef.roomKind: "circle.grid.2x2"
         case LayoutItemRef.savedGroupKind: "folder"
         case LayoutItemRef.urlKind: "globe"
+        case LayoutItemRef.appKind: "app.dashed"
         default: "questionmark.square.dashed"
         }
         return SidebarItemInfo(title: ref.value, symbol: symbol, isMissing: true)

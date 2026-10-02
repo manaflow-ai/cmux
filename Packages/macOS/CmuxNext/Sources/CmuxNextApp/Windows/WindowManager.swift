@@ -341,8 +341,7 @@ final class WindowManager {
         await recordSaver.flushSaves()
         isTerminating = true
         membershipObservation?.cancel()
-        // Close Chromium before exit without spinning the run loop (5a).
-        await services.cache.cef.shutdown()
+        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.

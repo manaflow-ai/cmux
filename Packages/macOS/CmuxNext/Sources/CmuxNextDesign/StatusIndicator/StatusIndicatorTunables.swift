@@ -6,7 +6,7 @@ public import Foundation
 public nonisolated enum StatusIndicatorTunables {
     public static let style = Tunable<StatusIndicatorStyle>.choice(
         "status.indicator.style", .status, "Style override",
-        help: "Overrides appearance.statusIndicator.style everywhere: arc, native (NSProgressIndicator), dot, none.",
+        help: "Overrides appearance.statusIndicator.style everywhere: arc, native (NSProgressIndicator), dot, braille, none.",
         default: .arc, code: "StatusIndicatorSettings.style")
     public static let arcLength = Tunable<Double>.number(
         "status.indicator.arcLength", .status, "Arc length", help: "Share of the circle the indeterminate arc covers.",

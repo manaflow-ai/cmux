@@ -1,137 +1,252 @@
 {
- "ops": {
-  "app.storage.get": {
-   "version": 1,
-   "notes": [
-    {
-     "id": "note_pad_api",
-     "title": "",
-     "body": "rate limiter test flakes under load\n- [x] repro with 50 workers\n- [ ] check retry budget\nport 3001 busy: stop old dev server first",
-     "pinned": false,
-     "scratchpad": true,
-     "workspace": {
-      "id": "workspace_api",
-      "name": "api"
-     },
-     "createdAt": 1789820000000,
-     "updatedAt": 1789996400000,
-     "revision": 7,
-     "lastEdit": {
-      "via": "command",
-      "actor": "agent:session_7"
-     }
+  "grant": [
+    "workspace:read",
+    "mcp:expose",
+    "notes:read",
+    "notes:write",
+    "fs:read",
+    "workspace:write"
+  ],
+  "scopes": {
+    "note.list": {
+      "scope": "notes:read",
+      "class": "read"
     },
-    {
-     "id": "note_release",
-     "title": "Release checklist",
-     "body": "- [x] tag the build\n- [x] write release notes\n- [ ] update the docs site\n- [ ] announce in the team channel",
-     "pinned": true,
-     "scratchpad": false,
-     "workspace": null,
-     "createdAt": 1789280000000,
-     "updatedAt": 1789892000000,
-     "revision": 12,
-     "lastEdit": {
-      "via": "ui"
-     }
+    "note.get": {
+      "scope": "notes:read",
+      "class": "read"
     },
-    {
-     "id": "note_ideas",
-     "title": "",
-     "body": "# Ideas\n- notes inside search results\n- a scratchpad per workspace\n- export to a folder of markdown files",
-     "pinned": false,
-     "scratchpad": false,
-     "workspace": null,
-     "createdAt": 1789640000000,
-     "updatedAt": 1789982000000,
-     "revision": 3,
-     "lastEdit": {
-      "via": "ui"
-     }
+    "note.search": {
+      "scope": "notes:read",
+      "class": "read"
     },
-    {
-     "id": "note_pad_web",
-     "title": "",
-     "body": "login page: button overlaps on narrow width\nask design about the empty state",
-     "pinned": false,
-     "scratchpad": true,
-     "workspace": {
-      "id": "workspace_web",
-      "name": "web"
-     },
-     "createdAt": 1789712000000,
-     "updatedAt": 1789928000000,
-     "revision": 2,
-     "lastEdit": {
-      "via": "ui"
-     }
+    "note.append": {
+      "scope": "notes:write",
+      "class": "mutation"
     },
-    {
-     "id": "note_deploy",
-     "title": "Deploy runbook",
-     "body": "## Before\n1. freeze merges\n2. snapshot the database\n## Steps\n```\n./deploy.sh --env staging\n```\n> roll back with ./deploy.sh --undo",
-     "pinned": false,
-     "scratchpad": false,
-     "workspace": {
-      "id": "workspace_api",
-      "name": "api"
-     },
-     "createdAt": 1788920000000,
-     "updatedAt": 1789827200000,
-     "revision": 5,
-     "lastEdit": {
-      "via": "ui"
-     }
+    "note.create": {
+      "scope": "notes:write",
+      "class": "mutation"
     },
-    {
-     "id": "note_meeting",
-     "title": "Weekly sync",
-     "body": "decided: ship the scratchpad first\nopen question: sync across devices",
-     "pinned": false,
-     "scratchpad": false,
-     "workspace": null,
-     "createdAt": 1788560000000,
-     "updatedAt": 1789676000000,
-     "revision": 1,
-     "lastEdit": {
-      "via": "ui"
-     }
+    "note.update": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "document.edit": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "fs.pick": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
     }
-   ]
   },
-  "app.storage.set": null,
-  "app.storage.keys": [
-   "notes.v1"
-  ],
-  "workspace.list": [
-   {
-    "id": "workspace_api",
-    "session_id": "session_1",
-    "name": "api",
-    "index": 0,
-    "focused": true
-   },
-   {
-    "id": "workspace_web",
-    "session_id": "session_1",
-    "name": "web",
-    "index": 1,
-    "focused": false
-   },
-   {
-    "id": "workspace_docs",
-    "session_id": "session_1",
-    "name": "docs",
-    "index": 2,
-    "focused": false
-   }
-  ],
-  "workspace.get": {
-   "id": "workspace_api",
-   "session_id": "session_1",
-   "name": "api",
-   "index": 0,
-   "focused": true
+  "ops": {
+    "note.list": {
+      "notes": [
+        {
+          "id": "note_release000000001",
+          "doc": "doc_release000000001",
+          "title": "Release checklist",
+          "title_explicit": true,
+          "preview": "tag the build · update the changelog · announce in the team channel · watch error rates for an hour",
+          "pinned": true,
+          "scratchpad": false,
+          "workspace": null,
+          "lines": 4,
+          "created_at": 1790769411680,
+          "updated_at": 1790938611680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "user",
+            "actor": "usr_test",
+            "at": 1790938611680
+          }
+        },
+        {
+          "id": "note_pad0000000000001",
+          "doc": "doc_pad0000000000001",
+          "title": "rate limiter test flakes under load",
+          "title_explicit": false,
+          "preview": "rate limiter test flakes under load · repro with 50 workers · check retry budget · port 3001 busy: stop the old dev server first",
+          "pinned": false,
+          "scratchpad": true,
+          "workspace": {
+            "id": "workspace_api",
+            "name": "api"
+          },
+          "lines": 4,
+          "created_at": 1790841411680,
+          "updated_at": 1790948691680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "agent",
+            "actor": "agent_1",
+            "at": 1790948691680
+          }
+        },
+        {
+          "id": "note_triage000000001",
+          "doc": "doc_triage000000001",
+          "title": "Flaky test triage",
+          "title_explicit": true,
+          "preview": "3 of 40 runs failed in the payments suite · suspect: shared clock in the retry test",
+          "pinned": false,
+          "scratchpad": false,
+          "workspace": null,
+          "lines": 2,
+          "created_at": 1790931411680,
+          "updated_at": 1790945811680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "agent",
+            "actor": "agent_1",
+            "at": 1790945811680
+          }
+        },
+        {
+          "id": "note_padweb000000001",
+          "doc": "doc_padweb000000001",
+          "title": "try the new chart colors",
+          "title_explicit": false,
+          "preview": "try the new chart colors",
+          "pinned": false,
+          "scratchpad": true,
+          "workspace": {
+            "id": "workspace_web",
+            "name": "web"
+          },
+          "lines": 1,
+          "created_at": 1790877411680,
+          "updated_at": 1790920611680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "user",
+            "actor": "usr_test",
+            "at": 1790920611680
+          }
+        },
+        {
+          "id": "note_runbook000000001",
+          "doc": "doc_runbook000000001",
+          "title": "Deploy runbook",
+          "title_explicit": false,
+          "preview": "freeze merges · run the migration on staging · promote · roll back with the previous image tag",
+          "pinned": false,
+          "scratchpad": false,
+          "workspace": {
+            "id": "workspace_web",
+            "name": "web"
+          },
+          "lines": 5,
+          "created_at": 1790697411680,
+          "updated_at": 1790855811680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "user",
+            "actor": "usr_test",
+            "at": 1790855811680
+          }
+        },
+        {
+          "id": "note_ideas00000000001",
+          "doc": "doc_ideas00000000001",
+          "title": "Ideas",
+          "title_explicit": false,
+          "preview": "faster search across notes · export a folder per workspace",
+          "pinned": false,
+          "scratchpad": false,
+          "workspace": null,
+          "lines": 3,
+          "created_at": 1790625411680,
+          "updated_at": 1790769411680,
+          "revision": 1,
+          "last_edit": {
+            "actor_kind": "user",
+            "actor": "usr_test",
+            "at": 1790769411680
+          }
+        }
+      ],
+      "next": null
+    },
+    "note.get": {
+      "$sequence": [
+        {
+          "note": {
+            "id": "note_pad0000000000001",
+            "doc": "doc_pad0000000000001",
+            "title": "rate limiter test flakes under load",
+            "title_explicit": false,
+            "preview": "rate limiter test flakes under load · repro with 50 workers · check retry budget · port 3001 busy: stop the old dev server first",
+            "pinned": false,
+            "scratchpad": true,
+            "workspace": {
+              "id": "workspace_api",
+              "name": "api"
+            },
+            "lines": 4,
+            "created_at": 1790841411680,
+            "updated_at": 1790948691680,
+            "revision": 1,
+            "last_edit": {
+              "actor_kind": "agent",
+              "actor": "agent_1",
+              "at": 1790948691680
+            },
+            "body": "rate limiter test flakes under load\n- [x] repro with 50 workers\n- [ ] check retry budget\nport 3001 busy: stop the old dev server first"
+          }
+        },
+        {
+          "note": {
+            "id": "note_release000000001",
+            "doc": "doc_release000000001",
+            "title": "Release checklist",
+            "title_explicit": true,
+            "preview": "tag the build · update the changelog · announce in the team channel · watch error rates for an hour",
+            "pinned": true,
+            "scratchpad": false,
+            "workspace": null,
+            "lines": 4,
+            "created_at": 1790769411680,
+            "updated_at": 1790938611680,
+            "revision": 1,
+            "last_edit": {
+              "actor_kind": "user",
+              "actor": "usr_test",
+              "at": 1790938611680
+            },
+            "body": "- [x] tag the build\n- [x] update the changelog\n- [ ] announce in the team channel\n- [ ] watch error rates for an hour"
+          }
+        }
+      ]
+    },
+    "workspace.list": [
+      {
+        "id": "workspace_api",
+        "session_id": "session_1",
+        "name": "api",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_web",
+        "session_id": "session_1",
+        "name": "web",
+        "index": 1,
+        "focused": false
+      },
+      {
+        "id": "workspace_docs",
+        "session_id": "session_1",
+        "name": "docs",
+        "index": 2,
+        "focused": false
+      }
+    ]
   }
- }
 }

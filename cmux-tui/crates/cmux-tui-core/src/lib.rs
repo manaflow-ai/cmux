@@ -12,6 +12,8 @@ mod agent_hooks;
 pub mod backoff;
 mod browser;
 mod browser_provider;
+mod conversation_search;
+mod conversation_store;
 pub mod diagnostics;
 mod event_bus;
 mod git_ops;

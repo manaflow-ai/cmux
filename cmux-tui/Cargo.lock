@@ -782,6 +782,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
 
 [[package]]
+name = "cmux-app-manifest"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-browser-host"
 version = "0.1.0"
 dependencies = [
@@ -796,9 +804,18 @@ name = "cmux-cloud-cli"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-conversation"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-sdk",
  "libc",
  "log",
@@ -916,6 +933,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-server-core"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "hmac",
+ "proptest",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-sidebar"
 version = "1.0.0"
 dependencies = [
@@ -971,6 +1001,13 @@ dependencies = [
 [[package]]
 name = "cmux-theme-tokens"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-transport"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "cmux-tui"
@@ -1036,6 +1073,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-conversation",
  "cmux-layout-reducer",
  "cmux-pty",
  "cmux-remote-protocol",
@@ -1092,8 +1130,10 @@ dependencies = [
  "base64",
  "boringtun",
  "bytes",
+ "cmux-transport",
  "getrandom 0.3.4",
  "ip_network",
+ "libc",
  "smoltcp",
  "tokio",
  "tokio-util",

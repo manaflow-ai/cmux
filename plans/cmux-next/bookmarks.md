@@ -1,13 +1,14 @@
 # cmux next: bookmarks
 
 Written 2026-09-30 for the user request "we need to support bookmarks, have
-UI for that?". Branch `feat-cmux-next-bookmarks`. Chrome parity, scoped per
+UI for that?". Branch `feat-cmux-next-bookmarks`. Scoped per
 browser profile (data-model.md 5), stored as personal state in the home
 session (data-model.md 1.2c).
 
 ## 1. Model
 
-A bookmark tree per browser profile. Two fixed roots, as in Chrome: the
+A bookmark tree per browser profile. Two fixed roots, the same as Chromium's
+bookmark model: the
 **Bookmarks Bar** (`bar`) and **Other Bookmarks** (`other`). The roots are
 not rows; they are reserved parent values. Every other node is a row:
 
@@ -39,8 +40,8 @@ transaction. Limits: 100,000 nodes per profile, depth 64.
 
 The app copies the file into the daemon once when the daemon gains
 `bookmarks-v1`, then deletes the file. Incognito windows read the default
-profile's bookmarks (Chrome shows bookmarks in incognito) and write to them
-only on an explicit Bookmark action, as Chrome does.
+profile's bookmarks and write to them
+only on an explicit Bookmark action.
 
 ### 2.1 Daemon protocol (`bookmarks-v1`, home session only)
 
@@ -99,20 +100,20 @@ for an unknown id.
 | Edit bubble | popover from the star: Name, Folder (popup of every folder), Remove, Done, More… (manager at the node). Return saves, Escape closes. |
 | Bookmarks bar | under a browser pane's toolbar, off by default (`browser.showBookmarksBar`). Bookmarks Bar children left to right; folders open as menus; an overflow chevron menu holds what does not fit plus Other Bookmarks; drag reorders within the bar; right-click: Open, Open in New Tab, Edit…, Delete, Add Folder…, Show Bookmarks Bar, Bookmark Manager. |
 | `cmux://bookmarks` | native page like `cmux://history`: folder tree on the left, list on the right, search field, drag to reorder and to move into folders, edit and delete, Add Bookmark, Add Folder, Import (HTML), Export (HTML). |
-| Omnibar suggestions | bookmark rows (star icon) ranked with Chrome's rule: every typed term must prefix a word of the title or match the URL; bookmarks beat plain history for the same match quality. |
+| Omnibar suggestions | bookmark rows (star icon) ranked by one rule: every typed term must prefix a word of the title or match the URL; bookmarks beat plain history for the same match quality. |
 | Palette | Bookmark This Page, Bookmark All Tabs…, Open Bookmark… (palette page of every bookmark), Show/Hide Bookmarks Bar, Bookmark Manager, Import Bookmarks…, Export Bookmarks…. |
 | CLI | `cmux bookmark list|add|remove|open|move|import|export` |
 
 ### 3.1 Keys
 
-Chrome binds Cmd-D (bookmark), Cmd-Shift-D (bookmark all tabs), Cmd-Shift-B
-(bookmarks bar) and Cmd-Opt-B (manager). cmux already uses Cmd-D (Split
+The usual browser chords are Cmd-D (bookmark), Cmd-Shift-D (bookmark all tabs),
+Cmd-Shift-B (bookmarks bar) and Cmd-Opt-B (manager). cmux already uses Cmd-D (Split
 Right, tier 1; kept in pages by the round 3 decision), Cmd-Shift-D (Split
 Down) and Cmd-Opt-B (right sidebar). Defaults:
 
 | Action | Default | Tier |
 | --- | --- | --- |
-| `bookmark.toggleBar` Show Bookmarks Bar | Cmd-Shift-B (Chrome; free in cmux) | 1 |
+| `bookmark.toggleBar` Show Bookmarks Bar | Cmd-Shift-B (free in cmux) | 1 |
 | `bookmark.addPage` Bookmark This Page | none by default (Cmd-D is Split Right); the star and the palette | 2 |
 | `bookmark.manager` Bookmark Manager | none (Cmd-Opt-B is the right sidebar) | 1 |
 
@@ -146,13 +147,13 @@ as a cache):
 ## 5. Places (terminal locations): left out
 
 A "place" (workspace, cwd, optional command) does not fit the bookmark
-tree cleanly. Bookmarks are scoped per browser profile (Chrome parity,
+tree cleanly. Bookmarks are scoped per browser profile (the extension model,
 Netscape HTML, `chrome.bookmarks`), while a place belongs to a machine and
-a room; a place in the tree would break the HTML export and show to
+a space; a place in the tree would break the HTML export and show to
 extensions as a non-URL node. A command in a bookmark is also a code path
 that imported files could carry. The location trail (history.md 4.2), Go to
 Workspace and the proposed workspace templates (`layout-templates-v1`) cover
-the need with the right owner. Revisit as a room-scoped "Saved Places" list
+the need with the right owner. Revisit as a space-scoped "Saved Places" list
 if dogfood asks.
 
 ## 6. Status (2026-09-30, branch feat-cmux-next-bookmarks)

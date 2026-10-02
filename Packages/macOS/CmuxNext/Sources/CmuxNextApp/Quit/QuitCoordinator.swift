@@ -87,7 +87,9 @@ final class QuitCoordinator {
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
-        services.crashRecovery.quitBegan()
+        // Awaited (bounded) so `quitting` is on disk before the quit can end
+        // the process; the write itself runs off the main thread.
+        await services.crashRecovery.quitBegan()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
@@ -101,9 +103,13 @@ final class QuitCoordinator {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
                 await services.remoteTerminals.saveSnapshots()
+                // Browser tabs reopen at their recorded page (before any
+                // session ends, while the daemon still answers).
+                await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
             },
-            endLocalSessions: { await services.daemon.endSessionsAndStop($0) }
+            endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
+            stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

@@ -96,7 +96,9 @@ extension PaneController {
     /// reap grace period once its last tab closes. `fromSelectedTab` (New
     /// Terminal Tab itself) starts it in a selected agent's cwd (#16620);
     /// other callers (config commands, account logins) keep the pane's.
-    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false) {
+    /// `then` runs once the new tab is selected.
+    func newTerminalTab(cwd: String? = nil, typing text: String? = nil, keep: Bool? = nil, fromSelectedTab: Bool = false,
+                        then: (@MainActor (SurfaceID) -> Void)? = nil) {
         let handle = pane.handle
         // From an agent tab, the agent's cwd (#16620), asked when the tab is made.
         let agent = cwd == nil && fromSelectedTab ? selectedAgentView : nil
@@ -112,6 +114,7 @@ extension PaneController {
                 if let text { try await connection.send(created.surface, text: text) }
                 selectWhenReported(surface: created.surface)
                 self.workspace?.expectFocus(on: created.surface, generation: intent)
+                then?(created.surface)
                 return nil
             } catch {
                 daemon.logger.error("new-tab failed: \(String(describing: error), privacy: .public)")

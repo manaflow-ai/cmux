@@ -1,4 +1,4 @@
-// The changes one turn made, after the Codex Changes pane in manaflow-ai/codex-atlas-clone
+// The changes one turn made, ported from the changes pane in the agent-pane reference prototype
 // (src/changes/parts/Header.tsx, DiffList.tsx and ChangesTree.tsx): a pill with the totals,
 // a round toolbar, stacked per-file diffs on @pierre/diffs with a custom file header, and a
 // filterable @pierre/trees file tree.
@@ -45,11 +45,15 @@ export function DiffPanel({
   initialPath,
   onClose,
   source,
+  checkpointAction,
+  checkpointReview,
 }: {
   files: TurnFile[];
   initialPath?: string;
   onClose: () => void;
   source?: ChangesSource;
+  checkpointAction?: React.ReactNode;
+  checkpointReview?: React.ReactNode;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -146,7 +150,7 @@ export function DiffPanel({
           return next;
         });
       },
-      // Marking a file viewed folds it away, as in Codex; unmarking opens it again.
+      // Marking a file viewed folds it away; unmarking opens it again.
       toggleViewed: (path) => {
         revealing.current = undefined;
         const marking = !viewed.has(path);
@@ -210,6 +214,7 @@ export function DiffPanel({
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
         </ScopeMenu>
         <div className="acpmux-diff-tools" role="toolbar" aria-label="Changes view">
+          {checkpointAction}
           {tools.map((tool) => (
             <button
               key={tool.id}
@@ -226,6 +231,7 @@ export function DiffPanel({
           ))}
         </div>
       </header>
+      {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
           {scopeState ? (

@@ -70,10 +70,17 @@ final class AppServices {
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// Home: local conversations with the mux (plans/cmux-next/home.md).
+    private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
-    let sidebarLayout = SidebarLayoutService()
+    private(set) lazy var sidebarLayout: SidebarLayoutService = {
+        let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
+                                           onRefused: { [weak self] message in self?.registry.refuse(message) })
+        service.start()
+        return service
+    }()
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
@@ -111,7 +118,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry)
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?

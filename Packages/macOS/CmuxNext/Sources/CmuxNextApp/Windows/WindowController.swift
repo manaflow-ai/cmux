@@ -40,8 +40,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     init(state: WindowState, services: AppServices, frame: NSRect?) {
         self.state = state
         self.services = services
-        sidebar = SidebarBridge(services: services, state: state)
-        root = WindowRootView(sidebar: sidebar.container, rail: WindowRailView(registry: services.registry))
+        let sidebar = SidebarBridge(services: services, state: state)
+        self.sidebar = sidebar
+        let rail = WindowRailView(model: sidebar.model, registry: services.registry)
+        // The rail's items take the sidebar's menus (pin, remove, reorder).
+        rail.column.contextMenuProvider = { [weak sidebar] target in sidebar?.contextMenu(for: target) }
+        root = WindowRootView(sidebar: sidebar.container, rail: rail)
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],

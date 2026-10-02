@@ -30,21 +30,91 @@ const validator = () => (cachedValidator ??= new SchemaValidator(JSON.parse(read
 /** Scope names the host knows: every scope in generated/scopes.json plus the special scopes. */
 export const knownScope = (scope: string, generated: ReadonlySet<string>) => generated.has(scope) || SPECIAL_SCOPES.some((r) => r.test(scope))
 
+const loadGeneratedOps = (): Set<string> => {
+  if (!existsSync(scopesPath)) return new Set()
+  const doc = JSON.parse(readFileSync(scopesPath, "utf8")) as { ops: Record<string, unknown> }
+  return new Set(Object.keys(doc.ops))
+}
+
 const loadGeneratedScopes = (): Set<string> => {
   if (!existsSync(scopesPath)) return new Set()
   const doc = JSON.parse(readFileSync(scopesPath, "utf8")) as { ops: Record<string, { scope: string }> }
   return new Set(Object.values(doc.ops).map((o) => o.scope))
 }
 
-/** Loads a built `main` script with stub globals and returns the names it exports. */
-export const exportedNames = (source: string): string[] => {
+/** Loads a built `main` script with stub globals and returns each exported function with its palette kind, when it is a palette source. */
+export const exportedFunctions = (source: string): Map<string, "snapshot" | "query" | "detail" | undefined> => {
   const noop = () => stub
   const stub: unknown = new Proxy(noop, { get: () => stub, apply: () => stub })
   const sandbox: Record<string, unknown> = { __cmuxAppExports: undefined }
+  const KIND = "__cmuxPaletteKind"
+  const tagged = (kind: string) => (f: unknown) => Object.assign(() => f, { [KIND]: kind })
+  const palette = { snapshot: tagged("snapshot"), query: tagged("query"), detail: tagged("detail"), cached: () => ({}) }
+  const act = (id: string, args: unknown = {}) => ({ id, args })
   // The script declares `var __cmuxAppExports = (() => {...})()`; run it as a function body and return the binding.
-  const fn = new Function("globalThis", "cmux", "signal", "computed", "effect", `${source}\n;return typeof __cmuxAppExports === "undefined" ? globalThis.__cmuxAppExports : __cmuxAppExports;`)
-  const exports = fn(sandbox, stub, () => [stub, stub], () => stub, () => undefined) as Record<string, unknown> | undefined
-  return exports && typeof exports === "object" ? Object.keys(exports).filter((k) => typeof exports[k] === "function") : []
+  const fn = new Function("globalThis", "cmux", "signal", "computed", "effect", "palette", "act", `${source}\n;return typeof __cmuxAppExports === "undefined" ? globalThis.__cmuxAppExports : __cmuxAppExports;`)
+  const exports = fn(sandbox, stub, () => [stub, stub], () => stub, () => undefined, palette, act) as Record<string, unknown> | undefined
+  const out = new Map<string, "snapshot" | "query" | "detail" | undefined>()
+  if (!exports || typeof exports !== "object") return out
+  for (const [k, v] of Object.entries(exports)) if (typeof v === "function") out.set(k, (v as unknown as Record<string, unknown>)[KIND] as "snapshot" | "query" | "detail" | undefined)
+  return out
+}
+
+/** Loads a built `main` script with stub globals and returns the names it exports. */
+export const exportedNames = (source: string): string[] => [...exportedFunctions(source).keys()]
+
+const APP_SCOPE_REF = /^app:([^#]+)#(.+)$/
+
+/**
+ * Manifest-level palette rules the schema cannot express (palette-scopes.md
+ * section 6): prefixes are first-party only and unique, keywords do not
+ * collide inside the app, `children` name a scope of this manifest or
+ * `app:<id>#<scope>`, references to the app's own commands exist, and
+ * `mode: form` commands declare `arguments`.
+ */
+export function checkPalette(manifest: Record<string, unknown>): { errors: SchemaError[]; warnings: SchemaError[] } {
+  const errors: SchemaError[] = []
+  const warnings: SchemaError[] = []
+  const id = String(manifest.id ?? "")
+  const contributes = (manifest.contributes ?? {}) as Record<string, unknown>
+  const scopes = (Array.isArray(contributes.paletteScopes) ? contributes.paletteScopes : []) as Array<Record<string, any>>
+  const commands = (Array.isArray(contributes.commands) ? contributes.commands : []) as Array<Record<string, any>>
+  const scopeIds = new Set(scopes.map((s) => s.id))
+  const commandIds = new Set(commands.map((c) => c.id))
+  const keywordOwner = new Map<string, string>()
+  const prefixOwner = new Map<string, string>()
+  const ownAction = (at: string, action: unknown) => {
+    const m = typeof action === "string" ? APP_SCOPE_REF.exec(action) : null
+    if (m && m[1] === id && !commandIds.has(m[2]!)) errors.push({ path: at, code: "action.unknown", message: `${action} names no command of this app` })
+  }
+  scopes.forEach((s, i) => {
+    const at = `/contributes/paletteScopes/${i}`
+    if (typeof s.prefix === "string") {
+      if (!id.startsWith("cmux/")) errors.push({ path: `${at}/prefix`, code: "prefix.reserved", message: "only first-party apps (cmux/) may declare a prefix; users can assign one in cmux.json" })
+      else if (prefixOwner.has(s.prefix)) errors.push({ path: `${at}/prefix`, code: "prefix.collision", message: `prefix ${s.prefix} is also used by scope ${prefixOwner.get(s.prefix)}` })
+      else prefixOwner.set(s.prefix, s.id)
+    }
+    ;((s.keywords ?? []) as string[]).forEach((k, j) => {
+      const owner = keywordOwner.get(k)
+      if (owner !== undefined && owner !== s.id) errors.push({ path: `${at}/keywords/${j}`, code: "keyword.collision", message: `keyword ${k} is also used by scope ${owner}` })
+      else keywordOwner.set(k, s.id)
+    })
+    ;((s.children ?? []) as string[]).forEach((child, j) => {
+      const path = `${at}/children/${j}`
+      const m = APP_SCOPE_REF.exec(child)
+      const local = m ? (m[1] === id ? m[2]! : null) : child
+      if (local === s.id) errors.push({ path, code: "children.self", message: "a scope cannot be its own child" })
+      else if (local !== null && !scopeIds.has(local)) errors.push({ path, code: "children.unknown", message: `${child} is not a palette scope of this app` })
+    })
+    ownAction(`${at}/primary`, s.primary)
+    ownAction(`${at}/emptyState/action`, s.emptyState?.action)
+  })
+  commands.forEach((c, i) => {
+    if (c.mode === "form" && (typeof c.arguments !== "object" || c.arguments === null || typeof c.arguments.properties !== "object")) {
+      errors.push({ path: `/contributes/commands/${i}/arguments`, code: "arguments.required", message: "mode form renders the arguments schema; declare arguments with properties" })
+    }
+  })
+  return { errors, warnings }
 }
 
 const insideFiles = (path: string, files: readonly string[] | undefined) => {
@@ -90,9 +160,19 @@ export function validatePackage(dir: string, options: { generatedScopes?: Readon
   if (typeof manifest.icon === "string") paths.push(["/icon", manifest.icon])
   ;((manifest.screenshots as string[] | undefined) ?? []).forEach((p, i) => paths.push([`/screenshots/${i}`, p]))
 
+  // Native code paths (a cmux-shipped server binary, a built-in native pane view) are first-party only in
+  // phase 1 (Verified later); hosts refuse them for other tiers, and the validator says so up front.
+  const server = manifest.server as { kind?: string; catalog?: string } | undefined
+  if (typeof server?.catalog === "string") paths.push(["/server/catalog", server.catalog])
+  const firstParty = RESERVED_PUBLISHERS.has(publisher)
+  if (server?.kind === "native" && !firstParty) errors.push({ path: "/server/kind", code: "tier.native", message: "native servers are allowed only for first-party apps" })
+
   const contributes = (manifest.contributes ?? {}) as Record<string, unknown>
+  ;((contributes.paneKinds as Array<Record<string, unknown>> | undefined) ?? []).forEach((p, i) => {
+    if (p.renderer === "native" && !firstParty) errors.push({ path: `/contributes/paneKinds/${i}/renderer`, code: "tier.native", message: "native pane renderers are allowed only for first-party apps" })
+  })
   const seen = new Map<string, string>()
-  const exportRefs: Array<[string, string]> = []
+  const exportRefs: Array<[string, string, ("snapshot" | "query" | "detail")?]> = []
   for (const [kind, list] of Object.entries(contributes)) {
     if (!Array.isArray(list)) continue
     list.forEach((entry: Record<string, unknown>, i) => {
@@ -101,6 +181,12 @@ export function validatePackage(dir: string, options: { generatedScopes?: Readon
       if (seen.has(cid)) errors.push({ path: `${at}/id`, code: "contribution.duplicate", message: `contribution id ${cid} is also used at ${seen.get(cid)}` })
       else seen.set(cid, at)
       for (const key of ["render", "run"]) if (typeof entry[key] === "string") exportRefs.push([`${at}/${key}`, entry[key] as string])
+      if (kind === "paletteScopes") {
+        const source = entry.source as { kind?: string; export?: string } | undefined
+        if (source && (source.kind === "snapshot" || source.kind === "query") && typeof source.export === "string") exportRefs.push([`${at}/source/export`, source.export, source.kind])
+        const detail = entry.detail as { export?: string } | undefined
+        if (typeof detail?.export === "string") exportRefs.push([`${at}/detail/export`, detail.export, "detail"])
+      }
       for (const key of ["path", "ghostty", "template", "web"]) if (typeof entry[key] === "string") paths.push([`${at}/${key}`, entry[key] as string])
     })
   }
@@ -117,20 +203,33 @@ export function validatePackage(dir: string, options: { generatedScopes?: Readon
   } else if (typeof manifest.main === "string" && existsSync(join(dir, manifest.main))) {
     const source = readFileSync(join(dir, manifest.main), "utf8")
     if (statSync(join(dir, manifest.main)).size > LIMITS.mainBytes) errors.push({ path: "/main", code: "limit.main", message: "main is larger than 2 MiB" })
-    let names: string[] = []
+    let functions = new Map<string, "snapshot" | "query" | "detail" | undefined>()
     try {
-      names = exportedNames(source)
+      functions = exportedFunctions(source)
     } catch (e) {
       errors.push({ path: "/main", code: "main.load", message: `main failed to load: ${(e as Error).message}` })
     }
-    if (!names.length && !errors.some((e) => e.code === "main.load")) {
+    if (!functions.size && !errors.some((e) => e.code === "main.load")) {
       errors.push({ path: "/main", code: "main.noExports", message: "main defines no __cmuxAppExports (build with --format=iife --global-name=__cmuxAppExports)" })
     }
-    for (const [at, name] of exportRefs) {
-      if (names.length && !names.includes(name)) errors.push({ path: at, code: "export.missing", message: `main does not export function ${name}` })
+    for (const [at, name, kind] of exportRefs) {
+      if (!functions.size) continue
+      if (!functions.has(name)) errors.push({ path: at, code: "export.missing", message: `main does not export function ${name}` })
+      else if (kind && functions.get(name) !== undefined && functions.get(name) !== kind) errors.push({ path: at, code: "export.kind", message: `${name} is a palette.${functions.get(name)} source, not ${kind}` })
     }
     if (HEX_COLOR.test(source)) warnings.push({ path: "/main", code: "color.hex", message: "hex colors found; prefer semantic color tokens (primary, secondary, accent, success, warning, danger)" })
   }
+
+  const paletteChecks = checkPalette(manifest)
+  errors.push(...paletteChecks.errors)
+  warnings.push(...paletteChecks.warnings)
+  const scopeList = (Array.isArray(contributes.paletteScopes) ? contributes.paletteScopes : []) as Array<{ source?: { kind?: string; op?: string } }>
+  const knownOps = loadGeneratedOps()
+  scopeList.forEach((s, i) => {
+    if (s.source?.kind === "op" && s.source.op && knownOps.size && !knownOps.has(s.source.op)) {
+      warnings.push({ path: `/contributes/paletteScopes/${i}/source/op`, code: "op.unknown", message: `${s.source.op} is not in the operation catalog (fine for an op your app server owns)` })
+    }
+  })
 
   const generated = options.generatedScopes ?? loadGeneratedScopes()
   for (const key of ["scopes", "optionalScopes"]) {

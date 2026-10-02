@@ -29,6 +29,11 @@ import {
   type CreateProviderTunnelOptions,
   type ExecOptions,
   type ExecResult,
+  type VMFileContents,
+  type VMFileEntry,
+  type VMFileStat,
+  type VMFirewallRule,
+  type VMFirewallRuleInput,
   type ProviderNetwork,
   type ProviderTunnel,
   type ProviderTunnelAttachment,
@@ -824,6 +829,23 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
+  async listFirewallRules(options?: { vmId?: string; vpcId?: string; tunnelId?: string }): Promise<VMFirewallRule[]> {
+    const result = await this.client().firewall.rules.list(options);
+    return result.rules as VMFirewallRule[];
+  }
+
+  async getFirewallRule(ruleId: string): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.get(ruleId) as VMFirewallRule;
+  }
+
+  async createFirewallRule(options: VMFirewallRuleInput): Promise<VMFirewallRule> {
+    return await this.client().firewall.rules.create({ action: "allow", ...options }) as VMFirewallRule;
+  }
+
+  async deleteFirewallRule(ruleId: string): Promise<void> {
+    await this.client().firewall.rules.delete(ruleId);
+  }
+
   /**
    * Guarantee the network's members-reach-each-other rule (all ports, all
    * protocols — the rule created with the network). Missing means someone
@@ -1185,6 +1207,46 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  async listFiles(vmId: string, path: string): Promise<VMFileEntry[]> {
+    const entries = await this.deps.client().vms.ref(vmId).fs.readDir(path);
+    return entries.map((entry) => ({
+      name: entry.name,
+      kind: entry.kind === "directory" || entry.kind === "symlink" ? entry.kind : "file",
+    }));
+  }
+
+  async readFile(vmId: string, path: string): Promise<VMFileContents> {
+    const data = await this.deps.client().vms.ref(vmId).fs.readFile(path);
+    return { path, data: new Uint8Array(data), size: data.byteLength };
+  }
+
+  async writeFile(vmId: string, path: string, data: Uint8Array, mode?: number): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.writeFile(path, data, mode === undefined ? {} : { mode });
+  }
+
+  async makeDirectory(vmId: string, path: string): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.mkdir(path);
+  }
+
+  async removeFile(vmId: string, path: string): Promise<void> {
+    await this.deps.client().vms.ref(vmId).fs.remove(path);
+  }
+
+  async statFile(vmId: string, path: string): Promise<VMFileStat> {
+    const stat = await this.deps.client().vms.ref(vmId).fs.stat(path);
+    const raw = stat as unknown as Record<string, unknown>;
+    const kind = raw.isDirectory === true ? "directory" : raw.isSymlink === true ? "symlink" : "file";
+    const permissions = typeof raw.permissions === "string" ? Number.parseInt(raw.permissions, 8) : undefined;
+    const modified = typeof raw.modified === "string" ? Date.parse(raw.modified) : NaN;
+    return {
+      path,
+      kind,
+      size: typeof raw.size === "number" ? raw.size : undefined,
+      mode: permissions !== undefined && Number.isFinite(permissions) ? permissions : undefined,
+      modifiedAt: Number.isFinite(modified) ? modified : undefined,
+    };
   }
 
   /** Read provisioned dimensions without waking the guest or inventing usage gauges. */

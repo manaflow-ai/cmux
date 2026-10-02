@@ -45,7 +45,7 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
     public private(set) var state: BrowserTabState
 
     /// URL of the last committed document. A load stopped before it commits
-    /// reverts the address to this, like Chrome.
+    /// reverts the address to this.
     private var committedURL: URL?
 
     public init(state: BrowserTabState = BrowserTabState()) {

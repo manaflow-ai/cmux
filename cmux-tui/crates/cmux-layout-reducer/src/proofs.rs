@@ -24,7 +24,7 @@
 //! every `BTreeMap` operation, and Kani did not finish symbolic execution
 //! of a single such harness in 20 minutes (3 tabs, 3 panes, 2 workspaces).
 //! With the shape fixed, map structure stays concrete and the op is fully
-//! symbolic. The shapes cover a single tab, tab strips, tree splits, niri
+//! symbolic. The shapes cover a single tab, tab strips, tree splits, scrolling
 //! columns, two workspaces, and a workspace without screens; the proptest
 //! in `tests.rs` covers larger random states and op sequences.
 //!
@@ -38,7 +38,7 @@ use super::*;
 
 /// Workspaces of screens of columns of panes, each a tab count. Ids come
 /// from one counter in that order, starting at 1, like the daemon's. A
-/// screen with more than one column has niri columns. Returns the state and
+/// screen with more than one column has scrolling columns. Returns the state and
 /// the first unused id.
 fn shape(layout: &[&[&[&[usize]]]]) -> (LayoutState, u64) {
     let mut next = 1u64;
@@ -121,6 +121,7 @@ fn any_kind(next: u64, fresh: [u64; 3]) -> LayoutOpKind {
             pane: any_known(next),
             edge: any_edge(),
             new_pane: fresh[0],
+            respawn: None,
         },
         2 => LayoutOpKind::MoveTabToColumn {
             tab: any_known(next),
@@ -303,7 +304,7 @@ shape_proofs! {
     strip_of_two => &[&[&[&[2]]]];
     split_one_one => &[&[&[&[1, 1]]]];
     split_two_one => &[&[&[&[2, 1]]]];
-    // Niri columns.
+    // Scrolling columns.
     columns_one_one => &[&[&[&[1], &[1]]]];
     columns_split_and_one => &[&[&[&[1, 1], &[1]]]];
     // Two workspaces.
