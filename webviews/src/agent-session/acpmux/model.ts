@@ -112,10 +112,17 @@ export function visibleRowRange(rowCount: number, scrollTop: number, viewportHei
   return { first, last };
 }
 
-/// The edited-files card's height for `files` changed files (styles.css `.acpmux-edited`).
-export function editedCardHeight(files: number): number {
-  if (files <= 1) return 58;
-  return 58 + 34 * Math.min(files, 3) + (files > 3 ? 34 : 0);
+/// The edited-files card's height for `files` changed files with diffs and `plain` edits listed
+/// without one (styles.css `.acpmux-edited`). A lone file with a diff is named in the head.
+export function editedCardHeight(files: number, plain = 0): number {
+  const entries = files + plain;
+  if (entries <= 1 && plain === 0) return 58;
+  return 58 + 34 * Math.min(entries, 3) + (entries > 3 ? 34 : 0);
+}
+
+/// What an edit without a diff lists as in the edited-files card, deduped.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): string[] {
+  return [...new Set(items.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text))];
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
@@ -126,8 +133,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     // Collapsed tool calls, or the edited-files card (App.tsx EditedFilesRow): a 58px head, and
     // 34px for each of the first three files and for "Show N more"; one file is named in the head.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
-    const files = new Set(edits.flatMap((item) => item.tool?.diffs?.length ? item.tool.diffs.map((diff) => diff.path) : [item.text])).size;
-    return edits.length ? 14 + editedCardHeight(files) : 34;
+    const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
+    return edits.length ? 14 + editedCardHeight(files, plainEditLabels(edits).length) : 34;
   }
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;

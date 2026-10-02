@@ -1,8 +1,8 @@
 // Line icons for the changes view and the edited-files card, after the Codex glyphs in
 // manaflow-ai/codex-atlas-clone (src/changes/icons.tsx, src/conversation/icons.tsx).
 // They draw in currentColor, so the pane's theme colors them.
-import React, { type SVGProps } from "react";
-import { getBuiltInSpriteSheet } from "@pierre/trees";
+import React, { useLayoutEffect, type SVGProps } from "react";
+import { createFileTreeIconResolver, getBuiltInSpriteSheet } from "@pierre/trees";
 
 type P = SVGProps<SVGSVGElement>;
 const line = (size: number): P => ({ width: size, height: size, viewBox: "0 0 16 16", fill: "none", stroke: "currentColor", strokeWidth: 1.25, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true });
@@ -18,24 +18,25 @@ export const Eye = (p: P) => <svg {...line(16)} {...p}><path d="M1.6 8s2.3-4.4 6
 export const Search = (p: P) => <svg {...line(16)} {...p}><circle cx="7" cy="7" r="4.6" /><path d="M10.4 10.4l3.4 3.4" /></svg>;
 export const DiffFile = (p: P) => <svg {...line(20)} strokeWidth={1.1} {...p}><rect x="2.75" y="2.75" width="10.5" height="10.5" rx="2.4" /><path d="M8 4.9v4M6 6.9h4M6 11h4" /></svg>;
 
-let spriteInjected = false;
+const SPRITE_ID = "acpmux-file-icon-sprite";
 /// The tree draws its sprite inside its own shadow root; headers in the page need a copy.
+/// It is checked in the DOM rather than a flag, so a replaced body gets it again.
 function ensureSprite() {
-  if (spriteInjected || typeof document === "undefined" || !document.body) return;
-  spriteInjected = true;
+  if (typeof document === "undefined" || !document.body || document.getElementById(SPRITE_ID)) return;
   const holder = document.createElement("div");
+  holder.id = SPRITE_ID;
   holder.hidden = true;
   holder.innerHTML = getBuiltInSpriteSheet("complete");
   document.body.prepend(holder);
 }
 
-const ICONS: Record<string, string> = { md: "markdown", markdown: "markdown", sh: "bash", ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", json: "json", py: "python", rs: "rust", go: "go", swift: "swift", css: "css", html: "html" };
+// The tree's own resolver, so a header shows the same icon as the file's tree row.
+const icons = createFileTreeIconResolver({ set: "complete", colored: true });
 
 /// The file-type icon @pierre/trees shows for `path`, so diff headers and tree rows match.
 export function FileTypeIcon({ path }: { path: string }) {
-  ensureSprite();
-  const name = path.split("/").pop() ?? path;
-  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
-  const id = name === "CLAUDE.md" ? "claude" : ICONS[ext] ?? "default";
-  return <svg className="acpmux-file-icon" width={16} height={16} viewBox="0 0 16 16" aria-hidden data-icon={id}><use href={`#file-tree-builtin-${id}`} /></svg>;
+  useLayoutEffect(ensureSprite, []);
+  const resolved = icons.resolveIcon("file-tree-icon-file", path).name;
+  const id = resolved.startsWith("file-tree-builtin-") ? resolved : "file-tree-builtin-default";
+  return <svg className="acpmux-file-icon" width={16} height={16} viewBox="0 0 16 16" aria-hidden data-icon={id.slice("file-tree-builtin-".length)}><use href={`#${id}`} /></svg>;
 }

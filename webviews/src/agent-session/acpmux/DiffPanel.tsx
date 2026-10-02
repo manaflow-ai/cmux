@@ -77,14 +77,18 @@ function EditBlock({ file, edit, index, layout, wrap, view, on, onPainted }: { f
     disableLineNumbers: !edit.numbered,
     // The bundled page allows no WebAssembly.
     preferredHighlighter: "shiki-js" as const,
+    disableFileHeader: true,
     unsafeCSS: diffUnsafeCSS,
     onPostRender: afterRender,
   }), [layout, wrap, edit.numbered, afterRender]);
+  // The header sits outside Pierre's diff, so collapsing or marking a file keeps the same
+  // header node and the button the reader pressed keeps focus.
   const header = <FileHeader file={file} edit={edit} index={index} view={view} on={on} />;
-  // A collapsed file shows its header only; an edit with no line changes says so.
-  if (view.collapsed || edit.hunks.length === 0) return <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>{header}{!view.collapsed && <div className="acpmux-diff-empty-edit">No line changes</div>}</div>;
-  return <div className="acpmux-diff-file" data-path={file.path}>
-    <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} renderCustomHeader={() => header} />
+  const showDiff = !view.collapsed && edit.hunks.length > 0;
+  return <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
+    {header}
+    {!view.collapsed && edit.hunks.length === 0 && <div className="acpmux-diff-empty-edit">No line changes</div>}
+    {showDiff && <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} />}
   </div>;
 }
 
@@ -103,8 +107,15 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
   // Pierre reports selection from clicks and keys; only file rows map to a diff.
   const onSelectionChange = useStableCallback((paths: readonly string[]) => {
     const file = filesRef.current.get(paths[paths.length - 1] ?? "");
-    if (file && file.path !== selected) onSelect(file.path);
+    if (file) onSelect(file.path);
   });
+  // Pierre reports no change when the selected row is clicked again, but that file may have
+  // been collapsed or scrolled away since, so the click reveals it.
+  const onRowClick = (event: React.MouseEvent) => {
+    const row = event.nativeEvent.composedPath().find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.itemPath !== undefined);
+    const file = row && filesRef.current.get(row.dataset.itemPath!);
+    if (file && file.path === selected) onSelect(file.path);
+  };
   const [filter, setFilter] = useState("");
   const displayPaths = useMemo(() => {
     const query = filter.trim().toLowerCase();
@@ -123,16 +134,17 @@ function ChangedFilesTree({ files, selected, onSelect }: { files: TurnFile[]; se
     renderRowDecoration,
     unsafeCSS: treeUnsafeCSS,
   });
+  // A transcript update rebuilds the files; the tree resets only when the paths differ.
   const shown = useRef(displayPaths);
   useEffect(() => {
-    if (shown.current === displayPaths) return;
+    if (shown.current.length === displayPaths.length && shown.current.every((path, i) => path === displayPaths[i])) return;
     shown.current = displayPaths;
     model.resetPaths(displayPaths);
   }, [model, displayPaths]);
   return <>
     <label className="acpmux-diff-filter"><Search width={14} height={14} /><input type="search" aria-label="Filter files" placeholder="Filter files…" value={filter} onChange={(event) => setFilter(event.target.value)} /></label>
     {displayPaths.length === 0 && <div className="acpmux-diff-tree-empty">No matching files</div>}
-    <FileTree model={model} className="acpmux-diff-tree-host" />
+    <FileTree model={model} className="acpmux-diff-tree-host" onClick={onRowClick} />
   </>;
 }
 

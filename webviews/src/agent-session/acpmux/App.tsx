@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, plainEditLabels, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost } from "./mock";
@@ -101,7 +101,7 @@ const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProp
   const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
   const files = useMemo(() => turnFiles([row]), [row]);
   // An edit whose tool call carried no diff still lists, without counts.
-  const plain = edits.filter((item) => !item.tool?.diffs?.length).map((item) => item.tool?.inputSummary || item.text);
+  const plain = plainEditLabels(edits);
   const entries: { key: string; file?: TurnFile; text?: string }[] = [...files.map((file) => ({ key: file.path, file })), ...plain.map((text, index) => ({ key: `plain-${index}`, text }))];
   const total = entries.length;
   const additions = files.reduce((sum, file) => sum + file.additions, 0);
