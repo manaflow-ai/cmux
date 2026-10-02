@@ -104,6 +104,34 @@ Both are behind a Debug Settings tunable (`settings.layout`), so one build shows
 5. **The missing controls:** app theme, terminal font, interface size, default shell, Agents page. Appearance is coordinated with cc-pane-chrome's studio.
 6. **Undo instead of confirm**, and every handler on `setSetting`.
 
+## Status of step 5 (missing controls)
+
+New schema rows, so each is in the window, its search, the MDM schema
+(docs/mdm/managed-preferences.md) and cmux.json:
+
+| Key | Page | Control | Default |
+|---|---|---|---|
+| `appearance.theme` | Appearance, first row | Ghostty config, the onboarding themes, More Themes (every Ghostty theme) | Ghostty config |
+| `appearance.metrics.chromeFontSize` | Appearance > Density and Motion | slider, 10 to 16 pt (same key as Increase/Decrease/Reset Interface Size) | density's size |
+| `terminal.fontFamily` | Terminal, first group | installed fixed-pitch families | Ghostty config |
+| `terminal.fontSize` | Terminal, first group | slider, 4 to 96 pt | Ghostty config |
+
+Theme and terminal font apply live as Ghostty overrides (`TerminalThemeSetting`).
+Reset All keeps them (`SettingsSchema.keptOnResetAll`): they are the look picked
+at onboarding; each row's Reset still clears it.
+
+**Default shell is not built.** No cmux.json key exists. Terminals run
+`$SHELL` from the login environment the app captures for `cmux-tui server
+ensure` (`LoginEnvironment`, `DaemonLauncher`); cmux-tui's `resolved_shell`
+(cmux-pty) takes `SHELL` from the spawn's environment first. A
+`terminal.shell` key would need: the setting and parser here; every
+terminal-spawning request (`TerminalSpawningRequest` in `DaemonConnection`:
+new tab, split, respawn, layouts) passing `env["SHELL"]`, which the daemon
+stores with the terminal's receipt; `GhosttyShellIntegration.apply(shell:)`
+picking the integration for that shell; and a decision for remote and Cloud
+machines, whose shells are not local paths. "Default agent" has no key
+either.
+
 ## Related work
 
 - #16528 (cmux-next: polish Settings layout) aligns rows into one control column and adds card outlines. The IA changes build on it, and the expanders use its row geometry.

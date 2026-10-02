@@ -175,6 +175,8 @@ pub fn create(request: &CreateRequest<'_>) -> Result<ConversationHead, Reject> {
         created_at: request.now.to_string(),
         updated_at: request.now.to_string(),
         read_cursors: Default::default(),
+        agent_text_streak: 0,
+        last_agent_text_at: None,
     })
 }
 
@@ -225,6 +227,16 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             }
             next.last_seq = head.last_seq + 1;
             next.updated_at = now.to_string();
+            // The loop guard counts text only; a work card neither counts nor resets it.
+            if parts.iter().any(|part| matches!(part, Part::Text { .. })) {
+                let author = head.participant(request.actor);
+                if author.is_some_and(|p| p.kind == ParticipantKind::Agent) {
+                    next.agent_text_streak = head.agent_text_streak.saturating_add(1);
+                    next.last_agent_text_at = Some(now.to_string());
+                } else {
+                    next.agent_text_streak = 0;
+                }
+            }
             let message = Message {
                 id: request.new_message_id.to_string(),
                 conversation: head.id.clone(),

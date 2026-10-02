@@ -16,7 +16,8 @@ enum ImportCountsText {
 
 /// One browser profile: the browser's icon with the profile's picture on
 /// it, the browser and profile names, and on the right a checkbox, the
-/// running kind, or what came over. Clicking anywhere on the row toggles it.
+/// running kind, or what came over. Clicking anywhere on the row toggles it;
+/// an editable row shows the shared hover and pressed fill (`OnboardingHover`).
 final class ImportProfileRow: NSView {
     static let height: CGFloat = 44
     private let toggle: () -> Void
@@ -25,6 +26,7 @@ final class ImportProfileRow: NSView {
     private let detail = OnboardingLabel.make(font: OnboardingMetrics.captionFont, color: Palette.textSecondary)
     private let mark = NSImageView()
     private var editable = true
+    private(set) lazy var hover = OnboardingHover(self)
 
     init(profile: BrowserSourceProfile, appURL: URL?, toggle: @escaping () -> Void) {
         self.toggle = toggle
@@ -85,13 +87,39 @@ final class ImportProfileRow: NSView {
 
     @objc private func boxPressed() { toggle() }
 
+    override func layout() {
+        super.layout()
+        hover.layout()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        hover.updateTrackingAreas()
+    }
+
+    override func mouseEntered(with event: NSEvent) { if editable { hover.state.hovering = true } }
+    override func mouseExited(with event: NSEvent) { hover.state.hovering = false }
+
     override func mouseDown(with event: NSEvent) {
         guard editable else { return }
-        toggle()
+        hover.state.pressed = true
+    }
+
+    /// Toggles on release inside the row, as a button does.
+    override func mouseUp(with event: NSEvent) {
+        guard hover.state.pressed else { return }
+        hover.state.pressed = false
+        if editable, bounds.contains(convert(event.locationInWindow, from: nil)) { toggle() }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        hover.refresh(animated: false)
     }
 
     func update(checked: Bool, editable: Bool, state: ImportStepModel.RowState) {
         self.editable = editable
+        if !editable { hover.state = OnboardingHover.State() }
         box.state = checked ? .on : .off
         box.isEnabled = editable
         var showsBox = false

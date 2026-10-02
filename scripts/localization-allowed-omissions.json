@@ -4308,5 +4308,14 @@
     "identityLocales": {
       "fr": "\"Actions\" is spelled the same in French; cmux.json is a file name."
     }
+  },
+  "agentPane.handoff.plan": {
+    "source": "Plan",
+    "identityLocales": {
+      "de": "Plan is the established German UI word for a plan; the translated catalog entry remains explicit.",
+      "fr": "Plan is the established French UI word for a plan; the translated catalog entry remains explicit.",
+      "es": "Plan is the established Spanish UI word for a plan; the translated catalog entry remains explicit."
+    }
   }
+
 }
