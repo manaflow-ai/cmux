@@ -37,7 +37,7 @@ describe("turn view", () => {
   test("a finished turn folds its work under Worked for, timed to the answer", () => {
     const view = turnView(turn, new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s · 2 tool calls");
+    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
     // The footer copies the answer and does not repeat the fold's time.
     expect(view.at(-1)).toMatchObject({ text: "Done.", folded: true });
   });
@@ -112,7 +112,7 @@ describe("turn view", () => {
   test("a turn that ended without an answer folds all of its work", () => {
     const view = turnView([turn[0]!, turn[2]!, turn[5]!], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "s"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 54s · 2 tool calls");
+    expect(workedLabel(view[1]!)).toBe("Worked for 54s");
   });
 
   test("rows before the first prompt draw as they are", () => {
@@ -124,7 +124,7 @@ describe("turn view", () => {
 
   test("a stopped turn says so", () => {
     const view = turnView([...turn.slice(0, 5), { ...turn[5]!, status: "cancelled" }], new Set());
-    expect(workedLabel(view[1]!)).toBe("You stopped after 15s · 2 tool calls");
+    expect(workedLabel(view[1]!)).toBe("You stopped after 15s");
   });
 
   test("rows after a turn's summary still draw", () => {
@@ -137,7 +137,7 @@ describe("turn view", () => {
     const queued = row("local-1", "user", 1_500, { text: "also this", pending: true });
     const view = turnView([...turn.slice(0, 2), queued, ...turn.slice(2)], new Set());
     expect(ids(view)).toEqual(["u", "worked-u", "a", "e", "s", "local-1"]);
-    expect(workedLabel(view[1]!)).toBe("Worked for 15s · 2 tool calls");
+    expect(workedLabel(view[1]!)).toBe("Worked for 15s");
   });
 
   test("the fold line and footer change version when what they draw changes", () => {

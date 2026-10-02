@@ -21,6 +21,8 @@ export type AcpmuxRow = {
   /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
   /// folds under one summary line (conversation/toolRunSummary.ts).
   settled?: boolean;
+  /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
+  previous?: number;
 };
 
 export type AcpmuxActivity = {
