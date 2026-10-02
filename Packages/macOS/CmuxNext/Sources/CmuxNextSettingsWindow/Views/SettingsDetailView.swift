@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import SwiftUI
 
 /// The Settings detail: the selected page or the search results (pages
@@ -9,6 +10,10 @@ import SwiftUI
 struct SettingsDetailView: View {
     let model: SettingsWindowModel
     let layout: SettingsWindowLayout
+    /// The one page's header offsets; shared with the jump so a jump can
+    /// keep the scroll-spy from overriding its section.
+    @State private var spy = SettingsSpyOffsets()
+    @State private var highlightTimer = DemandTimer(owner: "Settings.highlight")
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -22,12 +27,13 @@ struct SettingsDetailView: View {
                     case .pages:
                         if model.query.isEmpty {
                             Text(model.selection.title).font(SettingsStyle.title).foregroundStyle(SettingsStyle.text)
+                                .id(SettingsAnchor.header(model.selection).id)
                             SettingsSectionView(model: model, section: model.selection)
                         } else {
                             SettingsSearchResultsView(model: model)
                         }
                     case .onePage:
-                        SettingsOnePageView(model: model)
+                        SettingsOnePageView(model: model, spy: spy)
                     }
                 }
                 .padding(.horizontal, Metrics.space6 + Metrics.space4)
@@ -42,6 +48,10 @@ struct SettingsDetailView: View {
             // No rubber band while the page fits.
             .scrollBounceBehavior(.basedOnSize)
             .scrollEdgeFade()
+            // The user scrolling hands the sidebar back to the scroll-spy.
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting { spy.heldByJump = false }
+            }
             .onChange(of: model.jump?.serial, initial: true) {
                 guard let jump = model.jump else { return }
                 Task { @MainActor in await follow(jump, proxy: proxy) }
@@ -55,13 +65,21 @@ struct SettingsDetailView: View {
     private func follow(_ jump: SettingsJump, proxy: ScrollViewProxy) async {
         await Task.yield()
         guard model.jump?.serial == jump.serial else { return }
+        // The jump picked the section; a centered row, or a last section
+        // whose header cannot reach the top, must not hand it to the spy.
+        spy.heldByJump = true
         let point: UnitPoint = jump.anchor.isHeader ? .top : .center
         proxy.scrollTo(jump.anchor.id, anchor: point)
         guard jump.highlights else { return }
         let plan = model.highlightPlan
-        if plan.hold > 0 {
-            try? await Task.sleep(for: .seconds(plan.hold))
+        guard plan.hold > 0 else { return Self.endHighlight(jump, plan: plan, model: model) }
+        let model = model
+        highlightTimer.schedule(after: .seconds(plan.hold)) { @MainActor in
+            SettingsDetailView.endHighlight(jump, plan: plan, model: model)
         }
+    }
+
+    private static func endHighlight(_ jump: SettingsJump, plan: SettingsHighlightPlan, model: SettingsWindowModel) {
         // motion-allow: the fade is the Motion highlight token; without one (Reduce Motion, speed off) it goes in one frame
         withAnimation(plan.animates ? Motion.animation(.highlight) : nil) { model.endHighlight(jump) }
     }
@@ -75,9 +93,9 @@ struct SettingsOnePageView: View {
     static let coordinateSpace = "cmux.settings.detail"
 
     let model: SettingsWindowModel
-    /// Header offsets, kept out of the view's state so scrolling does not
+    /// Header offsets, kept out of observed state so scrolling does not
     /// rebuild the page.
-    @State private var spy = SettingsSpyOffsets()
+    let spy: SettingsSpyOffsets
 
     var body: some View {
         let filter = model.pageFilter()
@@ -89,6 +107,7 @@ struct SettingsOnePageView: View {
         ForEach(sections) { section in
             SettingsPageHeader(section: section) { offset in
                 spy.offsets[section] = offset
+                guard !spy.heldByJump else { return }
                 let current = SettingsScrollSpy.section(order: sections, offsets: spy.offsets, line: Metrics.titlebarHeight)
                 if let current, current != model.selection { model.selection = current }
             }
@@ -109,6 +128,8 @@ private struct SettingsPageHeader: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .id(SettingsAnchor.header(section).id)
             .onGeometryChange(for: CGFloat.self) { proxy in
+                // SettingsOnePageView.coordinateSpace, spelled out: this
+                // transform runs off the main actor.
                 proxy.frame(in: .named("cmux.settings.detail")).minY
             } action: { offset in
                 onOffset(offset)

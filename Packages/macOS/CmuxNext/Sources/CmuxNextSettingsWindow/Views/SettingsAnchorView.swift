@@ -47,4 +47,7 @@ struct SettingsJumpTitle: View {
 /// without re-running the page's body.
 final class SettingsSpyOffsets {
     var offsets: [SettingsSection: CGFloat] = [:]
+    /// Set by a jump or sidebar click, which picked the section itself;
+    /// cleared when the user scrolls.
+    var heldByJump = false
 }
