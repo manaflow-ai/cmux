@@ -42,6 +42,8 @@ public final class SettingsController {
     @ObservationIgnored let managedReader: any ManagedPreferenceReader
     @ObservationIgnored let managedWatchFiles: [URL]
     @ObservationIgnored var managedWatchers: [ConfigFileWatcher] = []
+    @ObservationIgnored var statusTarget: (url: URL, context: ManagedStatusReport.Context)?
+    @ObservationIgnored var lastStatusBody: JSONValue?
     @ObservationIgnored private var loadWaiters: [LoadWaiter] = []
 
     private struct LoadWaiter {
@@ -237,47 +239,40 @@ public final class SettingsController {
         let configDirectory = file.url.deletingLastPathComponent()
         let reader = managedReader
         let team = teamPolicy
-        let loaded: (inputs: LoadInputs, effective: EffectiveSettings?, snapshot: CmuxConfigSnapshot) = await Task.detached {
+        let lastGood = fileRoot
+        let loaded: (inputs: LoadInputs, effective: EffectiveSettings, snapshot: CmuxConfigSnapshot) = await Task.detached {
             let managed = reader.read()
-            let source: String
+            var source = ""
+            var problem: String?
+            var root = lastGood
             do {
                 source = try await file.source()
+                let parsed = try JSONC.parse(source)
+                if case .object = parsed { root = parsed } else { problem = "root is not an object" }
             } catch {
-                var snapshot = CmuxConfigSnapshot.empty
-                snapshot.diagnostics = [SettingsDiagnostic(kind: .unreadableFile, path: "", message: String(describing: error))]
-                return (LoadInputs(source: "", managed: managed, team: team), nil, snapshot)
+                problem = String(describing: error)
             }
-            let inputs = LoadInputs(source: source, managed: managed, team: team)
-            do {
-                // Managed layers merge before parsing, so every module sees
-                // effective values through the one parse (spec/enterprise.md 5.2).
-                let fileRoot = try JSONC.parse(source)
-                // A root that is not an object keeps the previous snapshot, with the parser's diagnostic.
-                guard case .object = fileRoot else {
-                    return (inputs, nil, CmuxConfigSnapshot.parse(fileRoot, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory))
-                }
-                let effective = EffectiveSettings.merge(file: fileRoot, managed: managed, team: team)
-                var snapshot = CmuxConfigSnapshot.parse(
-                    effective.root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
-                )
-                snapshot.diagnostics += effective.diagnostics
-                return (inputs, effective, snapshot)
-            } catch {
-                var snapshot = CmuxConfigSnapshot.empty
-                snapshot.diagnostics = [SettingsDiagnostic(kind: .unreadableFile, path: "", message: String(describing: error))]
-                return (inputs, nil, snapshot)
-            }
+            // Managed layers always merge, over the last good file when this one
+            // is unreadable, so MDM forced values apply even while the user's
+            // file is broken (spec/enterprise.md 5.2).
+            let effective = EffectiveSettings.merge(file: root, managed: managed, team: team)
+            var snapshot = CmuxConfigSnapshot.parse(
+                effective.root, validDensities: validDensities, validMetrics: validMetrics, configDirectory: configDirectory
+            )
+            if let problem { snapshot.diagnostics.insert(SettingsDiagnostic(kind: .unreadableFile, path: "", message: problem), at: 0) }
+            snapshot.diagnostics += effective.diagnostics
+            return (LoadInputs(source: source, managed: managed, team: team), effective, snapshot)
         }.value
         if loaded.inputs != lastSource || loadCount == 0 {
             lastSource = loaded.inputs
             diagnostics = applier.apply(loaded.snapshot)
-            if let effective = loaded.effective {
-                snapshot = loaded.snapshot
-                fileRoot = effective.fileRoot
-                managedKeys = effective.managedKeys
-                managedPolicy = effective.policy
-                file.managedGuard.update(effective.managedKeys)
-            }
+            let effective = loaded.effective
+            snapshot = loaded.snapshot
+            fileRoot = effective.fileRoot
+            managedKeys = effective.managedKeys
+            managedPolicy = effective.policy
+            file.managedGuard.update(effective.managedKeys)
+            reportManagedStatus(managed: loaded.inputs.managed, team: loaded.inputs.team, effective: effective)
         }
         loadCount += 1
         let ready = loadWaiters.filter { $0.count <= loadCount }

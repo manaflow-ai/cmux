@@ -122,6 +122,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let shortcutEditor = PaletteShortcutEditor(services: services, settings: settings)
         services.paletteShortcutEditor = shortcutEditor
         services.palette.shortcutRecorder.editor = shortcutEditor
+        // Managed-settings status for MDM tooling (osquery, Fleet, Jamf), plans/cmux-next/enterprise.md.
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.cmuxterm.app"
+        settings.writeManagedStatus(
+            to: ManagedStatusReport.defaultURL(bundleID: bundleID),
+            context: ManagedStatusReport.Context(
+                appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0",
+                bundleID: bundleID
+            )
+        )
         settings.start()
         // macOS posts no notification when an MDM profile changes; activation
         // is the event-driven backstop next to the managed-file watchers.
