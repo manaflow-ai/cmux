@@ -499,3 +499,89 @@ fn deleting_a_browser_profile_deletes_its_bookmarks() {
         .unwrap();
     assert_eq!(listed(&mux, WORK)["bookmarks"], json!([]));
 }
+
+/// The result without `replayed`, to compare an original and its replay.
+fn without_replayed(result: &Value) -> Value {
+    let mut result = result.clone();
+    result.as_object_mut().unwrap().remove("replayed");
+    result
+}
+
+#[test]
+fn bookmark_operations_replay_by_origin_and_mutation_id() {
+    let mux = bookmarks_mux();
+    let events = mux.subscribe();
+    let keyed = |request: Value, mutation: &str| {
+        let mut request = request;
+        request["origin"] = json!("bookmarks-test");
+        request["mutation_id"] = json!(mutation);
+        request
+    };
+    let create = keyed(
+        json!({"cmd":"create-bookmark","browser_profile_id":"default","parent":"bar",
+               "kind":"folder","title":"Folder"}),
+        "m-create",
+    );
+    let first = run(&mux, create.clone()).unwrap();
+    assert_eq!(first["changed"], true);
+    assert_eq!(first["replayed"], false);
+    // A lost-response retry returns the original result, generated id
+    // included, and writes nothing.
+    let replayed = run(&mux, create).unwrap();
+    assert_eq!(replayed["replayed"], true);
+    assert_eq!(without_replayed(&replayed), without_replayed(&first));
+    let folder = first["bookmark"]["id"].as_str().unwrap().to_string();
+    assert_eq!(ids(&listed(&mux, "default")), vec![folder.clone()]);
+    assert_eq!(listed(&mux, "default")["bookmarks_revision"], 1);
+    assert_eq!(bookmark_events(&events).len(), 1);
+    // The same key with another payload is refused.
+    assert_eq!(
+        error_code(run(
+            &mux,
+            keyed(
+                json!({"cmd":"create-bookmark","browser_profile_id":"default","parent":"bar",
+                       "kind":"folder","title":"Other"}),
+                "m-create",
+            )
+        )),
+        "invalid_params"
+    );
+    let page = run(
+        &mux,
+        json!({"cmd":"create-bookmark","browser_profile_id":"default","parent":"bar",
+               "kind":"url","title":"Page","url":"https://page.example"}),
+    )
+    .unwrap()["bookmark"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (request, mutation) in [
+        (json!({"cmd":"update-bookmark","bookmark":page,"title":"Renamed"}), "m-update"),
+        (json!({"cmd":"move-bookmark","bookmark":page,"parent":folder,"index":0}), "m-move"),
+        (
+            json!({"cmd":"import-bookmarks","browser_profile_id":"default","parent":"other",
+                   "nodes":[{"kind":"url","title":"I","url":"https://i.example"}]}),
+            "m-import",
+        ),
+        (json!({"cmd":"delete-bookmark","bookmark":folder}), "m-delete"),
+    ] {
+        let request = keyed(request, mutation);
+        let original = run(&mux, request.clone()).unwrap();
+        assert_eq!(original["replayed"], false, "{request}");
+        let revision = listed(&mux, "default")["bookmarks_revision"].clone();
+        bookmark_events(&events);
+        let again = run(&mux, request.clone()).unwrap();
+        assert_eq!(again["replayed"], true, "{request}");
+        assert_eq!(without_replayed(&again), without_replayed(&original), "{request}");
+        assert_eq!(listed(&mux, "default")["bookmarks_revision"], revision, "{request}");
+        assert!(bookmark_events(&events).is_empty(), "{request}");
+    }
+    // A key needs both halves.
+    assert_eq!(
+        error_code(run(
+            &mux,
+            json!({"cmd":"delete-bookmark","bookmark":page,"mutation_id":"m-alone"})
+        )),
+        "invalid_params"
+    );
+}
