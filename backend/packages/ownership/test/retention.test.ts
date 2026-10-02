@@ -64,10 +64,14 @@ describe("client intent TTL", () => {
     expect(client.expired.map((i) => i.idempotency_key)).toEqual(["a"])
     expect(client.pending.map((i) => i.idempotency_key)).toEqual(["b"])
     const snap = sent.find((o) => o.t === "snapshot.request")
-    expect(snap).toEqual({ t: "snapshot.request", pending: ["b"] })
+    expect(snap).toEqual({ t: "snapshot.request", pending: ["b", "a"] })
     // A timeout retry of the expired key sends nothing.
     sent.length = 0
     client.retry("a")
     expect(sent).toEqual([])
+    // The snapshot answers the query: a decided expired key leaves `expired` (it did apply).
+    client.receive({ t: "snapshot", stream: "c", seq: 1, state: { n: 1 }, decided: [{ idempotency_key: "a", ok: true, sequence: 1 }] })
+    expect(client.expired).toEqual([])
+    expect(client.settledOk.has("a")).toBe(true)
   })
 })

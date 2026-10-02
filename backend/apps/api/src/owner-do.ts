@@ -21,7 +21,7 @@ export interface SubmitResult {
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
 const MAX_BACKOFF_MS = 5 * 60_000
-
+const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
 const safeSend = (ws: WebSocket, text: string) => {
@@ -119,7 +119,8 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     if (!this.engine) return null
     const wake = this.nextWakeAt(this.engine.currentState, now)
     const oldest = this.engine.oldestLedgerAt()
-    const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS
+    // One hour of slack so one wake prunes a batch instead of one wake per expiring key.
+    const prune = oldest === null ? null : oldest + LEDGER_RETENTION_MS + PRUNE_SLACK_MS
     return wake === null ? prune : prune === null ? wake : Math.min(wake, prune)
   }
 

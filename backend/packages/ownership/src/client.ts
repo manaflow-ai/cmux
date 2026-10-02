@@ -135,7 +135,9 @@ export class ProjectionClient<S, P = unknown> {
     const cutoff = this.clock() - INTENT_TTL_MS
     const keep: Array<Intent<P>> = []
     for (const i of this.pending) {
-      if ((this.issuedAt.get(i.idempotency_key) ?? Number.POSITIVE_INFINITY) < cutoff) {
+      const at = this.issuedAt.get(i.idempotency_key)
+      if (at === undefined) this.issuedAt.set(i.idempotency_key, this.clock())
+      else if (at < cutoff) {
         this.expired.push(i)
         this.issuedAt.delete(i.idempotency_key)
       } else keep.push(i)
@@ -145,7 +147,8 @@ export class ProjectionClient<S, P = unknown> {
 
   private requestSnapshot(): void {
     this.awaiting = true
-    this.send({ t: "snapshot.request", pending: this.pending.map((i) => i.idempotency_key) })
+    // Expired keys are asked about (a query, never a resend) so a decided one leaves `expired`.
+    this.send({ t: "snapshot.request", pending: [...this.pending, ...this.expired].map((i) => i.idempotency_key) })
   }
 
   private onEvent(e: EventFrame): void {
@@ -187,6 +190,7 @@ export class ProjectionClient<S, P = unknown> {
 
   private settle(s: SettledFrame): void {
     this.pending = this.pending.filter((i) => i.idempotency_key !== s.idempotency_key)
+    this.expired = this.expired.filter((i) => i.idempotency_key !== s.idempotency_key)
     this.issuedAt.delete(s.idempotency_key)
     if (s.ok) this.settledOk.add(s.idempotency_key)
   }
@@ -204,6 +208,8 @@ export class ProjectionClient<S, P = unknown> {
       this.confirmed = { state: snap.state, seq: snap.seq }
       const decided = new Map(snap.decided.map((d) => [d.idempotency_key, d]))
       this.pending = this.pending.filter((i) => !decided.has(i.idempotency_key))
+      this.expired = this.expired.filter((i) => !decided.has(i.idempotency_key))
+      for (const k of decided.keys()) this.issuedAt.delete(k)
       for (const d of decided.values()) if (d.ok) this.settledOk.add(d.idempotency_key)
     }
     const later = this.buffered.sort((a, b) => a.seq - b.seq)
