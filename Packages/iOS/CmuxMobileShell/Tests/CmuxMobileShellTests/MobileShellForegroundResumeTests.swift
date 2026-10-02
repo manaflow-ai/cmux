@@ -49,6 +49,15 @@ import Testing
     let router = LivenessHostRouter()
     let box = TransportBox()
     let clock = TestClock()
+    await router.setCapabilities([
+        "events.v1",
+        "terminal.bytes.v1",
+        "terminal.render_grid.v1",
+        "terminal.render_grid.verified_replay.v1",
+        "terminal.render_grid.screen_anchor.v1",
+        "terminal.replay.v1",
+    ])
+    await router.enqueueReplayPayload(text: "initial", sequence: 1)
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
 
     let collector = OutputCollector()
@@ -67,6 +76,10 @@ import Testing
     store.resumeForegroundRefresh()
 
     await router.waitForCount(of: "mobile.events.subscribe", atLeast: subscribeCount + 1)
+    #expect(try await pollUntil {
+        let replayRequests = await router.maxScrollbackRows(for: "mobile.terminal.replay")
+        return replayRequests.count >= 2 && replayRequests.dropFirst().allSatisfy { $0 == 0 }
+    })
     collector.unmount()
 }
 
