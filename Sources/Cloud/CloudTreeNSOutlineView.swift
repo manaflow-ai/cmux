@@ -395,8 +395,18 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             super.expandItem(item, expandChildren: expandChildren)
+            expandOpenTabRows(under: item)
             NSAnimationContext.endGrouping()
             onDocumentContentChanged?()
+        }
+    }
+
+    /// A machine's tab row has no disclosure of its own, so whenever its
+    /// machine opens, an open tab's rows open with it.
+    private func expandOpenTabRows(under item: Any?) {
+        guard let node = item as? CloudTreeNode else { return }
+        for child in node.children where !child.children.isEmpty && !isItemExpanded(child) {
+            if case .machineDetailTabs = child.kind { super.expandItem(child, expandChildren: false) }
         }
     }
 

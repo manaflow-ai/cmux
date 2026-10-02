@@ -410,6 +410,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return outlineView.level(forItem: parent)
         }
 
+        /// An open tab's rows close only with their tab, never on their own.
+        func outlineView(_ outlineView: NSOutlineView, shouldCollapseItem item: Any) -> Bool {
+            if let node = item as? CloudTreeNode, case .machineDetailTabs = node.kind { return false }
+            return true
+        }
+
         func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
             let row = CloudTreeRowView.reusable(in: outlineView)
             row.highlightLeading = panelLevel(of: item, in: outlineView)
@@ -794,7 +800,14 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return deviceDiscoveryMenuItems(section: section)
             case .cloudMachinesSection:
                 return [item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() }]
-            case .createAction, .machineDetailTabs, .machineEndSpacer: return []
+            case .createAction, .machineEndSpacer: return []
+            case .machineDetailTabs(let tabs):
+                var items: [NSMenuItem] = []
+                if tabs.machine.cloudMachineID != nil {
+                    items.append(item(String(localized: "cloudTree.menu.newTerminal", defaultValue: "New Terminal")) { [nodeActions] in nodeActions.newTerminal(tabs.machine, nil) })
+                }
+                items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refreshMachine(tabs.machine) })
+                return items
             }
         }
 

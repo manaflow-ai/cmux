@@ -46,14 +46,26 @@ struct CloudTreeMachineDetailLayout {
     /// collapsed.
     private func closeSection(_ section: CloudTreeNode) {
         let spacerID = "cloud-machines-section/end-spacer"
+        let existing = section.children.first { $0.id == spacerID }
         section.children.removeAll { $0.id == spacerID }
         guard let last = section.children.last(where: { if case .machine = $0.kind { return true }; return false }) else { return }
         last.children.removeAll { if case .machineEndSpacer = $0.kind { return true }; return false }
-        section.children.append(CloudTreeNode(id: spacerID, kind: .machineEndSpacer(machine: .cloud("cloud-machines-section"))))
+        section.children.append(existing ?? CloudTreeNode(id: spacerID, kind: .machineEndSpacer(machine: .cloud("cloud-machines-section"))))
     }
 
     private func machineChildren(_ node: CloudTreeNode) -> [CloudTreeNode] {
         let machine = node.machine
+        // Rows this layout made on an earlier pass, which the outline may
+        // already hold. Reusing them keeps the outline's objects current.
+        var made: [String: CloudTreeNode] = [:]
+        for child in node.children {
+            switch child.kind {
+            case .machineDetailTabs, .machineEndSpacer:
+                made[child.id] = child
+                for row in child.children { made[row.id] = row }
+            default: break
+            }
+        }
         var rows: [CloudTreeNode] = []
         var displays: CloudTreeNode?
         var pools: [CloudTreeMachineDetailTab: CloudTreeNode] = [:]
@@ -73,10 +85,23 @@ struct CloudTreeMachineDetailLayout {
         if let displays { rows.append(displays) }
         let tabs = CloudTreeMachineDetailTab.allCases.filter { pools[$0] != nil }
         if !tabs.isEmpty {
-            rows.append(tabRow(machine: machine, tabs: tabs, pools: pools))
+            let row = tabRow(machine: machine, tabs: tabs, pools: pools)
+            row.children = row.children.map { Self.reuse($0, from: made) }
+            rows.append(Self.reuse(row, from: made))
         }
-        rows.append(CloudTreeNode(id: "\(Self.baseID(machine))/end-spacer", kind: .machineEndSpacer(machine: machine)))
+        // A machine with nothing under it gets no gap, so it shows no disclosure.
+        if !rows.isEmpty {
+            rows.append(Self.reuse(CloudTreeNode(id: "\(Self.baseID(machine))/end-spacer", kind: .machineEndSpacer(machine: machine)), from: made))
+        }
         return rows
+    }
+
+    /// The object this layout made for `node.id` last time, updated to `node`;
+    /// otherwise `node` itself.
+    private static func reuse(_ node: CloudTreeNode, from made: [String: CloudTreeNode]) -> CloudTreeNode {
+        guard let existing = made[node.id], existing !== node, existing.structureTag == node.structureTag else { return node }
+        existing.take(from: node)
+        return existing
     }
 
     private func tabRow(

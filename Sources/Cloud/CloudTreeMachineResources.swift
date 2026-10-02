@@ -20,8 +20,12 @@ extension CloudTreeNode.Kind {
     /// short summary first and each part opens on request.
     var isExpandedByDefault: Bool {
         switch self {
-        case .portsGroup, .terminalsPool, .resourcesPool, .workspace, .displaysPool:
+        case .portsGroup, .terminalsPool, .resourcesPool, .displaysPool:
             return false
+        case .workspace(let machine, _, _, _, _):
+            // Cloud machines open to a short summary; My Devices keep their
+            // workspaces open as before.
+            return machine.cloudMachineID == nil
         default:
             return true
         }

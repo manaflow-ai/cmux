@@ -189,6 +189,8 @@ struct CloudTreeCompactLayoutTests {
         let outline = try #require(fixture.coordinator.outlineView)
         let nodes = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes)
         let folder = try #require(nodes.first { $0.id == fixture.folderID("ws_1") })
+        // Cloud workspaces start collapsed; open this one for the disclosure checks.
+        outline.expandItem(folder)
         // Displays is the group header that shares the workspaces' level.
         let section = try #require(nodes.first { $0.structureTag == "displaysPool" })
         fixture.container.layoutSubtreeIfNeeded()

@@ -23,6 +23,9 @@ final class CloudTreeCellView: NSTableCellView {
     /// The level of the machine tab row this row sits under, if any; its
     /// content then starts under the first tab.
     private var configuredPanelLevel: Int?
+    /// AppKit's own accessibility-element setting, restored when a reused
+    /// spacer cell shows a real row again.
+    private var baseIsAccessibilityElement: Bool?
     private let presenceObserverID = UUID()
     private let collaborators: @MainActor (SurfaceMachineID, String) -> [WorkspacePresenceParticipant]
 
@@ -242,6 +245,13 @@ final class CloudTreeCellView: NSTableCellView {
             toolTip = action.title
             setAccessibilityLabel(action.title)
             return
+        }
+        // The gap after a machine is layout, not a row VoiceOver should stop on.
+        if baseIsAccessibilityElement == nil { baseIsAccessibilityElement = isAccessibilityElement() }
+        if case .machineEndSpacer = node.kind {
+            setAccessibilityElement(false)
+        } else if let baseIsAccessibilityElement {
+            setAccessibilityElement(baseIsAccessibilityElement)
         }
         if case .machineDetailTabs(let tabs) = node.kind, let nodeActions = configuredNodeActions {
             displayHost.passesThrough = false

@@ -164,6 +164,17 @@ final class CloudTreeNode: NSObject {
             child.adopt(from: replacement)
         }
     }
+    /// Replaces this node's values and children with another node's, keeping
+    /// this object. Used when a display-only regroup rebuilds a row the
+    /// outline already holds, so the outline never keeps a stale copy.
+    func take(from other: CloudTreeNode) {
+        kind = other.kind
+        children = other.children
+        isPinned = other.isPinned
+        explicitDragGroup = other.explicitDragGroup
+        resourceSection = other.resourceSection
+        detailPools = other.detailPools
+    }
     var machine: SurfaceMachineID {
         switch kind {
         case .machine(let snapshot, _): return .cloud(snapshot.id)
