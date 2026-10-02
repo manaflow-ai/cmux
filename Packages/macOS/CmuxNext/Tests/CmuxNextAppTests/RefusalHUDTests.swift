@@ -30,11 +30,14 @@ struct RefusalHUDTests {
     @Test func hidesAfterItsLifetime() async {
         let window = window()
         defer { window.close() }
-        let hud = RefusalHUD()
-        hud.lifetime = .milliseconds(20)
+        let clock = ManualClock()
+        let hud = RefusalHUD(clock: clock)
         hud.show("refused", in: window)
-        let deadline = ContinuousClock.now + .seconds(5)
-        while hud.message != nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        await clock.sleepers()
+        #expect(hud.message == "refused")
+        // Read before the main-actor hide has run, as the old wall-clock poll
+        // did when a loaded runner held the main actor past its deadline.
+        clock.advance(by: hud.lifetime)
         #expect(hud.message == nil)
     }
 }
