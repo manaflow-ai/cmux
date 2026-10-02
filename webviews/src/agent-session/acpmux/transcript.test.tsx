@@ -1389,7 +1389,7 @@ describe("acpmux turn diff", () => {
           root: "/repo",
           files: [
             {
-              path: "src/app.ts",
+              path: "src/main.ts",
               status: "modified",
               additions: 1,
               deletions: 1,
@@ -1459,6 +1459,11 @@ describe("acpmux turn diff", () => {
       expect(pill).not.toBeNull();
       expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
       const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      const eye = () => panel.querySelector<HTMLElement>(".acpmux-diff-file [aria-pressed]")!;
+      // The turn's file, marked viewed, folds away.
+      await click(eye());
+      expect(eye().getAttribute("aria-pressed")).toBe("true");
+      expect(panel.querySelector(".acpmux-diff-file diffs-container")).toBeNull();
       // The menu lists the scopes in Codex's order, in three groups, and opens on the chosen one.
       pill.focus();
       await click(pill);
@@ -1492,15 +1497,25 @@ describe("acpmux turn diff", () => {
       expect(paths()).toEqual([]);
       // With no files the pill names the scope only, as in Codex.
       expect(pill.querySelector(".acpmux-diff-counts")).toBeNull();
-      await click([...failure!.querySelectorAll("button")].find((button) => button.textContent === "Retry")!);
+      const retryButton = [...failure!.querySelectorAll<HTMLElement>("button")].find(
+        (button) => button.textContent === "Retry",
+      )!;
+      retryButton.focus();
+      expect(document.activeElement).toBe(retryButton);
+      await click(retryButton);
       expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      // Retry leaves as the load starts; focus moves to the scope pill, not the page.
+      expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
-      expect(paths()).toEqual(["/repo/src/app.ts"]);
-      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/app.ts");
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/main.ts");
+      // The same file in another scope is other contents: open and not viewed.
+      expect(eye().getAttribute("aria-pressed")).toBe("false");
       expect(panel.querySelector(".acpmux-diff-file diffs-container")).not.toBeNull();
       expect(pill.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
-      // A scope with nothing in it says so.
-      await click(pill);
+      // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
+      await key(pill, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Uncommitted");
       await key(document.activeElement!, "ArrowDown");
       await key(document.activeElement!, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Staged");
