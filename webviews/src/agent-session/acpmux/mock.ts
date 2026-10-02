@@ -8,6 +8,7 @@ import type { AcpmuxHostConfig, EventRecord } from "./direct";
 
 const sessionId = "mock-session";
 const harnesses = [{ id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
+const commands = [{ name: "compact", description: "Clear conversation history but keep a summary in context", input: { hint: "optional custom summarization instructions" } }, { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" }, { name: "pr-comments", description: "Get comments from a GitHub pull request" }, { name: "review", description: "Review a pull request" }];
 const session = { sessionId, title: "Mock session", harness: "claude", model: "claude-sonnet", status: "idle" };
 
 /// The host config the page connects with in mock mode.
@@ -65,7 +66,11 @@ export class MockAcpmuxSocket {
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(private readonly delay: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms)), private readonly script?: MockScript) {
     // A replayed turn starts from an empty session, as the recording did.
-    if (!script) this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
+    if (!script) {
+      // What Claude lists at start, so the composer's + and `/` menu have something to show.
+      this.record(sessionId, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } });
+      this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
+    }
     queueMicrotask(() => { this.readyState = 1; this.onopen?.(); });
   }
 

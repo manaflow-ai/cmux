@@ -487,7 +487,12 @@ describe("acpmux host handshake", () => {
       if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
       return Promise.resolve({ ok: true, value: { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:4100/acp", token: "t", sessionId: "s" } });
     } } } };
-    const models = () => [...dom.window.document.querySelectorAll(".acpmux-model option")].map((option) => option.getAttribute("value"));
+    // The picker lists its models while open; open it once it exists and read the menu.
+    const models = () => {
+      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      if (button && button.getAttribute("aria-expanded") !== "true") button.click();
+      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) => option.getAttribute("data-value"));
+    };
     const waitFor = async (done: () => boolean) => { for (let tries = 0; tries < 100 && !done(); tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 10))); };
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
@@ -599,7 +604,7 @@ describe("acpmux composer", () => {
     const host = dom.window as unknown as Window;
     const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
     const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
-    const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
+    const buttons = () => Array.from(composer().querySelectorAll(".acpmux-send"), (button) => button.getAttribute("aria-label"));
     try {
       await act(async () => root.render(createElement(AcpmuxApp)));
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(false) as never));
@@ -607,7 +612,8 @@ describe("acpmux composer", () => {
       expect(composer().querySelector("[aria-label=Mode]")).toBeNull();
       expect(buttons()).toEqual(["Send"]);
       await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot(true) as never));
-      expect(buttons()).toEqual(["Send", "Stop"]);
+      // Send turns into Stop while a turn runs and the prompt is empty.
+      expect(buttons()).toEqual(["Stop"]);
     } finally {
       await act(async () => root.unmount());
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
