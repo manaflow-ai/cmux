@@ -37,8 +37,7 @@ import Testing
     /// with it rather than that the file is missing.
     @Test func aRelativePathAsksForAnAbsoluteOne() throws {
         let reason = try #require(refusal(make(), ["path": .string("README.md")]))
-        #expect(reason.contains("README.md"))
-        #expect(reason.localizedCaseInsensitiveContains("absolute"), "\(reason)")
+        #expect(reason == MiscHandlerStrings.pathNotAbsolute("README.md"))
     }
 
     @Test func aPageOpensInTheEditorOnly() throws {
@@ -70,6 +69,6 @@ import Testing
         let file = root.appendingPathComponent("Retry.swift")
         try Data("x".utf8).write(to: file)
         let reason = try #require(refusal(make(), ["path": .string(file.path), "where": .string("finder")]))
-        #expect(reason.contains("tab") && reason.contains("editor"), "\(reason)")
+        #expect(reason == MiscHandlerStrings.invalidPlace("finder"))
     }
 }

@@ -4319,7 +4319,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 不是打開檔案的位置。請使用 tab 或 editor。"
+            "value": "%@ 不是開啟檔案的位置。請使用 tab 或 editor。"
           }
         }
       }
