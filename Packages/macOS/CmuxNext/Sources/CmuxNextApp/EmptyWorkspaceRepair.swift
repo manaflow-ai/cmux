@@ -26,8 +26,11 @@ import os
 /// never repaired or closed. A failed request releases it; the next store
 /// change retries.
 ///
-/// Process-wide per daemon, so two windows showing the same workspace send
-/// one command, and a workspace no window shows closes too.
+/// Process-wide per daemon and driven by the store, not by windows: two
+/// windows showing the same workspace send one command, and a workspace no
+/// window shows closes or is repaired too (a restarted daemon that lost its
+/// terminals reports every such workspace empty; one left empty can be the
+/// daemon's focused workspace, where `pane current run` finds no screen).
 @MainActor
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
@@ -70,6 +73,10 @@ final class EmptyWorkspaceRepair {
     /// it without one (the daemon restarted without its terminals): that one
     /// is repaired. Tests replace it.
     var isLive: @MainActor () -> Bool
+    /// Callers waiting for the new surface of a repair in flight (a window
+    /// showing the workspace focuses it). Present from the request until it
+    /// answers.
+    private var repairWaiters: [WorkspaceKey: [@MainActor (SurfaceID) -> Void]] = [:]
     private var observation: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.empty-workspace")
 
@@ -124,7 +131,7 @@ final class EmptyWorkspaceRepair {
         guard isLive() else { return }
         for workspace in store.workspaces {
             guard let key = workspace.key else { continue }
-            if Self.hasPane(workspace) { notePopulated(key) } else { closeIfEmptied(key) }
+            if Self.hasPane(workspace) { notePopulated(key) } else { repairOrClose(key, created: nil) }
         }
         let present = Set(store.workspaces.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
@@ -185,21 +192,35 @@ final class EmptyWorkspaceRepair {
         if decisions.count > 32 { decisions.removeFirst(decisions.count - 32) }
     }
 
-    /// Checks `workspace` (shown in a window) after a store change. An
-    /// emptied workspace closes; one empty since this connection first saw
-    /// it gets one create-terminal, and `created` gets the new surface.
+    /// Checks `workspace` (shown in a window) after a store change, as the
+    /// store observation does for every workspace. `created` gets the new
+    /// surface when this or an in-flight repair creates one.
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
         guard let key = workspace.key, isLive() else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
+        repairOrClose(key, created: created)
+    }
+
+    /// `key` has no pane. An emptied workspace closes; one empty since this
+    /// connection first saw it gets one create-terminal.
+    private func repairOrClose(_ key: WorkspaceKey, created: (@MainActor (SurfaceID) -> Void)?) {
+        if repairWaiters[key] != nil {
+            if let created { repairWaiters[key]?.append(created) }
+            return
+        }
         guard states[key] == nil, !closeIfEmptied(key), canCreate() else { return }
         states[key] = .awaitingPane
+        repairWaiters[key] = created.map { [$0] } ?? []
         logger.info("workspace \(key.rawValue, privacy: .public) has no pane; creating a terminal")
         let create = create
         // task-owner: one request per claimed workspace; the claim is the state above
         Task {
             do {
-                if let surface = try await create(key) { created(surface) }
+                let surface = try await create(key)
+                let waiters = repairWaiters.removeValue(forKey: key) ?? []
+                if let surface { for waiter in waiters { waiter(surface) } }
             } catch {
+                repairWaiters[key] = nil
                 if states[key] == .awaitingPane { states[key] = nil }
                 logger.error("empty workspace repair failed: \(String(describing: error), privacy: .public)")
             }
