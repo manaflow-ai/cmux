@@ -2,7 +2,8 @@ import type { Principal } from "@cmux/ownership"
 import { teamDomain, type TeamState } from "./domains/team.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { currentPolicy, integrationSlice, integrationSyncPending, policyAt } from "./domains/team-policy.ts"
+import { devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
+import { currentPolicy, integrationSlice, integrationSyncPending, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -34,8 +35,20 @@ export class TeamDO extends OwnerDO<TeamState> {
       }
       case "team.policy.history": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read policy history" }
-        const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(Math.max(p.limit, 1), 100) : 20
+        const limit = typeof p.limit === "number" && Number.isInteger(p.limit) ? Math.min(Math.max(p.limit, 1), POLICY_HISTORY_LIMIT) : 20
         return { ok: true, value: { team: state.team?.id, versions: (state.policy_history ?? []).slice(0, limit) }, revision: "" }
+      }
+      case "team.enrollment_token.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list enrollment tokens" }
+        return {
+          ok: true,
+          value: { team: state.team?.id, tokens: Object.values(state.enrollment_tokens ?? {}).map(publicToken), devices: Object.values(state.managed_devices ?? {}) },
+          revision: ""
+        }
+      }
+      case "team.device.policy": {
+        const d = devicePolicyFor(state, principal.install)
+        return { ok: true, value: { team: state.team?.id, team_name: state.team?.display_name ?? "", ...d }, revision: "" }
       }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }

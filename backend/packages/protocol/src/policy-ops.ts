@@ -29,10 +29,10 @@ export const TeamPolicyHistory = def({
   risk: "read",
   target: "team_policy",
   principals: ["session", "install"],
-  params: Schema.Struct({ limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(100))) }),
+  params: Schema.Struct({ limit: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(20))) }),
   result: Schema.Struct({ team: TeamId, versions: Schema.Array(TeamPolicyVersion), revision: Schema.String }),
   errors: ["auth.unauthenticated", "auth.forbidden"],
-  docs: "List retained team policy versions, newest first, with actor, reason and changed keys (owners and admins).",
+  docs: "List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins).",
   cli: { path: "team policy history", visible: true },
   mcp: { expose: "never", group: "team" }
 })

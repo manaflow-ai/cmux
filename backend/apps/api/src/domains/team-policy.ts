@@ -16,8 +16,8 @@ export type Policy = typeof TeamPolicy.Type
 export type PolicyValues = typeof TeamPolicyValues.Type
 export type PolicyVersion = typeof TeamPolicyVersion.Type
 
-/** Versions kept in TeamDO state for get/rollback; older ones live in the audit projection (phase 2b). */
-export const POLICY_HISTORY_LIMIT = 100
+/** Versions kept in TeamDO state (and so in every snapshot) for get and rollback; the full history is the audit projection (audit_events). */
+export const POLICY_HISTORY_LIMIT = 20
 
 export const initialPolicy = (): Policy => ({ version: 0, values: {}, updated_at: null, updated_by: null })
 

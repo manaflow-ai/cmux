@@ -3,6 +3,7 @@ import { useState } from "react"
 import { useLoad } from "../lib/hooks"
 import { mutate, read, type Json } from "../lib/server"
 import { newKey, setSignedIn, useSignedIn } from "../lib/session"
+import { EnrollmentTokens } from "./-enrollment"
 
 export const Route = createFileRoute("/policy")({ component: Policy })
 
@@ -270,6 +271,7 @@ function Policy() {
           </div>
         </>
       ) : null}
+      {isAdmin ? <EnrollmentTokens /> : null}
       {loaded.loading ? <p className="muted">Loading</p> : null}
     </>
   )

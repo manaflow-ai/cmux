@@ -77,6 +77,12 @@ const statements: Record<string, (p: Record<string, unknown>, stream: string, se
       ]
     ]
   },
+  "audit.append": (p, stream, seq) => [
+    `INSERT INTO audit_events (team_id, n, op, actor, on_behalf_of, transaction, at, summary, detail, prev_hash, hash, source_stream, source_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, to_timestamp($7 / 1000.0), $8, $9, $10, $11, $12, $13)
+     ON CONFLICT DO NOTHING`,
+    [p.team, p.n, p.op, p.actor, p.on_behalf_of ?? null, p.tx, p.at, p.summary, JSON.stringify(p.detail ?? null), p.prev_hash, p.hash, stream, seq]
+  ],
   "connection.upsert": (p, stream, seq) => {
     const account = p.account as { key?: string; name?: string } | null
     return [
