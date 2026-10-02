@@ -43,7 +43,7 @@ enum AppsEventDecoding {
         let date = json["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         switch name {
         case "apps-changed":
-            return .changed(revision: json["revision"]?.numberValue.map { UInt64($0) })
+            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) })
         case "apps-scene":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])))
@@ -63,7 +63,7 @@ enum AppsEventDecoding {
 
     static func list(_ value: JSONValue) -> AppsListReply {
         let json = AppJSON(value)
-        return AppsListReply(revision: json["revision"]?.numberValue.map { UInt64($0) },
+        return AppsListReply(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
                              apps: (json["apps"]?.arrayValue ?? []).compactMap(AppRecord.init(json:)))
     }
 

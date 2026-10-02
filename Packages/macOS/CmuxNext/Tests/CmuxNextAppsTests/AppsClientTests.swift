@@ -115,4 +115,30 @@ struct AppsClientTests {
         transport.commitElsewhere(record)
         #expect(await eventually { await MainActor.run { client.app(record.id)?.enabled == false } })
     }
+
+    @Test func startingListsOnce() async {
+        let (_, transport) = await TestClient.make()
+        #expect(transport.listCalls == 1)
+    }
+
+    @Test func anIntentInFlightAcrossADisconnectIsResentNotRejected() async throws {
+        let (client, transport) = await TestClient.make()
+        transport.holdsReplies = true
+        let id = "cmux/agent-status"
+        // task-owner: test hide held at the fake supervisor while the connection drops
+        let change = Task { try await client.set(id, .hide(true), origin: .mcp) }
+        #expect(await eventually { await MainActor.run { client.projection.isPending(id) } })
+        transport.setAvailable(false)
+        transport.releaseReplies()
+        await #expect(throws: AppsClientError.unavailable(.notConnected)) { try await change.value }
+        #expect(client.projection.isPending(id))
+        #expect(client.app(id)?.hidden == true)
+        #expect(client.rejections[id] == nil)
+        transport.holdsReplies = false
+        transport.setAvailable(true)
+        #expect(await eventually { await MainActor.run { !client.projection.isPending(id) } })
+        #expect(client.app(id)?.hidden == true)
+        #expect(transport.records.first { $0.id == id }?.hidden == true)
+        #expect(transport.seenKeys.count == 1)
+    }
 }

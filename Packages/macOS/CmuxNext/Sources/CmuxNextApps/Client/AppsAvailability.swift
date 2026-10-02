@@ -20,10 +20,15 @@ public nonisolated enum AppsAvailability: Sendable, Hashable {
 public nonisolated struct AppsTransportError: Error, Sendable, Hashable, CustomStringConvertible {
     public var code: String?
     public var message: String
+    /// The connection dropped before the reply (the request may or may not
+    /// have reached the supervisor). A change is then resent with its key on
+    /// the next connection instead of being treated as a refusal.
+    public var connectionLost: Bool
 
-    public init(code: String? = nil, message: String) {
+    public init(code: String? = nil, message: String, connectionLost: Bool = false) {
         self.code = code
         self.message = message
+        self.connectionLost = connectionLost
     }
 
     public var description: String { code.map { "\(message) [\($0)]" } ?? message }

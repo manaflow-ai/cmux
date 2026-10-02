@@ -19,6 +19,7 @@ public final class FakeAppsTransport: AppsTransport {
     public private(set) var mounted: [String: (app: String, interface: String, context: AppJSON)] = [:]
     public private(set) var dispatched: [(mountID: String, node: String, event: String)] = []
     public private(set) var seenKeys: [String] = []
+    public private(set) var listCalls = 0
     private var held: [CheckedContinuation<Void, Never>] = []
     private var epoch = 1
 
@@ -59,12 +60,17 @@ public final class FakeAppsTransport: AppsTransport {
 
     public func list() async throws(AppsTransportError) -> AppsListReply {
         try requireAvailable()
+        listCalls += 1
         return AppsListReply(revision: revision, apps: records)
     }
 
     public func set(app: String, change: AppChange, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppRecord {
         try requireAvailable()
-        if holdsReplies { await withCheckedContinuation { held.append($0) } }
+        if holdsReplies {
+            await withCheckedContinuation { held.append($0) }
+            // The connection dropped while the request waited.
+            try requireAvailable()
+        }
         guard let index = records.firstIndex(where: { $0.id == app }) else { throw AppsTransportError(code: "apps.unknown", message: "no app \(app)") }
         if seenKeys.contains(idempotencyKey) { return records[index] }
         if change.requiresUserOrigin, origin != .user {
@@ -129,6 +135,6 @@ public final class FakeAppsTransport: AppsTransport {
     }
 
     private func requireAvailable() throws(AppsTransportError) {
-        guard availability.isAvailable else { throw AppsTransportError(message: "not connected") }
+        guard availability.isAvailable else { throw AppsTransportError(message: "not connected", connectionLost: true) }
     }
 }
