@@ -9,10 +9,6 @@ import Testing
 @testable import cmux
 #endif
 
-// The CLI executable's CMUXCLI type is not part of the app test target. The
-// provider-first alias is a pure routing helper shared with the app instead.
-typealias CMUXCLI = CmuxTuiRemoteRouting
-
 @Suite struct AgentAliasArgumentTests {
     final class BundleProbe {}
 
