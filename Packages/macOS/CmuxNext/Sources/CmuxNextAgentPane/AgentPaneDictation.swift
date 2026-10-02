@@ -138,7 +138,7 @@ final class AgentPaneDictation {
         // A plain key-up while the hold is armed means the chord's own
         // release went elsewhere (a prompt, another app): a later "v" typed
         // in the composer, not push-to-talk ending.
-        release(at: event.timestamp, stops: Self.chord(event.modifierFlags) == held.chord)
+        release(at: event.timestamp, stops: Self.chord(event.modifierFlags).isSuperset(of: held.chord))
     }
 
     /// A modifier of the chord came up before the key: that is the release.
