@@ -39,6 +39,7 @@ mod stream;
 pub mod testing;
 mod timers;
 mod underlay;
+mod watchdog;
 mod wire;
 
 pub use config::{ConfigError, DEFAULT_MTU, Endpoint, InterfaceAddress, WgConfig};

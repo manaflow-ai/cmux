@@ -204,6 +204,11 @@ impl Pacer {
         self.queued < MAX_QUEUED
     }
 
+    /// The largest smoothed RTT among the connections, if any measured one.
+    pub(crate) fn srtt(&self) -> Option<Duration> {
+        self.connections.values().filter_map(|connection| connection.srtt).max()
+    }
+
     pub(crate) fn has_queued(&self) -> bool {
         self.queued > 0
     }
