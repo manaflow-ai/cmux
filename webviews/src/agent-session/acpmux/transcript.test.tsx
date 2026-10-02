@@ -871,6 +871,68 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// Onboarding's first task: the handshake's prompt starts the chat in its cwd without a Send press,
+  /// and the composer stays empty.
+  test("a seeded prompt creates the chat in its cwd and sends once", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    class PromptSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as { id: number; method: string; params: Record<string, unknown> };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-new" }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-new", harness: "codex" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = PromptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                cwd: "/tmp/first-task",
+                prompt: "Leave a note on my Desktop",
+              },
+            });
+          },
+        },
+      },
+    };
+    const prompts = () => sent.filter((message) => message.method === "session/prompt");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
+      expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
+      expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);
+      expect(dom.window.document.querySelector("textarea")?.value ?? "").toBe("");
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);

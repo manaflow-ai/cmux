@@ -889,6 +889,7 @@ function AcpmuxPane() {
           newSession?: boolean;
           cwd?: string;
           draft?: string;
+          prompt?: string;
           account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
@@ -931,12 +932,13 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        const send = async (text: string) => {
+          const sessionId = await client.ensureSession();
+          await persistSession(sessionId);
+          return client.send(text);
+        };
         window.cmuxAcpmuxActions = {
-          "chat.send": async ({ text }) => {
-            const sessionId = await client.ensureSession();
-            await persistSession(sessionId);
-            return client.send(String(text ?? ""));
-          },
+          "chat.send": ({ text }) => send(String(text ?? "")),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.model": ({ modelId }) => client.setModel(String(modelId)),
@@ -952,6 +954,10 @@ function AcpmuxPane() {
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
+        // Onboarding's first task runs without a Send press. Swift hands the prompt out once,
+        // so a reconnect or reload does not run it again.
+        const prompt = composerDraft(host.prompt);
+        if (prompt) void send(prompt).catch(() => undefined);
       } catch (error) {
         if (!cancelled) {
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));

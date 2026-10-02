@@ -16,6 +16,8 @@ export type AcpmuxHostConfig = {
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
+  /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
+  prompt?: string;
 };
 
 /** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
