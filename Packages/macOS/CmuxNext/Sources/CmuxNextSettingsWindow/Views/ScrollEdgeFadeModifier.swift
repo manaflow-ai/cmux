@@ -4,8 +4,9 @@ import SwiftUI
 
 /// `ScrollEdgeFade` for SwiftUI scroll views: an alpha mask that fades the
 /// top or bottom edge only while content is hidden beyond it, from the
-/// scroll geometry (no polling), with the Motion `hover` fade (a snap under Reduce Motion). A mask, not
-/// a color, so it matches every theme. Content insets are not visible
+/// scroll geometry (no polling), with the Motion `hover` fade (a short
+/// crossfade under Reduce Motion). A mask, not a color, so it matches every
+/// theme. Content insets are not visible
 /// area, and overscroll past an end counts as that end.
 struct ScrollEdgeFadeModifier: ViewModifier {
     @State private var edges: ScrollEdges = []
@@ -21,8 +22,8 @@ struct ScrollEdgeFadeModifier: ViewModifier {
                     isFlipped: true
                 )
             } action: { _, new in
-                // motion-allow: the curve and duration come from Motion.animation(.hover); Reduce Motion snaps
-                withAnimation(Motion.reduceMotion ? nil : Motion.animation(.hover)) { edges = new }
+                // motion-allow: the curve and duration come from Motion.animation(.hover)
+                withAnimation(Motion.animation(.hover)) { edges = new }
             }
             .mask {
                 GeometryReader { proxy in
