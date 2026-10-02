@@ -125,7 +125,6 @@ public final class TabStripView: NSView {
     var newTabHoldOpenedMenu = false
     /// Trailing button under the mouse-down, while the press lasts.
     var pendingTrailingPress: Int?
-    var hoverCardSuppressed = false
     /// Whether the trailing buttons show (pointer, open menu, VoiceOver).
     var buttonReveal = TabStripButtonReveal() {
         didSet {
@@ -174,7 +173,7 @@ public final class TabStripView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
-        hoverCard.themeAnchor = self
+        hoverCard.strip = self
 
         switch background {
         case .none:
@@ -247,13 +246,15 @@ public final class TabStripView: NSView {
             startObserving()
             startObservingTokens()
             sync(fromModel: true)
+            hoverCards.register(hoverCard)
         } else {
             observationTask?.cancel()
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
             animationClient.deactivate()
-            hoverCard.hide(allowsQuickReshow: false)
+            // Ends this strip's card only (another window's card stays).
+            hoverCards.unregister(hoverCard)
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()
@@ -332,6 +333,7 @@ public final class TabStripView: NSView {
         metrics = customMetrics ?? TabStripMetrics()
         hoverCard.metrics = metrics
         hoverCard.tokensChanged()
+        geometryDidChange()
         let font = Typography.body
         for cell in cells.values {
             cell.metrics = metrics

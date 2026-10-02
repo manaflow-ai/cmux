@@ -25,6 +25,9 @@ nonisolated extension TabID {
         TabID(chipPrefix + group.rawValue)
     }
 
+    /// The id names a group chip, not a tab.
+    var isGroupChip: Bool { rawValue.hasPrefix(Self.chipPrefix) }
+
     /// The group whose chip this id names, or nil for a real tab.
     var chipGroupID: TabGroupID? {
         guard rawValue.hasPrefix(Self.chipPrefix) else { return nil }

@@ -142,6 +142,8 @@ extension TabStripView {
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth)
         newTabButton.frame = CGRect(x: pixel(buttonX), y: tabY, width: buttonWidth, height: tabHeight)
         updateFadeMask()
+        // Tabs moved (scroll, reflow, close): what is under a still pointer may differ.
+        geometryDidChange()
     }
 
     /// Fades the strip's ends only while tabs are hidden beyond them: none

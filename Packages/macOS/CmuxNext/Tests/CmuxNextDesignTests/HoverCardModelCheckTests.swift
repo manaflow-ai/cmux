@@ -77,7 +77,7 @@ import Testing
         if world.visible != after.shownTarget?.id { bad.append("I1 card \(String(describing: world.visible)) vs state \(String(describing: after.shownTarget?.id))") }
         if world.armed != after.armedToken { bad.append("I1 timer \(String(describing: world.armed)) vs state \(String(describing: after.armedToken))") }
         // I2: a hover card (not pinned) is for what the last hit test found under the pointer.
-        if case .shown(let target, false) = after.phase, after.lastHit?.id != target.id { bad.append("I2 shown \(target.id) not under pointer") }
+        if case .shown(let target) = after.phase, after.lastHit?.id != target.id { bad.append("I2 shown \(target.id) not under pointer") }
         // I3: a stale deadline changes nothing.
         if case .deadline(let token) = event, token != before.armedToken, after != before || !effects.isEmpty { bad.append("I3 stale token \(token) acted") }
         // I4: a removed target has no card.
@@ -92,6 +92,11 @@ import Testing
         if !after.suppressions.isEmpty, after.phase != .idle { bad.append("I6 active while suppressed") }
         // I7: every timer token is used once (tokens only grow).
         if after.nextToken < before.nextToken { bad.append("I7 token reuse") }
+        // I8: never idle with the pointer resting on a target unless a
+        // dismissal made it quiet or a suppression lasts (no lost card).
+        if after.phase == .idle, after.lastHit != nil, !after.quiet, after.suppressions.isEmpty {
+            bad.append("I8 idle with the pointer resting on \(after.lastHit!.id)")
+        }
         return bad
     }
 
@@ -110,7 +115,8 @@ import Testing
         let phase: String = switch m.phase {
         case .idle: "idle"
         case .pending(let t, let token): "pending \(t.id) \(rel(token))"
-        case .shown(let t, let pinned): "shown \(t.id) \(pinned)"
+        case .shown(let t): "shown \(t.id)"
+        case .pinned(let t, let token): "pinned \(t.id) \(rel(token))"
         case .grace(let token): "grace \(rel(token))"
         }
         return Key(phase: phase, suppressions: m.suppressions, lastHit: m.lastHit?.id, quiet: m.quiet,
@@ -138,7 +144,7 @@ import Testing
         }
         print("hovercard-model-check: \(seen.count) states, \(transitions) transitions, alphabet \(Self.alphabet.count)")
         #expect(failures.isEmpty, "\(failures)")
-        #expect(seen.count >= 50, "the universe reaches every phase with every suppression and hit")
+        #expect(seen.count >= 40, "the universe reaches every phase with every suppression and hit")
     }
 
     /// Liveness on the reachable set: from every state without a
