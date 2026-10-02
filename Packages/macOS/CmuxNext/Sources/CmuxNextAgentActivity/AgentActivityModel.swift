@@ -69,7 +69,7 @@ public final class AgentActivityModel {
         case let .events(session, events):
             var current = eventsBySession[session] ?? []
             let next = current.last.map { $0.seq + 1 } ?? 0
-            current.append(contentsOf: events); _ = next
+            current.append(contentsOf: events.filter { $0.seq >= next })
             eventsBySession[session] = current
         case let .connection(machine, state):
             connections[machine] = state
@@ -156,7 +156,19 @@ public final class AgentActivityModel {
     /// Steps the scrubber by `delta` events (`framesOnly` skips events
     /// without pixels).
     public func step(_ delta: Int, framesOnly: Bool = false) {
-        _ = (delta, framesOnly)
+        let events = framesOnly ? selectedEvents.filter { $0.displayFrame != nil } : selectedEvents
+        guard !events.isEmpty, delta != 0, let currentSeq = currentEvent?.seq else { return }
+        let target: Int
+        if let index = events.firstIndex(where: { $0.seq == currentSeq }) {
+            target = index + delta
+        } else if delta > 0 {
+            guard let next = events.firstIndex(where: { $0.seq > currentSeq }) else { return }
+            target = next + delta - 1
+        } else {
+            guard let previous = events.lastIndex(where: { $0.seq < currentSeq }) else { return }
+            target = previous + delta + 1
+        }
+        scrub(to: events[min(max(target, 0), events.count - 1)].seq)
     }
 
     public func scrubToStart() { scrub(to: selectedEvents.first?.seq) }
@@ -185,17 +197,28 @@ public final class AgentActivityModel {
     // MARK: Rules (pure, tested)
 
     static func matches(_ session: AgentActivitySession, filter: String) -> Bool {
-        true
+        let needle = filter.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return true }
+        let haystack = [session.label, session.agentName, session.agentKind, session.workspaceTitle ?? "",
+                        session.terminalTitle ?? "", session.machineName] + session.targetApps
+        return haystack.contains { $0.localizedCaseInsensitiveContains(needle) }
     }
 
     static func listOrder(_ lhs: AgentActivitySession, _ rhs: AgentActivitySession) -> Bool {
-        false
+        if lhs.status.isLive != rhs.status.isLive { return lhs.status.isLive }
+        if lhs.lastActionAt != rhs.lastActionAt { return lhs.lastActionAt > rhs.lastActionAt }
+        return lhs.id < rhs.id
     }
 
     /// Keeps the selection while its session exists; otherwise selects the
     /// first live session, else the first session, else nothing.
     private func reconcileSelection() {
-        _ = allSessions
+        let all = allSessions
+        if let selectedSessionID, all.contains(where: { $0.id == selectedSessionID }) { return }
+        let first = groups.flatMap(\.sessions).first
+        selectedSessionID = first?.id
+        scrubSeq = nil
+        updateFollow()
     }
 
     /// Also follows `ids` (the lanes and grid layouts show every session's
