@@ -11459,6 +11459,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIndicators.removeValue(forKey: detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
+            panelPrompts.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
             discardBrowserPanelSubscription(panelId: detached.panelId, panel: detached.panel)
             if let agentPanel = detached.panel as? AgentSessionPanel {
