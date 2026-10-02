@@ -123,6 +123,8 @@ final class AppServices {
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment) in floating panels.
     let popups: BrowserPopupPanels
+    /// The link-hint session (`f`, `F`) on a focused Chromium page.
+    let linkHints = LinkHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
