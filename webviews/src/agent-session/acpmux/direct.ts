@@ -763,6 +763,8 @@ export class AcpmuxDirectClient {
       summary: summary
         ? {
             sessionId: summary.sessionId,
+            cwd: summary.cwd,
+            turnCount: summary.turnCount,
             title: summary.title,
             name: summary.name,
             harness: summary.harness,
