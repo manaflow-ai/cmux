@@ -58,6 +58,8 @@ export function SessionSidebar({
   account?: SidebarAccount;
 }) {
   const [view, setView] = useState<SidebarView>("sessions");
+  // Kept here so expanded projects survive a trip to another rail view.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const needsInput = useMemo(
     () => sessions.some((session) => sessionMark(session, session.sessionId === selectedId) === "input"),
     [sessions, selectedId],
@@ -96,7 +98,14 @@ export function SessionSidebar({
       <div className="acpmux-sidebar-body">
         <div className="acpmux-sidebar-scroll">
           {view === "sessions" ? (
-            <SessionsView sessions={sessions} selectedId={selectedId} onSelect={onSelect} onNewChat={onNewChat} />
+            <SessionsView
+              sessions={sessions}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              onNewChat={onNewChat}
+              expanded={expanded}
+              onExpand={(key) => setExpanded((current) => new Set(current).add(key))}
+            />
           ) : (
             <FlatView view={view} sessions={sessions} selectedId={selectedId} onSelect={onSelect} />
           )}
@@ -152,11 +161,15 @@ function SessionsView({
   selectedId,
   onSelect,
   onNewChat,
+  expanded,
+  onExpand,
 }: {
   sessions: AcpmuxSessionEntry[];
   selectedId?: string;
   onSelect: (sessionId: string) => void;
   onNewChat?: () => void;
+  expanded: Set<string>;
+  onExpand: (groupKey: string) => void;
 }) {
   const newChat = onNewChat && (
     <button type="button" className="acpmux-sidebar-action" onClick={onNewChat}>
@@ -165,7 +178,6 @@ function SessionsView({
     </button>
   );
   const { pinned, groups } = useMemo(() => sidebarSections(sessions), [sessions]);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   if (sessions.length === 0)
     return (
       <>
@@ -237,7 +249,7 @@ function SessionsView({
                   <button
                     type="button"
                     className="acpmux-sidebar-more"
-                    onClick={() => setExpanded((current) => new Set(current).add(group.key))}
+                    onClick={() => onExpand(group.key)}
                     aria-label={`Show more, ${hidden} hidden`}
                   >
                     Show more

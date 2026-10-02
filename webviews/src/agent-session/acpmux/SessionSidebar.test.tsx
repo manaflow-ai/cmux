@@ -78,6 +78,11 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(7);
   await act(async () => more.click());
   expect(container.querySelectorAll(".acpmux-session-row").length).toBe(10);
+  // A trip to History and back keeps the project expanded.
+  const rail = container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button");
+  await act(async () => rail[2].click());
+  await act(async () => rail[1].click());
+  expect(container.querySelectorAll(".acpmux-session-row").length).toBe(10);
 
   const row = [...container.querySelectorAll<HTMLButtonElement>(".acpmux-session-row")].find((node) =>
     node.textContent?.startsWith("Fix the checkout"),
@@ -164,7 +169,7 @@ test("the rail switches the list; the sessions view adds New chat, project marks
   expect(titles()).toEqual(["Fix the checkout page", "Tune the cache", "Ship the redirect"]);
   // The age is part of the row's name, not only drawn.
   expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toMatch(
-    /^Fix the checkout page, \d+[mhdw]|now/,
+    /^Fix the checkout page, (?:\d+[mhdw]|now)/,
   );
 
   await act(async () => rail[3].click());
