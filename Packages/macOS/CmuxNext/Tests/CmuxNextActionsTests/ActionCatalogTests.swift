@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Foundation
 import Testing
 
 /// Catalog completeness against plans/cmux-next/inventory.md section 1.
@@ -55,47 +56,31 @@ import Testing
         "reloadConfiguration", "sendFeedback",
     ]
 
-    /// Rows per inventory domain after splitting compound rows ("Focus
-    /// Left/Right/Up/Down") into one action each. Dynamic families (workspace
-    /// switcher rows, per-app open targets, per-setting toggles) are served by
-    /// palette providers and appear here once as their parent list action.
-    /// Workspace and tab include the group families (architecture.md section 7).
-    /// Pane, tab, and terminal also count the cmux-next rows in
-    /// `ActionCatalog+Layout.swift` (19 pane/column, 6 tab, 10 terminal).
-    /// Screen counts the screen and screen group families
-    /// (`ActionCatalog+Screens.swift`, `ActionCatalog+ScreenGroups.swift`).
-    /// Settings counts the pane border, padding and corner toggles and the
-    /// two titlebar styles, the focus ring and border width toggles and the
-    /// border color reset, and Make cmux the Default Browser. Window
-    /// counts Minimize (no inventory row; used by idle and visibility checks).
-    static let expectedCounts: [ActionCategory: Int] = [
-        .window: 32, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md)
-        .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
-        .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
-        .screen: 62,
-        .tab: 76, // + Search Tabs (tab-search.md), New Tab Page, - Go to Tab (an alias of Search Tabs now)
-        .terminal: 35, // + Set / Reset Terminal Theme
-        .browser: 113, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV + 2 link hints (f, F)
-        .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
-        .notifications: 18,
-        .agents: 22, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint
-        .cloud: 48, // + cloud file and tunnel/network/firewall actions
-        .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
-    ]
-
     @Test func everyKeyboardShortcutIDExists() {
         let ids = Set(ActionCatalog.all.map(\.id))
         let missing = Self.keyboardShortcutIDs.filter { !ids.contains($0) }
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() {
-        var counts: [ActionCategory: Int] = [:]
-        for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
-        for category in ActionCategory.allCases where category != .other {
-            #expect(counts[category] == Self.expectedCounts[category], "\(category)")
+    /// Every catalog action by category, checked in at
+    /// `plans/cmux-next/action-categories.json`. A new, removed or
+    /// recategorized action fails here by id, and its manifest change is
+    /// reviewed as text, so a new action never needs a blind count bump.
+    /// `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionCatalogTests` rewrites it.
+    @Test func everyActionIsInTheCategoryManifest() throws {
+        let url = ActionSurfaceParityTests.planURL("action-categories.json")
+        let current = ActionCategoryManifest(ActionCatalog.all)
+        if ProcessInfo.processInfo.environment["CMUX_UPDATE_ACTION_SURFACES"] == "1" {
+            try current.json.write(to: url, atomically: true, encoding: .utf8)
         }
+        let stored = try ActionCategoryManifest(json: Data(contentsOf: url))
+        for category in ActionCategory.allCases {
+            let have = current.ids[category] ?? []
+            let want = stored.ids[category] ?? []
+            #expect(have.subtracting(want).isEmpty, "\(category) gained \(have.subtracting(want).sorted()); rerun with CMUX_UPDATE_ACTION_SURFACES=1")
+            #expect(want.subtracting(have).isEmpty, "\(category) lost \(want.subtracting(have).sorted())")
+        }
+        #expect(stored.json == current.json, "action-categories.json is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
         // Inventory estimate is about 290 merged rows; splitting compound
         // rows lands above it.
         #expect(ActionCatalog.all.count >= 290)
