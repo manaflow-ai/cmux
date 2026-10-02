@@ -498,7 +498,8 @@ pub(crate) fn dispatch(
         Op::SidebarLayoutUpdate => {
             ensure_session(mux, selectors)?;
             let op = fields.get("op").cloned().unwrap_or_default();
-            let commit = mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
+            let commit =
+                mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
             state_result(mux, commit)
         }
         // B4: workspace status

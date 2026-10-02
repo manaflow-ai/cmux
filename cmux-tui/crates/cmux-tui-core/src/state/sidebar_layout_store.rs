@@ -43,7 +43,10 @@ pub(crate) fn document(connection: &Connection) -> anyhow::Result<Document> {
     })
 }
 
-pub(crate) fn write_document(transaction: &Transaction<'_>, document: &Document) -> anyhow::Result<()> {
+pub(crate) fn write_document(
+    transaction: &Transaction<'_>,
+    document: &Document,
+) -> anyhow::Result<()> {
     transaction.execute(
         "INSERT INTO sidebar_layout(id, document_json) VALUES(1, ?1)
          ON CONFLICT(id) DO UPDATE SET document_json = excluded.document_json",

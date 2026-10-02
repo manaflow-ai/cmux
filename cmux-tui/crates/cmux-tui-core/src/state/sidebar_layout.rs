@@ -95,7 +95,12 @@ pub struct Arrangement {
 
 impl Default for Arrangement {
     fn default() -> Self {
-        Arrangement { layout: ArrangementLayout::List, align: Alignment::Leading, gap: None, columns: None }
+        Arrangement {
+            layout: ArrangementLayout::List,
+            align: Alignment::Leading,
+            gap: None,
+            columns: None,
+        }
     }
 }
 
@@ -113,13 +118,19 @@ impl<'de> Deserialize<'de> for Arrangement {
             columns: Option<i64>,
         }
         let raw = Raw::deserialize(deserializer)?;
-        Ok(Arrangement { layout: raw.layout.unwrap_or_default(), align: raw.align.unwrap_or(Alignment::Leading), gap: raw.gap, columns: raw.columns })
+        Ok(Arrangement {
+            layout: raw.layout.unwrap_or_default(),
+            align: raw.align.unwrap_or(Alignment::Leading),
+            gap: raw.gap,
+            columns: raw.columns,
+        })
     }
 }
 
 impl Arrangement {
     pub fn is_valid(&self) -> bool {
-        self.gap.is_none_or(|gap| GAP_RANGE.contains(&gap)) && self.columns.is_none_or(|columns| COLUMNS_RANGE.contains(&columns))
+        self.gap.is_none_or(|gap| GAP_RANGE.contains(&gap))
+            && self.columns.is_none_or(|columns| COLUMNS_RANGE.contains(&columns))
     }
 }
 
@@ -140,7 +151,9 @@ fn true_unless_false<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Resul
 }
 
 /// A value that may be null: its default.
-fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(deserializer: D) -> Result<T, D::Error> {
+fn default_if_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de> + Default>(
+    deserializer: D,
+) -> Result<T, D::Error> {
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
@@ -293,7 +306,11 @@ impl Reject {
 }
 
 fn builtin(id: &str, value: &str, shows_label: bool) -> Item {
-    Item { id: id.into(), reference: ItemRef { kind: "built_in".into(), value: value.into() }, shows_label }
+    Item {
+        id: id.into(),
+        reference: ItemRef { kind: "built_in".into(), value: value.into() },
+        shows_label,
+    }
 }
 
 /// Top: Home, then the App Store. Middle: workspaces. Bottom: Settings with its label at the
@@ -319,7 +336,10 @@ pub fn defaults() -> Document {
                 "sec_top",
                 Region::Top,
                 Arrangement::default(),
-                vec![builtin("itm_home", "home", true), builtin("itm_app_store", "app_store", true)],
+                vec![
+                    builtin("itm_home", "home", true),
+                    builtin("itm_app_store", "app_store", true),
+                ],
             ),
             Section {
                 id: "sec_workspaces".into(),
@@ -336,8 +356,16 @@ pub fn defaults() -> Document {
             sticky(
                 "sec_bottom",
                 Region::Bottom,
-                Arrangement { layout: ArrangementLayout::Inline, align: Alignment::Fill, gap: None, columns: None },
-                vec![builtin("itm_settings", "settings", true), builtin("itm_account", "account", false)],
+                Arrangement {
+                    layout: ArrangementLayout::Inline,
+                    align: Alignment::Fill,
+                    gap: None,
+                    columns: None,
+                },
+                vec![
+                    builtin("itm_settings", "settings", true),
+                    builtin("itm_account", "account", false),
+                ],
             ),
         ],
     }
@@ -371,7 +399,10 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
             sections[s].items.remove(i);
         }
         Op::ItemRemoveRef { reference } => {
-            if !sections.iter().any(|section| section.items.iter().any(|item| &item.reference == reference)) {
+            if !sections
+                .iter()
+                .any(|section| section.items.iter().any(|item| &item.reference == reference))
+            {
                 return Err(Reject::UnknownItem);
             }
             for section in &mut sections {
@@ -395,10 +426,9 @@ fn find_section(id: &str, sections: &[Section]) -> Result<usize, Reject> {
 }
 
 pub(crate) fn locate(id: &str, sections: &[Section]) -> Option<(usize, usize)> {
-    sections
-        .iter()
-        .enumerate()
-        .find_map(|(s, section)| section.items.iter().position(|item| item.id == id).map(|i| (s, i)))
+    sections.iter().enumerate().find_map(|(s, section)| {
+        section.items.iter().position(|item| item.id == id).map(|i| (s, i))
+    })
 }
 
 fn item_count(sections: &[Section]) -> usize {
@@ -412,9 +442,13 @@ fn clamp(index: i64, count: usize) -> usize {
 /// Document index for the `index`-th slot (clamped) among `region`'s
 /// sections; an empty region goes after every section of an earlier region.
 fn insertion_index(region: Region, index: i64, sections: &[Section]) -> usize {
-    let in_region: Vec<usize> = (0..sections.len()).filter(|&s| sections[s].region == region).collect();
+    let in_region: Vec<usize> =
+        (0..sections.len()).filter(|&s| sections[s].region == region).collect();
     if in_region.is_empty() {
-        return sections.iter().rposition(|section| section.region.rank() <= region.rank()).map_or(0, |s| s + 1);
+        return sections
+            .iter()
+            .rposition(|section| section.region.rank() <= region.rank())
+            .map_or(0, |s| s + 1);
     }
     let slot = clamp(index, in_region.len());
     if slot == in_region.len() { in_region[in_region.len() - 1] + 1 } else { in_region[slot] }
@@ -423,7 +457,9 @@ fn insertion_index(region: Region, index: i64, sections: &[Section]) -> usize {
 fn validate_title(title: Option<&String>) -> Result<(), Reject> {
     match title {
         // Unicode scalars, like the app's reducer (`unicodeScalars.count`).
-        Some(title) if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS => Err(Reject::InvalidTitle),
+        Some(title) if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS => {
+            Err(Reject::InvalidTitle)
+        }
         _ => Ok(()),
     }
 }
@@ -440,10 +476,16 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
         return Err(Reject::TooMany);
     }
     // L2: ids are unique across sections and items.
-    if sections.iter().any(|existing| existing.id == section.id) || locate(&section.id, sections).is_some() {
+    if sections.iter().any(|existing| existing.id == section.id)
+        || locate(&section.id, sections).is_some()
+    {
         return Err(Reject::DuplicateId);
     }
-    if section.items.iter().any(|item| item.id == section.id || sections.iter().any(|existing| existing.id == item.id)) {
+    if section
+        .items
+        .iter()
+        .any(|item| item.id == section.id || sections.iter().any(|existing| existing.id == item.id))
+    {
         return Err(Reject::DuplicateId);
     }
     // L1: exactly one workspaces section, and it holds no items.
@@ -455,7 +497,8 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     if !section.arrangement.is_valid() {
         return Err(Reject::InvalidArrangement);
     }
-    let mut ids: Vec<&str> = sections.iter().flat_map(|s| s.items.iter().map(|item| item.id.as_str())).collect();
+    let mut ids: Vec<&str> =
+        sections.iter().flat_map(|s| s.items.iter().map(|item| item.id.as_str())).collect();
     let before = ids.len();
     ids.extend(section.items.iter().map(|item| item.id.as_str()));
     let mut unique = ids.clone();
@@ -516,12 +559,19 @@ fn update_section(id: &str, patch: &SectionPatch, sections: &mut [Section]) -> R
     Ok(())
 }
 
-fn add_item(item: &Item, section: &str, index: i64, sections: &mut [Section]) -> Result<(), Reject> {
+fn add_item(
+    item: &Item,
+    section: &str,
+    index: i64,
+    sections: &mut [Section],
+) -> Result<(), Reject> {
     let s = find_section(section, sections)?;
     if sections[s].content != Content::Items {
         return Err(Reject::WorkspacesRequired);
     }
-    if locate(&item.id, sections).is_some() || sections.iter().any(|existing| existing.id == item.id) {
+    if locate(&item.id, sections).is_some()
+        || sections.iter().any(|existing| existing.id == item.id)
+    {
         return Err(Reject::DuplicateId);
     }
     // L3: pinning a reference twice into one section is a no-op.

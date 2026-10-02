@@ -33,7 +33,10 @@ fn find<'a>(document: &'a Document, id: &str) -> &'a Section {
 fn defaults_match_the_app() {
     let doc = defaults();
     let value = serde_json::to_value(&doc).unwrap();
-    assert_eq!(value["sections"][0]["items"][0]["ref"], json!({"kind": "built_in", "value": "home"}));
+    assert_eq!(
+        value["sections"][0]["items"][0]["ref"],
+        json!({"kind": "built_in", "value": "home"})
+    );
     assert_eq!(value["sections"][1]["content"], "workspaces");
     assert_eq!(value["sections"][2]["arrangement"], json!({"layout": "inline", "align": "fill"}));
     assert_eq!(value["sections"][2]["items"][1]["shows_label"], false);
@@ -45,26 +48,54 @@ fn defaults_match_the_app() {
 #[test]
 fn remove_home_and_revision() {
     let doc = ok(&defaults(), json!({"kind": "item.remove", "id": "itm_home"}));
-    assert_eq!(find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_app_store"]);
+    assert_eq!(
+        find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["itm_app_store"]
+    );
     assert_eq!(doc.revision, 1);
     let copy = json!({"id": "itm_h2", "ref": {"kind": "built_in", "value": "home"}});
-    let two = ok(&defaults(), json!({"kind": "item.add", "item": copy, "section": "sec_bottom", "index": 0}));
-    let none = ok(&two, json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}}));
+    let two = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": copy, "section": "sec_bottom", "index": 0}),
+    );
+    let none =
+        ok(&two, json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}}));
     assert!(none.sections.iter().all(|s| s.items.iter().all(|i| i.reference.value != "home")));
-    assert_eq!(err(&none, json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}})), Reject::UnknownItem);
+    assert_eq!(
+        err(
+            &none,
+            json!({"kind": "item.remove_ref", "ref": {"kind": "built_in", "value": "home"}})
+        ),
+        Reject::UnknownItem
+    );
 }
 
 #[test]
 fn add_clamps_and_dedupes() {
     let item = json!({"id": "itm_ws", "ref": {"kind": "workspace", "value": "local:ws_1"}});
-    let doc = ok(&defaults(), json!({"kind": "item.add", "item": item, "section": "sec_top", "index": 99}));
-    assert_eq!(find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_home", "itm_app_store", "itm_ws"]);
-    let front = ok(&defaults(), json!({"kind": "item.add", "item": item, "section": "sec_top", "index": -3}));
+    let doc = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": item, "section": "sec_top", "index": 99}),
+    );
+    assert_eq!(
+        find(&doc, "sec_top").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["itm_home", "itm_app_store", "itm_ws"]
+    );
+    let front = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": item, "section": "sec_top", "index": -3}),
+    );
     assert_eq!(find(&front, "sec_top").items[0].id, "itm_ws");
     let again = json!({"id": "itm_home2", "ref": {"kind": "built_in", "value": "home"}});
-    let same = ok(&defaults(), json!({"kind": "item.add", "item": again, "section": "sec_top", "index": 0}));
+    let same = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": again, "section": "sec_top", "index": 0}),
+    );
     assert_eq!(same, defaults());
-    let other = ok(&defaults(), json!({"kind": "item.add", "item": again, "section": "sec_bottom", "index": 0}));
+    let other = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": again, "section": "sec_bottom", "index": 0}),
+    );
     assert_eq!(find(&other, "sec_bottom").items[0].id, "itm_home2");
 }
 
@@ -72,87 +103,197 @@ fn add_clamps_and_dedupes() {
 fn workspaces_section_rules() {
     let item = json!({"id": "itm_x", "ref": {"kind": "built_in", "value": "history"}});
     let d = defaults();
-    assert_eq!(err(&d, json!({"kind": "item.add", "item": item, "section": "sec_workspaces", "index": 0})), Reject::WorkspacesRequired);
-    assert_eq!(err(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_workspaces", "index": 0})), Reject::WorkspacesRequired);
-    assert_eq!(err(&d, json!({"kind": "section.remove", "id": "sec_workspaces"})), Reject::WorkspacesRequired);
+    assert_eq!(
+        err(&d, json!({"kind": "item.add", "item": item, "section": "sec_workspaces", "index": 0})),
+        Reject::WorkspacesRequired
+    );
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "item.move", "id": "itm_home", "section": "sec_workspaces", "index": 0})
+        ),
+        Reject::WorkspacesRequired
+    );
+    assert_eq!(
+        err(&d, json!({"kind": "section.remove", "id": "sec_workspaces"})),
+        Reject::WorkspacesRequired
+    );
     let second = json!({"id": "sec_w2", "region": "top", "look": "list", "content": "workspaces"});
-    assert_eq!(err(&d, json!({"kind": "section.add", "section": second, "index": 0})), Reject::WorkspacesRequired);
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_workspaces", "patch": {"room": "prof_a"}})), Reject::WorkspacesRequired);
+    assert_eq!(
+        err(&d, json!({"kind": "section.add", "section": second, "index": 0})),
+        Reject::WorkspacesRequired
+    );
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "section.update", "id": "sec_workspaces", "patch": {"room": "prof_a"}})
+        ),
+        Reject::WorkspacesRequired
+    );
 }
 
 #[test]
 fn moves() {
     let d = defaults();
-    let across = ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}));
-    assert_eq!(find(&across, "sec_bottom").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(), ["itm_settings", "itm_home", "itm_account"]);
-    let within = ok(&d, json!({"kind": "item.move", "id": "itm_settings", "section": "sec_bottom", "index": 1}));
+    let across =
+        ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 1}));
+    assert_eq!(
+        find(&across, "sec_bottom").items.iter().map(|i| i.id.as_str()).collect::<Vec<_>>(),
+        ["itm_settings", "itm_home", "itm_account"]
+    );
+    let within = ok(
+        &d,
+        json!({"kind": "item.move", "id": "itm_settings", "section": "sec_bottom", "index": 1}),
+    );
     assert_eq!(find(&within, "sec_bottom").items[1].id, "itm_settings");
-    assert_eq!(ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_top", "index": 0})), d);
-    let to_top = ok(&d, json!({"kind": "section.move", "id": "sec_workspaces", "region": "top", "index": 1}));
+    assert_eq!(
+        ok(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_top", "index": 0})),
+        d
+    );
+    let to_top = ok(
+        &d,
+        json!({"kind": "section.move", "id": "sec_workspaces", "region": "top", "index": 1}),
+    );
     assert_eq!(section_ids(&to_top, Region::Top), ["sec_top", "sec_workspaces"]);
-    let bottom_first = ok(&d, json!({"kind": "section.move", "id": "sec_top", "region": "bottom", "index": 0}));
+    let bottom_first =
+        ok(&d, json!({"kind": "section.move", "id": "sec_top", "region": "bottom", "index": 0}));
     assert_eq!(section_ids(&bottom_first, Region::Bottom), ["sec_top", "sec_bottom"]);
 }
 
 #[test]
 fn duplicate_ref_on_move_and_unknowns() {
     let copy = json!({"id": "itm_home2", "ref": {"kind": "built_in", "value": "home"}});
-    let d = ok(&defaults(), json!({"kind": "item.add", "item": copy, "section": "sec_bottom", "index": 0}));
-    assert_eq!(err(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 0})), Reject::DuplicateRef);
+    let d = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": copy, "section": "sec_bottom", "index": 0}),
+    );
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 0})
+        ),
+        Reject::DuplicateRef
+    );
     let d = defaults();
     assert_eq!(err(&d, json!({"kind": "item.remove", "id": "itm_nope"})), Reject::UnknownItem);
-    assert_eq!(err(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_nope", "index": 0})), Reject::UnknownSection);
-    assert_eq!(err(&d, json!({"kind": "item.update", "id": "itm_nope", "shows_label": true})), Reject::UnknownItem);
+    assert_eq!(
+        err(&d, json!({"kind": "item.move", "id": "itm_home", "section": "sec_nope", "index": 0})),
+        Reject::UnknownSection
+    );
+    assert_eq!(
+        err(&d, json!({"kind": "item.update", "id": "itm_nope", "shows_label": true})),
+        Reject::UnknownItem
+    );
     let dup = json!({"id": "itm_settings", "ref": {"kind": "built_in", "value": "history"}});
-    assert_eq!(err(&d, json!({"kind": "item.add", "item": dup, "section": "sec_top", "index": 0})), Reject::DuplicateId);
+    assert_eq!(
+        err(&d, json!({"kind": "item.add", "item": dup, "section": "sec_top", "index": 0})),
+        Reject::DuplicateId
+    );
 }
 
 #[test]
 fn sections_add_update_remove() {
     let d = defaults();
     let s = json!({"id": "sec_p", "title": "Project", "region": "top", "look": "list", "content": "items"});
-    assert_eq!(section_ids(&ok(&d, json!({"kind": "section.add", "section": s, "index": 0})), Region::Top), ["sec_p", "sec_top"]);
-    assert_eq!(section_ids(&ok(&d, json!({"kind": "section.add", "section": s, "index": 5})), Region::Top), ["sec_top", "sec_p"]);
-    let set = ok(&d, json!({"kind": "section.update", "id": "sec_bottom",
-        "patch": {"title": "Tools", "look": "list", "room": "prof_a", "max_rows": 3, "shows_title": false}}));
+    assert_eq!(
+        section_ids(&ok(&d, json!({"kind": "section.add", "section": s, "index": 0})), Region::Top),
+        ["sec_p", "sec_top"]
+    );
+    assert_eq!(
+        section_ids(&ok(&d, json!({"kind": "section.add", "section": s, "index": 5})), Region::Top),
+        ["sec_top", "sec_p"]
+    );
+    let set = ok(
+        &d,
+        json!({"kind": "section.update", "id": "sec_bottom",
+        "patch": {"title": "Tools", "look": "list", "room": "prof_a", "max_rows": 3, "shows_title": false}}),
+    );
     let b = find(&set, "sec_bottom");
-    assert_eq!((b.title.as_deref(), b.look, b.room.as_deref(), b.max_rows, b.shows_title), (Some("Tools"), Look::List, Some("prof_a"), Some(3), false));
-    let cleared = ok(&set, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": null, "room": null, "max_rows": null}}));
+    assert_eq!(
+        (b.title.as_deref(), b.look, b.room.as_deref(), b.max_rows, b.shows_title),
+        (Some("Tools"), Look::List, Some("prof_a"), Some(3), false)
+    );
+    let cleared = ok(
+        &set,
+        json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": null, "room": null, "max_rows": null}}),
+    );
     let b = find(&cleared, "sec_bottom");
     assert_eq!((b.title.clone(), b.room.clone(), b.max_rows), (None, None, None));
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": ""}})), Reject::InvalidTitle);
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": "x".repeat(81)}})), Reject::InvalidTitle);
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 0}})), Reject::InvalidMaxRows);
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 51}})), Reject::InvalidMaxRows);
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": 40}})), Reject::InvalidArrangement);
-    let grid = ok(&d, json!({"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid"}}));
+    assert_eq!(
+        err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": ""}})),
+        Reject::InvalidTitle
+    );
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": "x".repeat(81)}})
+        ),
+        Reject::InvalidTitle
+    );
+    assert_eq!(
+        err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 0}})),
+        Reject::InvalidMaxRows
+    );
+    assert_eq!(
+        err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"max_rows": 51}})),
+        Reject::InvalidMaxRows
+    );
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid", "columns": 40}})
+        ),
+        Reject::InvalidArrangement
+    );
+    let grid =
+        ok(&d, json!({"kind": "section.update", "id": "sec_top", "patch": {"layout": "grid"}}));
     assert_eq!(find(&grid, "sec_top").arrangement.align, Alignment::Leading);
     let gap = ok(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"gap": 6}}));
     assert_eq!(find(&gap, "sec_bottom").arrangement.layout, ArrangementLayout::Inline);
     assert_eq!(ok(&d, json!({"kind": "section.update", "id": "sec_top", "patch": {}})), d);
     let removed = ok(&d, json!({"kind": "section.remove", "id": "sec_bottom"}));
     assert!(removed.sections.iter().all(|s| s.id != "sec_bottom"));
-    assert_eq!(err(&d, json!({"kind": "section.remove", "id": "sec_nope"})), Reject::UnknownSection);
+    assert_eq!(
+        err(&d, json!({"kind": "section.remove", "id": "sec_nope"})),
+        Reject::UnknownSection
+    );
 }
 
 #[test]
 fn limits_reset_and_unknown_refs() {
     let mut d = defaults();
     for n in 0..(MAX_SECTIONS - d.sections.len()) {
-        let s = json!({"id": format!("sec_{n}"), "region": "top", "look": "list", "content": "items"});
+        let s =
+            json!({"id": format!("sec_{n}"), "region": "top", "look": "list", "content": "items"});
         d = ok(&d, json!({"kind": "section.add", "section": s, "index": 0}));
     }
     let over = json!({"id": "sec_over", "region": "top", "look": "list", "content": "items"});
-    assert_eq!(err(&d, json!({"kind": "section.add", "section": over, "index": 0})), Reject::TooMany);
+    assert_eq!(
+        err(&d, json!({"kind": "section.add", "section": over, "index": 0})),
+        Reject::TooMany
+    );
     let edited = ok(&defaults(), json!({"kind": "item.remove", "id": "itm_home"}));
     let reset = ok(&edited, json!({"kind": "layout.reset"}));
-    assert_eq!((reset.sections.clone(), reset.revision), (defaults().sections, edited.revision + 1));
+    assert_eq!(
+        (reset.sections.clone(), reset.revision),
+        (defaults().sections, edited.revision + 1)
+    );
     assert_eq!(ok(&defaults(), json!({"kind": "layout.reset"})), defaults());
     let future = json!({"id": "itm_f", "ref": {"kind": "hologram", "value": "x"}});
-    let doc = ok(&defaults(), json!({"kind": "item.add", "item": future, "section": "sec_top", "index": 1}));
-    let doc = ok(&doc, json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 0}));
-    assert_eq!(serde_json::to_value(&find(&doc, "sec_top").items[0]).unwrap()["ref"], json!({"kind": "hologram", "value": "x"}));
-    let label = ok(&defaults(), json!({"kind": "item.update", "id": "itm_account", "shows_label": true}));
+    let doc = ok(
+        &defaults(),
+        json!({"kind": "item.add", "item": future, "section": "sec_top", "index": 1}),
+    );
+    let doc = ok(
+        &doc,
+        json!({"kind": "item.move", "id": "itm_home", "section": "sec_bottom", "index": 0}),
+    );
+    assert_eq!(
+        serde_json::to_value(&find(&doc, "sec_top").items[0]).unwrap()["ref"],
+        json!({"kind": "hologram", "value": "x"})
+    );
+    let label =
+        ok(&defaults(), json!({"kind": "item.update", "id": "itm_account", "shows_label": true}));
     assert!(find(&label, "sec_bottom").items[1].shows_label);
 }
 
@@ -160,13 +301,26 @@ fn limits_reset_and_unknown_refs() {
 fn titles_count_unicode_scalars_and_ids_are_unique_across_sections_and_items() {
     let d = defaults();
     let flags = "\u{1F1EF}\u{1F1F5}".repeat(41); // 82 scalars, 41 graphemes
-    assert_eq!(err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": flags}})), Reject::InvalidTitle);
+    assert_eq!(
+        err(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": flags}})),
+        Reject::InvalidTitle
+    );
     let ok_title = "\u{1F1EF}\u{1F1F5}".repeat(20);
     ok(&d, json!({"kind": "section.update", "id": "sec_bottom", "patch": {"title": ok_title}}));
     let clash = json!({"id": "itm_home", "region": "top", "look": "list", "content": "items"});
-    assert_eq!(err(&d, json!({"kind": "section.add", "section": clash, "index": 0})), Reject::DuplicateId);
-    let named_like_section = json!({"id": "sec_bottom", "ref": {"kind": "built_in", "value": "history"}});
-    assert_eq!(err(&d, json!({"kind": "item.add", "item": named_like_section, "section": "sec_top", "index": 0})), Reject::DuplicateId);
+    assert_eq!(
+        err(&d, json!({"kind": "section.add", "section": clash, "index": 0})),
+        Reject::DuplicateId
+    );
+    let named_like_section =
+        json!({"id": "sec_bottom", "ref": {"kind": "built_in", "value": "history"}});
+    assert_eq!(
+        err(
+            &d,
+            json!({"kind": "item.add", "item": named_like_section, "section": "sec_top", "index": 0})
+        ),
+        Reject::DuplicateId
+    );
 }
 
 #[test]
@@ -179,10 +333,17 @@ fn unknown_values_and_nulls_read_as_defaults() {
     }))
     .unwrap();
     assert_eq!(section.look, Look::List);
-    assert_eq!((section.arrangement.layout, section.arrangement.align, section.arrangement.gap), (ArrangementLayout::List, Alignment::Leading, Some(4)));
+    assert_eq!(
+        (section.arrangement.layout, section.arrangement.align, section.arrangement.gap),
+        (ArrangementLayout::List, Alignment::Leading, Some(4))
+    );
     assert!(section.shows_title && section.items[0].shows_label);
     let compact = serde_json::to_value(&section).unwrap();
-    assert!(compact.get("title").is_none() && compact.get("room").is_none() && compact.get("max_rows").is_none());
+    assert!(
+        compact.get("title").is_none()
+            && compact.get("room").is_none()
+            && compact.get("max_rows").is_none()
+    );
 }
 
 /// SplitMix64, so a failure reproduces from its seed (no proptest
@@ -212,8 +373,12 @@ impl Rng {
 }
 
 fn random_op(rng: &mut Rng, step: usize) -> Op {
-    let section = rng.pick(&["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"]).to_string();
-    let item = rng.pick(&["itm_home", "itm_settings", "itm_account", "itm_r0", "itm_r1", "itm_ghost"]).to_string();
+    let section = rng
+        .pick(&["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"])
+        .to_string();
+    let item = rng
+        .pick(&["itm_home", "itm_settings", "itm_account", "itm_r0", "itm_r1", "itm_ghost"])
+        .to_string();
     let region = [Region::Top, Region::Middle, Region::Bottom][rng.below(3) as usize];
     let reference = rng.pick(&["home", "settings", "history", "ws_1"]).to_string();
     let index = rng.below(6) as i64 - 1;
@@ -240,7 +405,11 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
             patch: SectionPatch {
                 max_rows: Update::Set(rows),
                 title: Update::Set(format!("T{step}")),
-                layout: Some(if flag { ArrangementLayout::Grid } else { ArrangementLayout::Inline }),
+                layout: Some(if flag {
+                    ArrangementLayout::Grid
+                } else {
+                    ArrangementLayout::Inline
+                }),
                 gap: Update::Set(rows - 2),
                 columns: if flag { Update::Clear } else { Update::Set(rows % 14) },
                 ..Default::default()
@@ -249,7 +418,11 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
         2 => Op::SectionMove { id: section, region, index },
         3 => Op::SectionRemove { id: section },
         4 | 5 => Op::ItemAdd {
-            item: Item { id: format!("itm_r{}", step % 2), reference: ItemRef { kind: "built_in".into(), value: reference }, shows_label: flag },
+            item: Item {
+                id: format!("itm_r{}", step % 2),
+                reference: ItemRef { kind: "built_in".into(), value: reference },
+                shows_label: flag,
+            },
             section,
             index,
         },
@@ -274,22 +447,38 @@ fn random_ops_keep_invariants() {
             let before = doc.clone();
             let Ok(next) = reduce(&doc, &op) else { continue };
             doc = next;
-            assert_eq!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).count(), 1, "seed {seed}");
-            assert!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).all(|s| s.room.is_none()));
+            assert_eq!(
+                doc.sections.iter().filter(|s| s.content == Content::Workspaces).count(),
+                1,
+                "seed {seed}"
+            );
+            assert!(
+                doc.sections
+                    .iter()
+                    .filter(|s| s.content == Content::Workspaces)
+                    .all(|s| s.room.is_none())
+            );
             let all = ids(&doc);
             let mut unique = all.clone();
             unique.sort();
             unique.dedup();
             assert_eq!(unique.len(), all.len(), "seed {seed}");
             for section in &doc.sections {
-                let mut refs: Vec<_> = section.items.iter().map(|i| (i.reference.kind.clone(), i.reference.value.clone())).collect();
+                let mut refs: Vec<_> = section
+                    .items
+                    .iter()
+                    .map(|i| (i.reference.kind.clone(), i.reference.value.clone()))
+                    .collect();
                 let count = refs.len();
                 refs.sort();
                 refs.dedup();
                 assert_eq!(refs.len(), count, "seed {seed}");
             }
             assert!(doc.sections.len() <= MAX_SECTIONS && all.len() <= MAX_ITEMS);
-            assert!(doc.sections.iter().all(|s| s.arrangement.is_valid() && s.max_rows.is_none_or(|r| MAX_ROWS.contains(&r))));
+            assert!(
+                doc.sections.iter().all(|s| s.arrangement.is_valid()
+                    && s.max_rows.is_none_or(|r| MAX_ROWS.contains(&r)))
+            );
             if matches!(op, Op::ItemMove { .. } | Op::SectionMove { .. }) {
                 let mut a = all.clone();
                 let mut b = ids(&before);
@@ -297,7 +486,11 @@ fn random_ops_keep_invariants() {
                 b.sort();
                 assert_eq!(a, b, "seed {seed}");
             }
-            assert_eq!(doc.revision, before.revision + u64::from(doc.sections != before.sections), "seed {seed}");
+            assert_eq!(
+                doc.revision,
+                before.revision + u64::from(doc.sections != before.sections),
+                "seed {seed}"
+            );
         }
     }
 }
@@ -325,11 +518,17 @@ fn shared_cases_match_the_app() {
                         assert_eq!(&actual, items, "{name}");
                     }
                     if let Some(arrangement) = case.get("arrangement") {
-                        assert_eq!(&serde_json::to_value(section.arrangement).unwrap(), arrangement, "{name}");
+                        assert_eq!(
+                            &serde_json::to_value(section.arrangement).unwrap(),
+                            arrangement,
+                            "{name}"
+                        );
                     }
                 }
             }
-            ("reject", Err(reject)) => assert_eq!(reject.as_str(), case["reason"].as_str().unwrap(), "{name}"),
+            ("reject", Err(reject)) => {
+                assert_eq!(reject.as_str(), case["reason"].as_str().unwrap(), "{name}")
+            }
             (expect, other) => panic!("{name}: expected {expect}, got {other:?}"),
         }
     }
