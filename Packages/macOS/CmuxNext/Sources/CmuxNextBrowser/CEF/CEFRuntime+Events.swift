@@ -86,7 +86,7 @@ extension CEFRuntime {
         case .devToolsClosed(let browser, let devTools):
             tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
         case .installPrompt(let browser, let promptID, let json):
-            extensionPromptArrived(promptID: promptID, browser: browser, json: json)
+            extensionPrompts.arrived(promptID: promptID, browser: browser, json: json)
         case .omniboxSuggestions(let requestID, let extensionID, let json):
             omniboxKeywords.suggestionsArrived(requestID: requestID, extensionID: extensionID, json: json)
         case .unknown:
@@ -110,7 +110,7 @@ extension CEFRuntime {
         }
         guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
               tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
-        let store = extensionStore(for: tab.profileID)
+        let store = extensionStores.store(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)
     }
@@ -135,7 +135,7 @@ extension CEFRuntime {
             return
         }
         // Chromium created the tab itself (target=_blank, chrome.tabs.create).
-        adoptOrphan(browser: browser, window: window, created: created)
+        orphans.adopt(browser: browser, window: window, created: created)
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
@@ -148,8 +148,7 @@ extension CEFRuntime {
             tab.browserDidClose()
         } else {
             // Never registered: drop a pending adoption of it.
-            adoptions.closedUnregistered(browser)
-            unplaced[browser] = nil
+            orphans.closedUnregistered(browser)
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
@@ -161,13 +160,13 @@ extension CEFRuntime {
     private func forkTabEvent(_ kind: CEFForkTabEvent, browser: Int32, window: Int32, value: Int) {
         switch kind {
         case .extensionActionsChanged, .inserted, .removed:
-            if kind == .inserted { placeUnplaced(browser: browser, window: window) }
+            if kind == .inserted { orphans.placeUnplaced(browser: browser, window: window) }
             for host in hosts.values where host.owns(window: window) {
                 host.refreshExtensionActions()
             }
-            if kind == .extensionActionsChanged { refreshExtensionStores(window: window, browser: browser) }
+            if kind == .extensionActionsChanged { extensionStores.refresh(window: window, browser: browser) }
         case .extensionsChanged:
-            refreshExtensionStores(window: window, browser: browser)
+            extensionStores.refresh(window: window, browser: browser)
         case .extensionPopupClosed:
             // `browser` is the window's active tab; the popup may have
             // opened from another tab of the same window.
