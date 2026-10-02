@@ -105,6 +105,7 @@ struct MachinesPanelView: View {
         }
         .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
         .onChange(of: activationCoordinator.state) { _, _ in syncPolling(for: authState) }
+        .onChange(of: activationCoordinator.isPreparing) { _, _ in syncPolling(for: authState) }
         .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
             devicesModel.consumePendingReveal()
         }
@@ -122,6 +123,7 @@ struct MachinesPanelView: View {
         }
         .onDisappear {
             viewModel.stopPolling()
+            viewModel.cancelCloudAgentTask()
         }
         .task {
             for await _ in ManagedDevicePolicy.changeSignals() {
@@ -148,7 +150,7 @@ struct MachinesPanelView: View {
         }
         .task(id: devBackend.attempt) {
             await devBackend.observe()
-            if devBackend.status?.isReady == true { viewModel.refresh() }
+            if devBackend.status?.isReady == true, !activationCoordinator.isPreparing { viewModel.refresh() }
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
@@ -192,7 +194,7 @@ struct MachinesPanelView: View {
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
-            if includesCloud {
+            if includesCloud && !activationCoordinator.isPreparing {
                 viewModel.startPolling()
             } else {
                 viewModel.stopPolling()
@@ -250,6 +252,7 @@ struct MachinesPanelView: View {
             cloudAgentMenu
                 .padding(.trailing, 8)
         }
+        .disabled(activationCoordinator.isPreparing)
     }
 
     @ViewBuilder
@@ -390,11 +393,7 @@ struct MachinesPanelView: View {
     }
 
     private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
-        Task { @MainActor [weak viewModel] in
-            do { _ = try await CloudAgentSkillLauncher.openAgent(agent) }
-            catch { viewModel?.noteTreeFailure(error.localizedDescription) }
-            viewModel?.endOperation()
-        }
+        viewModel.launchCloudAgent(agent)
     }
 
     private func requestNewMachine() {

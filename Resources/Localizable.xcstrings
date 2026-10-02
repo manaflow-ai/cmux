@@ -195972,16 +195972,16 @@
             "value": "إلغاء"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cancel"
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "de": {
@@ -195993,7 +195993,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "es": {
@@ -196011,7 +196011,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "ja": {
@@ -196023,7 +196023,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "ko": {
@@ -196035,37 +196035,37 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+        "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "uk": {
@@ -609984,70 +609984,70 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Use Cloud Machines"
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cloud Machines zahtijevaju cmux Pro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines kræver cmux Pro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines richiedono cmux Pro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines ត្រូវការ cmux Pro"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines krever cmux Pro"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines wymagają cmux Pro"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "O Cloud Machines requer cmux Pro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Для Cloud Machines требуется cmux Pro"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines ต้องใช้ cmux Pro"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Cloud Machines için cmux Pro gerekir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use Cloud Machines"
+        "value": "Для Cloud Machines потрібен cmux Pro"
           }
         }
       }
@@ -611237,67 +611237,67 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancel"
+            "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         }
       }

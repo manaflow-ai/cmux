@@ -33,6 +33,10 @@ final class CloudActivationCoordinator {
     private(set) var state: State {
         didSet { if oldValue != state { publishState() } }
     }
+    /// True while the optimistic activation is preparing shared Cloud runtime
+    /// resources. The normal sidebar stays visible, but owners must defer
+    /// Cloud polling and mutating controls until this becomes false.
+    private(set) var isPreparing = false
 
     private let defaults: UserDefaults
     private let notificationCenter: NotificationCenter
@@ -138,6 +142,7 @@ final class CloudActivationCoordinator {
         state = .enabled
         let id = UUID()
         activationID = id
+        isPreparing = true
         let previousCleanup = cleanupTask
         activationTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -145,6 +150,7 @@ final class CloudActivationCoordinator {
                 if self.activationID == id {
                     self.activationID = nil
                     self.activationTask = nil
+                    self.isPreparing = false
                 }
             }
             do {
@@ -232,6 +238,7 @@ final class CloudActivationCoordinator {
         let task = activationTask
         activationID = nil
         activationTask = nil
+        isPreparing = false
         task?.cancel()
         rollbackOptimisticActivation()
         scheduleCleanup(after: task)
