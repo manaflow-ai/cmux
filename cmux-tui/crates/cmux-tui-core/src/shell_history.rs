@@ -136,6 +136,13 @@ impl CommandTracker {
         }
     }
 
+    /// While recording is off: keeps only where input starts (the cursor
+    /// at `B`, never screen text), so the first command after recording
+    /// turns on still has its line; drops any running command.
+    pub(crate) fn track_position(&mut self, mark: ShellMark, screen: &mut impl CommandScreen) {
+        let _ = (mark, screen);
+    }
+
     fn finish(&mut self, exit_code: Option<i32>, now_ms: u64) -> Option<FinishedCommand> {
         let running = self.running.take()?;
         Some(FinishedCommand {
@@ -146,6 +153,13 @@ impl CommandTracker {
             duration_ms: now_ms.saturating_sub(running.started_at_ms),
         })
     }
+}
+
+/// The local path of an OSC 7 report (`file://host/path`), or `None` for
+/// another host's directory or an unreadable report.
+pub(crate) fn command_cwd(report: &str) -> Option<String> {
+    let _ = report;
+    None
 }
 
 /// A command line as stored: trimmed, without control characters, cut to
@@ -390,6 +404,43 @@ mod tests {
         empty.payload["command"] = serde_json::Value::Null;
         empty.payload["exit_code"] = serde_json::Value::Null;
         kernel.validate_ingress(&empty).expect("null command and exit code are allowed");
+    }
+
+    /// Seen on tag nxhist2: the B mark of the prompt shown when recording
+    /// turned on was dropped, so that first command had no command line.
+    #[test]
+    fn shell_history_keeps_the_input_start_while_recording_is_off() {
+        let mut screen = screen(7, "% git status");
+        let mut tracker = CommandTracker::default();
+        screen.cursor = Some((2, 7));
+        tracker.track_position(ShellMark::PromptStart, &mut screen);
+        tracker.track_position(ShellMark::InputStart, &mut screen);
+        // Recording turns on while the user types.
+        tracker.apply(ShellMark::CommandStart, 10, &mut screen);
+        let finished =
+            tracker.apply(ShellMark::CommandEnd { exit_code: Some(0) }, 20, &mut screen).unwrap();
+        assert_eq!(finished.command.as_deref(), Some("git status"));
+        // A command that started while off is never recorded.
+        let mut tracker = CommandTracker::default();
+        tracker.track_position(ShellMark::InputStart, &mut screen);
+        tracker.track_position(ShellMark::CommandStart, &mut screen);
+        assert_eq!(
+            tracker.apply(ShellMark::CommandEnd { exit_code: Some(0) }, 30, &mut screen),
+            None
+        );
+    }
+
+    /// Seen on tag nxhist2: cwd was the raw OSC 7 URL.
+    #[test]
+    fn shell_history_stores_the_osc_7_directory_as_a_local_path() {
+        if cfg!(unix) {
+            assert_eq!(
+                command_cwd("file://localhost/Users/me/my%20repo").as_deref(),
+                Some("/Users/me/my repo")
+            );
+        }
+        assert_eq!(command_cwd("file://some-other-host.invalid/srv/app"), None);
+        assert_eq!(command_cwd("not a url"), None);
     }
 
     #[test]
