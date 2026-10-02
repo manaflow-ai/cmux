@@ -100,34 +100,7 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
       }
 
       case "check": {
-        const lookup = await currentSession();
-        // Unknown: leave every saved account as it is, and let a switch decide.
-        if (!lookup.known) return reply({ signedIn: sessions.map((session) => session.id) }, sessions);
-        const current = lookup.session;
-        const checked = await Promise.all(
-          sessions.map(async (session): Promise<SavedSession | null> => {
-            // The browser's own session is signed in by definition, and a
-            // refresh here would go through a separate app: if the service
-            // rotated the token, the browser's copy would go stale.
-            if (session.refreshToken === current?.refreshToken) return session;
-            let result: SessionLookup;
-            try {
-              result = await dependencies.lookup(session.refreshToken);
-            } catch {
-              // The service did not answer: keep it, and let a switch decide.
-              return session;
-            }
-            if (result.status !== "valid") return null;
-            if (result.id !== session.id) {
-              // Live but someone else's: end it rather than strand it.
-              await dependencies.revoke(session.refreshToken).catch(() => {});
-              return null;
-            }
-            // Follow a rotated refresh token, so the next switch uses the live one.
-            return { ...session, refreshToken: result.tokens.refreshToken };
-          }),
-        );
-        const next = checked.filter((session): session is SavedSession => session !== null);
+        const next = await checkSessions(sessions, await currentSession(), dependencies);
         return reply({ signedIn: next.map((session) => session.id) }, next);
       }
 
@@ -175,6 +148,37 @@ export function makeAccountsHandler(dependencies: AccountsDependencies) {
       }
     }
   };
+}
+
+/** Which saved sessions are still signed in, following rotated tokens. */
+async function checkSessions(sessions: SavedSession[], lookup: CurrentSession, dependencies: AccountsDependencies): Promise<SavedSession[]> {
+  // Unknown: leave every saved account as it is, and let a switch decide.
+  if (!lookup.known) return sessions;
+  const current = lookup.session;
+  const checked = await Promise.all(
+    sessions.map(async (session): Promise<SavedSession | null> => {
+      // The browser's own session is signed in by definition, and a
+      // refresh here would go through a separate app: if the service
+      // rotated the token, the browser's copy would go stale.
+      if (session.refreshToken === current?.refreshToken) return session;
+      let result: SessionLookup;
+      try {
+        result = await dependencies.lookup(session.refreshToken);
+      } catch {
+        // The service did not answer: keep it, and let a switch decide.
+        return session;
+      }
+      if (result.status !== "valid") return null;
+      if (result.id !== session.id) {
+        // Live but someone else's: end it rather than strand it.
+        await dependencies.revoke(session.refreshToken).catch(() => {});
+        return null;
+      }
+      // Follow a rotated refresh token, so the next switch uses the live one.
+      return { ...session, refreshToken: result.tokens.refreshToken };
+    }),
+  );
+  return checked.filter((session): session is SavedSession => session !== null);
 }
 
 /**
