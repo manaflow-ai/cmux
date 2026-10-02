@@ -11,9 +11,10 @@ deploy requests or schema branching for Postgres, so the pipeline enforces this 
 
 | Stage | What runs | Where |
 | --- | --- | --- |
-| PR opened or updated | lint (expand rules, phase header), append-only and contract-alone guard, all migrations from zero on a scratch Postgres, apply to `development`, preview Worker | `.github/workflows/backend.yml` jobs `test`, `migrations-guard`, `migrations-development`, `preview` |
-| Label `backend:apply-migrations` | apply to `staging`, then production if staging passed | `migrations-apply-staging`, `migrations-apply-production` |
-| Every PR event | `backend migrations applied`: fails while staging or production lacks a migration from the PR | merge gate |
+| PR opened or updated | tests, all migrations from zero on a scratch Postgres, apply to `development`, preview Worker | `backend.yml` (`pull_request`, untrusted) |
+| PR opened or updated | guard (append-only, numbers above the base, contract only alone and only into `main`), parsed-SQL lint | `backend-migrations.yml` job `plan` (`pull_request_target`: base-branch tooling, head SQL only) |
+| Label `backend:apply-migrations` | apply to `staging`, then production if staging passed; label removed | `apply-staging`, `apply-production` |
+| Every PR and merge-group event | `backend migrations applied`: passes when no migration changed, else the tree must equal staging and production | required check on `feat-cmux-next` and `main` |
 | Push to `feat-cmux-next` | verify staging, deploy API Worker and dashboard | `deploy-staging` |
 | Push to `main` or dispatch `target=production` | verify production, deploy | `deploy-production` |
 
@@ -25,4 +26,6 @@ longer uses what they remove.
 How to write one: [skills/cmux-backend-migrations/SKILL.md](../skills/cmux-backend-migrations/SKILL.md).
 Runner: `backend/db/migrate.ts` (`--lint`, `--env <env> [--verify]`).
 Credentials: GitHub environments `cmux-next-development`, `cmux-next-staging`,
-`cmux-next-production` (`CMUX_NEXT_PG_MIGRATOR_URL`); locally `~/.secrets/cmux-next-planetscale-<env>.env`.
+`cmux-next-production` (`CMUX_NEXT_PG_MIGRATOR_URL`; production also `CMUX_NEXT_STAGING_MIGRATOR_URL`).
+Staging and production only release secrets to `main`, `feat-cmux-next` and their merge-queue
+refs, so a PR's own workflow cannot read them. Locally `~/.secrets/cmux-next-planetscale-<env>.env`.

@@ -1,31 +1,23 @@
-# CI/CD for the cmux-next cloud backend (backend/). Agents ship migrations with no
-# human step; the rule is that merging deploys, so every migration is applied to
-# staging and then production BEFORE its PR merges (skills/cmux-backend-migrations).
+# CI/CD for the cmux-next cloud backend (backend/). Untrusted PR jobs live here (tests,
+# migrations on the shared development branch, preview Worker) plus the deploys. The
+# trusted pre-merge migration apply and the required gate `backend migrations applied`
+# live in backend-migrations.yml (pull_request_target: it runs from the base branch and
+# only reads the PR's SQL files). Rule: merging deploys, so every migration is on staging
+# and production before its PR merges (skills/cmux-backend-migrations).
 #
-#   PR:      test (typecheck, catalog, invariants, workerd, migrations from zero on a
-#            scratch Postgres, lint), migrations-guard (no edits to applied files,
-#            contract-only PRs), migrations-development + preview Worker.
-#   Label `backend:apply-migrations` on a PR: migrations-apply runs the reviewed
-#            migrations on staging, then production.
-#   Every PR event: `backend migrations applied` fails while any migration in the PR
-#            is missing on staging or production. Do not merge while it is red.
-#   Push to feat-cmux-next: deploy staging (Worker + dashboard).
-#   Push to main, or workflow_dispatch target=production: deploy production.
-#   Every deploy re-verifies that its environment has every migration first.
-#
-# Secrets: environments cmux-next-{development,staging,production} hold
-# CMUX_NEXT_PG_MIGRATOR_URL and JWT_PRIVATE_JWK; repo secrets CLOUDFLARE_API_TOKEN,
-# VERCEL_TOKEN, CMUX_NEXT_API_PREVIEW_JWT_PRIVATE_JWK.
+#   Push to feat-cmux-next: deploy staging. Push to main, or dispatch target=production
+#   from main: deploy production. Every deploy refuses when its database lacks a migration
+#   or has one the tree lacks.
 
 name: backend
 
 on:
-  # No path filter on pull_request: `backend migrations applied` is a required check on
-  # protected branches, so it must report on every PR. The `changes` job skips the heavy
-  # jobs for PRs that do not touch the backend.
   pull_request:
-    types: [opened, synchronize, reopened, labeled, closed]
-  merge_group:
+    types: [opened, synchronize, reopened, closed]
+    paths:
+      - backend/**
+      - .github/workflows/backend.yml
+      - .github/workflows/backend-migrations.yml
   push:
     branches: [feat-cmux-next, main]
     paths:
@@ -52,45 +44,8 @@ env:
   DASHBOARD_PROJECT_PRODUCTION: prj_O6kHxZ4Etl6QWUVEoiJyGCPoS2Fh
 
 jobs:
-  changes:
-    if: github.event.action != 'closed'
-    runs-on: ubuntu-24.04
-    outputs:
-      backend: ${{ steps.diff.outputs.backend }}
-      migrations: ${{ steps.diff.outputs.migrations }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - id: diff
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          MQ_BASE: ${{ github.event.merge_group.base_sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-        run: |
-          set -euo pipefail
-          case "$EVENT" in
-            pull_request) base="$PR_BASE"; range="$base...HEAD" ;;
-            merge_group) base="$MQ_BASE"; range="$base..HEAD" ;;
-            push) base="$PUSH_BEFORE"; range="$base..HEAD" ;;
-            *) base=""; range="" ;;
-          esac
-          if [ -z "$range" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            backend=true; migrations=true
-          else
-            files=$(git diff --name-only "$range")
-            backend=false; migrations=false
-            echo "$files" | grep -qE '^(backend/|\.github/workflows/backend\.yml$)' && backend=true
-            echo "$files" | grep -qE '^backend/db/migrations/' && migrations=true
-          fi
-          echo "backend=$backend" >> "$GITHUB_OUTPUT"
-          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
-          echo "backend=$backend migrations=$migrations"
-
   test:
-    needs: changes
-    if: github.event.action != 'closed' && github.event_name != 'merge_group' && needs.changes.outputs.backend == 'true'
+    if: github.event.action != 'closed'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     services:
       postgres:
@@ -116,7 +71,7 @@ jobs:
         run: bun run typecheck
       - name: Catalog drift
         run: bun run catalog:check
-      - name: Migration lint and lint tests
+      - name: Migration lint (parsed SQL) and lint tests
         working-directory: backend/db
         run: bun migrate.ts --lint && bun test test
       - name: Migrations apply from zero (scratch Postgres)
@@ -139,39 +94,11 @@ jobs:
         working-directory: backend/apps/api
         run: ./node_modules/.bin/wrangler deploy --env production --dry-run --outdir dist
 
-  migrations-guard:
-    needs: changes
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && needs.changes.outputs.backend == 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          fetch-depth: 0
-      - name: Applied migrations are immutable; contract migrations ship alone
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-        run: |
-          set -euo pipefail
-          dir=backend/db/migrations
-          changed=$(git diff --name-status "$BASE"...HEAD -- "$dir" || true)
-          bad=$(echo "$changed" | awk '$1 != "A" && NF' || true)
-          if [ -n "$bad" ]; then
-            echo "::error::migrations are append-only; these existing files changed: $bad"; exit 1
-          fi
-          added=$(echo "$changed" | awk '$1 == "A" {print $2}')
-          contract=""
-          for f in $added; do grep -qE '^--[[:space:]]*phase:[[:space:]]*contract' "$f" && contract="$contract $f"; done
-          if [ -n "$contract" ]; then
-            others=$(git diff --name-only "$BASE"...HEAD | grep -v "^$dir/" || true)
-            if [ -n "$others" ]; then
-              echo "::error::contract migration(s)$contract must be in a PR that changes nothing else (deployed code must already stop using what they remove). Other files: $others"; exit 1
-            fi
-          fi
-          echo "added: ${added:-none}; contract:${contract:- none}"
-
+  # Development is shared by previews and holds no real data, so the PR's own runner may
+  # apply there; staging and production only through backend-migrations.yml.
   migrations-development:
-    needs: [test, migrations-guard]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && needs.test.result == 'success'
+    needs: test
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     environment: cmux-next-development
     defaults:
@@ -222,97 +149,6 @@ jobs:
           done
           echo "::error::preview Worker did not answer at $url"; exit 1
 
-  # Pre-merge: apply the reviewed migrations. Staging first; production only if staging succeeded.
-  migrations-apply-staging:
-    needs: [test, migrations-guard]
-    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'backend:apply-migrations') && needs.test.result == 'success' && needs.migrations-guard.result == 'success'
-    runs-on: ubuntu-24.04
-    environment: cmux-next-staging
-    concurrency:
-      group: cmux-next-migrations-staging
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: backend/db
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-        working-directory: backend
-      - name: Apply to cmux-next/staging
-        env:
-          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
-        run: bun migrate.ts --env staging && bun migrate.ts --env staging --verify
-
-  migrations-apply-production:
-    needs: migrations-apply-staging
-    runs-on: ubuntu-24.04
-    environment: cmux-next-production
-    concurrency:
-      group: cmux-next-migrations-production
-      cancel-in-progress: false
-    defaults:
-      run:
-        working-directory: backend/db
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.4.2"
-      - run: bun install --frozen-lockfile
-        working-directory: backend
-      # Expand migrations are compatible with the deployed code by the lint rules; contract
-      # migrations arrive alone (migrations-guard) after code stopped using what they remove.
-      - name: Apply to cmux-next/main (production)
-        env:
-          CMUX_NEXT_PG_MIGRATOR_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
-        run: bun migrate.ts --env production --confirm-production && bun migrate.ts --env production --verify
-
-  # The merge gate: required on feat-cmux-next and main. Passes at once when the PR or
-  # merge group adds no migration; otherwise every migration in the tree must already be
-  # on staging and production (the label backend:apply-migrations applies them).
-  migrations-applied:
-    name: backend migrations applied
-    needs: [changes, migrations-apply-production]
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group') && github.event.action != 'closed'
-    runs-on: ubuntu-24.04
-    environment: ${{ needs.changes.outputs.migrations == 'true' && 'cmux-next-production' || '' }}
-    steps:
-      - name: Change detection succeeded
-        env:
-          RESULT: ${{ needs.changes.result }}
-        run: '[ "$RESULT" = success ] || { echo "::error::change detection $RESULT"; exit 1; }'
-      - name: No migrations in this change
-        if: needs.changes.outputs.migrations != 'true'
-        run: echo "no backend migrations added; nothing to verify"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        if: needs.changes.outputs.migrations == 'true'
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        if: needs.changes.outputs.migrations == 'true'
-        with:
-          bun-version: "1.4.2"
-      - if: needs.changes.outputs.migrations == 'true'
-        run: bun install --frozen-lockfile
-        working-directory: backend
-      - name: Every migration is on staging and production
-        if: needs.changes.outputs.migrations == 'true'
-        working-directory: backend/db
-        env:
-          PROD_URL: ${{ secrets.CMUX_NEXT_PG_MIGRATOR_URL }}
-          STAGING_URL: ${{ secrets.CMUX_NEXT_STAGING_MIGRATOR_URL }}
-        run: |
-          if [ -z "$PROD_URL" ] || [ -z "$STAGING_URL" ]; then
-            echo "::error::fork PRs cannot reach the databases; a maintainer must carry the migration on a same-repo branch"; exit 1
-          fi
-          ok=1
-          bun migrate.ts --url-env STAGING_URL --verify || ok=0
-          bun migrate.ts --url-env PROD_URL --verify || ok=0
-          if [ "$ok" = 0 ]; then
-            echo "::error::migrations are not applied. Add the label backend:apply-migrations after review; merging deploys."; exit 1
-          fi
-
   deploy-staging:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
@@ -348,7 +184,7 @@ jobs:
         run: curl -fsS https://cloud-api-staging.cmux.dev/v1/health && curl -fsS -o /dev/null https://console-staging.cmux.dev/
 
   deploy-production:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.target == 'production'))
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-production
     concurrency:

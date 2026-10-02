@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start"
-import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server"
+import { deleteCookie, getCookie, getRequestHeader, setCookie } from "@tanstack/react-start/server"
 
 /**
  * Server functions. They call only the cmux API Worker and Stack Auth's client
@@ -11,8 +11,19 @@ import { deleteCookie, getCookie, setCookie } from "@tanstack/react-start/server
  * once on a 401.
  */
 
-const ACCESS = "cmux_at"
-const REFRESH = "cmux_rt"
+// __Host- names: Secure, path=/, no Domain, so sibling *.cmux.dev hosts cannot plant or read them.
+const ACCESS = "__Host-cmux_at"
+const REFRESH = "__Host-cmux_rt"
+
+/**
+ * CSRF: SameSite=Lax still lets a sibling *.cmux.dev page POST here (same site), so every
+ * state-changing server function requires an Origin equal to this host.
+ */
+const requireSameOrigin = () => {
+  const origin = getRequestHeader("origin")
+  const host = getRequestHeader("x-forwarded-host") ?? getRequestHeader("host")
+  if (!origin || !host || new URL(origin).host !== host) throw new Error("cross-origin request refused")
+}
 const cookieBase = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" }
 
 const apiUrl = () => {
@@ -47,6 +58,7 @@ const clearSession = () => {
 export const signIn = createServerFn({ method: "POST" })
   .validator((d: { email: string; password: string }) => d)
   .handler(async ({ data }): Promise<{ ok: true } | { error: string }> => {
+    requireSameOrigin()
     const res = await fetch("https://api.stack-auth.com/api/v1/auth/password/sign-in", {
       method: "POST",
       headers: stackHeaders(),
@@ -59,6 +71,7 @@ export const signIn = createServerFn({ method: "POST" })
   })
 
 export const signOut = createServerFn({ method: "POST" }).handler(async () => {
+    requireSameOrigin()
   clearSession()
   return { ok: true }
 })
@@ -123,11 +136,17 @@ const post = async <T,>(path: string, payload: unknown): Promise<ApiResult<T>> =
 
 export const mutate = createServerFn({ method: "POST" })
   .validator((d: { op: string; params: Record<string, unknown>; idempotency_key: string }) => d)
-  .handler(async ({ data }) => post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" }))
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return post<OpResponse>("/v1/ops", { op: data.op, params: data.params, idempotency_key: data.idempotency_key, origin: "user" })
+  })
 
 export const read = createServerFn({ method: "POST" })
   .validator((d: { op: string; params: Record<string, unknown> }) => d)
-  .handler(async ({ data }) => post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params }))
+  .handler(async ({ data }) => {
+    requireSameOrigin()
+    return post<{ op: string; value: Json; stream: string; revision: string }>("/v1/read", { op: data.op, params: data.params })
+  })
 
 /**
  * Token for the live WebSocket panel only. Browsers cannot attach cookies or
@@ -139,6 +158,7 @@ export const read = createServerFn({ method: "POST" })
  * it exists.
  */
 export const wireToken = createServerFn({ method: "POST" }).handler(async (): Promise<{ token: string | null; apiUrl: string }> => {
+    requireSameOrigin()
   let at = getCookie(ACCESS)
   if (at) {
     // Make sure it is still valid for the API before handing it to the socket.

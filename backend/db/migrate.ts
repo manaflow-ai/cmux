@@ -1,18 +1,19 @@
 /**
- * Migrations for PlanetScale `cmux-next` (never `cmux-prod`). Plain SQL files in
- * db/migrations, applied in order, each in its own transaction, recorded with a
- * checksum in `schema_migrations`. PlanetScale Postgres has no deploy requests,
- * so safety comes from expand/contract rules and the pre-merge pipeline
- * (skills/cmux-backend-migrations/SKILL.md).
+ * Migrations for PlanetScale `cmux-next` (never `cmux-prod`). Plain SQL files,
+ * applied in order, each in its own transaction, recorded with a checksum in
+ * `schema_migrations`. PlanetScale Postgres has no deploy requests, so safety
+ * comes from expand/contract rules (checked on the parsed SQL) and the pre-merge
+ * pipeline (skills/cmux-backend-migrations/SKILL.md).
  *
- *   bun migrate.ts --lint                         check files: names, phase header, expand rules
- *   bun migrate.ts --env <env> [--dry-run]        apply pending files
- *   bun migrate.ts --env <env> --verify           exit 1 unless every file is applied with its checksum
- *   bun migrate.ts --url-env DATABASE_URL ...     use a URL from that variable (CI scratch Postgres)
+ *   bun migrate.ts --lint [--dir D]                        parse and check every file
+ *   bun migrate.ts --env <env> [--dir D] [--dry-run]       apply pending files
+ *   bun migrate.ts --env <env> [--dir D] --verify          exit 1 unless the database has exactly the repo's files
+ *   bun migrate.ts --url-env VAR ...                       a scratch Postgres URL from VAR (no branch check)
  *
- * <env>: development | staging | production (production also needs --confirm-production
- * to apply; --verify does not). Credentials: CMUX_NEXT_PG_MIGRATOR_URL, else
- * ~/.secrets/cmux-next-planetscale-<env>.env.
+ * <env>: development | staging | production (applying to production needs
+ * --confirm-production). Credentials: CMUX_NEXT_PG_MIGRATOR_URL, else
+ * ~/.secrets/cmux-next-planetscale-<env>.env. The role's PlanetScale branch id
+ * must match <env>, so a wrong URL (for example cmux-prod) is refused.
  */
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
@@ -23,48 +24,90 @@ const args = process.argv.slice(2)
 const flag = (name: string) => args.includes(name)
 const value = (name: string) => (args.includes(name) ? args[args.indexOf(name) + 1] : undefined)
 
-const dir = join(import.meta.dirname, "migrations")
-const NAME = /^(\d{4})_[a-z0-9_]+\.sql$/
-const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()
+/** PlanetScale branch ids of database `cmux-next` (ops/resources.md). */
+const BRANCH_IDS: Record<string, string> = { production: "8ih62d5neek9", staging: "qxst3kra77vx", development: "2o41eh2nrsw8" }
+const LOCK_KEY = 0x636d7578 // advisory lock: one migrator at a time per branch
 
 export type Phase = "expand" | "contract"
+const NAME = /^(\d{4})_[a-z0-9_]+\.sql$/
 
-/** Statements that break code already deployed: allowed only in a contract migration. */
-const CONTRACT_ONLY: ReadonlyArray<[RegExp, string]> = [
-  [/\bDROP\s+(TABLE|COLUMN|INDEX|SCHEMA|TYPE|VIEW|FUNCTION|CONSTRAINT)\b/i, "DROP"],
-  [/\bRENAME\b/i, "RENAME"],
-  [/\bALTER\s+COLUMN\s+\S+\s+(SET\s+DATA\s+)?TYPE\b/i, "ALTER COLUMN ... TYPE"],
-  [/\bALTER\s+COLUMN\s+\S+\s+SET\s+NOT\s+NULL\b/i, "SET NOT NULL"],
-  [/\bTRUNCATE\b/i, "TRUNCATE"],
-  [/\bDELETE\s+FROM\b/i, "DELETE FROM"]
-]
+export const phaseOf = (sql: string): Phase | undefined => sql.match(/^--\s*phase:\s*(expand|contract)\b/m)?.[1] as Phase | undefined
 
-export const lintFile = (name: string, sql: string): Array<string> => {
-  const errors: Array<string> = []
-  if (!NAME.test(name)) errors.push(`${name}: name must be NNNN_lower_snake.sql`)
-  const header = sql.match(/^--\s*phase:\s*(expand|contract)\b/m)
-  // 0001 predates the header rule.
-  const phase: Phase | undefined = header ? (header[1] as Phase) : name.startsWith("0001_") ? "expand" : undefined
-  if (!phase) errors.push(`${name}: first lines must declare "-- phase: expand" or "-- phase: contract"`)
-  const code = sql.replace(/--.*$/gm, "")
-  if (phase === "expand") {
-    for (const [re, what] of CONTRACT_ONLY) if (re.test(code)) errors.push(`${name}: ${what} is a contract change; put it in a separate "-- phase: contract" migration`)
-    // A new NOT NULL column without a default fails on existing rows and breaks old writers.
-    for (const m of code.matchAll(/\bADD\s+COLUMN\s+[^,;]*\bNOT\s+NULL\b[^,;]*/gi)) {
-      if (!/\bDEFAULT\b/i.test(m[0])) errors.push(`${name}: ADD COLUMN ... NOT NULL needs a DEFAULT in an expand migration`)
+type Node = Record<string, any>
+const kind = (stmt: Node) => Object.keys(stmt)[0]!
+
+/** Expand = only additions the deployed code survives. Everything else is contract. */
+const expandProblems = (stmts: Array<Node>): Array<string> => {
+  const problems: Array<string> = []
+  const created = new Set<string>()
+  for (const s of stmts) {
+    const k = kind(s)
+    const b = s[k]
+    switch (k) {
+      case "CreateStmt":
+        created.add(b.relation?.relname)
+        break
+      case "IndexStmt":
+        if (b.unique && !created.has(b.relation?.relname)) problems.push("CREATE UNIQUE INDEX on an existing table can reject writes from deployed code")
+        break
+      case "AlterTableStmt":
+        for (const c of b.cmds ?? []) {
+          const cmd = c.AlterTableCmd
+          if (cmd.subtype === "AT_AddColumn") {
+            const cons: Array<Node> = (cmd.def?.ColumnDef?.constraints ?? []).map((x: Node) => x.Constraint)
+            const types = new Set(cons.map((x) => x.contype))
+            for (const t of types) {
+              if (!["CONSTR_DEFAULT", "CONSTR_NULL", "CONSTR_NOTNULL"].includes(t)) problems.push(`ADD COLUMN with ${t} on an existing table`)
+            }
+            if (types.has("CONSTR_NOTNULL") && !types.has("CONSTR_DEFAULT")) problems.push("ADD COLUMN ... NOT NULL needs a DEFAULT")
+          } else if (cmd.subtype === "AT_AddConstraint") {
+            const con = cmd.def?.Constraint
+            if (!con?.skip_validation || !["CONSTR_CHECK", "CONSTR_FOREIGN"].includes(con.contype)) {
+              problems.push("ADD CONSTRAINT must be CHECK or FOREIGN KEY with NOT VALID")
+            }
+          } else if (!created.has(b.relation?.relname)) {
+            problems.push(`ALTER TABLE ${cmd.subtype} is a contract change`)
+          }
+        }
+        break
+      case "UpdateStmt":
+      case "InsertStmt":
+      case "CommentStmt":
+      case "GrantStmt":
+        break
+      default:
+        problems.push(`${k} is not allowed in an expand migration`)
     }
   }
-  if (/\b(BEGIN|COMMIT)\s*;/i.test(code)) errors.push(`${name}: do not write BEGIN/COMMIT; the runner wraps each file in a transaction`)
-  return errors
+  return problems
 }
 
-export const phaseOf = (sql: string): Phase => (sql.match(/^--\s*phase:\s*(expand|contract)\b/m)?.[1] as Phase | undefined) ?? "expand"
+export const lintFile = async (name: string, sql: string): Promise<Array<string>> => {
+  const { parse } = await import("libpg-query")
+  const errors: Array<string> = []
+  if (!NAME.test(name)) errors.push(`${name}: name must be NNNN_lower_snake.sql`)
+  // 0001 predates the header rule.
+  const phase = phaseOf(sql) ?? (name.startsWith("0001_") ? "expand" : undefined)
+  if (!phase) errors.push(`${name}: first lines must declare "-- phase: expand" or "-- phase: contract"`)
+  let stmts: Array<Node>
+  try {
+    stmts = ((await parse(sql)) as { stmts?: Array<{ stmt: Node }> }).stmts?.map((s) => s.stmt) ?? []
+  } catch (e) {
+    return [...errors, `${name}: does not parse: ${(e as Error).message}`]
+  }
+  if (stmts.some((s) => kind(s) === "TransactionStmt")) errors.push(`${name}: do not write BEGIN/COMMIT; the runner wraps each file in a transaction`)
+  if (phase === "expand") for (const p of expandProblems(stmts)) errors.push(`${name}: ${p}; use a separate "-- phase: contract" migration`)
+  return errors
+}
 
 const checksum = (sql: string) => createHash("sha256").update(sql).digest("hex")
 
 if (import.meta.main) {
+  const dir = value("--dir") ?? join(import.meta.dirname, "migrations")
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql")).sort()
+
   if (flag("--lint")) {
-    const errors = files.flatMap((f) => lintFile(f, readFileSync(join(dir, f), "utf8")))
+    const errors = (await Promise.all(files.map((f) => lintFile(f, readFileSync(join(dir, f), "utf8"))))).flat()
     const versions = files.map((f) => f.slice(0, 4))
     if (new Set(versions).size !== versions.length) errors.push("two migrations share a number")
     if (errors.length) {
@@ -79,7 +122,7 @@ if (import.meta.main) {
   const urlEnv = value("--url-env")
   const verify = flag("--verify")
   const dryRun = flag("--dry-run")
-  if (!urlEnv && (!envName || !["staging", "development", "production"].includes(envName))) {
+  if (!urlEnv && (!envName || !(envName in BRANCH_IDS))) {
     console.error("usage: bun migrate.ts --lint | --env development|staging|production [--verify|--dry-run] | --url-env VAR")
     process.exit(2)
   }
@@ -102,16 +145,31 @@ if (import.meta.main) {
     return line.slice(line.indexOf("=") + 1).trim()
   }
 
+  const url = loadUrl()
+  if (!urlEnv) {
+    // PlanetScale routes by the branch id after the dot in the user name: refuse any
+    // other database or branch (for example a cmux-prod URL).
+    const user = decodeURIComponent(new URL(url).username)
+    if (!user.endsWith(`.${BRANCH_IDS[envName!]}`)) {
+      console.error(`migrate: credentials are not for cmux-next/${envName} (branch ${user.split(".").pop()})`)
+      process.exit(1)
+    }
+  }
   const { default: pg } = await import("pg")
-  const client = new pg.Client({ connectionString: loadUrl() })
+  const client = new pg.Client({ connectionString: url })
   await client.connect()
   const target = urlEnv ? `$${urlEnv}` : `cmux-next/${envName}`
   try {
-    await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
-      version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`)
-    const applied = new Map(
-      (await client.query<{ version: string; checksum: string }>("SELECT version, checksum FROM schema_migrations")).rows.map((r) => [r.version, r.checksum])
-    )
+    const exists = (await client.query<{ t: string | null }>("SELECT to_regclass('public.schema_migrations')::text AS t")).rows[0]!.t !== null
+    if (!exists && !verify && !dryRun) {
+      await client.query(`CREATE TABLE schema_migrations (version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`)
+    }
+    if (!verify && !dryRun) await client.query("SELECT pg_advisory_lock($1)", [LOCK_KEY])
+    const rows = exists || (!verify && !dryRun) ? (await client.query<{ version: string; checksum: string }>("SELECT version, checksum FROM schema_migrations")).rows : []
+    const applied = new Map(rows.map((r) => [r.version, r.checksum]))
+    // A row the repo lacks: another PR's migration (merge its base first) or an abandoned one (operator fix).
+    const unknown = [...applied.keys()].filter((v) => !files.includes(v))
+    if (unknown.length) throw new Error(`${target} has migrations this tree lacks: ${unknown.join(", ")}; merge the base branch first`)
     const pending: Array<string> = []
     for (const f of files) {
       const sql = readFileSync(join(dir, f), "utf8")
@@ -145,6 +203,9 @@ if (import.meta.main) {
       }
       console.log(`${target}: migrations up to date`)
     }
+  } catch (e) {
+    console.error(`migrate: ${(e as Error).message}`)
+    process.exitCode = 1
   } finally {
     await client.end()
   }

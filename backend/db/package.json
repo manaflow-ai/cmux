@@ -15,5 +15,8 @@
     "@types/pg": "8.23.1",
     "pg": "8.23.0",
     "typescript": "7.0.2"
+  },
+  "dependencies": {
+    "libpg-query": "18.1.5"
   }
 }
