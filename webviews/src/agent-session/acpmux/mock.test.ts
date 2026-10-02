@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "./direct";
 import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
+import { readChangeSet } from "./changes/model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
 
@@ -402,7 +403,7 @@ describe("mock daemon", () => {
   test("the worked session's git scopes hold the turn's edits, half staged, over one commit", async () => {
     const { call, sent } = open();
     const paths = async (scope: string, sessionId = "mock-session") =>
-      ((await call("git.scope.diff", { sessionId, scope }))?.files ?? []).map((file: any) => file.path);
+      ((await call("git.diff", { sessionId, scope, include_patch: true }))?.files ?? []).map((file: any) => file.path);
     expect(await paths("staged")).toEqual(["Sources/Fleet/retry.ts"]);
     expect(await paths("unstaged")).toEqual(["Sources/Fleet/upload.ts", "Sources/Fleet/upload.test.ts"]);
     expect(await paths("uncommitted")).toEqual([
@@ -413,14 +414,28 @@ describe("mock daemon", () => {
     expect(await paths("committed")).toEqual(["Sources/Fleet/manifest.ts"]);
     expect((await paths("branch")).length).toBe(4);
     // Each file carries its counts and a patch from its first hunk; the set carries its totals.
-    const branch = await call("git.scope.diff", { sessionId: "mock-session", scope: "branch" });
+    const branch = await call("git.diff", { sessionId: "mock-session", scope: "branch", include_patch: true });
     expect(branch.root).toBe("~/code/cmux");
+    expect([branch.total_files, branch.files_omitted]).toEqual([4, 0]);
+    // The view reads the catalog's snake_case reply (cmux-tui GitDiffResult).
+    expect(readChangeSet({ ...branch, files_omitted: 2, untracked_skipped: 3 }, "branch")).toMatchObject({
+      totalFiles: 4,
+      filesOmitted: 2,
+      untrackedSkipped: 3,
+    });
+    const renamed = { path: "b.ts", previous_path: "a.ts", status: "renamed", additions: 0, deletions: 0 };
+    expect(readChangeSet({ files: [{ ...renamed, patch_truncated: true }] }, "staged")?.files[0]).toMatchObject({
+      previousPath: "a.ts",
+      patchTruncated: true,
+    });
     for (const file of branch.files) {
       expect(file.patch.startsWith("@@ -")).toBe(true);
       expect(file.patch.split("\n").filter((line: string) => line.startsWith("+")).length).toBe(file.additions);
     }
     expect(branch.additions).toBe(branch.files.reduce((sum: number, file: any) => sum + file.additions, 0));
     expect(await call("git.status", { sessionId: "mock-session" })).toEqual({
+      root: "~/code/cmux",
+      detached: false,
       branch: "feat-upload-retry",
       upstream: "origin/main",
       base: "main",
@@ -432,7 +447,7 @@ describe("mock daemon", () => {
     const other = sessions.find((entry: any) => entry.cwd === "~/code/acpmux").sessionId;
     expect(await paths("uncommitted", other)).toEqual([]);
     const dotfiles = sessions.find((entry: any) => entry.cwd === "~/code/dotfiles").sessionId;
-    expect(await call("git.scope.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
+    expect(await call("git.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
     expect(sent.at(-1)?.error?.message).toBe("Not a git repository");
   });
 });
