@@ -66,12 +66,12 @@ public struct CustomSidebarsSection: View {
             }
         }
         .onAppear {
-            if CustomSidebarTemplateGalleryRequest.consume() {
+            if CustomSidebarTemplateGalleryRequest.shared.consume() {
                 galleryPresented = true
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .customSidebarTemplateGalleryRequested)) { _ in
-            _ = CustomSidebarTemplateGalleryRequest.consume()
+            _ = CustomSidebarTemplateGalleryRequest.shared.consume()
             galleryPresented = true
         }
     }
@@ -354,9 +354,6 @@ private struct CustomSidebarTemplateGallery: View {
                             .resizable()
                             .scaledToFill()
                             .clipped()
-                    } else {
-                        Image(systemName: template.kind == .right ? "sidebar.right" : "sidebar.left")
-                            .font(.title2)
                     }
                 }
                 .frame(height: 105)
