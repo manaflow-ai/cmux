@@ -159,7 +159,10 @@ final class CloudWorkspaceProjectionCoordinator {
                 if !Task.isCancelled { requested.insert(machine) }
                 return
             }
-            guard completeness.isComplete(workspaceID: remoteID) else {
+            // A move is a cross-workspace mutation. Do not let a complete source
+            // workspace retire the projection while the destination inventory is
+            // still incomplete and cannot reconcile the same tab yet.
+            guard completeness.isComplete() else {
                 continue
             }
             let group = try? catalog.remoteWorkspaceGroup(machine: machine, workspaceID: remoteID)

@@ -291,6 +291,48 @@ struct CloudWorkspaceLiveProjectionTests {
 
     }
 
+    @Test("An incomplete destination inventory does not retire a moved projection")
+    func incompleteDestinationInventoryPreservesSourceProjection() async throws {
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let source = live.add()
+        let destination = live.add()
+        let bindings = [
+            source.id: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "a"),
+            destination.id: WorkspaceCloudVMBinding(vmID: machine.rawValue, isBase: false, remoteWorkspaceID: "b")
+        ]
+        var closed: [SurfaceProjection] = []
+        let coordinator = CloudWorkspaceProjectionCoordinator(environment: .init(
+            bindings: { bindings }, close: { closed.append($0) }
+        ))
+        let catalog = SurfaceCatalog(
+            live: live,
+            cloudPlacementCoordinator: CloudPlacementCoordinator(binding: { bindings[$0] }),
+            cloudWorkspaceProjectionCoordinator: coordinator
+        )
+        catalog.register(CloudPlacementTestProvider(machine: machine))
+
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await coordinator.waitForIdle()
+        let sourceProjection = try #require(catalog.projections.first { $0.remoteTabID == "first" })
+
+        let moved = try graph(["first": "b"], revision: 2)
+        var incompleteResources = CmuxTuiSnapshotParser.resources(from: moved)
+        let terminalIndex = try #require(incompleteResources.firstIndex { $0.id.kind == .terminal })
+        incompleteResources[terminalIndex].remoteViews = []
+        install(moved, catalog: catalog, resourceOverride: incompleteResources)
+        await coordinator.waitForIdle()
+
+        #expect(closed.isEmpty)
+        #expect(catalog.projection(forPanel: sourceProjection.panelID)?.workspaceID == source.id)
+        #expect(catalog.projection(forPanel: sourceProjection.panelID)?.remoteWorkspaceID == "a")
+
+        install(moved, catalog: catalog)
+        await coordinator.waitForIdle()
+        #expect(catalog.projection(forPanel: sourceProjection.panelID) == nil)
+        #expect(catalog.projections.contains { $0.remoteTabID == "first" && $0.workspaceID == destination.id })
+    }
+
     @Test("Opening one remote terminal repeatedly reuses its exact local projection")
     func openingOneTerminalRepeatedlyReusesProjection() async throws {
         let live = LiveWorkspaceFixture()
