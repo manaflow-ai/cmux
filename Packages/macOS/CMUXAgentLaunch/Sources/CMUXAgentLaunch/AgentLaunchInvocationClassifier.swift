@@ -8,6 +8,7 @@ public struct AgentLaunchInvocationClassifier {
     private let claudeTeamsManagementSubcommands: [String: Set<String>]
     private let informationalOptions: Set<String>
     private let omxManagementCommands: Set<String>
+    private let ompManagementCommands: Set<String>
     private let claudeTeamsManagementDisqualifyingOptions: Set<String>
 
     /// Creates a classifier with the supported providers' documented command policies.
@@ -57,6 +58,55 @@ public struct AgentLaunchInvocationClassifier {
             "uninstall",
             "update",
             "version",
+        ]
+        // The OMP subcommands that cannot start an interactive session, taken from
+        // `omp --help` COMMANDS. Interactive surfaces (`shell`, `git`, `play`,
+        // `predict`, `render`, `stream`, `join`) stay launch so cmux keeps demanding
+        // a managed terminal for them.
+        ompManagementCommands = [
+            "acp",
+            "agents",
+            "auth-broker",
+            "auth-gateway",
+            "bench",
+            "browser-relay",
+            "cleanse",
+            "clip",
+            "collab",
+            "commit",
+            "completions",
+            "compress",
+            "config",
+            "dry-balance",
+            "find",
+            "gallery",
+            "gc",
+            "grievances",
+            "help",
+            "hooks",
+            "hud",
+            "if-bench",
+            "images",
+            "install",
+            "login",
+            "models",
+            "plugin",
+            "ps",
+            "read",
+            "search",
+            "setup",
+            "share",
+            "skill",
+            "ssh",
+            "stats",
+            "tiny-models",
+            "token",
+            "toks",
+            "ttsr",
+            "update",
+            "usage",
+            "version",
+            "worktree",
         ]
         claudeTeamsManagementDisqualifyingOptions = [
             "--background",
@@ -278,6 +328,23 @@ public struct AgentLaunchInvocationClassifier {
             }
         }
         return omxManagementCommands.contains(first)
+    }
+
+    /// Whether OMP arguments select help, version, or a documented management command.
+    public func ompLaunchIsNonLaunch(args: [String]) -> Bool {
+        guard let first = args.first else { return false }
+        if informationalOptions.contains(first) { return true }
+        if !first.hasPrefix("-") || first == "-" {
+            if nestedInformationalInvocation(
+                args: args,
+                startIndex: 1,
+                booleanOptions: [],
+                valueOptions: []
+            ) {
+                return true
+            }
+        }
+        return ompManagementCommands.contains(first)
     }
 
     private func conservativeNonLaunchInvocation(

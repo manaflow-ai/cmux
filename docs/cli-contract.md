@@ -87,6 +87,7 @@ Environment:
 | `codex-teams` | Launch Codex with cmux-managed subagent panes. |
 | `omo` | Launch OpenCode with oh-my-openagent integration. |
 | `omx` | Launch Oh My Codex with cmux pane integration. |
+| `omp` | Launch Oh My Pi with cmux integration. |
 | `omc` | Launch Oh My Claude Code with cmux pane integration. |
 | `hooks` | Agent hook integrations under one namespace: `setup` and `uninstall` (both take an optional agent name), `help`, the per-agent `install` and `uninstall` actions (`cmux hooks codex install`), and the per-agent hook actions the installed hooks call back into. |
 | `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks setup` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
@@ -1022,6 +1023,7 @@ the expected text without connecting to a cmux socket.
 - `cmux import --help` -> `Usage: cmux import`
 - `cmux omo --help` -> `Usage: cmux omo [opencode-args...]`
 - `cmux omx --help` -> `Usage: cmux omx [omx-args...]`
+- `cmux omp --help` -> `Usage: cmux omp [omp-args...]`
 - `cmux omc --help` -> `Usage: cmux omc [omc-args...]`
 - `cmux identify --help` -> `Usage: cmux identify`
 - `cmux list-windows --help` -> `Usage: cmux list-windows`
