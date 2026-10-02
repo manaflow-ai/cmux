@@ -63,7 +63,7 @@ export async function GET(request: Request): Promise<Response> {
     const ruleId = optionalString(url.searchParams.get("ruleId"));
     const result = ruleId
       ? await runVmRoute(getVmFirewallRule({ userId: user.id, provider: defaultProviderId(), ruleId }), { request })
-      : await runVmRoute(listVmFirewallRules({ userId: user.id, provider: defaultProviderId(), vpcId: optionalString(url.searchParams.get("vpcId")), vmId: optionalString(url.searchParams.get("vmId")), tunnelId: optionalString(url.searchParams.get("tunnelId")) }), { request });
+      : await runVmRoute(listVmFirewallRules({ userId: user.id, provider: defaultProviderId(), vpcId: optionalString(url.searchParams.get("vpcId")) ?? undefined, vmId: optionalString(url.searchParams.get("vmId")) ?? undefined, tunnelId: optionalString(url.searchParams.get("tunnelId")) ?? undefined }), { request });
     if (!result.ok) return result.response;
     return jsonResponse(ruleId ? result.value : { rules: result.value });
   });
@@ -79,7 +79,7 @@ export async function POST(request: Request): Promise<Response> {
     if (description && description.length > 1024) return vmErrorResponse({ error: "vm_invalid_firewall_description", status: 400, message: "description must be 1024 characters or fewer.", action: "Pass a shorter rule description." });
     const result = await runVmRoute(createVmFirewallRule({ userId: user.id, provider: defaultProviderId(), source, destination, ...(description ? { description } : {}) }), { request });
     if (!result.ok) return result.response;
-    return jsonResponse(result.value, { status: 201 });
+    return jsonResponse(result.value, 201);
   });
 }
 
