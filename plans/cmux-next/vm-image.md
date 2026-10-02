@@ -279,3 +279,111 @@ Settings: `cloud.machines.channel` (`stable` default, `beta`), `cloud.machines.d
 ## 12. Decisions needed
 
 Sent to the coordinator with recommendations (lane report): chief in the base image; signing key custody for the channel manifest; whether the 30 s network announce is removed in production; live versus dated apt sources for users; keep or remove the provider's Python; desktop off by default.
+
+## 13. Production promotion plan (ready to run; needs Lawrence's approval)
+
+Status 2026-10-02: prototype only. Lawrence decided that nothing reaches production before he approves this plan. No production snapshot was made and the production default did not change. This section promotes today's devbox recipe on `main` with the terminal-host idle-wakeup fix. The rest of this proposal (layers, store, bind agent) comes later and gets its own plan.
+
+### 13.1 What changes for users
+
+New machines get a cmux-tui that blocks on events. The terminal host's 20 ms accept-poll loop is gone. That loop ran in every terminal for its whole life, so an idle machine with one terminal woke about 50 times per second. Running machines keep their old terminal hosts until they are recreated. A daemon upgrade does not replace hosts: the daemon adopts every host and keeps it.
+
+### 13.2 Rollback target (today's production default)
+
+The production default is the `defaultForKind` rows of `web/services/vms/images/manifest.json` on `main`. The manifest was last changed by commit ee618231a8d. All rows were baked 2026-10-02T08:33Z (epoch 2026-09-10-r2, cmux-tui 37ee6af9846b). The desktop and base kinds share one snapshot per size:
+
+| Size | Version (desktop / base `-base`) | Snapshot id |
+| --- | --- | --- |
+| sm | freestyle-cmux-devbox-workspace-1-sm | sh-6c0c7d26420c4666819f8beab3ea3282 |
+| md | freestyle-cmux-devbox-workspace-1-md | sh-5d3c4477b81f4790aa913a638d0c1664 |
+| lg | freestyle-cmux-devbox-workspace-1-lg | sh-29ad0dd38e244694b7ab24647b2b7c95 |
+| lgx | freestyle-cmux-devbox-workspace-1-lgx | sh-805abf17226e43e68c47d20381132291 |
+| xl | freestyle-cmux-devbox-workspace-1-xl | sh-fb6a0f4263b74fd68b3ed44c3ee96511 |
+| 2xl | freestyle-cmux-devbox-workspace-1-2xl | sh-245b7fb7453b447c93daa769f96decc4 |
+
+Rollback is one revert of the promotion commit on `main`, followed by the normal web deploy. Promotion only appends rows and demotes the old defaults, so the revert restores exactly these 12 rows as defaults. Nobody deletes these snapshots until 14 days after the promotion. Machines created from the new image keep running after a rollback; only new creates use the old snapshots again.
+
+### 13.3 Preconditions
+
+1. The idle-wakeup fix (feat-cmux-next 51b68635143, test af6cc545e4d) is on `origin/main`, and files.cmux.com has published that main commit's cmux-tui manifest. The bake pins it with `CMUX_VM_CMUX_TUI_MANIFEST_URL=https://files.cmux.com/cmux-tui/<main sha>/manifest.json`, so the two ladders cannot straddle a publish.
+2. The verifier's idle-wakeup and clone-identity checks (this branch: `devboxIdleWakeupCheckCommand` in `web/scripts/devbox-image-common.ts`, wired in `web/scripts/verify-devbox-image.ts`, tests in `web/tests/vm-devbox-idle-wakeups.test.ts`) are on `main`. `promote-devbox-image.ts` runs the verifier from the checkout it runs in, so the promotion gates on the new check only after that commit is on `main`.
+3. `bun run devbox:manifest:check` passes on `main`, and no other promotion PR is open (two in flight conflict on `manifest.json`; README "Two promotions in flight").
+
+### 13.4 Who runs it
+
+The VM image lead runs the bake, verify and derive from a clean `main` worktree, with the production Freestyle key from `~/.secrets/freestyle-beta.env` (path only; never printed). The promotion PR merges only after Lawrence gives a direct merge directive for that PR. The coordinator relays the approval.
+
+### 13.5 Bake and promote (commands)
+
+From `web/` in a clean worktree at the approved `main` SHA:
+
+```bash
+bun install --frozen-lockfile
+CMUX_VM_CMUX_TUI_MANIFEST_URL=https://files.cmux.com/cmux-tui/<main sha>/manifest.json \
+  bun run devbox:promote -- freestyle --kinds desktop,base --out /tmp/promo-<sha>.json
+```
+
+The script bakes once (about 4 min), runs the verifier on the bake, derives the six sizes in parallel (about 30 s), and appends the rows. It writes the manifest only after verification passes. Then commit the manifest diff on a branch, open a PR into `main` with the evidence below, and stop.
+
+### 13.6 Smoke test (all must pass; the verifier runs every item)
+
+- Daemon: it comes up by itself, is bound to this instance id, and matches the baked pin. The WebSocket smoke and the terminal identity environment pass.
+- Idle wakeups (new): over a quiet 60 s, the voluntary context switches of each terminal host's main thread are at most 30. They are counted per thread from `/proc/<pid>/task/<tid>/status`, the same method as the repro. The check fails when no terminal host exists. It also prints every daemon thread for the record.
+- Per-clone identity, on two machines from the snapshot: daemon identity and machine secrets differ; SSH host keys differ. `/etc/machine-id` and `boot_id` are reported. The machine id is shared on today's recipe, because the bake never regenerates it. `--strict-clone-identity` makes that a failure, and it stays off for this promotion; regenerating the machine id at bind is the follow-up in section 6.3. The verifier cannot prove the RNG reseed: by the time it reads, both kernels have already used randomness, so their output differs even when the clones resumed with one state. The reseed stays in `cmux-devbox-boot` (proven by the early-fork test in section 6.1). A bind-time record of the first random bytes, for the verifier to compare, comes with the bind agent.
+- Agents: every pin, and the first interactive launch of Claude Code and Codex reaches the composer.
+- Desktop contract: both ports, the session processes, and `cua-driver doctor`.
+- Every baked file is byte-identical to the checkout.
+- Sizes: `nproc`, memory, disk and the daemon on every derived size.
+
+### 13.7 Evidence for approval (in the promotion PR)
+
+1. The verifier log for the bake: `ALL CHECKS PASSED`, plus the idle-wakeup lines showing the terminal host's main thread at or under 30 switches in 60 s.
+2. The same verifier run against the current production md snapshot sh-5d3c4477b81f4790aa913a638d0c1664 shows the idle-wakeup FAIL. That proves the check sees the old loop.
+3. A measurement on 5 clones of the new md snapshot against the old one: create, first exec and daemon-ready p50/p95; idle CPU-s/min over 300 s; process creations per minute; the terminal host's and the daemon's voluntary switches per minute.
+4. The derive summary: one id per size, each booted and checked.
+5. The secret check: the model-plane file holds no `crt_` token (the bake's own step).
+
+### 13.8 Canary and rollout
+
+1. After the PR merges, wait for the production deploy to be READY. Then create a machine through the production API with the sanctioned smoke (`bun scripts/cloud-vm/smoke-vm-api.mjs production --create --provider default --paid --edge-check`, the form the canary workflow uses). Attach from a released Mac app to the md machine, run one agent, and delete the machines.
+2. Watch the scheduled `Cloud VM canary` workflow (every 5 min against production) for three consecutive green runs. Watch create errors and attach failures in Axiom (`cmux-prod-otel-traces`, `POST /api/vm`, `POST /api/vm/[id]/attach-endpoint`) for 60 minutes against the previous day's rate.
+3. Roll back (section 13.2) on any of these: a failed canary that passes again after the revert; an attach failure rate above the previous day's; a verifier or smoke regression found later.
+4. Running machines are not touched. If the old host loop on long-lived machines needs fixing before users recreate them, that is a separate, opt-in fleet action: new terminals need a new host. `upgrade-fleet-cmux-tui.ts` replaces only the daemon, and the daemon adopts old hosts.
+
+### 13.9 Prototype evidence (2026-10-02, no production change)
+
+- The verifier with the new check failed on the production md snapshot sh-5d3c4477…: the terminal host's main thread made 3,000 voluntary switches in 60 s (`FAIL 1 terminal host main thread(s) over 30 switches in 60s`). In the same window the old daemon's main thread made 241 and its journal thread 121.
+- A prototype bake, `cmuxnp-dev-fixbake-f39636c-exp20261002t1800z` (sh-fbc2c142fc174b5d8f9bc3f3bd798dc0), was made from this branch with cmux-tui f39636c811aa, the feat-cmux-next build that contains the fix. The fix was not yet on `main`. The verifier gave `ALL CHECKS PASSED`, and the idle check measured 0 switches in 60 s on the terminal host's main thread. Every daemon thread was at 0, except one thread at 2. The strict clone-identity run failed only on the shared machine id (`48e14341…` on both machines, the same id as the production image).
+- 5 clones each, measured in parallel with the same script. The old image is md (4 vCPU) and the prototype is sm (2 vCPU), the size the bake makes before derivation:
+
+| | old (production md) | fix prototype (sm) |
+| --- | --- | --- |
+| create p50 / p95 | 216 / 340 ms | 159 / 166 ms |
+| first exec p50 / p95 | 261 / 373 ms | 185 / 200 ms |
+| daemon ready p50 / p95 (in-guest 50 ms poll) | 3,839 / 4,067 ms | 805 / 950 ms |
+| idle CPU, whole VM, 300 s | 2.87 CPU-s/min | 2.12 CPU-s/min |
+| terminal host: CPU, voluntary switches | 0.114 CPU-s/min, 2,981 per min | 0, 0 |
+| daemon voluntary switches | 426 per min | 2 per min |
+| kernel `rcu_preempt` switches | 6,589 per min | 1,233 per min |
+| context switches, whole VM | 556 per s | 231 per s |
+| process creations | 463 per min | 454 per min |
+
+The remaining idle CPU is the boot supervisor's 1 s metadata poll (about 1.4 CPU-s/min) and the desktop supervisor (about 0.4). Sections 4.4 and 6 remove them; this promotion does not.
+
+### 13.10 Rebake from `main` with the fix (2026-10-02, prototype, deleted)
+
+The fix reached `main` as 9a332eca4bbc (#16864, host accept loop only). I baked `cmuxnp-dev-mainbake-9a332ec-exp20261002t2000z` (sh-753a06c15d454c2597ab67b93c124594) from that `main` commit, with the cmux-tui pinned to the commit's files.cmux.com manifest. I then ran the full verifier with the idle check from section 13.6 on top. Result: `ALL CHECKS PASSED`. The terminal host's main thread made 0 switches in 60 s. Daemon identity and SSH host keys differed across the two clones. The machine id and boot_id were shared, as expected. The snapshot and every VM are deleted.
+
+Same size (sm, 2 vCPU), same scripts. Idle is one settled clone each over 300 s.
+
+| | production sm (sh-6c0c7d26…, cmux-tui 37ee6af9846b) | main rebake (cmux-tui 9a332eca4bbc) |
+| --- | --- | --- |
+| terminal host | 0.138 CPU-s/min, 2,979 switches per min | 0, 0 |
+| daemon voluntary switches | 426 per min | 426 per min (main's daemon still has the polls that feat-cmux-next removed in 51b68635143: main thread 241, journal 121 and session journal 61 per minute) |
+| kernel `rcu_preempt` switches | 6,583 per min | 1,297 per min |
+| context switches, whole VM | 528 per s | 250 per s |
+| idle CPU, whole VM | 3.14 CPU-s/min | 2.76 CPU-s/min |
+| process creations | 461 per min | 462 per min (boot supervisor poll, unchanged) |
+| daemon ready, interleaved creates (n = 8 each) | p50 868 ms, p95 1,967 ms | p50 875 ms, p95 7,191 ms |
+
+Daemon readiness has the same median but a worse tail on this snapshot. In the interleaved run, 2 of 8 clones of the rebake waited 4.3 and 5.1 s inside the guest. The worst production clone waited 1.6 s. Earlier runs at a time of high provider variance showed slow clones on both images. An earlier lane prototype showed a stall of this kind that belonged to one snapshot (section 4.3). The cause is UNVERIFIED. The promotion evidence (13.7, item 3) must therefore include an interleaved 10-clone readiness comparison against production. A p95 more than 1 s above production blocks the promotion until the cause is known.

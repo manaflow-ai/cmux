@@ -32,6 +32,8 @@
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXDogfoodReadiness</key>
+	<string>app-receipt-v1</string>
 	<key>CMUXCrashReportingEnabled</key>
 	<string>$(CMUX_CRASH_REPORTING_ENABLED)</string>
 	<key>CMUXPresenceBaseURL</key>
@@ -91,7 +93,7 @@
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<true/>
+		<false/>
 		<key>UISceneConfigurations</key>
 		<dict/>
 	</dict>

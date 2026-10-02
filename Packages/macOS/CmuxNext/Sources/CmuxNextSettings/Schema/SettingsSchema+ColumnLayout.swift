@@ -45,6 +45,15 @@ extension SettingsSchema {
                 default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "overlay", "dock"]
             ),
             SettingDescriptor(
+                ColumnLayoutSettings.frameOrientationPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.frameOrientation", "Dock Corners"),
+                kind: .choice([
+                    SettingChoice(FrameOrientation.columnMajor.rawValue, SettingsText.text("settings.choice.columnMajor", "Side Docks Full Height")),
+                    SettingChoice(FrameOrientation.rowMajor.rawValue, SettingsText.text("settings.choice.rowMajor", "Top and Bottom Docks Full Width")),
+                ]),
+                default: .string(ColumnLayoutSettings.frameOrientationFallback.rawValue), keywords: ["dock", "frame", "orientation", "corner", "sticky"]
+            ),
+            SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,
                 title: SettingsText.text("settings.layout.minimumPaneWidth", "Minimum Pane Width"),
                 kind: .number(SettingNumber(ColumnLayoutSettings.minimumPaneWidthRange, step: 10, unit: .points)),

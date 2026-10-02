@@ -99,10 +99,33 @@
 .acpmux-on{color:var(--agent-text)}
 
 .acpmux-menu-item .acpmux-icon:first-child{color:var(--agent-muted)}
+.acpmux-menu-search{display:flex;align-items:center;gap:8px;min-height:30px;margin-bottom:4px;padding:0 8px;border-radius:8px;background:color-mix(in srgb,var(--agent-text) 7%,transparent);color:var(--agent-text)}
+.acpmux-menu-search .acpmux-icon{color:var(--agent-muted)}
+.acpmux-menu-search-empty{color:var(--acpmux-composer-dim)}
 .acpmux-menu-hint{flex:none;min-width:18px;padding:0 5px;border-radius:5px;background:color-mix(in srgb,var(--agent-text) 9%,transparent);color:var(--agent-muted);font:12px/18px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center}
-/* A new chat: the hero and the composer meet at the middle, never with the composer pinned at the top. */
+/* A new chat: the composer docks at the bottom and the hero centers in the space above it. */
 .acpmux-main[data-new-chat]>.acpmux-stage{flex:1 1 0;min-height:0}
 .acpmux-main[data-new-chat] .acpmux-empty{justify-content:center;padding-bottom:6%}
+/* Home lists (HomeLists.tsx): Claude's welcome lists between the hero and the docked composer, in its column; they scroll when tall. */
+.acpmux-main[data-new-chat]>.acpmux-home-area{flex:0 1 auto;min-height:0;max-height:50%}
+/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
+.acpmux-main[data-new-chat]:has(>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
+/* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
+.acpmux-home-area:empty{display:none}
+.acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-home{display:flex;flex-direction:column;gap:12px;padding:12px 0 0}
+.acpmux-home-list{padding:6px;border-radius:18px;background:color-mix(in srgb,var(--acpmux-composer-bg) 72%,transparent)}
+.acpmux-home-list ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+.acpmux-home-label{margin:0;padding:4px 10px 2px;font-size:13px;line-height:20px;font-weight:500;color:var(--agent-muted)}
+.acpmux-home-row{display:flex;align-items:center;gap:10px;width:100%;height:40px;padding:0 10px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.acpmux-home-row:hover{background:var(--acpmux-menu-hover)}
+.acpmux-home-row:focus-visible{background:var(--acpmux-menu-hover);outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-home-row>.acpmux-icon{flex:none;color:var(--agent-muted)}
+.acpmux-home-dot{flex:none;width:8px;height:8px;margin:0 4px;border-radius:50%;background:var(--acpmux-warning)}
+.acpmux-home-title{flex:none;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
+.acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
+.acpmux-home-title+.acpmux-home-meta{margin-left:auto}
 
 :root{--acpmux-add:var(--agent-diff-add,#90b345);--acpmux-del:var(--agent-diff-del,#b4365e)}
 .acpmux-diff-panel{position:absolute;inset:0;z-index:5;display:flex;flex-direction:column;color:var(--agent-text);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}

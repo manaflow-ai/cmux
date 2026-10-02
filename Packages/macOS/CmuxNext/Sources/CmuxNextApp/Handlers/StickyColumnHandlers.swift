@@ -62,6 +62,11 @@ enum StickyColumnHandlers {
     static func apply(_ sticky: StickyColumn?, to column: LayoutColumn, in content: WorkspaceContentController) throws {
         let capability = DaemonCapabilities.shared.stickyColumns
         guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
+        // Top and bottom docks need the daemon's `dock` field, which the app
+        // does not encode yet; the wire's sticky edge has only left and right.
+        if sticky?.edge.isBand == true {
+            throw ActionFailure(message: content.daemon.missingCapabilityMessage(DaemonCapabilities.shared.edgeDocks))
+        }
         guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky) else { return }
         switch refusal {
         case .notColumns: throw ActionFailure.invalidTarget(RefusalStrings.notColumnLayout)

@@ -13,7 +13,9 @@ extension ScreenContentView {
     /// The part of the view where strip content shows (local coordinates).
     var uncoveredRect: CGRect {
         guard !geometry.sticky.isEmpty else { return bounds }
-        return CGRect(x: geometry.uncoveredMinX, y: 0, width: max(0, geometry.uncoveredMaxX - geometry.uncoveredMinX), height: bounds.height)
+        return CGRect(x: geometry.uncoveredMinX, y: geometry.uncoveredMinY,
+                      width: max(0, geometry.uncoveredMaxX - geometry.uncoveredMinX),
+                      height: max(0, geometry.uncoveredMaxY - geometry.uncoveredMinY))
     }
 
     /// What sticky columns hide of the strip (local coordinates): strip
@@ -43,7 +45,8 @@ extension ScreenContentView {
     /// stays, so the glass has content to refract).
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, uncovered: CGRect) {
         guard scrolls, !geometry.sticky.isEmpty else { return host.setStripClip(nil) }
-        let range = CGRect(x: geometry.clipMinX, y: 0, width: max(0, geometry.clipMaxX - geometry.clipMinX), height: bounds.height)
+        let range = CGRect(x: geometry.clipMinX, y: geometry.clipMinY, width: max(0, geometry.clipMaxX - geometry.clipMinX),
+                           height: max(0, geometry.clipMaxY - geometry.clipMinY))
         let visible = host.frame.intersection(range)
         if visible == host.frame { return host.setStripClip(nil) }
         host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
@@ -71,14 +74,33 @@ extension ScreenContentView {
         ensureStacking()
     }
 
+    /// Strip hosts and dividers, then the docks that do not own the corners
+    /// (backdrop, hosts, dividers), then the docks that do, then the scrollbar
+    /// (layout-model.md F4: column-major side docks draw above bands,
+    /// row-major bands above side docks).
     private func rank(_ view: NSView) -> Int {
         switch view {
-        case let host as PaneHostView: geometry.scrolls(pane: host.pane) ? 0 : 3
-        case let divider as DividerHandleView: scrolls(divider.kind) ? 1 : 4
-        case is StickyBackdropView: 2
-        case is StripScrollbarView: 5
-        default: 0
+        case let host as PaneHostView:
+            return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.stickyFrame(containing: host.pane))
+        case let divider as DividerHandleView:
+            guard !scrolls(divider.kind) else { return 1 }
+            if case let .columnEdge(id) = divider.kind { return 4 + cornerRank(geometry.sticky.first { $0.column == id }) }
+            return 4 + cornerRank(dock(containing: divider.frame))
+        case let backdrop as StickyBackdropView:
+            return 2 + cornerRank(backdrops.first { $0.value === backdrop }.flatMap { entry in geometry.sticky.first { $0.column == entry.key } })
+        case is StripScrollbarView: return 9
+        default: return 0
         }
+    }
+
+    /// 3 for a dock that owns the frame's corners, else 0.
+    private func cornerRank(_ entry: StickyColumnFrame?) -> Int {
+        guard let entry else { return 0 }
+        return StickyStripGeometry.ownsCorners(entry.sticky.edge, orientation: geometry.frameOrientation) ? 3 : 0
+    }
+
+    private func dock(containing rect: CGRect) -> StickyColumnFrame? {
+        geometry.sticky.first { $0.frame.contains(CGPoint(x: rect.midX, y: rect.midY)) }
     }
 
     /// Reorders subviews only when the order is wrong. `sortSubviews`
@@ -111,6 +133,7 @@ extension ScreenContentView {
     /// sticky column before the strip, the strip in its own space, the right
     /// sticky column after the strip's end, so every strip column stays
     /// reachable and nothing ties with a sticky column by screen position.
+    /// Top and bottom docks keep their height and stretch across the strip.
     var navigationFrames: [PaneID: CGRect] {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
@@ -119,8 +142,16 @@ extension ScreenContentView {
                 result[pane] = rect
                 continue
             }
-            let dx = entry.sticky.edge == .left ? -entry.frame.maxX - gap : geometry.contentWidth + gap - entry.frame.minX
-            result[pane] = rect.offsetBy(dx: dx, dy: 0)
+            switch entry.sticky.edge {
+            case .left: result[pane] = rect.offsetBy(dx: -entry.frame.maxX - gap, dy: 0)
+            case .right: result[pane] = rect.offsetBy(dx: geometry.contentWidth + gap - entry.frame.minX, dy: 0)
+            case .top, .bottom:
+                // A band spans the whole strip in navigation space, so up or
+                // down from any strip column reaches it (layout-model.md K1).
+                let share = entry.frame.width > 0 ? (rect.minX - entry.frame.minX) / entry.frame.width : 0
+                let width = entry.frame.width > 0 ? rect.width / entry.frame.width * geometry.contentWidth : geometry.contentWidth
+                result[pane] = CGRect(x: share * geometry.contentWidth, y: rect.minY, width: width, height: rect.height)
+            }
         }
         return result
     }
