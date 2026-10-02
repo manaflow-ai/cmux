@@ -98,10 +98,9 @@ final class FileExplorerWorkspaceObservation {
             forName: .workspaceShellActivityDidChange,
             object: workspace,
             queue: .main
-        ) { [weak self, weak workspace] _ in
+        ) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let workspace else { return }
-                self.refresh(force: true)
+                self?.refresh(force: true)
             }
         }
         remotePresentationObserver = NotificationCenter.default.addObserver(
