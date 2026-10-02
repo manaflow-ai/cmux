@@ -62,6 +62,9 @@ struct CloudTreeNodeActions {
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Create or reuse the authenticated HTTPS publication for a machine port
+    /// and copy its shareable URL.
+    var sharePort: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
@@ -508,6 +511,38 @@ struct CloudTreeNodeActions {
                     }
                     // The same link the pane loads and `vm.port_open` reports.
                     Self.copyToPasteboard(try await provider.portLinkURL(port: port))
+                }
+            },
+            sharePort: { resource in
+                guard let port = resource.forwardedPort else { return }
+                let label = String(localized: "cloudTree.operation.sharePort", defaultValue: "Preparing the share URL…")
+                onWillMutate(label)
+                Task { @MainActor in
+                    defer { onDidMutate() }
+                    do {
+                        let client = VMClient.shared
+                        let existing = try await client.listPublications().first {
+                            $0.vmID == resource.machine.rawValue && $0.port == port
+                        }
+                        let publication: VMPublication
+                        if let existing {
+                            publication = existing
+                        } else {
+                            publication = try await client.createPublication(
+                                vmID: resource.machine.rawValue,
+                                port: port,
+                                hostname: nil,
+                                accessMode: nil,
+                                teamID: nil
+                            )
+                        }
+                        Self.copyToPasteboard(publication.url)
+                    } catch is CancellationError {
+                    } catch let failure as CloudDiagnosticFailure {
+                        onFailure(failure.label)
+                    } catch {
+                        onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                    }
                 }
             },
             refresh: refresh
