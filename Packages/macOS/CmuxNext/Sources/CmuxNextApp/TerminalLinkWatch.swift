@@ -12,24 +12,31 @@ extension TerminalCursorDefault {
 
 /// Tells one terminal view about daemon facts its stream cannot: the
 /// terminal's process ended (tab `dead`), or the terminal or the daemon
-/// connection came back, which re-attaches a disconnected view. Observation
+/// connection came back, which re-attaches a disconnected view. Tells the
+/// store the folder the shell reported to the view (OSC 7). Observation
 /// only (re-armed after each change); nothing polls.
 @MainActor
 final class TerminalLinkWatch {
     private weak var store: DaemonStore?
     private weak var io: DaemonTerminalIO?
+    private weak var model: TerminalSurfaceModel?
     private let surface: SurfaceID
     private var connected: Bool
     private var dead: Bool
+    /// The shell's folder last told to the store; only a new one is sent, so
+    /// a reconnect never repeats an old view's folder onto a reused surface.
+    private var directory: String?
     private var stopped = false
 
-    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO) {
+    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO, model: TerminalSurfaceModel) {
         self.store = store
         self.surface = surface
         self.io = io
+        self.model = model
         connected = Self.isConnected(store.connectionState)
         dead = store.tab(surface: surface)?.dead ?? false
         if dead { io.processExited() }
+        forwardDirectory()
         arm()
     }
 
@@ -41,6 +48,7 @@ final class TerminalLinkWatch {
         withObservationTracking {
             _ = store.connectionState
             _ = store.tab(surface: surface)?.dead
+            _ = model?.workingDirectory
         } onChange: { [weak self] in
             // task-owner: one hop per observed change, re-arms itself; ends with the watch
             Task { @MainActor [weak self] in self?.changed() }
@@ -58,7 +66,14 @@ final class TerminalLinkWatch {
         }
         connected = nowConnected
         dead = nowDead
+        forwardDirectory()
         arm()
+    }
+
+    private func forwardDirectory() {
+        guard let reported = model?.workingDirectory, reported != directory else { return }
+        directory = reported
+        store?.noteTerminalDirectory(reported, surface: surface)
     }
 
     private static func isConnected(_ state: DaemonConnectionState) -> Bool {
