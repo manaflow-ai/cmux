@@ -158,6 +158,13 @@ extension TerminalController {
                             await self.socketWorkerVMTerminalRenameResponseAsync(authorizedRequest)
                         }
                     }
+                    if authorizedRequest.method == "vm.terminal_prune" {
+                        return await self.socketCloudTerminalPruneResponseWithDeadline(
+                            id: authorizedRequest.id
+                        ) {
+                            await self.socketWorkerVMTerminalPruneResponseAsync(authorizedRequest)
+                        }
+                    }
                     if authorizedRequest.method == "vm.tab_rename" {
                         return await self.socketCloudRenameResponseWithDeadline(
                             id: authorizedRequest.id
@@ -464,6 +471,58 @@ extension TerminalController {
             timeoutTask.cancel()
         }
 
+        let response = await withTaskCancellationHandler(
+            operation: {
+                var iterator = responses.makeAsyncIterator()
+                return await iterator.next()
+            },
+            onCancel: {
+                operationTask.cancel()
+                timeoutTask.cancel()
+                continuation.finish()
+            }
+        )
+        operationTask.cancel()
+        timeoutTask.cancel()
+        continuation.finish()
+        return response ?? Self.v2Encoder.error(
+            id: id,
+            code: "request_error",
+            message: "Request failed before returning a result"
+        )
+    }
+
+    /// Applies one cancellable deadline to a Cloud terminal-prune batch.
+    private nonisolated func socketCloudTerminalPruneResponseWithDeadline(
+        id: JSONValue?,
+        operation: @escaping @Sendable () async -> String
+    ) async -> String {
+        let (responses, continuation) = AsyncStream<String>.makeStream(
+            bufferingPolicy: .bufferingOldest(1)
+        )
+        let operationTask = Task {
+            let response = await operation()
+            continuation.yield(response)
+            continuation.finish()
+        }
+        let timeoutTask = Task {
+            do {
+                try await ContinuousClock().sleep(for: .seconds(240))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            continuation.yield(Self.v2Encoder.error(
+                id: id,
+                code: "timeout",
+                message: "Request timed out after 240 seconds"
+            ))
+            continuation.finish()
+        }
+        continuation.onTermination = { @Sendable _ in
+            operationTask.cancel()
+            timeoutTask.cancel()
+        }
         let response = await withTaskCancellationHandler(
             operation: {
                 var iterator = responses.makeAsyncIterator()

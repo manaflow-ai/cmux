@@ -17,7 +17,11 @@ extension SurfaceCatalog {
     }
 
     func projections(of id: SurfaceResourceID) -> [SurfaceProjection] {
-        projections.filter { $0.resource == id }.sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+        if projectionsByResourceIndex == nil {
+            projectionsByResourceIndex = Dictionary(grouping: projections, by: \.resource)
+        }
+        return (projectionsByResourceIndex?[id] ?? [])
+            .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
     }
 
     /// Returns the machines projected into one workspace without scanning or sorting the catalog.
