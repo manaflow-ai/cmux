@@ -66,6 +66,14 @@ public final class AgentPaneView: NSView {
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
+        // The page paints its own background with the theme's opacity;
+        // WebKit's opaque backing would hide a translucent window's backdrop.
+        // macOS has no public switch, so this uses WebKit's
+        // `_setDrawsBackground:` SPI through KVC, checked first (as
+        // `WebKitTab` does); without it the pane keeps WebKit's backing.
+        if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+            webView.setValue(false, forKey: "drawsBackground")
+        }
         #if DEBUG
         // Web Inspector and profiling for the pane (debug.agent_pane).
         webView.isInspectable = true
@@ -281,7 +289,7 @@ public final class AgentPaneView: NSView {
     /// shows before the page paints).
     func applyTheme() {
         let tokens = themeTokens
-        webView.underPageBackgroundColor = tokens.contentBackground.nsColor
+        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens).nsColor
         themeCrashNotice(tokens)
         guard let script = AgentPaneTheme.script(tokens) else { return }
         evaluateScript(script)

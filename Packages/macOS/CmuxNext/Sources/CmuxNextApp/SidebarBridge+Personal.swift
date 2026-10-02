@@ -103,7 +103,7 @@ extension SidebarBridge {
     private func personal(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         let home = services.machines.local
         Task {
-            if !(await home.perform(label, patch: .custom { _ in }) { connection, _ in try await body(connection) }) { resync() }
+            if await home.request(label, body) == nil { resync() }
         }
     }
 }

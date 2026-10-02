@@ -290,6 +290,6 @@ test("as a history layer, rows already open in a tab say so", async () => {
   );
   const rows = [...container.querySelectorAll(".acpmux-session-row")];
   expect(rows.map((row) => row.classList.contains("is-open"))).toEqual([true, false]);
-  expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Open in a tab");
+  expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Already open in a tab");
   await act(async () => root.unmount());
 });
