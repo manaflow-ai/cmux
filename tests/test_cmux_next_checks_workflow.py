@@ -136,7 +136,7 @@ class GodfileScopes(unittest.TestCase):
         self.assertIn("long.rs has 1001 lines, 0 fns (limit 1000 lines, 60 fns", result.stdout)
         self.assertIn("many_fns.rs has 61 lines, 61 fns (limit 1000 lines, 60 fns", result.stdout)
         self.assertNotIn("at_budget.rs", result.stdout)
-        self.assertNotIn("/tests.rs", result.stdout)
+        self.assertNotIn("fixture/src/tests.rs", result.stdout)
         # Baseline entries of the other half are not reported as gone.
         self.assertNotIn("swift-type", result.stdout)
 
