@@ -10,6 +10,20 @@ import Foundation
 /// depends on an external edge such as the next daemon event.
 @MainActor
 extension CmuxTuiSurfaceProvider {
+    /// A daemon can keep replaying a retained screen after its numeric surface
+    /// id has been reused or detached. An explicit input rejection is stronger
+    /// evidence than a failed lookup, so fence the cached attachment and force
+    /// the next graph read to resolve the public terminal id again.
+    func recoverManualMirrorInput(terminalID: String) async {
+        manualMirrorSurfaceIDsSocketPath = nil
+        for session in manualMirrorSessions.values where session.terminalID == terminalID {
+            session.markSurfaceResolutionUnavailable(
+                reason: .rejected("remote terminal input was rejected")
+            )
+        }
+        _ = await refreshCurrentGraph(force: true)
+    }
+
     /// Returns false when the refresh was superseded while resolving.
     func reconcileManualMirrorAttachments(
         connected: CloudMachineLink.Connected,
