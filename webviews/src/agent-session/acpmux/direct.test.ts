@@ -773,6 +773,43 @@ describe("direct client session state", () => {
     expect(latest().rows.find((row) => row.text === "did not send")?.failed).toBe(true);
   });
 
+  /// ACP wraps a tool call's output as `{ type: "content", content: { type: "text" } }`.
+  test("a tool call's wrapped text content becomes its output", async () => {
+    const update: EventRecord = {
+      sessionId: "a",
+      seq: 2,
+      at: 2000,
+      dir: "in",
+      kind: "tool_call",
+      msg: {
+        method: "session/update",
+        params: {
+          sessionId: "a",
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "t1",
+            kind: "execute",
+            title: "Run bun test",
+            status: "completed",
+            content: [{ type: "content", content: { type: "text", text: "2 pass\n0 fail" } }],
+          },
+        },
+      },
+    };
+    ScriptedSocket.respond = ({ method }) =>
+      method === "_acpmux/attach"
+        ? { session: { sessionId: "a", status: "idle" }, events: [userEvent("a", 1, "test it"), update] }
+        : method === "_acpmux/watch"
+          ? { sessions: [{ sessionId: "a" }] }
+          : {};
+    await connect();
+    await settle();
+    const call = latest()
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool?.id === "t1");
+    expect(call?.tool?.output).toBe("2 pass\n0 fail");
+  });
+
   test("a turn summary counts the turn's tool calls and its time", async () => {
     const update = (seq: number, update: Record<string, unknown>): EventRecord => ({
       sessionId: "a",

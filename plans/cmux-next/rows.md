@@ -236,8 +236,9 @@ The column scroll reducer (`ColumnScrollState.reduce`, niri.md) becomes axis-gen
 than 1000‰ of rows, sticky columns included, gets its own vertical instance keyed by column id.
 `ColumnViewOffset.fit` keeps its semantics (stay if visible, else the nearer edge) so the
 close-focus lead's strip model check stays valid. The close-focus lead's `ListViewport<ID>`
-(one-axis anchor, minimal reveal, clamp; branch feat-cmux-next-closefocus) is reused for the
-row axis.
+(one-axis anchor, minimal reveal, clamp; landed 7a9a7e573c1..6553984ff79 in
+`CmuxNextDesign/CloseFocus`, with `FocusAfterClose` and `FocusTopology.screens`) is reused for
+the row axis; the app step builds on 6553984ff79 or later.
 
 - V1. Reveal (niri F1 to F7 transposed): the focused row plus padding fully visible means no
   motion; otherwise align the edge that needs less motion; `layout.centerFocusedRow` mirrors
