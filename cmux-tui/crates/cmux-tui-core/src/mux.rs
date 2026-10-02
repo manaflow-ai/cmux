@@ -20193,6 +20193,7 @@ mod tests {
     use std::collections::HashMap;
 
     mod column_update;
+    mod kitty_reservation;
     mod sticky_columns;
 
     use crate::layout::{DEFAULT_VIEWPORT_PANE_WIDTH, VirtualRect};
