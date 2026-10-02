@@ -33,10 +33,11 @@ enum QuitPolicy {
         case .endEverything: .endEverything
         }
         switch origin {
-        case .powerOff: return .quit(.keep)
+        // Power off and SIGTERM never ask and never end terminals.
+        case .powerOff, .signal: return .quit(.keep)
         case .explicit(let choice): return .quit(choice)
         case .scripted: return .quit(remembered ?? .keep)
-        case .interactive, .signal: break  // .signal: not implemented yet
+        case .interactive: break
         }
         let hasTerminals = facts.terminals > 0
         let incognito = !facts.incognitoPrograms.isEmpty
