@@ -10,6 +10,21 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test("Mobile Feed keeps its legacy revision namespace during migration")
+    func mobileFeedRevisionPreservesLegacyNamespace() {
+        let cachedRevision = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 12,
+            notifications: 7
+        )
+        let upgradedRevision = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 13,
+            notifications: 7
+        )
+
+        #expect(cachedRevision == ((12 << 32) | 7))
+        #expect(upgradedRevision > cachedRevision)
+    }
+
     @Test("Mobile Feed excludes sparse records before they become rows")
     func mobileFeedRenderabilityGate() {
         let emptyAssistant = WorkstreamItem(
