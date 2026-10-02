@@ -56,7 +56,7 @@ enum CompatErrors {
             return error
         case .missingCapabilities(let caps):
             return unsupported(ControlStrings.format("control.error.missingCapabilities", "the bundled cmux-tui lacks %1$@ (needed for %2$@)", caps.joined(separator: ", "), what))
-        case .command(_, let message, _):
+        case .command(_, let message, _, _, _):
             if message.hasPrefix("unknown ") || message.contains("not found") {
                 return ControlError(code: "not_found", message: "\(what): \(message)")
             }

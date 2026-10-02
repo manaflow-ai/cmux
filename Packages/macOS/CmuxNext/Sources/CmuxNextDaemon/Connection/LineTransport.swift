@@ -256,7 +256,8 @@ final class LineTransport: Sendable {
 
     /// Routing fields of a raw protocol line or a `cmux.protocol/2`
     /// response. Resource responses carry the request id as a decimal
-    /// string and a structured `error` object.
+    /// string and a structured `error` object `{code, message, details,
+    /// retryable}`, kept whole for the caller.
     private struct Envelope: Decodable {
         var id: UInt64?
         var ok: Bool?
@@ -264,6 +265,7 @@ final class LineTransport: Sendable {
         var error: String?
         var errorCode: String?
         var streamID: String?
+        var errorDetails: JSONValue?, retryable: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id, ok, event, error
@@ -272,8 +274,7 @@ final class LineTransport: Sendable {
         }
 
         private struct ResourceError: Decodable {
-            var code: String?
-            var message: String?
+            var code: String?, message: String?, details: JSONValue?, retryable: Bool?
         }
 
         init(from decoder: any Decoder) throws {
@@ -289,8 +290,8 @@ final class LineTransport: Sendable {
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {
                 error = text
             } else if let structured = try? c.decodeIfPresent(ResourceError.self, forKey: .error) {
-                error = structured.message ?? structured.code
-                errorCode = errorCode ?? structured.code
+                (error, errorCode) = (structured.message ?? structured.code, errorCode ?? structured.code)
+                (errorDetails, retryable) = (structured.details, structured.retryable)
             }
         }
     }
@@ -387,7 +388,8 @@ final class LineTransport: Sendable {
             if case .reply(_, let slot) = waiter { slot.resolve(.success(Response(line: line, eventBarrier: barrier))) }
             return
         }
-        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode)
+        let error = DaemonError.command(cmd: waiter.cmd, message: envelope.error ?? "unknown error", code: envelope.errorCode,
+                                        details: envelope.errorDetails, retryable: envelope.retryable)
         switch waiter {
         case .reply(_, let slot): slot.resolve(.failure(error))
         case .discard(_, let onError): onError?(error)

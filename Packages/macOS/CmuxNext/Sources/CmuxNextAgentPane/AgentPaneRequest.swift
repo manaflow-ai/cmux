@@ -25,6 +25,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `git.diff` or `git.status` with `{cwd, …}`: the changes view's reads of
     /// the session's repository, which the App runs on the session host.
     case git(AgentPaneGitRequest)
+    /// `git.diff` or `git.status` whose params the bridge refused (no
+    /// absolute `cwd`, an unknown scope); answered `native.invalid_request`.
+    case invalidGit(String)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -64,7 +67,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {
-                self = .unsupported(method)
+                self = .invalidGit(method)
             }
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
@@ -83,7 +86,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
 }
 
 /// The page's reply envelope: `{ok: true, value}` or
-/// `{ok: false, error: {code, userMessage}}`.
+/// `{ok: false, error: {code, userMessage, details?, retryable?, origin?}}`.
 public nonisolated enum AgentPaneReply {
     /// JSON-compatible dictionaries for the `WKScriptMessageHandlerWithReply`
     /// reply handler, which bridges them to JavaScript objects.
@@ -93,6 +96,16 @@ public nonisolated enum AgentPaneReply {
 
     public static func failure(code: String, message: String) -> [String: Any] {
         ["ok": false, "error": ["code": code, "userMessage": message]]
+    }
+
+    /// A failure that says who failed (`origin`) and carries the session
+    /// host's `details` (a JSON-compatible value) and `retryable`. Nil fields
+    /// are left out so the page sees `undefined`.
+    public static func failure(code: String, message: String, details: Any?, retryable: Bool?, origin: String) -> [String: Any] {
+        var error: [String: Any] = ["code": code, "userMessage": message, "origin": origin]
+        if let details { error["details"] = details }
+        if let retryable { error["retryable"] = retryable }
+        return ["ok": false, "error": error]
     }
 
     /// The handshake as the dictionary the page receives. Nil fields are left

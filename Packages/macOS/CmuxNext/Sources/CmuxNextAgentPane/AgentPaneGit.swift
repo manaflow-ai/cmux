@@ -49,3 +49,46 @@ public nonisolated enum AgentPaneGitRequest: Equatable, Sendable {
         }
     }
 }
+
+/// Why a git read failed, as the page gets it in `{ok: false, error}`.
+/// With origin ``Origin/sessionHost`` the session host answered with a
+/// resource error, and `code`, `details` and `retryable` are that error
+/// verbatim. With ``Origin/native`` the request got no answer, and `code` is
+/// one of the native codes below. The page always shows the localized
+/// `agentPane.error.git` text.
+public nonisolated struct AgentPaneGitFailure: Error, Equatable, Sendable {
+    public nonisolated enum Origin: String, Equatable, Sendable {
+        case sessionHost = "session_host"
+        case native
+    }
+
+    /// The session host's code (`operation.failed`, `resource.not_found`,
+    /// `selector.*`, …) or a native one.
+    public let code: String
+    /// The session host's `details` as JSON text (any JSON value), nil when
+    /// it sent none.
+    public let details: Data?
+    public let retryable: Bool?
+    public let origin: Origin
+
+    public init(code: String, details: Data?, retryable: Bool?, origin: Origin) {
+        self.code = code
+        self.details = details
+        self.retryable = retryable
+        self.origin = origin
+    }
+
+    private init(native code: String) {
+        self.init(code: code, details: nil, retryable: nil, origin: .native)
+    }
+
+    /// Definitely not sent: no connection to the session host.
+    public static let notConnected = AgentPaneGitFailure(native: "native.not_connected")
+    /// May have been sent: no reply in time, or the connection closed while
+    /// the request was pending.
+    public static let timedOut = AgentPaneGitFailure(native: "native.timed_out")
+    /// The page bridge refused the request's params; never sent.
+    public static let invalidRequest = AgentPaneGitFailure(native: "native.invalid_request")
+    /// Anything else, such as a result that is not JSON.
+    public static let failed = AgentPaneGitFailure(native: "native.failed")
+}

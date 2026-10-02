@@ -22,6 +22,8 @@ public final class AgentPaneModel {
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Runs a git read on the session host and returns its JSON result.
+    /// Throws an ``AgentPaneGitFailure`` saying who failed; any other error
+    /// reaches the page as `native.failed`.
     @ObservationIgnored public var onGit: (@MainActor (AgentPaneGitRequest) async throws -> Data)?
 
     @ObservationIgnored private let host: any AgentPaneHostProviding
@@ -74,13 +76,31 @@ public final class AgentPaneModel {
             }
             return AgentPaneReply.success()
         case .git(let git):
-            guard let onGit, let data = try? await onGit(git),
-                  let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
-                return AgentPaneReply.failure(code: "git_failed", message: Self.gitFailedMessage)
+            guard let onGit else { return Self.gitFailure(.notConnected) }
+            do {
+                let data = try await onGit(git)
+                guard let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {
+                    return Self.gitFailure(.failed)
+                }
+                return AgentPaneReply.success(value)
+            } catch {
+                return Self.gitFailure(error as? AgentPaneGitFailure ?? .failed)
             }
-            return AgentPaneReply.success(value)
+        case .invalidGit:
+            return Self.gitFailure(.invalidRequest)
         case .unsupported(let method):
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: \(method)")
         }
+    }
+}
+
+extension AgentPaneModel {
+    /// The page's reply for a failed git read: the failure's code, origin,
+    /// details and retryable under the localized text.
+    static func gitFailure(_ failure: AgentPaneGitFailure) -> [String: Any] {
+        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
+        return AgentPaneReply.failure(
+            code: failure.code, message: gitFailedMessage, details: details,
+            retryable: failure.retryable, origin: failure.origin.rawValue)
     }
 }

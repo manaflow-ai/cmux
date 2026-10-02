@@ -19,12 +19,23 @@ final class AgentPaneGitLink {
         self.daemon = daemon
     }
 
-    /// The operation's result as JSON for the page; throws when the daemon
-    /// is away or the read fails (no repository, a timeout).
-    func read(_ request: AgentPaneGitRequest) async throws -> Data {
-        let connection = try await connection()
-        let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
-        return try JSONEncoder().encode(result)
+    /// The operation's result as JSON for the page. Throws an
+    /// ``AgentPaneGitFailure``: the session host's resource error, or why
+    /// the read got no answer (no connection, a timeout).
+    func read(_ request: AgentPaneGitRequest) async throws(AgentPaneGitFailure) -> Data {
+        let connection: DaemonConnection
+        do {
+            connection = try await self.connection()
+        } catch {
+            // The link did not open, so nothing was sent.
+            throw AgentPaneGitFailure.notConnected
+        }
+        do {
+            let result = try await GitResourceClient(connection: connection).read(request.operation, params: request.sessionHostParams)
+            return try JSONEncoder().encode(result)
+        } catch {
+            throw AgentPaneGitFailure(reading: error)
+        }
     }
 
     /// Opens the connection on the first read; afterwards it reconnects by
@@ -72,6 +83,28 @@ extension AgentPaneGitRequest {
             ["path": .string(cwd), "scope": .string(scope.rawValue), "include_patch": .bool(includePatch)]
         case .status(let cwd):
             ["path": .string(cwd)]
+        }
+    }
+}
+
+extension AgentPaneGitFailure {
+    /// The failure the page gets for an error of a sent git read. A resource
+    /// error the session host answered keeps its code, details and
+    /// retryable; a request that may have gone out unanswered (a timeout, the
+    /// connection closing while it was pending) is `native.timed_out`.
+    nonisolated init(reading error: any Error) {
+        switch error {
+        case let failure as AgentPaneGitFailure:
+            self = failure
+        case DaemonError.command(_, _, let code?, let details, let retryable):
+            let json = details.flatMap { try? JSONEncoder().encode($0) }
+            self.init(code: code, details: json, retryable: retryable, origin: .sessionHost)
+        case DaemonError.notConnected:
+            self = .notConnected
+        case DaemonError.timedOut, DaemonError.connectionClosed, DaemonError.daemonShutdown:
+            self = .timedOut
+        default:
+            self = .failed
         }
     }
 }
