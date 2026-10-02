@@ -1,5 +1,6 @@
 /// Events that are not part of the tree snapshot (bookmarks, local
-/// conversations), fanned out in arrival order to the services that own their
+/// conversations, capability events this module does not model such as
+/// `apps-*`), fanned out in arrival order to the services that own their
 /// projections. Each subscriber filters the cases it needs.
 @MainActor
 public final class DaemonSideEvents {
