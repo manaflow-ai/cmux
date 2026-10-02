@@ -12,7 +12,7 @@ import Testing
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.start(makeConnection: { daemon.connection() })
         let clock = ContinuousClock(), end = clock.now.advanced(by: .seconds(10))
-        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown), clock.now < end {
+        while !(services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.session.known), clock.now < end {
             try await clock.sleep(for: .milliseconds(20)) // test-only wait
         }
         return services

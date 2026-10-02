@@ -2,7 +2,7 @@ import Foundation
 
 /// The `session.events` stream that carries the daemon's state resources
 /// (closed history, workspace status, ephemeral workspaces, screen metadata
-/// and groups, tab records, terminal progress) to `DaemonStore.sessionState`.
+/// and groups, tab records, terminal progress) to `DaemonStore.session`.
 ///
 /// Opened after the handshake, without blocking it, when the daemon's
 /// `identify` advertises `state-resources-v1`. Its lines arrive on the

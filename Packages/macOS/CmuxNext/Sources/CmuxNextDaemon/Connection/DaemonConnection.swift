@@ -49,7 +49,7 @@ public actor DaemonConnection {
         /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
         public var terminalEnvironment: (@Sendable () async -> [String: String])?
         /// Opens `session.events` after each connect for the daemon's state
-        /// resources (`DaemonStore.sessionState`); off sends nothing extra.
+        /// resources (`DaemonStore.session`); off sends nothing extra.
         public var sessionEvents: Bool
 
         public init(

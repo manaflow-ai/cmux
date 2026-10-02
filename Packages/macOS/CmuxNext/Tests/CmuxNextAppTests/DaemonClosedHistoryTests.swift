@@ -33,7 +33,7 @@ import Testing
     func services(_ daemon: StateDaemon) async throws -> AppServices {
         let services = ActionBindingCoverageTests.boundServices()
         services.daemon.start(makeConnection: { daemon.connection() })
-        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.sessionStateKnown }
+        try await waitUntil { services.daemon.store.isLoaded && services.daemon.store.servesStateResources && services.daemon.store.session.known }
         return services
     }
 

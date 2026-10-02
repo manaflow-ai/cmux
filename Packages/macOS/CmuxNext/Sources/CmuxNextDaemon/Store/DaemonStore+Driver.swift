@@ -54,8 +54,7 @@ final class EventInbox: Sendable {
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
         case .connected, .disconnected, .daemonShutdown, .sessionState:
-            // Session state is not refetched by the snapshot the collapse
-            // triggers, so its items are kept in order.
+            // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
         case .bookmarksChanged:
             // Not part of the tree snapshot a resync refetches.
