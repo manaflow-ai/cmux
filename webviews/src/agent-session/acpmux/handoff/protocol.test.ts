@@ -47,6 +47,8 @@ describe("acpmux handoff protocol v1", () => {
       { source: { ...contractV1.source, cwd: "/different" } },
       { target: { ...contractV1.target, harness: contractV1.source.harness } },
       { capsule: { ...contractV1.capsule, maxBytes: 1, text: "too large" } },
+      { capsule: { ...contractV1.capsule, maxBytes: 65537 } },
+      { capsule: { ...contractV1.capsule, maxBytes: 1024 * 1024 } },
       { capsule: { ...contractV1.capsule, context: { ...contractV1.capsule.context, bytes: 39 } } },
       { capsule: { ...contractV1.capsule, checkpoint: { ref: "git:x", attestedBy: "daemon", attestedAt: "now" } } },
       { source: { ...contractV1.source, coverage: [{ item: "unknown", status: "included", detail: null }] } },
