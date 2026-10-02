@@ -143,9 +143,12 @@ describe("acpmux composer slash menu", () => {
   });
 
   test("+ opens the command menu ahead of a draft, and only when the agent has commands", async () => {
+    const plus = () => dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement;
     await render(snapshot());
-    expect(dom.window.document.querySelector(".acpmux-composer-plus")).toBeNull();
+    // The slot stays so the chips don't jump when the command list arrives.
+    expect(plus().disabled).toBe(true);
     await render(snapshot(commands));
+    expect(plus().disabled).toBe(false);
     await type("look at main");
     await act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
     await settle();
@@ -155,6 +158,32 @@ describe("acpmux composer slash menu", () => {
     await key("Enter");
     expect(textarea().value).toBe("/review look at main");
     expect(sent).toEqual([]);
+  });
+
+  test("+ keeps a pasted path whole, keeps a named command's slash, and Escape puts the draft back", async () => {
+    const plus = async () => act(async () => (dom.window.document.querySelector(".acpmux-composer-plus") as HTMLButtonElement).click());
+    await render(snapshot(commands));
+    await type("/Users/leo/x.txt is broken");
+    await plus();
+    await settle();
+    expect(textarea().value).toBe("/ /Users/leo/x.txt is broken");
+    await key("Escape");
+    expect(textarea().value).toBe("/Users/leo/x.txt is broken");
+    expect(menu()).toBeNull();
+    await type("/review main");
+    await plus();
+    await settle();
+    expect(textarea().value).toBe("/review main");
+    expect(rows()).toEqual(["/compact", "/review", "/pr-comments"]);
+    await key("Enter");
+    expect(textarea().value).toBe("/compact main");
+  });
+
+  test("a leading override replaces +, and null leaves the slot empty", async () => {
+    await act(async () => root.render(createElement(Composer, { snapshot: snapshot(commands), chips: () => null, onSend: () => {}, onStop: () => {}, leading: null })));
+    expect(dom.window.document.querySelector(".acpmux-composer-plus")).toBeNull();
+    await act(async () => root.render(createElement(Composer, { snapshot: snapshot(commands), chips: () => null, onSend: () => {}, onStop: () => {}, leading: createElement("button", { type: "button", className: "attach" }) })));
+    expect(dom.window.document.querySelector(".acpmux-composer-bar > .attach")).not.toBeNull();
   });
 
   test("submitting sends the trimmed prompt and clears the box", async () => {

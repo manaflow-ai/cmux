@@ -8,6 +8,7 @@ public import Foundation
 @MainActor
 public final class MockOnboardingServices: OnboardingServices {
     public var ghosttyTheme: ThemeInput = .ghosttyDefault
+    public var ghosttyHasOwnTheme = true
     public var selectedThemeName: String?
     public var density: Density = .compact
     public var themeChoices: [ThemeChoice] = []

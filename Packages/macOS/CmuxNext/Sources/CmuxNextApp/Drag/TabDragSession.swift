@@ -166,6 +166,7 @@ final class TabDragSession: NSObject {
             return nil
         case .leftMouseUp:
             update(Self.screenPoint(of: event))
+            drag?.filesAway = event.modifierFlags.contains(.option)
             finish(commit: true)
             return nil
         case .leftMouseDown:

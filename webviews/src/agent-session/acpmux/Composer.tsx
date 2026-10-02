@@ -22,7 +22,7 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
-  /// The bar's left button, such as attach; by default + opens the agent's commands.
+  /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
@@ -45,6 +45,9 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
+  /// What + wrote over the draft, so Escape can put the draft back.
+  const plusDraft = useRef<{ written: string; original: string } | undefined>(undefined);
+  const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
@@ -86,10 +89,16 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
     onSend(prompt);
   };
-  // Until attachments land, + opens the agent's commands: a leading "/" opens the menu.
+  // Until attachments land, + opens the agent's commands: the menu reads the
+  // text before the caret, so "/" ahead of the draft opens it and a pick keeps
+  // the draft as arguments. A draft that already names a command keeps its "/",
+  // so a pick replaces that command; anything else (a pasted path) is kept whole.
   const openCommands = () => {
-    // The menu reads the text before the caret, so "/ " ahead of a draft opens it, and a pick keeps the draft as arguments.
-    const next = text.startsWith("/") ? text : text ? `/ ${text}` : "/";
+    if (composing.current) return;
+    const first = /^\/(\S*)/.exec(text)?.[1];
+    const named = first !== undefined && (commands ?? []).some((command) => command.name === first);
+    const next = named ? text : text ? `/ ${text}` : "/";
+    plusDraft.current = { written: next, original: text };
     pendingCaret.current = 1;
     edit(next, 1);
     textarea.current?.focus();
@@ -105,7 +114,15 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
     const typedInFull = matches[selected]?.command.name === query && !matches[selected]?.command.hint;
     if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) { submit(event); return; }
     if (!open) return;
-    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setDismissed(text); return; }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      const plus = plusDraft.current;
+      plusDraft.current = undefined;
+      if (plus && plus.written === text) { edit(plus.original, plus.original.length); pendingCaret.current = plus.original.length; return; }
+      setDismissed(text);
+      return;
+    }
     if (matches.length === 0) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
@@ -127,14 +144,17 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="combobox" aria-expanded={open} aria-controls={open ? "acpmux-slash-menu" : undefined} aria-autocomplete="list"
         aria-activedescendant={open && matches.length > 0 ? `acpmux-slash-${selected}` : undefined}
-        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown} />
+        onChange={(event) => edit(event.target.value, event.target.selectionStart)} onSelect={track} onKeyDown={keyDown}
+        onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} />
       <div className="acpmux-composer-bar">
-        {leading ?? (commands?.length ? <button type="button" className="acpmux-composer-plus" aria-label={COMPOSER_LABELS.commands} title={COMPOSER_LABELS.commands} onClick={openCommands}><PlusIcon /></button> : null)}
+        {leading !== undefined ? leading : <button type="button" className="acpmux-composer-plus" aria-label={COMPOSER_LABELS.commands} title={COMPOSER_LABELS.commands} disabled={!commands?.length} onClick={openCommands}><PlusIcon /></button>}
         <Chips snapshot={snapshot} />
+        <span className="acpmux-composer-actions">
         {accessory}
         {stop
           ? <button key="stop" ref={sendButton} type="button" className="acpmux-send acpmux-cancel" aria-label={COMPOSER_LABELS.stop} title={COMPOSER_LABELS.stop} onClick={stopTurn}><StopIcon /></button>
           : <button key="send" ref={sendButton} type="submit" className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`} aria-label={COMPOSER_LABELS.send} title={COMPOSER_LABELS.send}><ArrowUpIcon /></button>}
+        </span>
       </div>
     </div>
   </form>;
