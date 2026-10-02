@@ -33,7 +33,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 ## Counts (676 actions)
 
-Palette 674, CLI verbs 381, right-click 377, MCP tools 327.
+Palette 674, CLI verbs 373, right-click 377, MCP tools 319.
 
 ## Menus
 
@@ -81,7 +81,7 @@ Palette 674, CLI verbs 381, right-click 377, MCP tools 327.
 
 **unimplemented** (10): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`, `openDiffViewer`, `palette.openDirectoryDiffViewer`
 
-**ownerVerb** (1): `room.new`
+**ownerVerb** (9): `newTab`, `closeWorkspace`, `room.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `closePane`
 
 ## Exemptions: contextMenu
 

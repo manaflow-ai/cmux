@@ -13,13 +13,12 @@ nonisolated extension ActionSurfaceCatalog {
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
         "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "quit", "quitKeepSessions", "quitEndSessions",
-        "quitEndEverything", "keepMacAwake", "newTab", "newBrowserWorkspace", "openFolder",
+        "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "reopenClosedWorkspace", "moveWorkspaceUp",
         "moveWorkspaceDown", "palette.moveWorkspaceToTop", "moveWorkspaceToWindow", "moveWorkspaceToNewWindow",
         "renameWorkspace", "palette.clearWorkspaceName", "editWorkspaceDescription",
         "palette.clearWorkspaceDescription", "markWorkspaceDone", "palette.workspaceStatus",
-        "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane", "closeWorkspace",
-        "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
+        "palette.addWorkspaceChecklistItem", "palette.openWorkspaceTodoPane",         "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow", "palette.closeWorkspacesAbove",
         "palette.toggleWorkspacePin", "palette.markWorkspaceRead", "palette.markWorkspaceUnread",
         "palette.workspaceColor", "palette.resetWorkspaceColor", "reconnectWorkspace", "disconnectWorkspace",
         "clearWorkspaceNotifications", "workspaceGroup.newWorkspace", "workspaceGroup.rename",
@@ -41,8 +40,7 @@ nonisolated extension ActionSurfaceCatalog {
         "splitRight", "newColumn", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane",
         
-        "newTab.sameKind", "newSurface", "openBrowser", "openBrowser.webkit", "openBrowser.chromium", "closeTab",
-        "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "renameTab", "palette.clearTabName",
+        "newTab.sameKind", "newSurface", "openBrowser", "openBrowser.webkit", "openBrowser.chromium",         "closeOtherTabsInPane", "closeTabsToLeft", "closeTabsToRight", "renameTab", "palette.clearTabName",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
         "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "duplicateTab",
@@ -50,8 +48,7 @@ nonisolated extension ActionSurfaceCatalog {
         "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor", "tabGroup.collapse",
         "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit", "tabGroup.moveToNewColumn",
         "tabGroup.moveToNewWorkspace", "tabGroup.moveToWorkspace", "tabGroup.moveToNewWindow", "tabGroup.newTab",
-        "tabGroup.save", "tabGroup.unsave", "tabGroup.deleteSaved", "tabGroup.reopenSaved", "screen.new",
-        "screen.newWith", "screen.duplicate", "screen.close", "screen.closeOthers", "screen.closeToRight",
+        "tabGroup.save", "tabGroup.unsave", "tabGroup.deleteSaved", "tabGroup.reopenSaved",         "screen.newWith", "screen.duplicate", "screen.closeOthers", "screen.closeToRight",
         "screen.closeToLeft", "screen.reopenClosed", "screen.rename", "screen.clearName", "screen.setColor",
         "screen.clearColor", "screen.setIcon", "screen.clearIcon", "screen.togglePin", "screen.moveLeft",
         "screen.moveRight", "screen.moveToWorkspace", "screen.moveToNewWorkspace", "screen.moveToNewWindow",
@@ -61,7 +58,7 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.moveToWorkspace", "screenGroup.moveToNewWorkspace", "screenGroup.moveToNewWindow",
         "screenGroup.save", "screenGroup.unsave", "screenGroup.reopenSaved", "screenGroup.deleteSaved",
         "terminal.keep", "clearScreenKeepScrollback", "resetTerminal", "reconnectPane", "resumeCommandSet",
-        "resumeCommandClear", "palette.terminalOpenDirectory", "browserBack", "browserForward", "browserReload",
+        "resumeCommandClear", "palette.terminalOpenDirectory", "browserReload",
         "browserHardReload", "browser.openInChromium", "browser.openInWebKit", "splitBrowserRight", "splitBrowserDown",
         "palette.browserOpenDefault", "palette.browserClearHistory", 
         "browserScreenshotPage", "browserTheme", 
@@ -100,7 +97,7 @@ nonisolated extension ActionSurfaceCatalog {
         "browser.hibernation.moderate", "browser.hibernation.aggressive", "hibernateTab", "wakeTab",
         "tab.moveToNewSplit", "tab.moveToNewColumn", "tab.moveToWorkspace", "tab.moveToNewWindow", "tabGroup.moveLeft",
         "tabGroup.moveRight", "splitLeft", "splitUp", "swapPaneLeft", "swapPaneRight", "swapPaneUp", "swapPaneDown",
-        "closePane", "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
+        "renamePane", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
         "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.makeSticky", "column.makeStickyLeft",
         "column.unstick", "column.toggleStickyOverlay", "layout.toggleStripScrollbar", "terminal.clear",
         "terminal.sendText", "history.show", "history.resumeAgentSession", "history.reopen", "history.clear",
@@ -115,7 +112,14 @@ nonisolated extension ActionSurfaceCatalog {
         // `cmux room create` is the daemon's room.create (rooms are personal
         // state the home session owns); the Rust CLI parses it before the
         // app fallback, so this verb could never reach room.new.
-        .ownerVerb: ["room.new"],
+        // The daemon owns layout and daemon browsers: `cmux workspace new|close`,
+        // `tab close`, `screen new|close`, `pane close` and `browser back|forward`
+        // are its operations and parse before the app fallback; an app
+        // browser tab's history runs as `cmux browser tab_… back|forward`.
+        .ownerVerb: [
+            "room.new", "newTab", "closeWorkspace", "closeTab", "screen.new", "screen.close", "closePane",
+            "browserBack", "browserForward",
+        ],
         .unimplemented: [
             "palette.openDirectoryDiffViewer",
             "openDiffViewer",
