@@ -23,7 +23,7 @@ import { ScrollPacing } from "./pacing";
 import { Composer } from "./Composer";
 import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
-import { SessionSidebar } from "./SessionSidebar";
+import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { Counts, DiffPanel } from "./DiffPanel";
 import { ChevronDown, DiffFile } from "./changeIcons";
@@ -67,6 +67,16 @@ declare global {
     cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
+}
+
+/** Who mock mode is signed in as, for the sidebar's account row. */
+const MOCK_ACCOUNT: SidebarAccount = { name: "Leo", detail: "Max" };
+
+/** The host's `account`, kept only when its fields are strings. */
+function hostAccount(value: unknown): SidebarAccount | undefined {
+  const account = value as { name?: unknown; detail?: unknown } | undefined;
+  if (typeof account?.name !== "string" || !account.name) return undefined;
+  return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -687,6 +697,8 @@ function AcpmuxPane() {
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
+  /// Who is signed in, when the host says: the sidebar's account row.
+  const [account, setAccount] = useState<SidebarAccount>();
   /// The session list shows beside the transcript in a wide pane and on demand in a narrow one.
   const [sidebar, setSidebar] = useState<"auto" | "open" | "closed">("auto");
   const sidebarToggle = useRef<HTMLButtonElement>(null);
@@ -714,11 +726,17 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.select", { sessionId });
   }, []);
+  const newChat = useCallback(() => {
+    setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
+    void callNative("chat.new").catch(() => undefined);
+  }, []);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
     const list = document.getElementById("acpmux-sidebar");
-    (list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("button"))?.focus();
+    (
+      list?.querySelector<HTMLElement>(".is-selected") ?? list?.querySelector<HTMLElement>("[aria-current=page]")
+    )?.focus();
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") closeOverlay();
     };
@@ -805,10 +823,12 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
+        setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
         if (!mock && (host.transport !== "acpmux-websocket" || !host.endpoint || !host.token)) return;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockHost : (host as AcpmuxHostConfig),
@@ -884,7 +904,13 @@ function AcpmuxPane() {
   const header = paneHeader(composerSnapshot);
   return (
     <section className="acpmux-shell" data-sidebar={sidebar}>
-      <SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />
+      <SessionSidebar
+        sessions={snapshot.sessions}
+        selectedId={snapshot.sessionId}
+        onSelect={selectSession}
+        onNewChat={newChat}
+        account={account}
+      />
       {sidebar === "open" && (
         <button
           type="button"
