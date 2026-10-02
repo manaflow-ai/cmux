@@ -639,6 +639,14 @@ describe("acpmux turn diff", () => {
       // A real click is composed, so it leaves the tree's shadow root.
       await act(async () => { row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, composed: true })); });
       expect(diffShown()).toEqual([true, false]);
+      // Enter on the selected row does the same from the keyboard; Cmd-click deselects only.
+      const rowKey = () => act(async () => { row.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, composed: true })); });
+      await click(panel.querySelector('[aria-label="Collapse all files"]')!);
+      await rowKey();
+      expect(diffShown()).toEqual([true, false]);
+      await click(panel.querySelector('[aria-label="Collapse all files"]')!);
+      await act(async () => { row.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, composed: true, metaKey: true })); });
+      expect(diffShown()).toEqual([false, false]);
       // Escape clears the filter field rather than closing the view.
       const filter = panel.querySelector<HTMLInputElement>('input[aria-label="Filter files"]')!;
       filter.focus();
