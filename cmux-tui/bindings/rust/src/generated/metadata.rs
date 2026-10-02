@@ -1,12 +1,12 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5.
+// cmux-tui mux protocol 12, IR 6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{CommandMetadata, EventMetadata, ProfileMetadata, StreamMetadata};
 
 pub const SDK_SCHEMA_VERSION: u32 = 2;
 pub const MUX_PROTOCOL_VERSION: u32 = 12;
-pub const SDK_IR_SHA256: &str = "b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5";
+pub const SDK_IR_SHA256: &str = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9";
 
 #[rustfmt::skip]
 pub const CONTROL_PROFILE: ProfileMetadata = ProfileMetadata {
@@ -372,7 +372,7 @@ pub const CONVERSATION_OP_METADATA: CommandMetadata = CommandMetadata {
 pub const CONVERSATION_SEARCH_METADATA: CommandMetadata = CommandMetadata {
     name: "conversation-search",
     since: 12,
-    capability: Some("local-conversations-v1"),
+    capability: Some("conversation-search-v1"),
     authority: "local-admin",
     stream: None,
 };

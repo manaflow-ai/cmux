@@ -188,7 +188,8 @@ impl ConversationStore {
              ) WITHOUT ROWID;",
         )?;
         // The search index is additive (no schema version change, so an older
-        // binary still opens the store); a store without it is indexed once.
+        // binary still opens the store, and the triggers keep the index current
+        // under it); a store without the index is indexed once.
         let indexed = transaction
             .query_row(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_search_row'",
@@ -566,7 +567,6 @@ fn write_head(transaction: &Transaction<'_>, head: &ConversationHead) -> anyhow:
 }
 
 fn write_message(transaction: &Transaction<'_>, message: &Message) -> anyhow::Result<()> {
-    crate::conversation_search::index_message(transaction, message)?;
     transaction.execute(
         "INSERT INTO message(conversation, seq, id, message_json) VALUES(?1, ?2, ?3, ?4)
          ON CONFLICT(conversation, seq) DO UPDATE SET message_json = excluded.message_json",

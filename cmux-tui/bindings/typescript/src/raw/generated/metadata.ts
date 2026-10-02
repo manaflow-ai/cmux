@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5. */
+/* cmux-tui mux protocol 12, IR 6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5" as const;
+export const SDK_IR_SHA256 = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -509,7 +509,7 @@ export const COMMAND_METADATA = {
   "conversation-search": {
     "authority": "local-admin",
     "since": 12,
-    "capability": "local-conversations-v1",
+    "capability": "conversation-search-v1",
     "fields": {},
     "stream": null,
     "constraints": [

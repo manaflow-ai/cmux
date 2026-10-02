@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b2d60c381f0a67c0f731fca2c28d515815f7975b05c7073ac8c08ec1f57c03d5. */
+/* cmux-tui mux protocol 12, IR 6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9. */
 
 
 import type * as T from "./types.js";
@@ -2410,7 +2410,7 @@ export interface CmuxCommandDefinitionMap {
     result: ConversationSearchResult;
     authority: "local-admin";
     since: 12;
-    capability: "local-conversations-v1";
+    capability: "conversation-search-v1";
     stream: null;
   };
   "conversation-snapshot": {

@@ -20,6 +20,8 @@ use crate::conversation_store::{
 /// `conversation-changed` and `conversation-typing` events, on trusted local
 /// connections only.
 pub const LOCAL_CONVERSATIONS_CAPABILITY: &str = "local-conversations-v1";
+/// `conversation-search` on the local conversation owner.
+pub const CONVERSATION_SEARCH_CAPABILITY: &str = "conversation-search-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.

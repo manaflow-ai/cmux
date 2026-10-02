@@ -1,16 +1,18 @@
 //! Home-only search over the local conversation owner (`conversation-search`,
-//! plans/cmux-next/home.md section 2).
+//! capability `conversation-search-v1`, plans/cmux-next/home.md section 2).
 //!
 //! An SQLite FTS5 index over the text parts of every message that is not
-//! retracted. The store writes the index row in the transaction that writes
-//! the message row, so a search never sees text that is not committed, and an
-//! edit or a retraction replaces or removes the row in the same commit. Work
-//! cards are not indexed. The query is plain text: every word must match as
-//! a prefix, so `dep fai` finds "deploy failed"; FTS5 operators in the input
-//! have no effect.
+//! retracted. SQLite triggers on the `message` table keep it, so the index
+//! row changes in the statement that writes the message row: a search never
+//! sees uncommitted text, an edit or a retraction changes the results in the
+//! same commit, and a binary that predates the index keeps it current too
+//! (the triggers live in the store file). Work cards are not indexed. The
+//! query is plain text: every word must match as a prefix, so `dep fai`
+//! finds "deploy failed"; FTS5 operators in the input are literal, and a word
+//! without a letter or digit is ignored.
 
-use cmux_conversation::{Message, Part};
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use cmux_conversation::Message;
+use rusqlite::{Connection, Transaction, params};
 use serde::Serialize;
 
 /// The most hits one search returns.
@@ -20,8 +22,35 @@ pub(crate) const MAX_QUERY_CHARS: usize = 200;
 /// Words of context the snippet keeps around a match.
 const SNIPPET_TOKENS: i64 = 12;
 
+/// The searchable text of the message row `NEW`: its text parts, one per
+/// line, or nothing for a retracted or unreadable message.
+const ROW_TEXT: &str = "(SELECT group_concat(json_extract(p.value, '$.text'), char(10))
+     FROM json_each(
+       CASE WHEN json_valid(NEW.message_json) THEN NEW.message_json ELSE '{}' END, '$.parts'
+     ) AS p
+     WHERE json_extract(p.value, '$.type') = 'text')";
+
+/// Replace the index row of message `NEW` (an insert or an update).
+fn reindex_statements() -> String {
+    format!(
+        "INSERT OR IGNORE INTO message_search_row(conversation, seq)
+           VALUES(NEW.conversation, NEW.seq);
+         DELETE FROM message_search WHERE rowid = (
+           SELECT row FROM message_search_row
+           WHERE conversation = NEW.conversation AND seq = NEW.seq);
+         INSERT INTO message_search(rowid, text)
+           SELECT r.row, t.text
+           FROM message_search_row AS r, (SELECT {ROW_TEXT} AS text) AS t
+           WHERE r.conversation = NEW.conversation AND r.seq = NEW.seq
+             AND json_valid(NEW.message_json)
+             AND json_extract(NEW.message_json, '$.retracted_at') IS NULL
+             AND trim(coalesce(t.text, '')) <> '';"
+    )
+}
+
 pub(crate) fn create_search_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch(
+    let reindex = reindex_statements();
+    transaction.execute_batch(&format!(
         "CREATE TABLE IF NOT EXISTS message_search_row (
            row INTEGER PRIMARY KEY,
            conversation TEXT NOT NULL,
@@ -30,80 +59,26 @@ pub(crate) fn create_search_schema(transaction: &Transaction<'_>) -> anyhow::Res
          );
          CREATE VIRTUAL TABLE IF NOT EXISTS message_search USING fts5(
            text,
-           tokenize = 'unicode61 remove_diacritics 2'
-         );",
-    )?;
+           tokenize = 'unicode61 remove_diacritics 2',
+           prefix = '2 3'
+         );
+         CREATE TRIGGER IF NOT EXISTS message_search_insert AFTER INSERT ON message BEGIN
+           {reindex}
+         END;
+         CREATE TRIGGER IF NOT EXISTS message_search_update
+           AFTER UPDATE OF message_json ON message BEGIN
+           {reindex}
+         END;"
+    ))?;
     Ok(())
 }
 
 /// Index every stored message: the upgrade from a store without the index.
+/// Rewriting each row fires the update trigger.
 pub(crate) fn rebuild_search_index(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute("DELETE FROM message_search", [])?;
     transaction.execute("DELETE FROM message_search_row", [])?;
-    let messages = {
-        let mut statement = transaction.prepare("SELECT message_json FROM message")?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for json in messages {
-        let message: Message = serde_json::from_str(&json)
-            .map_err(|_| anyhow::anyhow!("conversation message is corrupt"))?;
-        index_message(transaction, &message)?;
-    }
-    Ok(())
-}
-
-/// The searchable text of a message: its text parts, one per line. A
-/// retracted message has none.
-fn searchable_text(message: &Message) -> Option<String> {
-    if message.retracted_at.is_some() {
-        return None;
-    }
-    let text = message
-        .parts
-        .iter()
-        .filter_map(|part| match part {
-            Part::Text { text, .. } => Some(text.as_str()),
-            Part::Work { .. } => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-    (!text.trim().is_empty()).then_some(text)
-}
-
-/// Replace the index row of `message` (insert, edit, retraction).
-pub(crate) fn index_message(
-    transaction: &Transaction<'_>,
-    message: &Message,
-) -> anyhow::Result<()> {
-    let seq = i64::try_from(message.seq)?;
-    let existing: Option<i64> = transaction
-        .query_row(
-            "SELECT row FROM message_search_row WHERE conversation = ?1 AND seq = ?2",
-            params![message.conversation, seq],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if let Some(row) = existing {
-        transaction.execute("DELETE FROM message_search WHERE rowid = ?1", [row])?;
-    }
-    let Some(text) = searchable_text(message) else {
-        if let Some(row) = existing {
-            transaction.execute("DELETE FROM message_search_row WHERE row = ?1", [row])?;
-        }
-        return Ok(());
-    };
-    let row = match existing {
-        Some(row) => row,
-        None => {
-            transaction.execute(
-                "INSERT INTO message_search_row(conversation, seq) VALUES(?1, ?2)",
-                params![message.conversation, seq],
-            )?;
-            transaction.last_insert_rowid()
-        }
-    };
-    transaction
-        .execute("INSERT INTO message_search(rowid, text) VALUES(?1, ?2)", params![row, text])?;
+    transaction.execute("UPDATE message SET message_json = message_json", [])?;
     Ok(())
 }
 
@@ -113,6 +88,7 @@ pub(crate) fn index_message(
 pub(crate) fn match_expression(query: &str) -> Option<String> {
     let words = query
         .split_whitespace()
+        .filter(|word| word.chars().any(char::is_alphanumeric))
         .map(|word| format!("\"{}\"*", word.replace('"', "\"\"")))
         .collect::<Vec<_>>();
     (!words.is_empty()).then(|| words.join(" "))
@@ -130,8 +106,8 @@ pub(crate) struct SearchHit {
     pub snippet: String,
 }
 
-/// The best `limit` hits for `query`, by FTS5 rank, newest first among equal
-/// ranks.
+/// The best `limit` hits for `query`, by FTS5 rank, the most recently indexed
+/// first among equal ranks.
 pub(crate) fn search(
     connection: &Connection,
     query: &str,
@@ -154,7 +130,7 @@ pub(crate) fn search(
          JOIN conversation AS c ON c.id = r.conversation
          JOIN message AS m ON m.conversation = r.conversation AND m.seq = r.seq
          WHERE message_search MATCH ?1
-         ORDER BY rank, r.conversation, r.seq DESC
+         ORDER BY rank, r.row DESC
          LIMIT ?2",
     )?;
     let rows = statement
@@ -192,6 +168,11 @@ mod tests {
     #[test]
     fn conversation_search_quotes_every_word_as_a_prefix() {
         assert_eq!(match_expression("  "), None);
+        assert_eq!(match_expression("- * …"), None);
+        assert_eq!(
+            match_expression("deploy - staging"),
+            Some("\"deploy\"* \"staging\"*".to_string())
+        );
         assert_eq!(match_expression("dep fai"), Some("\"dep\"* \"fai\"*".to_string()));
         // Operators and quotes are literal text, never FTS5 syntax.
         assert_eq!(

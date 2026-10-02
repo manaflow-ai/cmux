@@ -16494,7 +16494,7 @@
   "conversation-search": {
    "authority": "local-admin",
    "since": 12,
-   "capability": "local-conversations-v1",
+   "capability": "conversation-search-v1",
    "request": {
     "kind": "object",
     "fields": {
