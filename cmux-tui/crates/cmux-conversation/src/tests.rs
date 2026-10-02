@@ -507,25 +507,25 @@ fn conversation_work_cards_do_not_hide_the_agent_text_streak() {
         status: WorkStatus::Running,
         preview: None,
     }];
-    for turn in 0..crate::MAX_AGENT_TURNS {
+    for turn in 0..MAX_AGENT_TURNS {
         for card_index in 0..10 {
             let key = format!("card-{turn}-{card_index}");
             head = send_as(&head, MUX, &key, card.clone(), now).head;
         }
         now += 10_000;
-        assert_eq!(crate::check_agent_streak(&head, MUX, &text, now), Ok(()));
+        assert_eq!(check_agent_streak(&head, MUX, &text, now), Ok(()));
         head = send_as(&head, MUX, &format!("text-{turn}"), text.clone(), now).head;
     }
-    assert_eq!(head.agent_text_streak as usize, crate::MAX_AGENT_TURNS);
+    assert_eq!(head.agent_text_streak as usize, MAX_AGENT_TURNS);
     now += 10_000;
-    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now), Err(Reject::AgentBudget));
-    assert_eq!(crate::check_agent_streak(&head, MUX, &card, now), Ok(()));
+    assert_eq!(check_agent_streak(&head, MUX, &text, now), Err(Reject::AgentBudget));
+    assert_eq!(check_agent_streak(&head, MUX, &card, now), Ok(()));
     head = send_as(&head, ALICE, "human", text.clone(), now).head;
     assert_eq!(head.agent_text_streak, 0);
-    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 1), Ok(()));
+    assert_eq!(check_agent_streak(&head, MUX, &text, now + 1), Ok(()));
     head = send_as(&head, MUX, "reply", text.clone(), now + 1).head;
-    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 2), Err(Reject::AgentRate));
-    assert_eq!(crate::check_agent_streak(&head, MUX, &text, now + 2_001), Ok(()));
+    assert_eq!(check_agent_streak(&head, MUX, &text, now + 2), Err(Reject::AgentRate));
+    assert_eq!(check_agent_streak(&head, MUX, &text, now + 2_001), Ok(()));
 }
 
 fn send_as(
