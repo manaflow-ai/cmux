@@ -92,7 +92,6 @@ Environment:
 | `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks setup` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
-| `iroh-diag` | Print the host's Iroh Connection Report as a plain-language timeline without changing state. |
 | `sudo run [-r <reason>] [-t <timeout>] (-c <command> \| <script.sh> \| -)` | Submit a privileged command request through cmux's secure runner. |
 | `sudo pending` | List queued privileged command request IDs. |
 | `sudo setup-touch-id` | Install or refresh the Touch ID sudo helper used by cmux privileged commands. |
