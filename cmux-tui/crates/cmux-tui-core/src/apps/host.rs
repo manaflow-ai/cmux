@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Mutex;
+use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 use cmux_app_host::protocol::MAX_LINE_BYTES;
 use cmux_app_host::{FromHost, ToHost};
@@ -34,8 +34,21 @@ impl Exit {
     }
 }
 
+/// Messages queued for one host before it counts as stuck and is killed.
+const QUEUE: usize = 4096;
+
+enum Outgoing {
+    Line(Vec<u8>),
+    Shutdown,
+}
+
+/// One host process. Sending never blocks: lines go through a bounded queue
+/// to a writer thread, so the reader thread (and the supervisor lock) never
+/// waits on a host that is itself waiting to write to us, and messages queued
+/// under the supervisor lock reach the host in that order.
 pub struct HostProcess {
-    writer: Mutex<UnixStream>,
+    queue: SyncSender<Outgoing>,
+    socket: UnixStream,
 }
 
 /// The host binary: `CMUX_APP_HOST_BIN`, else `cmux-app-host` next to the
@@ -69,17 +82,22 @@ impl HostProcess {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        // SAFETY: only async-signal-safe calls between fork and exec. dup2
-        // onto 3 clears close-on-exec for the child's copy.
-        unsafe {
-            command.pre_exec(move || {
-                if libc::dup2(fd, 3) == 3 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
-            });
-        }
+        // SAFETY: sysconf before the fork; only async-signal-safe calls in pre_exec.
+        let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
+            n if n > 0 => n.min(65_536) as libc::c_int,
+            _ => 4096,
+        };
+        // SAFETY: only async-signal-safe calls between fork and exec.
+        unsafe { command.pre_exec(move || child_fds(fd, max_fd)) };
         let mut child = command.spawn()?;
         drop(theirs);
         let pid = child.id();
         let reader = ours.try_clone()?;
+        let writer = ours.try_clone()?;
+        let (queue, outgoing) = sync_channel(QUEUE);
+        std::thread::Builder::new()
+            .name(format!("cmux-app-host-w:{name}"))
+            .spawn(move || write_loop(writer, outgoing))?;
         std::thread::Builder::new().name(format!("cmux-app-host:{name}")).spawn(move || {
             let mut lines = BufReader::new(reader);
             let mut line = Vec::new();
@@ -104,25 +122,71 @@ impl HostProcess {
             };
             on_exit(exit);
         })?;
-        Ok(Self { writer: Mutex::new(ours) })
+        Ok(Self { queue, socket: ours })
     }
 
-    pub fn send(&self, message: &ToHost) -> std::io::Result<()> {
-        let mut line = serde_json::to_vec(message).map_err(std::io::Error::other)?;
+    /// Queues one message. A host whose queue is full is stuck and is killed.
+    pub fn send(&self, message: &ToHost) {
+        let Ok(mut line) = serde_json::to_vec(message) else { return };
         line.push(b'\n');
-        let mut writer = self.writer.lock().unwrap();
-        writer.write_all(&line)
+        self.enqueue(Outgoing::Line(line));
     }
 
-    /// Asks the host to exit; the reader thread reports the exit.
+    /// Asks the host to exit after the queued messages; the reader thread
+    /// reports the exit.
     pub fn shutdown(&self) {
-        if self.send(&ToHost::Shutdown).is_err() {
-            self.kill();
-        }
-        let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Write);
+        self.enqueue(Outgoing::Shutdown);
     }
 
+    /// Closes the channel both ways: the host reads end of input and exits,
+    /// the reader thread sees the close and reaps it.
     pub fn kill(&self) {
-        let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
+        let _ = self.socket.shutdown(std::net::Shutdown::Both);
     }
+
+    fn enqueue(&self, item: Outgoing) {
+        match self.queue.try_send(item) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => self.kill(),
+        }
+    }
+}
+
+fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
+    while let Ok(item) = outgoing.recv() {
+        match item {
+            Outgoing::Line(line) => {
+                if socket.write_all(&line).is_err() {
+                    let _ = socket.shutdown(std::net::Shutdown::Both);
+                    return;
+                }
+            }
+            Outgoing::Shutdown => {
+                let mut line = serde_json::to_vec(&ToHost::Shutdown).unwrap_or_default();
+                line.push(b'\n');
+                let _ = socket.write_all(&line);
+                let _ = socket.shutdown(std::net::Shutdown::Write);
+                return;
+            }
+        }
+    }
+}
+
+/// In the child before exec: the channel on fd 3 without close-on-exec, and
+/// every other inherited descriptor above 2 closed.
+fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
+    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
+    unsafe {
+        if fd == 3 {
+            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        } else if libc::dup2(fd, 3) != 3 {
+            return Err(std::io::Error::last_os_error());
+        }
+        for other in 4..max_fd {
+            libc::close(other);
+        }
+    }
+    Ok(())
 }

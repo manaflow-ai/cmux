@@ -68,7 +68,6 @@ enum Command {
         #[serde(default)]
         args: Value,
         #[serde(default)]
-        #[allow(dead_code)]
         idempotency_key: Option<String>,
     },
     #[serde(rename = "apps-logs")]
@@ -194,12 +193,14 @@ pub(super) fn try_handle(
         Command::Dispatch { mount_id, node, event, payload } => {
             supervisor.dispatch(client, &mount_id, &node, &event, payload, user)
         }
-        Command::Run { app, op, args, .. } => {
+        Command::Run { app, op, args, idempotency_key } => {
             let writer = writer.clone();
             supervisor.run(
                 &app,
                 &op,
                 args,
+                idempotency_key,
+                origin,
                 Box::new(move |result| {
                     reply(&writer, id, result);
                 }),

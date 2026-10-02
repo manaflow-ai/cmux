@@ -66,7 +66,10 @@ pub(super) fn request(
         "params": fields,
     });
     if descriptor["class"] == "mutation" {
-        envelope["idempotency_key"] = Value::String(idempotency_key.unwrap_or_default());
+        let key = idempotency_key
+            .filter(|k| !k.is_empty())
+            .ok_or_else(|| error("validation.invalid", "a mutation needs an idempotency key"))?;
+        envelope["idempotency_key"] = Value::String(key);
     }
     Ok(envelope.to_string())
 }

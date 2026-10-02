@@ -128,6 +128,12 @@ pub fn run<R: Channel, W: Write>(read: R, mut write: W, limits: Limits) -> i32 {
                 if let Some(code) = flush(vm, &mut write, outcome) {
                     return code;
                 }
+                // Steady supervisor traffic never lets the read time out, so
+                // timers that came due meanwhile fire here.
+                let fired = vm.fire_due_timers(Instant::now());
+                if let Some(code) = flush(vm, &mut write, fired) {
+                    return code;
+                }
             }
         }
     }
