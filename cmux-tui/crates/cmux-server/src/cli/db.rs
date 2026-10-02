@@ -48,9 +48,9 @@ pub fn create(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 
 pub fn url(ctx: &Context<'_>, args: &Args) -> Result<Output> {
     let layout = layout(ctx, false)?;
-    let mut cfg = config(&layout)?;
+    let cfg = config(&layout)?;
     let (id, _) = app_id(&args.positionals[0])?;
-    let pg = Postgres::open(&layout, ctx.runner, &mut cfg, &pg_options(args))?;
+    let pg = Postgres::open_existing(&layout, ctx.runner, &cfg, &pg_options(args))?;
     let url = pg.url(&pg.find_app(&id)?);
     Ok(Output::new(json!({"url": url}), format!("{url}\n")))
 }

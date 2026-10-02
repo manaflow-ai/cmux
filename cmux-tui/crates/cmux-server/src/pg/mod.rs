@@ -75,37 +75,43 @@ fn absolute(path: &Path) -> Result<PathBuf> {
     Ok(std::env::current_dir().ctx("current directory")?.join(path))
 }
 
+/// Refuses system mode, then finds the binaries: `--pg-bin`, else the
+/// current profile's `postgresql-17` package.
+fn resolve_bin(layout: &Layout, opts: &PgOptions) -> Result<PathBuf> {
+    if layout.mode == InstallMode::System {
+        // initdb and pg_ctl must run as the service user `cmux`, never
+        // as root; that belongs to the server role, not this CLI.
+        return Err(Error::rejected(
+            "Postgres in system mode is run by the server role as user cmux; \
+             this build does not run initdb or pg_ctl from the CLI in system mode",
+        ));
+    }
+    let pg_bin = match &opts.pg_bin {
+        Some(dir) => absolute(dir)?,
+        None => Store::new(layout).current_package(PG_PACKAGE).map(|p| p.join("bin")).ok_or_else(
+            || {
+                Error::not_found(format!(
+                    "no PostgreSQL 17 binaries: the current profile has no {PG_PACKAGE} package; pass --pg-bin <dir>"
+                ))
+            },
+        )?,
+    };
+    if !pg_bin.join("initdb").is_file() {
+        return Err(Error::not_found(format!("{} has no initdb", pg_bin.display())));
+    }
+    Ok(pg_bin)
+}
+
 impl<'a> Postgres<'a> {
     /// Resolves binaries, the port (allocated and persisted in `server.json`
-    /// on first use) and the plan.
+    /// on first use) and the plan. For verbs that create the cluster.
     pub fn open(
         layout: &'a Layout,
         runner: &'a dyn Runner,
         config: &mut ServerConfig,
         opts: &PgOptions,
     ) -> Result<Postgres<'a>> {
-        if layout.mode == InstallMode::System {
-            // initdb and pg_ctl must run as the service user `cmux`, never
-            // as root; that belongs to the server role, not this CLI.
-            return Err(Error::rejected(
-                "Postgres in system mode is run by the server role as user cmux; \
-                 this build does not run initdb or pg_ctl from the CLI in system mode",
-            ));
-        }
-        let pg_bin = match &opts.pg_bin {
-            Some(dir) => absolute(dir)?,
-            None => Store::new(layout)
-                .current_package(PG_PACKAGE)
-                .map(|p| p.join("bin"))
-                .ok_or_else(|| {
-                    Error::not_found(format!(
-                        "no PostgreSQL 17 binaries: the current profile has no {PG_PACKAGE} package; pass --pg-bin <dir>"
-                    ))
-                })?,
-        };
-        if !pg_bin.join("initdb").is_file() {
-            return Err(Error::not_found(format!("{} has no initdb", pg_bin.display())));
-        }
+        let pg_bin = resolve_bin(layout, opts)?;
         let (install_id, new_id) = config.ensure_install_id()?;
         let allocation = port::allocate(&install_id, config.postgres_port())?;
         let port = allocation.block.postgres;
@@ -113,6 +119,39 @@ impl<'a> Postgres<'a> {
             config.set_postgres_port(port);
             config.save()?;
         }
+        Postgres::build(layout, runner, pg_bin, port, opts)
+    }
+
+    /// Like [`Postgres::open`] for verbs that only read or stop the
+    /// cluster (`db url`, the uninstall stop path): it never writes
+    /// `server.json`, and a server with no install id or no Postgres port
+    /// yet is "not found" (exit 3).
+    pub fn open_existing(
+        layout: &'a Layout,
+        runner: &'a dyn Runner,
+        config: &ServerConfig,
+        opts: &PgOptions,
+    ) -> Result<Postgres<'a>> {
+        let pg_bin = resolve_bin(layout, opts)?;
+        let none = |what: &str| {
+            Error::not_found(format!(
+                "no Postgres on this server yet ({what} missing in {})",
+                config.path().display()
+            ))
+        };
+        let install_id = config.install_id().ok_or_else(|| none("installId"))?;
+        let persisted = config.postgres_port().ok_or_else(|| none("postgres.port"))?;
+        let port = port::allocate(install_id, Some(persisted))?.block.postgres;
+        Postgres::build(layout, runner, pg_bin, port, opts)
+    }
+
+    fn build(
+        layout: &'a Layout,
+        runner: &'a dyn Runner,
+        pg_bin: PathBuf,
+        port: u16,
+        opts: &PgOptions,
+    ) -> Result<Postgres<'a>> {
         let platform = layout.platform;
         let cmux_bin = match &opts.cmux_bin {
             Some(path) => host_path(platform, &absolute(path)?, "cmux binary")?,

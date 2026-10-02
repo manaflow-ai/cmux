@@ -205,11 +205,11 @@ pub fn install(ctx: &Context<'_>, args: &Args) -> Result<Output> {
 /// The final backup before `--purge` (server.md 4.4): self-contained
 /// (`-X stream`), because the WAL archive is deleted with the state.
 fn final_backup(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<Option<PathBuf>> {
-    let mut cfg = config(layout)?;
+    let cfg = config(layout)?;
     if !fsx::local(&layout.postgres_data()).join("PG_VERSION").is_file() {
         return Ok(None);
     }
-    let pg = Postgres::open(layout, ctx.runner, &mut cfg, &pg_options(args)).map_err(|e| {
+    let pg = Postgres::open_existing(layout, ctx.runner, &cfg, &pg_options(args)).map_err(|e| {
         Error::new(
             e.kind,
             format!("cannot take the final backup ({e}); pass --no-backup to skip it"),
@@ -254,8 +254,8 @@ fn postgres_guard(
     purge: bool,
 ) -> Result<Option<String>> {
     let Some(pid) = live_postmaster(layout) else { return Ok(None) };
-    let mut cfg = config(layout)?;
-    let Err(e) = Postgres::open(layout, ctx.runner, &mut cfg, &pg_options(args)) else {
+    let cfg = config(layout)?;
+    let Err(e) = Postgres::open_existing(layout, ctx.runner, &cfg, &pg_options(args)) else {
         return Ok(None);
     };
     let message = format!("Postgres (pid {pid}) is running and this command cannot stop it ({e})");
@@ -269,8 +269,8 @@ fn stop_postgres(ctx: &Context<'_>, args: &Args, layout: &Layout) -> Result<()> 
     if !fsx::local(&layout.postgres_data()).join("PG_VERSION").is_file() {
         return Ok(());
     }
-    let mut cfg = config(layout)?;
-    match Postgres::open(layout, ctx.runner, &mut cfg, &pg_options(args)) {
+    let cfg = config(layout)?;
+    match Postgres::open_existing(layout, ctx.runner, &cfg, &pg_options(args)) {
         Ok(pg) => pg.stop().map(|_| ()),
         // `postgres_guard` already refused or reported a live cluster that
         // this command cannot stop.
