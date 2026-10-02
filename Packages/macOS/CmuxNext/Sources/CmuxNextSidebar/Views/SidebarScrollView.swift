@@ -1,7 +1,7 @@
 import AppKit
 
 /// The sidebar list's scroll view. A two-finger horizontal trackpad swipe
-/// over it switches profiles (Arc) instead of scrolling; vertical scrolling
+/// over it switches profiles instead of scrolling; vertical scrolling
 /// is unchanged. One switch per gesture (`ProfileSwipeTracker`).
 final class SidebarScrollView: NSScrollView {
     /// Called with -1 (previous) or +1 (next) once per qualifying swipe.

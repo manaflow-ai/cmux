@@ -1074,11 +1074,10 @@ fn random_stream_id() -> Result<StreamId> {
 
 #[cfg(test)]
 mod tests {
+    #![cfg_attr(not(feature = "socket-path-hash"), allow(dead_code, unused_imports))]
     use super::*;
-    use sha2::{Digest as _, Sha256};
     use std::os::unix::net::UnixListener;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
-
     static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
 
     struct SocketFile(PathBuf);
@@ -1159,6 +1158,7 @@ mod tests {
         assert!(result.is_ok(), "source-compatible constructor must not panic");
     }
 
+    #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
@@ -1170,7 +1170,7 @@ mod tests {
         let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
         let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{uid}"));
         std::fs::create_dir_all(&hashed_dir).unwrap();
-        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
+        let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = Config::from_socket_path(hashed_dir.join(digest));
         assert!(
             config

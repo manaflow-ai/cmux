@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Chrome's permission toggle, in theme grays: the track is the foreground
-/// when on (Chrome: its blue accent) and a faint fill when off.
+/// The permission toggle, in theme grays: the track is the foreground
+/// when on (no accent color) and a faint fill when off.
 final class PageInfoToggle: NSView {
     var onChange: ((Bool) -> Void)?
 

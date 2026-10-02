@@ -7,9 +7,12 @@ public import Foundation
 /// there is one path from disk to live settings.
 public actor CmuxConfigFile {
     public nonisolated let url: URL
+    /// Keys an MDM profile or the team policy manages; every write checks it.
+    public nonisolated let managedGuard: ManagedKeyGuard
 
-    public init(url: URL) {
+    public init(url: URL, managedGuard: ManagedKeyGuard = ManagedKeyGuard()) {
         self.url = url
+        self.managedGuard = managedGuard
     }
 
     /// The conventional location, `<home>/.config/cmux/cmux.json`, unless
@@ -70,6 +73,7 @@ public actor CmuxConfigFile {
     /// Sets `path` to `value` and publishes the file atomically.
     public func set(_ value: JSONValue, at path: [String]) throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
+        try managedGuard.checkSet(value, at: path)
         let current = try source()
         _ = try validated(current)
         try publish(try JSONC.setting(value, at: path, in: current))
@@ -78,6 +82,7 @@ public actor CmuxConfigFile {
     /// Removes the member at `path`. No-op when absent.
     public func remove(_ path: [String]) throws {
         guard !path.isEmpty else { throw Failure.invalidPath("") }
+        try managedGuard.checkRemove(path)
         let current = try source()
         _ = try validated(current)
         let updated = try JSONC.removing(path, in: current)
@@ -88,6 +93,9 @@ public actor CmuxConfigFile {
     /// so the watcher never applies a half-done edit.
     public func apply(_ edits: [(path: [String], value: JSONValue?)]) throws {
         guard edits.allSatisfy({ !$0.path.isEmpty }) else { throw Failure.invalidPath("") }
+        for edit in edits {
+            if let value = edit.value { try managedGuard.checkSet(value, at: edit.path) } else { try managedGuard.checkRemove(edit.path) }
+        }
         let current = try source()
         _ = try validated(current)
         var updated = current

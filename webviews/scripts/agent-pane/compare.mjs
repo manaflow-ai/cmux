@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Renders the agent pane in mock mode and scores it against a native capture.
 //
-//   node scripts/agent-pane/compare.mjs [scenario ...] [--atlas DIR] [--out DIR]
+//   node scripts/agent-pane/compare.mjs [scenario ...] [--reference DIR] [--out DIR]
 //     [--theme NAME] [--anchor TEXT] [--open]
 //
 // The pane runs from the dev server config (vite.config.acpmux-pane.mjs) with the
@@ -10,10 +10,11 @@
 // default dark terminal theme is applied the way Swift applies it (theme.mjs).
 // The screenshot is taken at the size of the reference's content area, then the
 // scenario's compare rectangle of both is scored with pixelmatch, as
-// codex-atlas-clone's scripts/compare-region.mjs does.
+// the reference prototype's compare-region script does.
 //
-// References are not in this repository: pass --atlas or set CMUX_AGENT_PANE_ATLAS
-// to a codex-atlas-clone checkout (default ~/Projects/codex-atlas-clone).
+// References are not in this repository: pass --reference or set
+// CMUX_AGENT_PANE_REFERENCE to a checkout of the private reference prototype
+// (default ~/Projects/agent-pane-reference).
 // Writes <out>/<scenario>/{ref,actual,diff,side}.png and prints the mismatch.
 //
 // For captures rather than scores: --theme renders under a Ghostty theme from
@@ -74,8 +75,8 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
-const atlas = path.resolve(
-  option("atlas") ?? process.env.CMUX_AGENT_PANE_ATLAS ?? path.join(os.homedir(), "Projects/codex-atlas-clone"),
+const referenceRoot = path.resolve(
+  option("reference") ?? process.env.CMUX_AGENT_PANE_REFERENCE ?? path.join(os.homedir(), "Projects/agent-pane-reference"),
 );
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
@@ -109,9 +110,9 @@ try {
 
 async function run(browser, name, scenario) {
   const fixture = scenario.fixture ? JSON.parse(fs.readFileSync(path.join(here, scenario.fixture), "utf8")) : undefined;
-  const referencePath = scenario.reference && path.join(atlas, scenario.reference);
+  const referencePath = scenario.reference && path.join(referenceRoot, scenario.reference);
   if (referencePath && !fs.existsSync(referencePath))
-    throw new Error(`${referencePath} not found; pass --atlas <codex-atlas-clone checkout>`);
+    throw new Error(`${referencePath} not found; pass --reference <reference checkout>`);
   const { pane, compare, scale } = scenario;
 
   const context = await browser.newContext({

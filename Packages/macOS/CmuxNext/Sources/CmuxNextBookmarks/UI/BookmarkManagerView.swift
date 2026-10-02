@@ -2,7 +2,7 @@ import CmuxNextDesign
 import SwiftUI
 
 /// The `cmux://bookmarks` page: folder tree on the left, the folder's
-/// bookmarks (or search results) on the right, Chrome's manager verbs.
+/// bookmarks (or search results) on the right, the usual manager verbs.
 /// Undesigned on purpose: system controls, theme colors, density tokens.
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarkManagerModel
@@ -13,11 +13,11 @@ struct BookmarkManagerView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            Divider().overlay(colors.separator)
+            HairlineDivider(color: colors.separator)
             HStack(spacing: 0) {
                 folderList
                     .frame(width: Metrics.sidebarWidth)
-                Divider().overlay(colors.separator)
+                HairlineDivider(.vertical, color: colors.separator)
                 BookmarkManagerList(model: model)
             }
         }

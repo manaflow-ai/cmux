@@ -69,7 +69,6 @@ nonisolated extension ActionSurfaceCatalog {
         "browserReload": [p(.browserPage, .navigate, 2)],
         "browserHardReload": [p(.browserPage, .navigate, 3)],
         "browser.openInChromium": [p(.tab, .reopen, 100, folder: .openIn)],
-        "browser.openInWebKit": [p(.tab, .reopen, 101, folder: .openIn)],
         "toggleBrowserDeveloperTools": [p(.browserPage, .inspect, 201)],
         "showBrowserJavaScriptConsole": [p(.browserPage, .inspect, 202, folder: .tools)],
         "inspectBrowserElement": [p(.browserPage, .inspect, 203, folder: .tools)],

@@ -3,7 +3,7 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
 
-/// niri-style column actions: new column, focus and move left/right, center,
+/// scrolling-column column actions: new column, focus and move left/right, center,
 /// width presets. Widths go through the layout model (one gesture transaction per
 /// change, settled by the daemon); moves are `swap-pane`, which the daemon
 /// offers only per pane, so a multi-pane column cannot move yet.
@@ -67,7 +67,7 @@ enum ColumnHandlers {
     private static func focusAdjacent(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (content, column) = column(invocation, ctx), let anchor = column.root.panes.first,
               let screen = content.layoutModel.screen(containing: anchor) else { return }
-        // niri: the column's active (most recently focused) tile, else its first.
+        // The column's active (most recently focused) tile, else its first.
         guard let next = PaneResize.adjacentColumn(of: anchor, forward: forward, in: screen.layout),
               let pane = FocusNavigation.mostRecent(next.root.panes, recency: content.recentPanes) ?? next.root.panes.first else {
             return ctx.refuse(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))

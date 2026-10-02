@@ -15,6 +15,8 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { composerDraft } from "./composerDraft";
+import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
@@ -26,11 +28,17 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { DiffPanel } from "./DiffPanel";
+import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
+import { DateLine } from "./conversation/DateLine";
+import { SearchChats } from "./SearchChats";
+import { Thinking } from "./conversation/Thinking";
+import { WorkingFor } from "./conversation/WorkingFor";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -53,6 +61,8 @@ declare global {
         registryJS?: string;
         layout?: Record<string, unknown>;
       }): void;
+      /// An app action for the page (CmuxNextAgentPane AgentPaneView): "searchChats" toggles Search chats.
+      command?(name: string): void;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -93,6 +103,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   );
 }
 
+/// The changes view reads git scopes from whoever runs the session: the acpmux client
+/// (or the mock daemon), else the native host.
+const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
+
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
   function MessageRow({ row }: RowProps) {
@@ -107,7 +121,7 @@ const MessageRow = memo(
   (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version,
 );
 
-/// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
+/// Tool calls and thoughts as quiet rows (inside an open "Worked for", or live).
 const ToolActivityRow = memo(
   function ToolActivityRow({ row }: RowProps) {
     return <ToolRows row={row} />;
@@ -125,6 +139,27 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
+);
+
+/// "Sun, Sep 13 at 7:55 PM" over a prompt after an hour's gap (turnView in conversation/turns.ts).
+const DateRow = memo(
+  function DateRow({ row }: RowProps) {
+    return <DateLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
+);
+/// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
+const ThinkingRow = memo(
+  function ThinkingRow(_: RowProps) {
+    return <Thinking />;
+  },
+  (a, b) => a.row.id === b.row.id,
+);
+const WorkingRow = memo(
+  function WorkingRow({ row }: RowProps) {
+    return <WorkingFor row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.row.durationMs === b.row.durationMs,
 );
 
 const SummaryRow = memo(
@@ -164,7 +199,7 @@ const PermissionRow = memo(
 );
 const EDITED_FILES_SHOWN = 3;
 
-/// "Edited N files", after Codex's card (EditedFilesCard in codex-atlas-clone's
+/// "Edited N files", ported from EditedFilesCard in the reference prototype's
 /// src/conversation/cards.tsx): totals, View changes, and the first files with their counts;
 /// each file opens the changes at that file. One edited file is named in the title instead.
 const EditedFilesRow = memo(
@@ -258,6 +293,9 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [DATE]: DateRow,
+  [THINKING]: ThinkingRow,
+  [WORKING]: WorkingRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
@@ -628,6 +666,8 @@ export function AcpmuxApp() {
 }
 
 function AcpmuxPane() {
+  /// What a chat opened from another tab inherited (#16620); the composer starts with it.
+  const [draft, setDraft] = useState<string | undefined>();
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({
     type: "snapshot",
     protocolVersion: 1,
@@ -640,10 +680,24 @@ function AcpmuxPane() {
     canLoadOlder: false,
   });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // A new chat centers its composer under the hero, as Codex's home does.
+  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
+  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
+  const forkable =
+    Boolean(snapshot.canFork) &&
+    snapshot.connection !== "disconnected" &&
+    !snapshot.connection.startsWith("connecting");
+  const turnActions = useMemo<TurnActions>(
+    () =>
+      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
+    [forkable],
+  );
+  // A new chat centers its composer under the hero.
   const freshChat = isNewChat(snapshot);
-  // Codex's turn shape: work folds under "Worked for" until opened.
-  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
+  // Turn shape: work folds under "Worked for" until opened.
+  const transcriptRows = useMemo(
+    () => turnView(snapshot.rows, expanded, { working: snapshot.isWorking }),
+    [snapshot.rows, expanded, snapshot.isWorking],
+  );
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{
     sessionId?: string;
@@ -731,6 +785,9 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
+  // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
+  // Settings and cmux.json), which calls the bridge's command("searchChats").
+  const [searching, setSearching] = useState(false);
   // While the narrow-pane overlay is open, Escape closes it and focus moves into it.
   useEffect(() => {
     if (sidebar !== "open" || wide) return;
@@ -745,6 +802,8 @@ function AcpmuxPane() {
     return () => document.removeEventListener("keydown", onKey);
   }, [sidebar, wide, closeOverlay]);
   const rowsRef = useRef(new Map<string, AcpmuxRow>());
+  /// The newest snapshot, for host requests that read it (pane.context).
+  const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   // The pane keeps the last client's catalog until the next client's arrives;
   // ids only grow, so a new client never reads an older client's cache entry.
@@ -770,6 +829,9 @@ function AcpmuxPane() {
       },
     };
     window.cmuxAcpmuxBridge = {
+      command(name) {
+        if (name === "searchChats") setSearching((open) => !open);
+      },
       receive(next) {
         if (next.protocolVersion !== 1) return;
         const change = diffRows(rowsRef.current, next.rows);
@@ -824,9 +886,15 @@ function AcpmuxPane() {
           token?: string;
           sessionId?: string;
           newSession?: boolean;
+          cwd?: string;
+          draft?: string;
           account?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        // A chat opened from another tab starts with what it inherited (#16620). Swift hands the
+        // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
+        const seeded = composerDraft(host.draft);
+        if (seeded) setDraft(seeded);
         // Mock mode runs this same client against an in-page daemon.
         const mock = host.transport === "mock";
         setAccount(mock ? MOCK_ACCOUNT : hostAccount(host.account));
@@ -835,6 +903,7 @@ function AcpmuxPane() {
           mock ? mockHost : (host as AcpmuxHostConfig),
           (next) => {
             rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
+            snapshotRef.current = next;
             setSnapshot(next);
           },
           () => {
@@ -876,6 +945,11 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd }) =>
             persistSession(await client.create(harness ? String(harness) : undefined, cwd ? String(cwd) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "chat.fork": async ({ throughSeq }) => persistSession(await client.fork(Number(throughSeq))),
+          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.status": () => client.gitStatus(),
+          // What the agent works on, for a terminal or browser opened from this chat (#16620).
+          "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
       } catch (error) {
@@ -943,23 +1017,27 @@ function AcpmuxPane() {
           {freshChat ? (
             <EmptyState project={projectName(snapshot.summary?.cwd)} />
           ) : (
-            <VirtualTranscript
-              rows={transcriptRows}
-              canLoadOlder={snapshot.canLoadOlder}
-              expanded={expanded}
-              registry={registry}
-              onOpenDiff={openDiff}
-              onToggleActivity={(id) =>
-                setExpanded((current) => {
-                  const next = new Set(current);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-            />
+            <TurnActionsContext.Provider value={turnActions}>
+              <VirtualTranscript
+                rows={transcriptRows}
+                canLoadOlder={snapshot.canLoadOlder}
+                expanded={expanded}
+                registry={registry}
+                onOpenDiff={openDiff}
+                onToggleActivity={(id) =>
+                  setExpanded((current) => {
+                    const next = new Set(current);
+                    if (next.has(id)) next.delete(id);
+                    else next.add(id);
+                    return next;
+                  })
+                }
+              />
+            </TurnActionsContext.Provider>
           )}
-          {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
+          {diffView && diffFiles && (
+            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+          )}
         </div>
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
@@ -969,11 +1047,26 @@ function AcpmuxPane() {
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}
+          draft={draft}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
           onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
         />
       </div>
+      {searching && (
+        <SearchChats
+          sessions={snapshot.sessions}
+          onClose={() => setSearching(false)}
+          onSelect={(sessionId) => {
+            setSearching(false);
+            selectSession(sessionId);
+          }}
+          onNewChat={() => {
+            setSearching(false);
+            newChat();
+          }}
+        />
+      )}
     </section>
   );
 }

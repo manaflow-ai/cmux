@@ -37,8 +37,12 @@ export type AgentSessionTheme = {
   highlightText?: string;
   shadow: string;
   /// The terminal's 16 ANSI colors, for syntax colors that follow the theme; the cmux-next
-  /// pane sends it. Without it, code keeps Codex's hues on the theme's text colors.
+  /// pane sends it. Without it, code keeps the built-in dark hues on the theme's text colors.
   palette?: string[];
+  /// appearance.borders; `none` sets `data-borders="none"` on the root, which clears the
+  /// pane's own edges and rings (the composer, menus, code and tool cards). `border` and
+  /// `borderStrong` are already transparent then. Absent means default.
+  borders?: "default" | "none";
 };
 
 export type AppContext = {

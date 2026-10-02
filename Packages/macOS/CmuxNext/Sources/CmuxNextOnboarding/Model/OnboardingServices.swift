@@ -25,6 +25,8 @@ public protocol OnboardingServices: AnyObject {
     // Import
     func detectBrowsers() async -> [BrowserSource]
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary
+    /// Whether this build can save imported passwords (the browser engine has the store).
+    func canImportPasswords() async -> Bool
 
     // Default browser
     var defaultApps: any DefaultAppRegistering { get }
@@ -50,6 +52,7 @@ public protocol OnboardingServices: AnyObject {
 public extension OnboardingServices {
     var ghosttyHasOwnTheme: Bool { true }
     var hasAccountsStep: Bool { false }
+    func canImportPasswords() async -> Bool { false }
     func makeAccountsStepView() -> NSView? { nil }
     func variantID(for step: OnboardingModel.Step) -> String? { nil }
     func setVariantID(_ id: String?, for step: OnboardingModel.Step) {}

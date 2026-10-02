@@ -26,7 +26,7 @@ extension LayoutStyle {
     }
 
     /// Split dividers draw their line only while panes have no border.
-    public nonisolated var showsDividerLine: Bool { !showsPaneBorder }
+    public nonisolated var showsDividerLine: Bool { drawsLines && !showsPaneBorder }
 
     /// Whether panes differ from plain edge-to-edge rectangles.
     public nonisolated var hasPaneChrome: Bool {

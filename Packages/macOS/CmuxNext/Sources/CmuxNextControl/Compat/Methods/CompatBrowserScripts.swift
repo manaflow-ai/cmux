@@ -65,7 +65,8 @@ enum CompatBrowserScripts {
     }
 
     static func value(_ selector: String, _ text: String?) -> String {
-        wrap(find(selector) + "return { value: el.value ?? null };")
+        // A password field's value never leaves the page.
+        wrap(find(selector) + "return { value: (el.type === 'password') ? null : (el.value ?? null) };")
     }
 
     static func snapshot(selector: String?, maxDepth: Int, interactiveOnly: Bool) -> String {
@@ -74,7 +75,7 @@ enum CompatBrowserScripts {
         if (!root) { return { error: 'Element not found' }; }
         const interactive = new Set(['A','BUTTON','INPUT','SELECT','TEXTAREA','SUMMARY','OPTION']);
         const roleOf = (el) => el.getAttribute('role') || ({A:'link',BUTTON:'button',INPUT:(el.type==='checkbox'?'checkbox':el.type==='radio'?'radio':'textbox'),SELECT:'combobox',TEXTAREA:'textbox',IMG:'img',H1:'heading',H2:'heading',H3:'heading',H4:'heading',H5:'heading',H6:'heading',UL:'list',OL:'list',LI:'listitem',NAV:'navigation',MAIN:'main',FORM:'form',TABLE:'table',P:'paragraph',LABEL:'label'}[el.tagName]);
-        const nameOf = (el) => (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder') || el.getAttribute('title') || (el.tagName==='INPUT' ? (el.value||'') : (el.innerText||'')).trim().replace(/\\s+/g,' ')).slice(0, 80);
+        const nameOf = (el) => (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder') || el.getAttribute('title') || (el.tagName==='INPUT' ? (el.type==='password' ? '' : (el.value||'')) : (el.innerText||'')).trim().replace(/\\s+/g,' ')).slice(0, 80);
         let next = 1; const refs = {}; const lines = [];
         const visit = (el, depth) => {
           if (depth > \(max(1, maxDepth)) || !(el instanceof Element)) return;

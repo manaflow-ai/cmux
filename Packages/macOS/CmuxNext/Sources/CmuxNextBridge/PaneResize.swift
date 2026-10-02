@@ -1,8 +1,8 @@
 public import CmuxNextLayout
 
 /// Keyboard pane resizing and column navigation over one screen's layout.
-/// Resizing moves the divider nearest the pane in the arrow's direction,
-/// like tmux `resize-pane -L/-R/-U/-D`; in columns mode a left or right
+/// Resizing moves the divider nearest the pane in the arrow's direction;
+/// in columns mode a left or right
 /// resize with no horizontal split in the column changes the column width.
 public nonisolated enum PaneResize {
     public enum Change: Equatable, Sendable {

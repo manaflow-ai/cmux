@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// (`Metrics`, 2 pt grid). Plain data so layout math is testable with fixed
 /// numbers; `standard` reads the tokens for the current density.
 public struct TabStripMetrics: Equatable, Sendable {
-    /// Widest an unpinned tab gets (Chrome's standard width).
+    /// Widest an unpinned tab gets (the standard width).
     public var maxTabWidth: CGFloat
     /// Narrowest an inactive tab gets before the strip starts to scroll.
     public var minInactiveTabWidth: CGFloat

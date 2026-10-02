@@ -9,7 +9,7 @@ public struct CmuxNextApp {
     public func main() {
         DebugTimings.markLaunch("main_start")
         // First, while the process has one thread: install the delegating
-        // default malloc zone Chromium expects (Chrome's
+        // default malloc zone Chromium expects (Chromium's
         // EarlyMallocZoneRegistration). The Chromium framework is mapped
         // later on a background thread; its PartitionAlloc constructor then
         // swaps zones without a moment where no zone owns system memory.
@@ -17,8 +17,8 @@ public struct CmuxNextApp {
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
         // Before any socket or pipe exists: a write to a closed peer returns
-        // EPIPE instead of ending the process (Chrome and most macOS network
-        // apps do the same; CEF sets it anyway once Chromium starts). Every
+        // EPIPE instead of ending the process (most macOS network apps do
+        // the same; CEF sets it anyway once Chromium starts). Every
         // write site already handles the error, and sockets also set
         // SO_NOSIGPIPE. Children get the default back: Foundation's Process
         // and Chromium reset it, and the one forkpty site resets it itself.

@@ -184,7 +184,7 @@ import Testing
     @Test func surfaceTablesNameOnlyCatalogActions() {
         let ids = Set(catalog.map(\.id))
         var tableIDs = Array(ActionSurfaceCatalog.placements.keys) + Array(ActionSurfaceCatalog.cliNamed)
-        for table in [ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
+        for table in [ActionSurfaceCatalog.paletteExemptionsByReason, ActionSurfaceCatalog.cliExemptionsByReason, ActionSurfaceCatalog.contextMenuExemptionsByReason,
                       ActionSurfaceCatalog.mcpExemptionsByReason] {
             let listed = table.values.flatMap { $0 }
             #expect(Set(listed).count == listed.count, "an id listed under two reasons")

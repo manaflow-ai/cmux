@@ -9,6 +9,20 @@ public struct PalettePageSpec {
     public var providers: [any PaletteProvider]
     /// Show a Recent section for an empty query.
     public var showsRecent: Bool
+    /// The query the page opens with (an action run with a `query`).
+    public var initialQuery: String
+    /// Cmd-W belongs to the page's rows: it never reaches the main menu
+    /// (Close Tab on the tab behind the palette), also with no row or the
+    /// Actions menu open.
+    public var ownsCloseKey: Bool
+    /// Sections keep their `order` for a typed query too, instead of
+    /// following their best match (Search Tabs keeps closed tabs below
+    /// open ones).
+    public var keepsSectionOrder: Bool
+    /// The row selected when the page shows its empty-query list, clamped
+    /// to the rows (Search Tabs selects the tab used before the current
+    /// one, so Return switches back).
+    public var emptyQuerySelection: Int
     /// The highlighted row (hover, else selection) changed to this item.
     public var onHighlight: (@MainActor (PaletteItem?) -> Void)?
     /// The page was left (popped, replaced or the palette closed) without
@@ -22,6 +36,10 @@ public struct PalettePageSpec {
         symbol: String = "command",
         providers: [any PaletteProvider],
         showsRecent: Bool = false,
+        initialQuery: String = "",
+        ownsCloseKey: Bool = false,
+        keepsSectionOrder: Bool = false,
+        emptyQuerySelection: Int = 0,
         onHighlight: (@MainActor (PaletteItem?) -> Void)? = nil,
         onLeave: (@MainActor () -> Void)? = nil
     ) {
@@ -31,6 +49,10 @@ public struct PalettePageSpec {
         self.symbol = symbol
         self.providers = providers
         self.showsRecent = showsRecent
+        self.initialQuery = initialQuery
+        self.ownsCloseKey = ownsCloseKey
+        self.keepsSectionOrder = keepsSectionOrder
+        self.emptyQuerySelection = emptyQuerySelection
         self.onHighlight = onHighlight
         self.onLeave = onLeave
     }

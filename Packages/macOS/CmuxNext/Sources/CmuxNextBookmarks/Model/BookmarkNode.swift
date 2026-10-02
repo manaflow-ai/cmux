@@ -1,7 +1,7 @@
 public import Foundation
 
-/// The two fixed roots of every browser profile's tree (Chrome's bookmark
-/// bar and "Other Bookmarks"). They are not rows: their raw values are the
+/// The two fixed roots of every browser profile's tree (the bookmarks bar
+/// and "Other Bookmarks"). They are not rows: their raw values are the
 /// reserved `parent` of top-level nodes.
 public nonisolated enum BookmarkRoot: String, CaseIterable, Sendable, Codable {
     case bar
@@ -57,8 +57,8 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
 
     public var isFolder: Bool { kind == .folder }
 
-    /// The title, else the URL as shown in the omnibar (Chrome shows the URL
-    /// for a bookmark with an empty name).
+    /// The title, else the URL as shown in the omnibar (a bookmark with an
+    /// empty name shows its URL).
     public var displayTitle: String {
         if !title.isEmpty { return title }
         return url.map(BookmarkURL.displayText) ?? ""

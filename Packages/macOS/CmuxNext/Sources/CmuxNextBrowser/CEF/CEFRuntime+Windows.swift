@@ -30,7 +30,7 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 
     private(set) var count = 0
     private(set) var refused = 0
-    /// Chrome commands that would open a Chromium window, blocked by the shim.
+    /// Chromium commands that would open a Chromium window, blocked by the shim.
     private(set) var blockedCommands: [Int32] = []
     private(set) var recent: [Entry] = []
     /// The latest popup window steps (fork API 13), for `debug.cef`.
@@ -55,7 +55,7 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
 }
 
 extension CEFRuntime {
-    /// Chrome's `IDC_NEW_INCOGNITO_WINDOW`.
+    /// Chromium's `IDC_NEW_INCOGNITO_WINDOW`.
     static let newIncognitoWindowCommand: Int32 = 34001
 
     /// Where a Chromium window request goes (`CEFWindowPolicy`), applied.
@@ -146,12 +146,12 @@ extension CEFRuntime {
         URL(filePath: path).standardizedFileURL.resolvingSymlinksInPath().path
     }
 
-    /// The shim blocked a Chrome command that opens a Chromium window.
+    /// The shim blocked a Chromium command that opens a Chromium window.
     func chromeWindowCommandBlocked(_ command: Int32, browser: Int32) {
         windowRequestLog.blocked(command: command)
-        logger.notice("Blocked Chrome command \(command) (it opens a Chromium window)")
+        logger.notice("Blocked Chromium command \(command) (it opens a Chromium window)")
         if command == Self.newIncognitoWindowCommand {
-            // Chrome's New Incognito Window (Cmd-Shift-N in a page when cmux
+            // New Incognito Window (Cmd-Shift-N in a page when cmux
             // does not bind it): a new cmux incognito window.
             Task { @MainActor [weak self] in self?.openOffTheRecord?(nil, nil) }
         }
@@ -179,7 +179,7 @@ public struct CEFWindowReport: Sendable {
     public var refused: Int
     /// The latest requests: "kind=… disposition=… source=… -> decision".
     public var recent: [String]
-    /// Chrome commands the shim blocked (`IDC_*` ids).
+    /// Chromium commands the shim blocked (`IDC_*` ids).
     public var blockedCommands: [Int32]
     /// Browsers Chromium created outside cmux (fork API 8), or -1.
     public var foreignBrowsers: Int
