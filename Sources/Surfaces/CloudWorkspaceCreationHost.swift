@@ -24,6 +24,7 @@ struct CloudWorkspaceCreationHost {
         machine: SurfaceMachineID,
         receipt: SurfaceWorkspaceCreationReceipt? = nil,
         focus: Bool,
+        startInput: Bool? = nil,
         remoteView: SurfaceRemoteView? = nil
     ) throws -> CloudTerminalPaneReservation {
         guard let manager,
@@ -55,6 +56,8 @@ struct CloudWorkspaceCreationHost {
         if focus, manager.selectedTabId == selectedWorkspaceID, manager.window?.isKeyWindow != false {
             manager.selectWorkspace(workspace)
             SurfacePaneFactory.focus(panelID: reservation.panelID, in: workspace.id)
+        }
+        if startInput ?? focus {
             workspace.terminalPanel(for: reservation.panelID)?.surface.requestInputDemandSurfaceStartIfNeeded()
         }
         return reservation

@@ -174,6 +174,11 @@ final class CloudWorkspaceCreationCoordinator {
                 // remote graph is materialized. Selecting it here exposes the
                 // starter pane before the layout transaction below can run.
                 focus: false,
+                // Input ownership is independent from visible workspace
+                // selection. Start the reserved manual runtime immediately
+                // when the caller requested focus, even though selection waits
+                // until the layout transaction completes.
+                startInput: focus,
                 remoteView: firstTerminal?.view
             )
             operation.reservation = reservation
@@ -259,7 +264,10 @@ final class CloudWorkspaceCreationCoordinator {
             operations[operation.id] = nil
             catalog.notifyChange()
             host.complete(reservation, projection: projections[0])
-            if focus, let manager = host.manager, let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
+            if focus, let manager = host.manager,
+               manager.selectedTabId == host.selectedWorkspaceID,
+               manager.window?.isKeyWindow != false,
+               let workspace = Workspace.liveWorkspace(id: reservation.workspaceID) {
                 manager.selectWorkspace(workspace)
                 SurfacePaneFactory.focus(panelID: projections[0].panelID, in: workspace.id)
             }
