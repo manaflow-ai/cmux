@@ -30,6 +30,7 @@ use crate::resource::{
 #[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostLiveness;
 
+pub(crate) mod command_history_store;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
@@ -4019,6 +4020,7 @@ fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> 
     presentation_store::create_presentation_schema(transaction)?;
     screen_store::create_screen_schema(transaction)?;
     kept_tab_store::create_kept_tab_schema(transaction)?;
+    command_history_store::create_command_history_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (
            workspace_key TEXT PRIMARY KEY NOT NULL,
