@@ -14,7 +14,7 @@ struct FontFamilyControl: View {
         let manager = NSFontManager.shared
         let names = manager.availableFontNames(with: .fixedPitchFontMask) ?? []
         let families = Set(names.compactMap { NSFont(name: $0, size: 0)?.familyName })
-            .filter { TerminalFontSetting.isValidFamily($0) && !$0.hasPrefix(".") }
+            .filter { TerminalFontSetting().isValidFamily($0) && !$0.hasPrefix(".") }
         return families.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }()
 
