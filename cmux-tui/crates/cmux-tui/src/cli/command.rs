@@ -50,6 +50,10 @@ pub(super) enum Resolve {
     /// `field` names a state record (room or group) by id or exact name; a
     /// unique name becomes that record's id.
     StateName { field: &'static str, list: ResourceOperation },
+    /// `field` holds a unique prefix of a public id (`ws_1a2b`); the one id
+    /// that `list` reports with that prefix replaces it.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    IdPrefix { field: String, list: ResourceOperation },
 }
 
 #[derive(Clone, Debug)]
@@ -3299,7 +3303,7 @@ fn reset_error_starts_with(error: &anyhow::Error, prefixes: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(in crate::cli) mod tests {
     use super::*;
 
     fn raw_request(args: &[&str]) -> Value {
@@ -4743,8 +4747,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn every_safe_transport_operation_has_a_noun_first_path() {
+    /// One `cmux-tui` command line per safe catalog operation, with the
+    /// operation it sends. `cmux mcp`'s parity test reads it too.
+    pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static str)> {
         const MACHINE: &str = "machine_00000000000000000000000000000001";
         const SESSION: &str = "session_00000000000000000000000000000002";
         const CLIENT: &str = "client_00000000000000000000000000000003";
@@ -4758,7 +4763,7 @@ mod tests {
         const PROJECTION: &str = "projection_0000000000000000000000000000000c";
         const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
 
-        let cases: Vec<(Vec<&str>, &str)> = vec![
+        let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
             (vec!["machine", "list"], "machine.list"),
             (vec!["machine", MACHINE, "show"], "machine.get"),
             (vec!["machine", MACHINE, "session", "list"], "session.list"),
@@ -5431,8 +5436,17 @@ mod tests {
                 "notification.clear",
             ),
         ];
-        let mut cases = cases;
         cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
+        cases
+    }
+
+    #[test]
+    fn every_safe_transport_operation_has_a_noun_first_path() {
+        const SESSION: &str = "session_00000000000000000000000000000002";
+        const WORKSPACE: &str = "ws_00000000000000000000000000000004";
+        const PANE: &str = "pane_00000000000000000000000000000006";
+        const TERMINAL: &str = "term_00000000000000000000000000000008";
+        let cases = safe_operation_cases();
 
         assert_eq!(cases.len(), 171);
         let catalog = operation_catalog();

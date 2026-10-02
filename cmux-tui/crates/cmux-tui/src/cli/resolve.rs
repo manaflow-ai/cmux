@@ -7,12 +7,12 @@
 use std::io::{BufReader, Write};
 
 use cmux_tui_core::platform::transport;
-use cmux_tui_core::resource::{PROTOCOL, ResourceOperation, ResponseEnvelope};
+use cmux_tui_core::resource::{PROTOCOL, ResourceOperation};
 use serde_json::{Map, Value, json};
 
 use super::OutputMode;
 use super::command::{RequestPlan, Resolve};
-use super::wire::{print_operation_error, random_request_id, read_envelope};
+use super::wire::{print_operation_error, random_request_id, read_response};
 
 type Reader = BufReader<Box<dyn transport::Stream>>;
 
@@ -55,6 +55,14 @@ pub(super) fn apply(
                     "current".to_string()
                 };
                 params.insert("workspace".into(), Value::String(workspace));
+            }
+            Resolve::IdPrefix { field, list } => {
+                let Some(value) = params.get(&field).and_then(Value::as_str).map(str::to_owned)
+                else {
+                    continue;
+                };
+                let records = read(reader, list, route.clone())?;
+                params.insert(field.clone(), Value::String(unique_prefix(&field, &value, &records)?));
             }
             Resolve::StateName { field, list } => {
                 let Some(value) = params.get(field).and_then(Value::as_str).map(str::to_owned)
@@ -137,6 +145,43 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
+/// The one id in `records` that starts with `prefix`. No match is
+/// `selector.not_found`; more than one is `selector.ambiguous` with the
+/// candidates, as the daemon reports for a name.
+fn unique_prefix(field: &str, prefix: &str, records: &Value) -> Result<String, Failure> {
+    let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
+    let matches = records
+        .iter()
+        .filter_map(|record| record.get("id").and_then(Value::as_str))
+        .filter(|id| id.starts_with(prefix))
+        .collect::<Vec<_>>();
+    match matches.as_slice() {
+        [id] => Ok((*id).to_string()),
+        [] => Err(Failure::Resource(json!({
+            "code": "selector.not_found",
+            "message": format!("no {field} id starts with {prefix:?}"),
+            "details": {"field": field, "prefix": prefix},
+            "retryable": false,
+        }))),
+        candidates => Err(Failure::Resource(json!({
+            "code": "selector.ambiguous",
+            "message": format!("more than one {field} id starts with {prefix:?}; use more of it"),
+            "details": {"field": field, "prefix": prefix, "candidates": candidates},
+            "retryable": false,
+        }))),
+    }
+}
+
+/// Writes one encoded request line and flushes it.
+pub(super) fn send(reader: &mut Reader, encoded: &[u8]) -> Result<(), String> {
+    let stream = reader.get_mut();
+    stream
+        .write_all(encoded)
+        .and_then(|()| stream.write_all(b"\n"))
+        .and_then(|()| stream.flush())
+        .map_err(|error| format!("transport error: {error}"))
+}
+
 /// One read on the connection; returns its result.
 fn read(
     reader: &mut Reader,
@@ -151,37 +196,11 @@ fn read(
         "operation": operation.wire_name(),
         "params": params,
     });
-    let mut encoded = serde_json::to_vec(&request).expect("JSON values serialize");
-    encoded.push(b'\n');
-    reader
-        .get_mut()
-        .write_all(&encoded)
-        .and_then(|()| reader.get_mut().flush())
-        .map_err(|error| Failure::Transport(format!("transport error: {error}")))?;
-    loop {
-        let value = read_envelope(reader, false)
-            .map_err(Failure::Transport)?
-            .ok_or_else(|| Failure::Transport("transport closed before response".into()))?;
-        if value.get("type").and_then(Value::as_str) != Some("response") {
-            continue;
-        }
-        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
-            Failure::Transport(format!("protocol error: invalid response envelope: {error}"))
-        })?;
-        if response.id.as_str() != id {
-            continue;
-        }
-        if let Err(error) = response.validate() {
-            return Err(Failure::Transport(format!("protocol error: {}", error.message)));
-        }
-        if response.ok {
-            return Ok(response.result.unwrap_or(Value::Null));
-        }
-        let error = response.error.map(|error| serde_json::to_value(error).unwrap_or_default());
-        return Err(Failure::Resource(
-            error
-                .unwrap_or_else(|| json!({"code": "operation.failed", "message": "lookup failed"})),
-        ));
+    let encoded = serde_json::to_vec(&request).expect("JSON values serialize");
+    send(reader, &encoded).map_err(Failure::Transport)?;
+    match read_response(reader, &id).map_err(Failure::Transport)? {
+        Ok(result) => Ok(result),
+        Err(error) => Err(Failure::Resource(error)),
     }
 }
 
@@ -214,6 +233,28 @@ mod tests {
         assert_eq!(error["code"], "selector.ambiguous");
         assert_eq!(error["details"]["candidates"], json!(["g1", "g2"]));
         assert!(error["message"].as_str().unwrap().contains("tab group"));
+    }
+
+    #[test]
+    fn an_id_prefix_resolves_only_when_unique() {
+        let records = json!([
+            {"id": "ws_1a2b0000000000000000000000000000"},
+            {"id": "ws_1a2c0000000000000000000000000000"},
+            {"id": "ws_9f000000000000000000000000000000"},
+        ]);
+        assert_eq!(
+            unique_prefix("workspace", "ws_9", &records).ok().as_deref(),
+            Some("ws_9f000000000000000000000000000000")
+        );
+        let Err(Failure::Resource(error)) = unique_prefix("workspace", "ws_1a", &records) else {
+            panic!("a shared prefix resolved");
+        };
+        assert_eq!(error["code"], "selector.ambiguous");
+        assert_eq!(error["details"]["candidates"].as_array().map(Vec::len), Some(2));
+        let Err(Failure::Resource(error)) = unique_prefix("workspace", "ws_77", &records) else {
+            panic!("an unknown prefix resolved");
+        };
+        assert_eq!(error["code"], "selector.not_found");
     }
 
     #[test]

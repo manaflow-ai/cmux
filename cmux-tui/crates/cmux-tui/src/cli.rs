@@ -8,6 +8,8 @@
 mod app;
 mod command;
 mod lifecycle;
+#[cfg(unix)]
+mod mcp;
 mod raw;
 mod resolve;
 mod shorthand;
@@ -225,6 +227,10 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     #[cfg(unix)]
+    if let Some(code) = run_mcp(args) {
+        return code;
+    }
+    #[cfg(unix)]
     if let Some(code) = run_app_scope(args) {
         return code;
     }
@@ -275,6 +281,15 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             )
         }
     }
+}
+
+/// `cmux [global options] mcp …`: the MCP server and its tool listing.
+/// `None` when `args` names another scope.
+#[cfg(unix)]
+fn run_mcp(args: &[String]) -> Option<i32> {
+    let (global, command_args) = parse_globals(args).ok()?;
+    let (scope, rest) = command_args.split_first()?;
+    (scope == "mcp").then(|| mcp::run(global, rest))
 }
 
 /// The scopes the cmux app owns (`app`, `action`, `settings`, `window`,

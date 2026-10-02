@@ -30,8 +30,8 @@ pub(super) const APP_SCOPES: &[&str] =
 /// that waits for its work may wait for a terminal to start (6 s) or for a
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
 /// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
-const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
+pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
+pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -313,6 +313,22 @@ fn parse_page(target: &str, args: &[String]) -> Result<AppCommand, UsageError> {
     })
 }
 
+/// The params every `action.run` starts from: the action, whether it is
+/// named by its CLI name, `wait: true`, and who asked (`origin`). Only a run
+/// with `focus: true` may move the app's focus, selection, shown workspace or
+/// key window, unless the action's purpose is focus or the origin is `user`
+/// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, "Clients are projections").
+pub(super) fn action_run_params(action: &str, name: ActionName, origin: &str) -> Map<String, Value> {
+    let mut params = Map::new();
+    params.insert("action".into(), json!(action));
+    if name == ActionName::Cli {
+        params.insert("cli".into(), json!(true));
+    }
+    params.insert("wait".into(), json!(true));
+    params.insert("origin".into(), json!(origin));
+    params
+}
+
 /// `action.run` for an action id or CLI name: `--target ID`, `--no-wait`
 /// (`--wait` is the default), `--interactive`, and `--<argument> VALUE` for
 /// each schema argument (`--arg name=value` also works).
@@ -322,17 +338,8 @@ pub(super) fn run_action(
     name: ActionName,
 ) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    let mut params = Map::new();
+    let mut params = action_run_params(action, name, action_origin());
     let mut arguments = Map::new();
-    params.insert("action".into(), json!(action));
-    if name == ActionName::Cli {
-        params.insert("cli".into(), json!(true));
-    }
-    params.insert("wait".into(), json!(true));
-    // Who asked (action origin): a person at a terminal, else a script. Only
-    // a run with `focus: true` (`--focus`) may move the app's focus,
-    // selection, shown workspace or key window.
-    params.insert("origin".into(), json!(action_origin()));
     let mut index = 0;
     while index < args.len() {
         let flag = args[index].as_str();
@@ -452,13 +459,8 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
     };
     let cli_name = params.get("cli") == Some(&Value::Bool(true));
     let key = if method == "action.run" {
-        match global.idempotency_key.clone().map(Ok).unwrap_or_else(|| {
-            super::command::random_prefixed("mutation").map_err(|error| error.to_string())
-        }) {
-            Ok(key) => {
-                params["idempotency_key"] = json!(key);
-                Some(key)
-            }
+        match insert_run_key(&mut params, global.idempotency_key.as_deref()) {
+            Ok(key) => Some(key),
             Err(error) => return Ran::Done(failure("app.transport", &error, global.output, 3)),
         }
     } else if global.idempotency_key.is_some() {
@@ -468,19 +470,12 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
         None
     };
     let report = super::wire::KeyReport::new(key.as_deref());
-    let mut retries = 0;
-    let response = loop {
-        match request(&mut stream, method, params.clone(), timeout) {
-            Ok(Err(error)) if retries < BUSY_RETRIES && busy_before_running(&error) => {
-                retries += 1;
-                std::thread::sleep(busy_retry_delay(&error));
-            }
-            Ok(response) => break response,
-            Err(error) => {
-                let code = failure("app.transport", &error, global.output, 3);
-                report.finish(global.output);
-                return Ran::Done(code);
-            }
+    let response = match request_with_retry(&mut stream, method, &params, timeout) {
+        Ok(response) => response,
+        Err(error) => {
+            let code = failure("app.transport", &error, global.output, 3);
+            report.finish(global.output);
+            return Ran::Done(code);
         }
     };
     match response {
@@ -502,6 +497,70 @@ fn call(global: &GlobalArgs, mut stream: UnixStream, command: AppCommand) -> Ran
             report.finish(global.output);
             Ran::Done(code)
         }
+    }
+}
+
+/// Gives an `action.run` its idempotency key: `given`, else a new one.
+fn insert_run_key(params: &mut Value, given: Option<&str>) -> Result<String, String> {
+    let key = match given {
+        Some(key) => key.to_owned(),
+        None => super::command::random_prefixed("mutation").map_err(|error| error.to_string())?,
+    };
+    params["idempotency_key"] = json!(key);
+    Ok(key)
+}
+
+/// One request; a `busy` app that says the run never started is asked again
+/// after the delay it names, at most `BUSY_RETRIES` times.
+fn request_with_retry(
+    stream: &mut UnixStream,
+    method: &str,
+    params: &Value,
+    timeout: Duration,
+) -> Result<Result<Value, Value>, String> {
+    let mut retries = 0;
+    loop {
+        match request(stream, method, params.clone(), timeout)? {
+            Err(error) if retries < BUSY_RETRIES && busy_before_running(&error) => {
+                retries += 1;
+                std::thread::sleep(busy_retry_delay(&error));
+            }
+            response => return Ok(response),
+        }
+    }
+}
+
+/// One app control request with the CLI's contract, returning its result
+/// instead of printing it (`cmux mcp serve`): the same app discovery, read
+/// barrier (`after: "sync"`), busy retry and, for `action.run`, an
+/// idempotency key (`idempotency_key`, else a new one).
+pub(super) fn call_method(
+    global: &GlobalArgs,
+    method: &str,
+    mut params: Value,
+    timeout: Duration,
+    idempotency_key: Option<&str>,
+) -> Result<Value, super::wire::CallFailure> {
+    use super::wire::{CallFailure, FailureKind};
+    let socket = socket_path(global)
+        .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.not_found", error))?;
+    let mut stream = connect(&socket)
+        .map_err(|error| CallFailure::local(FailureKind::NotRun, "app.unreachable", error))?;
+    let key = if method == "action.run" {
+        Some(insert_run_key(&mut params, idempotency_key).map_err(|error| {
+            CallFailure::local(FailureKind::NotRun, "app.transport", error)
+        })?)
+    } else {
+        None
+    };
+    let failure = |kind, error| CallFailure { kind, error, idempotency_key: key.clone() };
+    match request_with_retry(&mut stream, method, &params, timeout) {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(error)) => Err(failure(FailureKind::Rejected, error)),
+        Err(message) => Err(failure(
+            FailureKind::InProgress,
+            json!({"code": "app.transport", "message": message, "details": {}, "retryable": true}),
+        )),
     }
 }
 
