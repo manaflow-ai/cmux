@@ -168,8 +168,8 @@ fn embedded_hook_mode_delivers_through_the_detached_child() {
     let _ = std::fs::remove_file(&socket);
 }
 
-/// A codex prompt in a terminal with a queued message gets the message as
-/// additional context, and the message is then marked delivered.
+/// A codex prompt in a terminal with a queued message claims it (marks it
+/// delivered) and gets it as additional context.
 #[test]
 fn prompt_hook_hands_queued_messages_to_the_agent_and_marks_them_delivered() {
     let socket = socket_path("inbox");

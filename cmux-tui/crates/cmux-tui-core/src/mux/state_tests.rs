@@ -1043,6 +1043,15 @@ fn agent_messages_turn_off_for_one_recipient_or_for_the_session() {
     .unwrap_err();
     assert!(refused.message.contains("agent messages are turned off"), "{}", refused.message);
     assert_eq!(read(&mux, "agent.message.receiving.get", json!({}))["enabled"], false);
+    // A delivery path cannot claim a message while messages are off.
+    let claim = send(
+        &mux,
+        "agent.message.mark",
+        json!({"ids": [queued["id"]], "recipient": "acp:review", "state": "delivered"}),
+        Some("m1"),
+    )
+    .unwrap_err();
+    assert!(claim.message.contains("agent messages are turned off"), "{}", claim.message);
 
     mux.configure_agent_messages(true);
     mutate(&mux, "agent.message.send", json!({"recipients": ["acp:review"], "body": "four"}), "s4");

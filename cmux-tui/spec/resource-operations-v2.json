@@ -7639,6 +7639,7 @@
       "errors": [
         "idempotency.conflict",
         "operation.failed",
+        "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",

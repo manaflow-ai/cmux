@@ -314,8 +314,11 @@ and the same text, so nothing is queued for it. The session setting
 `agents.messages.enabled` turns every message off: while it is `false`,
 `agent.message.send` fails with `validation.invalid` ("agent messages are
 turned off"), and queued deliveries fail when the setting takes effect.
-`agent.message.receiving.get` reports the setting and the recipients that
-turned messages off.
+Either switch also refuses `agent.message.mark` to `delivered` for the
+recipients it covers. Delivery paths claim a message (mark it `delivered`)
+before handing it over, so a message turned off after it was listed is not
+handed over. `agent.message.receiving.get` reports the setting and the
+recipients that turned messages off.
 
 `terminal.viewport.scroll` changes the session's compatibility inspection
 viewport. Interactive frontends keep scroll in their own terminal mirror and

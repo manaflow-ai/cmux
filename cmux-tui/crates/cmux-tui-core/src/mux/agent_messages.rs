@@ -20,6 +20,18 @@ impl Mux {
         if enabled || !was_enabled {
             return;
         }
+        // A start with messages off has usually nothing queued: skip the
+        // revision bump.
+        let queued = self.read_registry_state(|connection| {
+            Ok(connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM agent_message_deliveries WHERE state = 'queued')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )?)
+        });
+        if matches!(queued, Ok(false)) {
+            return;
+        }
         let commit = self.commit_state(
             &WorkspaceMutation::local("cmux-tui"),
             "agent.message.turn_off",
@@ -181,6 +193,9 @@ impl Mux {
             StateEffects::EVENTS_ONLY,
             |transaction, state| {
                 self.resolve_in_state(state, crate::ResourceTarget::Session, selectors)?;
+                if state_name == "delivered" {
+                    self.ensure_agent_messages_enabled()?;
+                }
                 let values = messages::mark(
                     transaction,
                     &session_id,

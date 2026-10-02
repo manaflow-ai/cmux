@@ -326,6 +326,14 @@ pub(crate) fn set_receiving(
             "{recipient:?} is not a recipient; use a terminal id (term_...) or acp:<session id>"
         )));
     }
+    if !enabled && recipient.starts_with("term_") && !terminal_exists(recipient)? {
+        return Err(anyhow::Error::new(crate::resource::ResourceError::new(
+            "resource.not_found",
+            format!("no terminal {recipient:?} in this session"),
+            json!({"scope": "terminal", "id": recipient}),
+            false,
+        )));
+    }
     let terminals = {
         let mut statement = transaction.prepare(
             "SELECT recipient FROM agent_message_optouts WHERE substr(recipient, 1, 5) = 'term_'",
@@ -433,6 +441,12 @@ pub(crate) fn mark(
     }
     if error.is_some() && state != "failed" {
         return Err(bad_request("an error is recorded only for a failed delivery"));
+    }
+    // A delivery path claims a message before it hands it over, so a
+    // recipient that turned messages off after the message was listed
+    // never gets it.
+    if state == "delivered" && receiving_disabled(transaction, recipient)? {
+        return Err(bad_request(format!("{recipient} has messages disabled")));
     }
     let now = i64::try_from(now_ms)?;
     let mut values = Vec::with_capacity(ids.len());
@@ -977,10 +991,36 @@ mod tests {
     }
 
     #[test]
+    fn a_recipient_that_turned_messages_off_cannot_be_delivered_to() {
+        let mut connection = connection();
+        send_one(&mut connection, "msg_1", &message(TERM_A, &[TERM_B], "one"));
+        set(&mut connection, TERM_B, false);
+        let transaction = connection.transaction().unwrap();
+        let error = mark(
+            &transaction,
+            "session_x",
+            &["msg_1".into()],
+            TERM_B,
+            "delivered",
+            Some("acp.prompt"),
+            None,
+            40,
+        )
+        .unwrap_err();
+        assert_eq!(error.to_string(), format!("bad request: {TERM_B} has messages disabled"));
+        // A person may still acknowledge what reached them.
+        mark(&transaction, "session_x", &["msg_1".into()], TERM_B, "acknowledged", None, None, 41)
+            .unwrap();
+    }
+
+    #[test]
     fn receiving_is_set_only_for_recipient_addresses() {
         let mut connection = connection();
         let transaction = connection.transaction().unwrap();
         let error = set_receiving(&transaction, "cli", false, &any_terminal, 1).unwrap_err();
         assert!(error.to_string().contains("is not a recipient"), "{error}");
+        let no_terminal = |_: &str| -> anyhow::Result<bool> { Ok(false) };
+        let error = set_receiving(&transaction, TERM_A, false, &no_terminal, 1).unwrap_err();
+        assert!(error.to_string().contains("no terminal"), "{error}");
     }
 }
