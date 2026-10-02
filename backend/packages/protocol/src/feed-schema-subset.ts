@@ -23,6 +23,9 @@ const checkField = (name: string, f: unknown): SubsetResult => {
   if (!isObject(f)) return fail(`field ${name} is not an object`)
   for (const k of Object.keys(f)) if (!FIELD_KEYS.has(k)) return fail(`field ${name}: keyword ${k} is not supported`)
   if (typeof f.type !== "string" || !FIELD_TYPES.has(f.type)) return fail(`field ${name}: type must be string, number, integer, boolean or array`)
+  if (f.enum !== undefined && f.type !== "string") return fail(`field ${name}: enum is only for string fields`)
+  if (typeof f.minLength === "number" && typeof f.maxLength === "number" && f.minLength > f.maxLength) return fail(`field ${name}: minLength is above maxLength`)
+  if (typeof f.minimum === "number" && typeof f.maximum === "number" && f.minimum > f.maximum) return fail(`field ${name}: minimum is above maximum`)
   if (f.enum !== undefined) {
     if (!Array.isArray(f.enum) || f.enum.length === 0 || f.enum.length > 64) return fail(`field ${name}: enum must have 1 to 64 values`)
     if (!f.enum.every((v) => typeof v === "string" && v.length <= 200)) return fail(`field ${name}: enum values must be strings`)
@@ -30,7 +33,7 @@ const checkField = (name: string, f: unknown): SubsetResult => {
   if (f.type === "array") {
     // Arrays are multi-select only: items are an enum of strings.
     const items = f.items
-    if (!isObject(items) || items.type !== "string" || !Array.isArray(items.enum) || items.enum.length === 0) return fail(`field ${name}: array items must be a string enum`)
+    if (!isObject(items) || items.type !== "string" || !Array.isArray(items.enum) || items.enum.length === 0 || items.enum.length > 64) return fail(`field ${name}: array items must be a string enum of 1 to 64 values`)
     if (!items.enum.every((v) => typeof v === "string")) return fail(`field ${name}: array enum values must be strings`)
   }
   if (f.format !== undefined && (f.type !== "string" || typeof f.format !== "string" || !FORMATS.has(f.format))) return fail(`field ${name}: format must be email, uri, date or date-time on a string`)
@@ -106,8 +109,8 @@ const checkValue = (name: string, f: Record<string, unknown>, v: unknown): Subse
 export const checkSubsetValue = (schema: unknown, value: unknown): SubsetResult => {
   const s = schema as { properties: Record<string, Record<string, unknown>>; required?: Array<string> }
   if (!isObject(value)) return fail("the answer must be an object")
-  for (const k of Object.keys(value)) if (!(k in s.properties)) return fail(`unknown field ${k}`)
-  for (const r of s.required ?? []) if (!(r in value)) return fail(`${r} is required`)
+  for (const k of Object.keys(value)) if (!Object.hasOwn(s.properties, k)) return fail(`unknown field ${k}`)
+  for (const r of s.required ?? []) if (!Object.hasOwn(value, r)) return fail(`${r} is required`)
   for (const [k, v] of Object.entries(value)) {
     const r = checkValue(k, s.properties[k]!, v)
     if (!r.ok) return r

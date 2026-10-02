@@ -19,8 +19,19 @@ export interface FeedState {
 }
 
 export const MAX_ITEMS = 500
-export const MAX_OPEN_REQUESTS = 200
+export const MAX_OPEN_REQUESTS = 100
 export const MAX_POSTS_PER_MINUTE = 60
+/** Posts per minute for all scopes of one install together (a daemon posts for many agents). */
+export const MAX_INSTALL_POSTS_PER_MINUTE = 240
+/** One item, serialized, before its answer (prompt, actions, open target, attachments included). */
+export const MAX_ITEM_BYTES = 24 * 1024
+/**
+ * The engine commits the whole state as one row (Durable Object rows are at
+ * most 2 MB). Items plus a reserve for the answer of every open request stay
+ * under this, so answering can never push the row past the limit.
+ */
+export const MAX_STATE_BYTES = 1_500_000
+export const ANSWER_RESERVE_BYTES = 8 * 1024
 export const RETENTION_MS = 7 * 24 * 3600_000
 export const DEFAULT_REQUEST_EXPIRY_MS = 24 * 3600_000
 export const DEFAULT_NOTICE_EXPIRY_MS = 7 * 24 * 3600_000
@@ -45,12 +56,23 @@ export const posterScope = (p: Principal, declaredAgent?: string): string => {
   return agent ? `${base}/agent:${agent}` : base
 }
 
+/** Install kinds that are a person's own app (UserDO's registered kind, resolved with the grant). */
+export const USER_APP_KINDS: ReadonlySet<string> = new Set(["mac", "ios", "web"])
+
 /**
- * A person's client: a human session, or an install that acts for no agent.
- * Until the actor stamp lands (identity spec section 6) a daemon install is
- * indistinguishable from the Mac app here; answers also need origin `user`.
+ * A person's client: a human session, or the Mac, iPhone or web app install
+ * acting for no agent. Daemons, CLIs and VMs post and cancel their own items
+ * but never answer or triage: that is how an agent's own install cannot
+ * approve its requests (the actor stamp later narrows this further).
  */
-export const isUserClient = (p: Principal) => (p.kind === "session" || p.kind === "install" || p.kind === undefined) && !p.agent
+export const isUserClient = (p: Principal) => p.kind === "session" || (p.kind === "install" && !p.agent && USER_APP_KINDS.has(p.install_kind ?? ""))
+
+/** Serialized size, the unit of every byte bound. */
+export const jsonBytes = (v: unknown) => (v === undefined ? 0 : new TextEncoder().encode(JSON.stringify(v)).length)
+
+/** True when the state can take `extraBytes` more with `openRequests` open requests after the change. */
+export const fitsBudget = (s: FeedState, extraBytes: number, openRequests: number) =>
+  jsonBytes(s.items) + extraBytes + openRequests * ANSWER_RESERVE_BYTES <= MAX_STATE_BYTES
 
 export const isActive = (i: FeedItem) => i.state === "open" && i.archived_at === null
 
@@ -87,6 +109,7 @@ export const openRequestCount = (s: FeedState) => Object.values(s.items).filter(
 
 /** When an item may leave the state (closed or archived plus retention), else null. */
 export const prunableAt = (i: FeedItem): number | null => {
+  // Open, unarchived items never leave by retention (expiry closes them first).
   const end = i.state !== "open" ? i.closed_at : i.archived_at
   return end === null ? null : end + RETENTION_MS
 }
@@ -133,5 +156,10 @@ export const nextFeedWake = (s: FeedState): number | null => {
   return at
 }
 
-/** Items a principal may read: an agent sees only what its scope posted. */
-export const visibleTo = (p: Principal, i: FeedItem) => isUserClient(p) || p.kind === "system" || i.poster.scope === posterScope(p)
+/**
+ * Items a principal may read: the user's apps see everything; an agent sees
+ * what its scope posted; a daemon, CLI or VM install sees what it or its
+ * agents posted.
+ */
+export const visibleTo = (p: Principal, i: FeedItem) =>
+  isUserClient(p) || p.kind === "system" || i.poster.scope === posterScope(p) || (!p.agent && p.install !== undefined && i.poster.install === p.install)

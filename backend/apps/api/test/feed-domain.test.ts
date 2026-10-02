@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
-import { MAX_ITEMS, MAX_OPEN_REQUESTS, MAX_POSTS_PER_MINUTE, RETENTION_MS } from "../src/domains/feed-state.ts"
+import { MAX_INSTALL_POSTS_PER_MINUTE, MAX_ITEM_BYTES, MAX_ITEMS, MAX_OPEN_REQUESTS, MAX_POSTS_PER_MINUTE, MAX_STATE_BYTES, RETENTION_MS, jsonBytes } from "../src/domains/feed-state.ts"
 import { feedCounts, visibleTo } from "../src/domains/feed.ts"
 import { listItems } from "../src/domains/feed-query.ts"
-import { agentA, agentB, approvePrompt, choicePrompt, daemon, driver, mac, phone, session, stranger, system } from "./feed-harness.ts"
+import { agentA, agentB, approvePrompt, choicePrompt, daemon, driver, mac, phone, session, stranger, system, vm } from "./feed-harness.ts"
 
 const notice = (title: string, extra: Record<string, unknown> = {}) => ({ type: "notice", kind: "notice", title, ...extra })
 const approve = (extra: Record<string, unknown> = {}) => ({ type: "request", kind: "approve", title: "Claude Code needs permission", prompt: approvePrompt, ...extra })
@@ -273,5 +273,90 @@ describe("owner order, groups, filters and open targets", () => {
     expect(f.try(agentA, "feed.post", notice("x", { open: { action: "workspace.close", args: {} } }))).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(f.do(agentA, "feed.post", notice("x", { open: { action: "tab.focus", args: { tab: "tab_1" } } })).item.open).toEqual({ action: "tab.focus", args: { tab: "tab_1" } })
     expect(f.do(session, "feed.post", notice("note to self")).item.poster.kind).toBe("user")
+  })
+})
+
+describe("review fixes: authority, bounds and adopt", () => {
+  it("lets only the user's own apps answer: never a daemon, CLI or VM token, even with origin user", () => {
+    const f = driver()
+    const id = f.do(vm, "feed.post", approve()).item.id
+    expect(f.try(vm, "feed.answer", { item: id, answer: { decision: "allow" } }, "user")).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.try(daemon, "feed.answer", { item: id, answer: { decision: "allow" } }, "user")).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.try(daemon, "feed.read", { all: true }, "user")).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.try(session, "feed.answer", { item: id, answer: { decision: "allow" } }, "user")).toMatchObject({ ok: true })
+    // A VM or CLI token cannot pose as cmux itself.
+    expect(f.do(vm, "feed.post", notice("x", { poster: { kind: "system" } })).item.poster.kind).toBe("server")
+    expect(f.do(daemon, "feed.post", notice("x", { poster: { kind: "system" } })).item.poster.kind).toBe("system")
+  })
+
+  it("answers sign-in and passkey requests only from the Mac", () => {
+    const f = driver()
+    const id = f.do(agentA, "feed.post", { type: "request", kind: "passkey", title: "p", prompt: { origin: "https://github.com", ceremony: "get", browser_tab: "tab_1", reason: "r" } }).item.id
+    expect(f.try(phone, "feed.answer", { item: id, answer: { status: "completed" } }, "user")).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.try(mac, "feed.answer", { item: id, answer: { status: "completed" } }, "user")).toMatchObject({ ok: true })
+  })
+
+  it("lets the user only decline, and the poster not decline", () => {
+    const f = driver()
+    const id = f.do(agentA, "feed.post", approve()).item.id
+    expect(f.try(mac, "feed.cancel", { item: id, reason: "superseded" }, "user")).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(f.do(mac, "feed.cancel", { item: id, reason: "declined" }, "user").item.cancel.reason).toBe("declined")
+  })
+
+  it("bounds item and state bytes, the install-wide rate, and refuses a dedupe key held by another kind", () => {
+    const f = driver()
+    const big = "x".repeat(4000)
+    const args = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`k${i}`, big]))
+    expect(f.try(agentA, "feed.post", notice("x", { open: { action: "tab.focus", args } }))).toMatchObject({ ok: false, message: expect.stringMatching(String(MAX_ITEM_BYTES)) })
+    expect(f.try(agentA, "feed.post", notice("x", { context: { url: "javascript:alert(1)" } }))).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(f.try(agentA, "feed.post", notice("x", { open: { action: "url.open", args: { url: "file:///etc/passwd" } } }))).toMatchObject({ ok: false, code: "validation.invalid" })
+    f.do(agentA, "feed.post", notice("x", { dedupe_key: "same" }))
+    expect(f.try(agentA, "feed.post", approve({ dedupe_key: "same" }))).toMatchObject({ ok: false, code: "validation.invalid" })
+    // Many declared agents on one install still share the install-wide limit.
+    const g = driver()
+    let refused = 0
+    for (let i = 0; i < MAX_INSTALL_POSTS_PER_MINUTE + 10; i++) {
+      const r = g.try(daemon, "feed.post", notice("n", { poster: { agent: `a${i}` } }))
+      if (!r.ok) refused++
+    }
+    expect(refused).toBe(10)
+    // Large notices fill the byte budget; then posts are refused (retryable), never written past it.
+    const h = driver()
+    const body = "y".repeat(4000)
+    let full = false
+    for (let i = 0; i < MAX_ITEMS && !full; i++) {
+      if (i % MAX_POSTS_PER_MINUTE === 0) h.advance(60_000)
+      const r = h.try(agentA, "feed.post", notice("n", { body, actions: [0, 1, 2, 3].map((n) => ({ id: `a${n}`, label: "open" })), open: { action: "tab.focus", args: { pad: "z".repeat(15_000) } } }))
+      if (!r.ok) {
+        expect(r).toMatchObject({ code: "feed.full", retryable: true })
+        full = true
+      }
+      expect(jsonBytes(h.state.items)).toBeLessThanOrEqual(MAX_STATE_BYTES)
+    }
+    expect(full).toBe(true)
+  })
+
+  it("clears scheduled pushes when prefs turn that priority off", () => {
+    const f = driver()
+    const id = f.do(agentA, "feed.post", approve()).item.id
+    expect(f.state.items[id]!.push_due_at).not.toBeNull()
+    f.do(mac, "feed.prefs.set", { push_delay: { high: null } }, "user")
+    expect(f.state.items[id]!.push_due_at).toBeNull()
+  })
+
+  it("adopts only consistent items of the calling install", () => {
+    const src = driver()
+    const open = src.do(agentA, "feed.post", approve()).item
+    const home = `local:${daemon.install}`
+    const g = driver()
+    const bad = (item: unknown) => expect(g.try(daemon, "feed.adopt", { item })).toMatchObject({ ok: false })
+    bad({ ...open, home, state: "answered", closed_at: g.now, answer: { value: { decision: "launch" }, by: "x", device: null, at: g.now } })
+    bad({ ...open, home, archived_at: g.now })
+    bad({ ...open, home, poster: { ...open.poster, install: "inst_other00000000000000", scope: "inst:inst_other00000000000000" } })
+    bad({ ...open, home, closed_at: g.now + 1_000_000, state: "expired" })
+    bad({ ...open, home, expires_at: g.now + 400 * 24 * 3600_000 })
+    bad({ ...open, home, needs_mac: true })
+    const answered = { ...open, home, state: "answered", closed_at: g.now, read_at: g.now, answer: { value: { decision: "deny" }, by: mac.identity, device: null, at: g.now } }
+    expect(g.do(daemon, "feed.adopt", { item: answered }).item).toMatchObject({ home: "cloud", state: "answered" })
   })
 })

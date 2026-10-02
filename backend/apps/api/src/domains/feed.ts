@@ -55,9 +55,10 @@ const triageEach = (state: FeedState, items: ReadonlyArray<Item>, fn: (i: Item) 
       if (dedupeFn) dedupe = dedupeFn(dedupe, i, next)
     }
   }
-  if (changed.length === 0) return { ok: true, state, value: { items }, changed: false }
+  const ref = (s: FeedState) => ({ items: items.map((i) => ({ id: i.id, revision: s.items[i.id]!.revision })) })
+  if (changed.length === 0) return { ok: true, state, value: ref(state), changed: false }
   const next = withItems(state, changed, dedupe)
-  return { ok: true, state: next, value: { items: items.map((i) => next.items[i.id]!) } }
+  return { ok: true, state: next, value: ref(next) }
 }
 
 const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Result => {
@@ -70,6 +71,8 @@ const reduceAnswer = (state: FeedState, params: unknown, ctx: ReduceContext): Re
   if (ctx.now >= item.expires_at) return closedReject(item, "the request expired")
   // The person answers, never an agent (no self-approval), and only from a user action.
   if (ctx.origin !== "user") return reject("auth.forbidden", "answers come only from a user action (origin user)")
+  // Sign-in, passkey and Mac handoffs are completed in the Mac pane that holds the context, never typed elsewhere.
+  if (item.needs_mac && ctx.principal.install_kind !== "mac") return reject("auth.forbidden", "this request is answered on the Mac that holds its context")
   const r = checkAnswer(item.kind, item.prompt, item.answer_schema, d.value.answer)
   if (!r.ok) return reject("validation.invalid", r.message)
   const next = touch(item, ctx.now, {
@@ -94,6 +97,7 @@ const reduceCancel = (state: FeedState, params: unknown, ctx: ReduceContext): Re
   if (!byUser && !byPoster) return reject("auth.forbidden", "only the poster or the user may cancel this item")
   const reason = d.value.reason ?? (byUser && !byPoster ? "declined" : "poster")
   if (reason === "declined" && !byUser) return reject("auth.forbidden", "only the user declines")
+  if (reason !== "declined" && !byPoster) return reject("auth.forbidden", "the user cancels by declining")
   if (item.state !== "open") {
     if (item.state === "cancelled" && item.cancel?.reason === reason) return { ok: true, state, value: { item }, changed: false }
     return closedReject(item, `the item is already ${item.state}`)
@@ -120,8 +124,9 @@ const reduceTriage = (state: FeedState, op: string, params: unknown, ctx: Reduce
     return triageEach(state, found.items, (i) => (i.read_at === null ? touch(i, now, { read_at: now, push_due_at: i.type === "notice" ? null : i.push_due_at }) : null))
   }
   if (op === "feed.archive") {
-    const d = decodeParams(FeedArchive, params)
+    const d = decodeParams<typeof FeedArchive.params.Type>(FeedArchive, params)
     if (!d.ok) return d
+    if ((d.value.items === undefined) === (d.value.filter === undefined)) return reject("validation.invalid", "give items or filter, not both")
   }
   const v = (params ?? {}) as { items?: ReadonlyArray<string>; filter?: FeedFilterValue }
   let found: ReturnType<typeof lookup>
@@ -161,7 +166,7 @@ const reduceTriage = (state: FeedState, op: string, params: unknown, ctx: Reduce
   }
 }
 
-const reducePrefs = (state: FeedState, params: unknown): Result => {
+const reducePrefs = (state: FeedState, params: unknown, ctx: ReduceContext): Result => {
   const d = decodeParams<typeof FeedPrefsSet.params.Type>(FeedPrefsSet, params)
   if (!d.ok) return d
   const prefs = {
@@ -170,7 +175,11 @@ const reducePrefs = (state: FeedState, params: unknown): Result => {
     push_skip_when_mac_active: d.value.push_skip_when_mac_active ?? state.prefs.push_skip_when_mac_active
   }
   if (JSON.stringify(prefs) === JSON.stringify(state.prefs)) return { ok: true, state, value: { prefs }, changed: false }
-  return { ok: true, state: { ...state, prefs }, value: { prefs } }
+  // Pushes already scheduled follow the new rules: a disabled priority loses its pending push.
+  const cancelled = Object.values(state.items).filter((i) => i.push_due_at !== null && (!prefs.push_enabled || prefs.push_delay[i.priority] === null))
+  const items = { ...state.items }
+  for (const i of cancelled) items[i.id] = touch(i, ctx.now, { push_due_at: null })
+  return { ok: true, state: { ...state, prefs, items }, value: { prefs } }
 }
 
 /** The owner's alarm ops. Each re-checks state, so a repeated alarm changes nothing. */
@@ -201,7 +210,7 @@ const reduceSystem = (state: FeedState, op: string, params: unknown, ctx: Reduce
       // `before` is the end-time cutoff: items closed or archived before it go (they stay RETENTION_MS).
       const gone = all.filter((i) => {
         const t = prunableAt(i)
-        return t !== null && t - RETENTION_MS < at
+        return t !== null && t - RETENTION_MS <= at
       })
       if (gone.length === 0) return { ok: true, state, value: { items: [] }, changed: false }
       const items = { ...state.items }
@@ -262,7 +271,7 @@ export const feedDomain: Domain<FeedState> = {
       case "feed.snooze":
         return reduceTriage(state, op, params, ctx)
       case "feed.prefs.set":
-        return reducePrefs(state, params)
+        return reducePrefs(state, params, ctx)
       default:
         return SYSTEM_OPS.has(op) ? reduceSystem(state, op, params, ctx) : reject("validation.invalid", `unknown op ${op}`)
     }

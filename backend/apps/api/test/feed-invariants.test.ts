@@ -1,8 +1,18 @@
-import type { Origin, Principal } from "@cmux/ownership"
+import { idFactory, type Origin, type Principal } from "@cmux/ownership"
 import { describe, expect, it } from "vitest"
 import { dedupeSlot, isActive, MAX_ITEMS, MAX_OPEN_REQUESTS, type FeedState } from "../src/domains/feed-state.ts"
 import { feedDomain } from "../src/domains/feed.ts"
 import { agentA, agentB, approvePrompt, choicePrompt, daemon, mac, phone, run, system } from "./feed-harness.ts"
+
+/** FeedDO's event actor projection (feed-do.ts constructor). */
+const eventActor = (p: Principal): Principal => ({
+  identity: p.identity,
+  ...(p.kind ? { kind: p.kind } : {}),
+  ...(p.user ? { user: p.user } : {}),
+  ...(p.install ? { install: p.install } : {}),
+  ...(p.install_kind ? { install_kind: p.install_kind } : {}),
+  ...(p.agent ? { agent: p.agent } : {})
+})
 
 /** Small deterministic PRNG (mulberry32), so a failing seed reproduces. */
 const rng = (seed: number) => {
@@ -134,9 +144,11 @@ describe("feed reducer invariants on random op sequences", () => {
   it("replays the committed log to the same state (mirror replay is deterministic)", () => {
     for (let seed = 1; seed <= 40; seed++) {
       const { state, log } = simulate(seed, 150)
+      // A mirror sees only what an event carries: the projected actor, JSON params, origin, at and tx.
       let replay = feedDomain.initial()
       for (const e of log) {
-        const res = run(replay, e.p, e.op, e.params, e.now, e.tx, e.origin)
+        const wire = JSON.parse(JSON.stringify({ actor: eventActor(e.p), params: e.params }))
+        const res = feedDomain.reduce(replay, e.op, wire.params, { principal: wire.actor, origin: e.origin, now: e.now, tx: e.tx, newId: idFactory(e.tx) })
         if (!res.ok) throw new Error(`seed ${seed}: replay rejected ${e.op}: ${res.code}`)
         replay = res.state
       }

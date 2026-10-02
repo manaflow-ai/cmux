@@ -3,15 +3,17 @@ import { feedDomain, type FeedState } from "../src/domains/feed.ts"
 
 /** Principals the feed tests use (feed.md 3.2). */
 export const U = "user_aaaaaaaaaaaaaaaaaaaa"
-export const mac: Principal = { identity: "inst_mac00000000000000000", kind: "install", user: U, install: "inst_mac00000000000000000", grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
-export const phone: Principal = { identity: "inst_ios00000000000000000", kind: "install", user: U, install: "inst_ios00000000000000000", grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
+export const mac: Principal = { identity: "inst_mac00000000000000000", kind: "install", user: U, install: "inst_mac00000000000000000", install_kind: "mac", grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
+export const phone: Principal = { identity: "inst_ios00000000000000000", kind: "install", user: U, install: "inst_ios00000000000000000", install_kind: "ios", grant_classes: ["read", "mutate-own", "mutate-shared", "execute"] }
 export const session: Principal = { identity: `session:${U}`, kind: "session", user: U }
 /** The daemon posting for one agent (its launch credential, until tokens carry `act`). */
-export const agentA: Principal = { identity: "inst_dmn00000000000000000", kind: "install", user: U, install: "inst_dmn00000000000000000", agent: "agent_a", grant_classes: ["read", "mutate-own", "execute"] }
+export const agentA: Principal = { identity: "inst_dmn00000000000000000", kind: "install", user: U, install: "inst_dmn00000000000000000", install_kind: "daemon", agent: "agent_a", grant_classes: ["read", "mutate-own", "execute"] }
 export const agentB: Principal = { ...agentA, agent: "agent_b" }
-export const daemon: Principal = { identity: "inst_dmn00000000000000000", kind: "install", user: U, install: "inst_dmn00000000000000000", grant_classes: ["read", "mutate-own", "execute"] }
+export const daemon: Principal = { identity: "inst_dmn00000000000000000", kind: "install", user: U, install: "inst_dmn00000000000000000", install_kind: "daemon", grant_classes: ["read", "mutate-own", "execute"] }
+/** A CLI or VM token of the same user: posts, never answers. */
+export const vm: Principal = { identity: "inst_vm000000000000000000", kind: "install", user: U, install: "inst_vm000000000000000000", install_kind: "vm", grant_classes: ["read", "mutate-own", "execute"] }
 export const system: Principal = { identity: "system:feed", kind: "system" }
-export const stranger: Principal = { identity: "inst_zzz00000000000000000", kind: "install", user: "user_bbbbbbbbbbbbbbbbbbbb", install: "inst_zzz00000000000000000", grant_classes: ["read", "mutate-own"] }
+export const stranger: Principal = { identity: "inst_zzz00000000000000000", kind: "install", user: "user_bbbbbbbbbbbbbbbbbbbb", install: "inst_zzz00000000000000000", install_kind: "mac", grant_classes: ["read", "mutate-own"] }
 
 export type Step = { ok: true; state: FeedState; value: any; changed: boolean } | { ok: false; code: string; message: string; details?: any; retryable?: boolean }
 

@@ -290,7 +290,10 @@ export class OwnerEngine<S, P = unknown> {
           )
         }
       }
-      if (!this.options.mutants?.noLedger) {
+      // A retryable reject (rate limit, full) is not decided: like an authorization failure it is not
+      // recorded, so a retry with the same key is evaluated again instead of replaying the reject.
+      const retryableReject = !decision.ok && decision.frame.retryable
+      if (!this.options.mutants?.noLedger && !retryableReject) {
         this.sql.exec(
           `INSERT INTO own_ledger (identity, idempotency_key, tx, op, params_hash, ok, reply, sequence, revision, actor, origin, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,

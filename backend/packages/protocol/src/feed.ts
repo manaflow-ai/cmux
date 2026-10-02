@@ -121,7 +121,8 @@ const MAX_EXPIRY = 30 * 24 * 3600_000
 const Items = List(FeedItemId, 1, 256)
 const feedErrors = [...mutationErrors, "selector.not_found", "feed.closed", "feed.full", "feed.rate_limited", "feed.moving", "owner.moved"]
 const ItemResult = Schema.Struct({ item: FeedItem })
-const ItemsResult = Schema.Struct({ items: Schema.Array(FeedItem) })
+/** Triage replies name the changed items only: the ledger stores every reply, and clients get items from events. */
+const ItemsResult = Schema.Struct({ items: Schema.Array(Schema.Struct({ id: FeedItemId, revision: Schema.Int })) })
 
 export const FeedPost = def({
   name: "feed.post",
@@ -238,8 +239,8 @@ export const FeedArchive = def({
   mcp: { expose: "never", group: "feed" }
 })
 export const FeedUnarchive = triage("feed.unarchive", "Move archived items back to the active list.", "feed unarchive")
-export const FeedSnooze = triage("feed.snooze", "Hide items until a time; they come back unread. Open requests cannot be snoozed.", "feed snooze", {
-  until: Schema.Int
+export const FeedSnooze = triage("feed.snooze", "Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed.", "feed snooze", {
+  until: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 8_640_000_000_000 }))
 })
 
 export const FeedPrefsSet = def({

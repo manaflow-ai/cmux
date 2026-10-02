@@ -30,6 +30,7 @@ export class FeedDO extends OwnerDO<FeedState> {
       ...(p.kind ? { kind: p.kind } : {}),
       ...(p.user ? { user: p.user } : {}),
       ...(p.install ? { install: p.install } : {}),
+      ...(p.install_kind ? { install_kind: p.install_kind } : {}),
       ...(p.agent ? { agent: p.agent } : {})
     }))
   }
@@ -41,6 +42,7 @@ export class FeedDO extends OwnerDO<FeedState> {
       case "feed.list": {
         const d = decodeParams<typeof FeedList.params.Type>(FeedList, params)
         if (!d.ok) return { ok: false, code: d.code, message: d.message }
+        if (d.value.after !== undefined && !mine.some((i) => i.id === d.value.after)) return { ok: false, code: "validation.invalid", message: "the cursor item is gone; list again from the start" }
         return { ok: true, value: listItems(mine, d.value, Date.now()), revision: "" }
       }
       case "feed.get": {

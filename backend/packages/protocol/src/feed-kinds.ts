@@ -183,7 +183,7 @@ export const feedKinds: Readonly<Record<string, KindDef>> = {
 
 export const CUSTOM_KIND = /^x-[a-z0-9][a-z0-9-]{0,39}\.[a-z0-9][a-z0-9-]{0,39}$/
 export const MAX_PROMPT_JSON = 16 * 1024
-export const MAX_ANSWER_JSON = 64 * 1024
+export const MAX_ANSWER_JSON = 8 * 1024
 
 const decode = (schema: Schema.Top, value: unknown): { ok: true; value: unknown } | { ok: false; message: string } => {
   const exit = Schema.decodeUnknownExit(schema as Schema.Codec<unknown, unknown>)(value)
