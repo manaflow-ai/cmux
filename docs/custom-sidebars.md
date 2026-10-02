@@ -183,7 +183,8 @@ Rules of the runtime:
   instead of trailing padding where accessories float over the content)
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
   default 0.5, an overflowing title scrolls out and back; layout never
-  changes) `.onTap(fn)`. Any of them (except
+  changes) `.cursor("pointer")` (show a pointing-hand cursor while the view is
+  hovered) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row

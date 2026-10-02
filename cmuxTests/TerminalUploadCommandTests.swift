@@ -254,7 +254,7 @@ import Testing
             commandStdout: "\u{1b}\u{01}\u{02}",
             remotePath: "/tmp/cmux-drop-x.png"
         )
-        #expect(emitted.contains("cmux-drop"))
+        #expect(emitted.contains("cmux-paste"))
     }
 
     // MARK: - Environment
@@ -389,7 +389,7 @@ import Testing
             return
         }
         // Falls back to the cmux-chosen remote path (escaped).
-        #expect(text.contains("cmux-drop"))
+        #expect(text.contains("cmux-paste"))
     }
 
     @Test func cancelledOperationFailsClosed() {
