@@ -30,6 +30,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private var domainPolicy = BrowserReplDomainPolicy()
     /// Applies the latest policy's content rules; calls wait for it.
     private var policyTask: Task<Void, Never>?
+    /// Set while WebKit refuses the latest policy's content rules: every
+    /// call fails with it until a policy that compiles replaces it.
+    @MainActor private var policyFailure: BrowserReplDriverError?
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -100,10 +103,18 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         do {
             let rules = policy.contentRules
             options.ruleList = try await compileRuleList(rules.isEmpty ? nil : rules)
+            policyFailure = nil
         } catch {
-            // A rule list WebKit refuses leaves subresources unblocked; the
-            // navigation, fetch and read checks still apply.
-            options.ruleList = nil
+            // The policy is not in force for subresources, so the session
+            // may not go on as if it were: its calls fail (dispatchAttached)
+            // until it sets a policy that compiles. The tabs keep the last
+            // rule list that compiled.
+            let reason = (error as? BrowserReplDriverError)?.message ?? error.localizedDescription
+            policyFailure = Self.error(
+                "invalid",
+                "the domain policy could not be applied: WebKit refused its content rules (\(reason)); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked"
+            )
+            return
         }
         contextOptions = options
         BrowserReplTabAttachments.shared.setContext(options, forSession: sessionID)
@@ -164,6 +175,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func dispatchAttached(method: String, paramsJSON: String) async -> Result<String, BrowserReplDriverError> {
         if let pending = lock.withLock({ policyTask }) { await pending.value }
+        if let policyFailure { return .failure(policyFailure) }
         let params = JSONSerialization.browserReplObject(paramsJSON)
         // Every call on a tab first waits until the tab renders like a focused
         // foreground page; input must not race WebKit's focus update.

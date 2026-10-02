@@ -828,16 +828,27 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
       sessionName: null,
       blockReason: null,
       cookieBlockReason: null,
-      // Called by the native-boundary emulation, never by the runtime.
+      policyFailure: null,
+      // Called by the native-boundary emulation, never by the runtime. As
+      // WebKit does, rules with a non-ASCII url-filter do not compile; then
+      // every call fails until a policy that compiles replaces them.
       async setDomainPolicy(policy, blockReason, cookieBlockReason) {
+        const rules = loadRuntime().agentTools.policyContentRules(policy);
+        const bad = rules.find((r) => /[^\x00-\x7f]/.test(r.trigger["url-filter"]));
+        if (bad) {
+          driver.policyFailure = new DriverError("invalid", `the domain policy could not be applied: WebKit refused its content rules (contentRules: Only ASCII characters are supported in pattern ${bad.trigger["url-filter"]}); set a policy that compiles (session.allowedDomains, session.prohibitedDomains, session.blockIPAddresses), or reset the session if the policy is locked`);
+          return;
+        }
+        driver.policyFailure = null;
         const active = !!(policy.allowed || policy.prohibited.length || policy.blockIPs);
         driver.blockReason = active ? blockReason : null;
         driver.cookieBlockReason = active ? cookieBlockReason || null : null;
-        await setContentRules(loadRuntime().agentTools.policyContentRules(policy));
+        await setContentRules(rules);
       },
       async call(method, params = {}) {
         const fn = methods[method];
         if (!fn) throw new DriverError("unsupported", `Unsupported driver method ${method}`);
+        if (driver.policyFailure) throw driver.policyFailure;
         if (driver.blockReason && params.targetId && GUARDED.test(method) && tabs.has(params.targetId)) {
           const url = tabs.get(params.targetId).page.url();
           const reason = driver.blockReason(url);

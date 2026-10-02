@@ -174,7 +174,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `input.*`, captures, clipboard, file chooser answers) on a tab that shows
   a blocked page, cancels main-frame navigations to blocked URLs in tabs
   the session created (`navigation.blocked`), and never navigates a user's
-  tab away for the policy.
+  tab away for the policy. When WebKit refuses to compile the policy's
+  content rules, every driver call of the session fails with `invalid`
+  (`the domain policy could not be applied: ...`) until the session sets a
+  policy that compiles (a locked one needs a reset); the tabs keep the last
+  rule list that compiled. The policy setters (`session.allowedDomains`
+  and the like) return once the native session holds the policy, before
+  WebKit compiles it, so the error reaches the agent on the session's next
+  call.
 - Cookies: the domain policy applies by host, since a cookie belongs to a
   host and not an origin (a pattern's scheme and port do not narrow it).
   `cookies.*` on a tab that shows a blocked page, and `cookies.get` or
