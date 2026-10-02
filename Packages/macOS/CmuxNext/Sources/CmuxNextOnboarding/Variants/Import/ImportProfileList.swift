@@ -69,6 +69,7 @@ final class ImportProfileList: NSView {
             boxes[profile.id]?.state = model.isSelected(profile) ? .on : .off
             boxes[profile.id]?.isEnabled = editable
         }
+        for case let row as ImportCheckRow in stack.arrangedSubviews { row.syncEnabled() }
     }
 
     private func rebuild(_ profiles: [BrowserSourceProfile]) {
@@ -109,11 +110,13 @@ final class ImportProfileList: NSView {
 }
 
 /// One table row: the name on the left, a bare checkbox on the right, a
-/// hairline under it. Clicking anywhere in the row toggles the box; the
-/// shared hover fill reaches past the row's edges, so the text stays put.
+/// hairline under it. Clicking anywhere in the row toggles the box. The
+/// shared hover fill covers the row (the list's clip view would cut off
+/// anything past it); the name and box sit `inset` in from its edges.
 final class ImportCheckRow: NSView {
+    static let inset: CGFloat = 6
     private let box: NSButton
-    private(set) lazy var hover = OnboardingHover(self, outset: NSSize(width: 6, height: 0))
+    private(set) lazy var hover = OnboardingHover(self)
 
     init(title: String, font: NSFont, box: NSButton, separated: Bool) {
         self.box = box
@@ -126,9 +129,9 @@ final class ImportCheckRow: NSView {
         for view in [label, box, line] { addSubview(view) }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 40),
-            label.leadingAnchor.constraint(equalTo: leadingAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.inset), label.centerYAnchor.constraint(equalTo: centerYAnchor),
             label.trailingAnchor.constraint(lessThanOrEqualTo: box.leadingAnchor, constant: -12),
-            box.trailingAnchor.constraint(equalTo: trailingAnchor), box.centerYAnchor.constraint(equalTo: centerYAnchor),
+            box.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.inset), box.centerYAnchor.constraint(equalTo: centerYAnchor),
             line.leadingAnchor.constraint(equalTo: leadingAnchor), line.trailingAnchor.constraint(equalTo: trailingAnchor),
             line.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
@@ -136,6 +139,14 @@ final class ImportCheckRow: NSView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// Call after the box's `isEnabled` changes: a row that locks under the
+    /// pointer drops its hover and press.
+    func syncEnabled() {
+        guard !box.isEnabled else { return }
+        hover.state.hovering = false
+        hover.state.pressed = false
+    }
 
     override func layout() {
         super.layout()

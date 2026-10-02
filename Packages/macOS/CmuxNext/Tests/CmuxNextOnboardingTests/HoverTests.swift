@@ -68,8 +68,7 @@ import Testing
         defer { h.window.close() }
         let button = OnboardingTextButton("Skip", target: nil, action: #selector(Sink.hit))
         h.window.contentView!.addSubview(button)
-        button.setFrameOrigin(NSPoint(x: 20, y: 20))
-        button.setFrameSize(button.intrinsicContentSize)
+        button.frame = button.frame(forAlignmentRect: NSRect(origin: NSPoint(x: 20, y: 20), size: button.intrinsicContentSize))
         button.layoutSubtreeIfNeeded()
         let frame = button.frame
         let size = button.intrinsicContentSize
@@ -80,7 +79,8 @@ import Testing
         #expect(button.hover.state.hovering)
         #expect(fillAlpha(button.hover) > 0)
         #expect(button.frame == frame && button.intrinsicContentSize == size)
-        #expect(button.hover.fillFrame.width > button.bounds.width, "the fill reaches past the text, the text does not move")
+        #expect(button.hover.drawsBehindContent, "the fill is under the title, not over it")
+        #expect(button.frame.width > button.alignmentRect(forFrame: button.frame).width, "the fill reaches past the text, the text does not move")
 
         button.mouseExited(with: h.event(.mouseExited, at: NSPoint(x: -50, y: -50), in: button))
         #expect(!button.hover.state.hovering)
@@ -97,6 +97,25 @@ import Testing
         button.isEnabled = false
         button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
         #expect(!button.hover.state.hovering)
+        button.isEnabled = true
+        button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
+        button.isEnabled = false
+        #expect(!button.hover.state.hovering, "disabling under the pointer drops the hover")
+    }
+
+    @Test func aTextButtonHiddenUnderThePointerComesBackWithoutAFill() {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.window.close() }
+        let button = OnboardingTextButton("Check Again", target: nil, action: #selector(Sink.hit))
+        h.window.contentView!.addSubview(button)
+        button.mouseEntered(with: h.event(.mouseEntered, at: .zero, in: button))
+        #expect(button.hover.state.hovering)
+        button.isHidden = true
+        button.isHidden = false
+        #expect(!button.hover.state.hovering)
+        #expect(fillAlpha(button.hover) == 0)
     }
 
     @Test func aProfileRowTogglesOnReleaseInside() {
@@ -138,7 +157,7 @@ import Testing
         #expect(row.hover.state == OnboardingHover.State() && toggles == 0)
     }
 
-    @Test func aCheckRowHoversPastItsEdgesAndClicksItsBox() {
+    @Test func aCheckRowHoversInsideItsBoundsAndClicksItsBox() {
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let h = Harness()
@@ -150,9 +169,29 @@ import Testing
         let inside = NSPoint(x: 20, y: 20)
         row.mouseEntered(with: h.event(.mouseEntered, at: inside, in: row))
         #expect(row.hover.state.hovering)
-        #expect(row.hover.fillFrame.minX < 0 && row.hover.fillFrame.maxX > row.bounds.maxX)
+        #expect(row.hover.fillFrame == row.bounds, "the list's clip view would cut off a fill past the row")
         row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
         row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
         #expect(box.state == .on)
+    }
+
+    @Test func aCheckRowThatLocksUnderThePointerDropsItsHover() {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let h = Harness()
+        defer { h.window.close() }
+        let box = NSButton(checkboxWithTitle: "", target: nil, action: nil)
+        box.translatesAutoresizingMaskIntoConstraints = false
+        let row = ImportCheckRow(title: "Chrome", font: OnboardingMetrics.bodyFont, box: box, separated: false)
+        h.host(row, width: 300)
+        let inside = NSPoint(x: 20, y: 20)
+        row.mouseEntered(with: h.event(.mouseEntered, at: inside, in: row))
+        row.mouseDown(with: h.event(.leftMouseDown, at: inside, in: row))
+        box.isEnabled = false
+        row.syncEnabled()
+        #expect(row.hover.state == OnboardingHover.State())
+        #expect(fillAlpha(row.hover) == 0)
+        row.mouseUp(with: h.event(.leftMouseUp, at: inside, in: row))
+        #expect(box.state == .off)
     }
 }
