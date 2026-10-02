@@ -56,8 +56,8 @@ def load_manifest(path: Path) -> list[dict[str, str]]:
         name = entry.get("name")
         color = entry.get("color", "")
         description = entry.get("description", "")
-        if not name:
-            raise SystemExit(f"{path}: every label needs a name")
+        if not isinstance(name, str) or not name:
+            raise SystemExit(f"{path}: every label needs a non-empty string name")
         if name.casefold() in seen:
             # GitHub treats label names case-insensitively, so `area: cloud`
             # and `Area: Cloud` are the same label: a sync would POST the
