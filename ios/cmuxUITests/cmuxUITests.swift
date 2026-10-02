@@ -207,12 +207,12 @@ final class cmuxUITests: XCTestCase {
         let value = try XCTUnwrap(metrics.value as? String)
         print("AgentFeedScrollStressMetrics: \(value)")
 
-        let fields = Dictionary(uniqueKeysWithValues: value.split(separator: ";").compactMap { component in
+        let fields: [String: String] = value.split(separator: ";").reduce(into: [:]) { fields, component in
             let pair = component.split(separator: "=", maxSplits: 1).map(String.init)
-            guard pair.count == 2 else { return nil }
-            return (pair[0], pair[1])
-        })
-        let frames = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
+            guard pair.count == 2 else { return }
+            fields[pair[0]] = pair[1]
+        }
+        let frames: Int = try XCTUnwrap(fields["frames"].flatMap(Int.init), value)
         XCTAssertGreaterThan(frames, 120, value)
         XCTAssertNotNil(fields["frame_p95_ms"], value)
         XCTAssertNotNil(fields["hitches"], value)
