@@ -116,6 +116,18 @@ import Testing
         #expect(!model.openFirstResult())
     }
 
+    @Test func returnOpensTheBestMatchNotTheFirstInPageOrder() async throws {
+        let model = try await makeModel()
+        defer { model.settings.stop() }
+        // General's Onboarding button mentions themes, and it comes first in
+        // page order; the Themes card is the one a user typing "theme" means.
+        model.query = "theme"
+        #expect(model.searchEntries().first?.anchor.id != "card.theme")
+        #expect(model.openFirstResult())
+        #expect(model.jump?.anchor.id == "card.theme")
+        #expect(model.selection == .appearance)
+    }
+
     @Test func aSidebarClickSelectsAPageOrScrollsTheOnePage() async throws {
         let model = try await makeModel()
         defer { model.settings.stop() }
