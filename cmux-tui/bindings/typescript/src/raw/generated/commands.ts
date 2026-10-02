@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 714e7e92698ce8ac4acf6da65d4b7bcc50b8c043e7fc09eceb66cd5598374f9b. */
+/* cmux-tui mux protocol 12, IR 6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9. */
 
 
 import type * as T from "./types.js";
@@ -354,6 +354,14 @@ export interface ConversationOpRequest extends CmuxRequestBase {
   "transaction"?: (string) | null;
 }
 export type ConversationOpResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationSearchRequest extends CmuxRequestBase {
+  cmd: "conversation-search";
+  "limit": number;
+  "query": string;
+}
+export type ConversationSearchResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface ConversationSnapshotRequest extends CmuxRequestBase {
@@ -1937,6 +1945,7 @@ export type CmuxRequest =
   | ConversationHistoryRequest
   | ConversationListRequest
   | ConversationOpRequest
+  | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationTypingRequest
   | CopyRequest
@@ -2394,6 +2403,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "local-conversations-v1";
+    stream: null;
+  };
+  "conversation-search": {
+    request: ConversationSearchRequest;
+    result: ConversationSearchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-search-v1";
     stream: null;
   };
   "conversation-snapshot": {
