@@ -450,6 +450,31 @@ Every action in the app's registry is also a verb under its CLI name:
 `--interactive` work as in `action run`. `cmux action list` lists the names and
 `cmux action describe <id>` shows the arguments and targets.
 
+## `cmux coderouter`
+
+```text
+cmux coderouter status [--team <id>]
+cmux coderouter machines [--team <id>]
+cmux coderouter claude list [--team <id>]
+cmux coderouter claude add oauth-token|api-key [--label <l>] [--stdin] [--team <id>]
+cmux coderouter claude add bedrock [--label <l>] [--region <r>] [--model <claude>=<bedrock>]... [--team <id>]
+cmux coderouter claude remove|disable|enable <account> [--team <id>]
+cmux coderouter claude clear [--team <id>]
+cmux coderouter <other verb> ...          # the bundled CodeRouter CLI
+cmux cr ...                               # the bundled CodeRouter CLI
+```
+
+The owned verbs go to the app (`auth.status`, `coderouter.claude_upstream.get|add|update|remove|clear`,
+`coderouter.machines`), which calls CodeRouter as the signed-in user and bounds
+each call at 20 s. `claude add` reads its secret from `CLAUDE_CODE_OAUTH_TOKEN` or
+`ANTHROPIC_API_KEY`, from stdin (`--stdin`, or any stdin that is not a
+terminal), or from a hidden prompt; a secret on the command line is refused.
+Bedrock reads `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`.
+`<account>` is the id, label or masked identifier. Every other `coderouter`
+verb and all of `cr` exec `Contents/Resources/bin/coderouter` of the app bundle
+that contains this `cmux`, with every `CMUX_*` variable removed; arguments and
+the exit code pass through.
+
 ## `cmux acp`
 
 ```text
