@@ -15,6 +15,7 @@ LAUNCHED_BY_CMUX = {
     "CMUX_SOCKET": "/Users/me/.local/state/cmux/cmux.sock",
     "CMUX_SOCKET_CAPABILITY": "v1.token.signature",
     "CMUX_SOCKET_PASSWORD": "hunter2",
+    "CMUX_SOCKET_PASSWORD_FILE": "/Users/me/.local/state/cmux/password",
     "CMUX_WORKSPACE_ID": "workspace:9",
     "CMUX_SURFACE_ID": "surface:9",
     "CMUX_TAB_ID": "tab:9",
@@ -48,6 +49,14 @@ class CliEnvironmentTests(unittest.TestCase):
         self.assertEqual(env["CMUX_WORKSPACE_ID"], "workspace:1")
         self.assertEqual(env["CMUX_SURFACE_ID"], "surface:1")
         self.assertNotIn("CMUX_TAB_ID", env)
+
+    def test_a_test_owned_home_moves_the_shell_and_foundation_homes_together(self) -> None:
+        with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):
+            env = cli_environment("/tmp/fake.sock", home="/tmp/fake-home")
+        self.assertEqual(env["HOME"], "/tmp/fake-home")
+        self.assertEqual(env["CFFIXED_USER_HOME"], "/tmp/fake-home")
+        with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):
+            self.assertNotIn("CFFIXED_USER_HOME", cli_environment())
 
     def test_the_caller_environment_is_not_mutated(self) -> None:
         with patch.dict(os.environ, LAUNCHED_BY_CMUX, clear=True):

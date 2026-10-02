@@ -35,18 +35,27 @@ INHERITED_SOCKET_KEYS = (
 CAPABILITY_PREFIX = "_cmux_capability_v1 "
 
 
-def cli_environment(socket_path: "str | os.PathLike[str] | None" = None, **overrides: str) -> dict[str, str]:
+def cli_environment(socket_path: "str | os.PathLike[str] | None" = None, *,
+                    home: "str | os.PathLike[str] | None" = None, **overrides: str) -> dict[str, str]:
     """A copy of the environment with the inherited socket state removed.
 
     ``socket_path`` sets both spellings the CLI reads, ``CMUX_SOCKET_PATH`` and
-    ``CMUX_SOCKET``. Keyword overrides are applied last, so a test can still
-    pin a workspace or surface id of its own.
+    ``CMUX_SOCKET``. ``home`` points the CLI at a test-owned home directory:
+    it sets ``HOME`` for shells and scripts and ``CFFIXED_USER_HOME`` for the
+    CLI itself, because Foundation resolves the home directory through
+    getpwuid unless that variable is set, so ``HOME`` alone moves nothing for
+    Swift code and ``~/.local/state/cmux`` would still be the real one.
+    Keyword overrides are applied last, so a test can still pin a workspace
+    or surface id of its own.
     """
     env = {key: value for key, value in os.environ.items() if key not in INHERITED_SOCKET_KEYS}
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     if socket_path is not None:
         env["CMUX_SOCKET_PATH"] = str(socket_path)
         env["CMUX_SOCKET"] = str(socket_path)
+    if home is not None:
+        env["HOME"] = str(home)
+        env["CFFIXED_USER_HOME"] = str(home)
     env.update(overrides)
     return env
 

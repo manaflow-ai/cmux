@@ -183,11 +183,10 @@ def run_cli(
     fake_home: Path,
     args: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = cli_environment(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_WORKSPACE_ID"] = "workspace:1"
     env["CMUX_SURFACE_ID"] = "surface:1"
     env["TMUX_PANE"] = f"%{PANE_ID}"
-    env["HOME"] = str(fake_home)
     env["CMUX_OMX_CMUX_BIN"] = cli_path
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), *args],

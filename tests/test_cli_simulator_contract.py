@@ -91,10 +91,9 @@ def run_cli(
     fake_home: Path,
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = cli_environment(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-    env["HOME"] = str(fake_home)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), "simulator", *arguments],
         capture_output=True,
@@ -111,10 +110,9 @@ def run_ios_cli(
     fake_home: Path,
     arguments: list[str],
 ) -> subprocess.CompletedProcess[str]:
-    env = cli_environment(socket_path)
+    env = cli_environment(socket_path, home=fake_home)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-    env["HOME"] = str(fake_home)
     return subprocess.run(
         [cli_path, "--socket", str(socket_path), "ios", *arguments],
         capture_output=True,
