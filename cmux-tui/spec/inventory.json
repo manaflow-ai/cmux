@@ -31,6 +31,8 @@
     "closed.reopen",
     "frontend_projection.get",
     "frontend_projection.put",
+    "git.diff",
+    "git.status",
     "machine.get",
     "machine.list",
     "notification.ack",

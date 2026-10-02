@@ -843,6 +843,7 @@ fn dispatch_resource_request(
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
         OperationOwner::State => crate::state::router::dispatch(mux, request),
+        OperationOwner::Git => crate::git_ops::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -906,6 +907,7 @@ enum OperationOwner {
     Content,
     Auxiliary,
     State,
+    Git,
     Connection,
 }
 
@@ -1006,6 +1008,7 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::SidebarViewInput
         | ResourceOperation::SidebarViewResize
         | ResourceOperation::SidebarViewReload => OperationOwner::Auxiliary,
+        ResourceOperation::GitDiff | ResourceOperation::GitStatus => OperationOwner::Git,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
@@ -1787,7 +1790,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_has_one_concrete_owner() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 181);
+        assert_eq!(operations.len(), 183);
         for name in operations.keys() {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();
@@ -1798,6 +1801,7 @@ mod tests {
                 OperationOwner::Topology => assert!(topology::handles(operation)),
                 OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
                 OperationOwner::State => assert!(crate::state::router::handles(operation)),
+                OperationOwner::Git => assert!(crate::git_ops::handles(operation)),
                 OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
                 }
             }
@@ -1807,7 +1811,7 @@ mod tests {
     #[test]
     fn every_catalog_operation_accepts_its_result_and_declared_error_fixtures() {
         let operations = operation_catalog()["operations"].as_object().unwrap();
-        assert_eq!(operations.len(), 181);
+        assert_eq!(operations.len(), 183);
         for (name, descriptor) in operations {
             let operation: ResourceOperation =
                 serde_json::from_value(Value::String(name.clone())).unwrap();

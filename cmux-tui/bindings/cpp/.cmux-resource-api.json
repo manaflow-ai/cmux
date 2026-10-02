@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "b7f15e13d00bdf49127444f640663bdb08c500077778bdd48e61d0dde5cd247e",
+  "catalog_sha256": "6a7db2d70f8f2238d8b559eb41e0dcfe970d2cc9e891c15eefbf67d720c0ebe4",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -84,6 +84,12 @@
     },
     "frontend_projection.put": {
       "class": "mutation"
+    },
+    "git.diff": {
+      "class": "read"
+    },
+    "git.status": {
+      "class": "read"
     },
     "machine.get": {
       "class": "read"
