@@ -34,6 +34,14 @@ final class TerminalThemeSetting {
         }
     }
 
+    /// The review tool's light/dark preview: Ghostty's Apple System Colors
+    /// (dark) or Apple System Colors Light, in memory only (nil: back to the
+    /// configured theme). Never writes cmux.json.
+    func preview(dark: Bool?) {
+        GhosttyRuntime.themeOverride = dark.map { $0 ? GhosttyRuntime.defaultDarkThemeName : GhosttyRuntime.defaultLightThemeName } ?? applied?.theme
+        GhosttyRuntime.shared.reloadConfig()
+    }
+
     private func apply(_ state: State) {
         guard applied != state else { return }
         let first = applied == nil

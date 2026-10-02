@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextBrowserImport
@@ -23,6 +24,10 @@ final class AppServices {
     /// The machine of the action being run, while its handler runs
     /// (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
+    /// Whether the action running now may change this client's focus,
+    /// selection, shown workspace or key window (true outside action runs:
+    /// direct UI gestures are the user's). Set by `ActionRouting`.
+    var viewChangeAllowed = true
     private(set) var cloud: CloudService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
@@ -83,6 +88,8 @@ final class AppServices {
     private(set) var chromiumWarmup: ChromiumWarmup!
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
+    /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
+    private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
@@ -110,6 +117,9 @@ final class AppServices {
     var importedBookmarkSink: (any ImportedBookmarkSink)?
     /// Browser tab favicons per profile, for tab strips.
     let favicons = TabFaviconStore()
+    /// The one owner of hover cards in the app: at most one card, ever
+    /// (plans/cmux-next/hovercards.md).
+    let hoverCards = HoverCardCoordinator()
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 

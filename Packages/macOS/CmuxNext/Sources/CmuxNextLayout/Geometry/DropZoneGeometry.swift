@@ -57,6 +57,24 @@ public nonisolated enum DropZoneGeometry {
         return nil
     }
 
+    /// The whole region a drop on `target` divides (content space): the
+    /// pane's rounded content rect, or the column gap zone.
+    public static func regionRect(for target: DropTarget, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
+        switch target {
+        case let .pane(pane, _):
+            return geometry.panes[pane].map { PaneChromeGeometry.contentRect(forCell: $0, style: style) }
+        case let .newColumn(_, after):
+            return geometry.gapZones.first(where: { $0.after == after })?.frame
+        }
+    }
+
+    /// `regionRect(for:)` in view coordinates with the strip at `offset`.
+    public static func regionRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
+        guard let rect = regionRect(for: target, geometry: geometry, style: style) else { return nil }
+        if case let .pane(pane, _) = target, !geometry.scrolls(pane: pane) { return rect }
+        return rect.offsetBy(dx: geometry.viewShift(offset: offset), dy: 0)
+    }
+
     /// `highlightRect(for:)` in view coordinates with the strip at `offset`.
     public static func highlightRectInView(for target: DropTarget, offset: CGFloat, geometry: ScreenGeometry, style: LayoutStyle) -> CGRect? {
         guard let rect = highlightRect(for: target, geometry: geometry, style: style) else { return nil }

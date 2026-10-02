@@ -6,6 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "check": "vp check",
+    "check:fix": "vp check --fix",
+    "fmt": "vp fmt",
+    "lint": "vp lint",
     "test": "vitest run"
   },
   "dependencies": {
@@ -25,6 +29,7 @@
     "jsdom": "^29.1.1",
     "typescript": "^5.9.3",
     "vite": "^7.2.7",
-    "vitest": "^4.0.18"
+    "vite-plus": "1.0.0",
+    "vitest": "^5.0.1"
   }
 }

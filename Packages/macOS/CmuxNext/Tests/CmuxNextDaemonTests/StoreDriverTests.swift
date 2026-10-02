@@ -37,10 +37,10 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         #expect(store.tab(surface: 3)?.title == "new")
     }
 
-    @Test func optimisticMoveSurvivesSnapshotsUntilEcho() throws {
+    @Test func pendingMoveSurvivesSnapshotsUntilEcho() throws {
         let (store, tree) = try loadedStore()
         let tab = try #require(store.tab(surface: 3))
-        store.applyOptimistic(.moveTab(surface: 3, toPane: 7, index: 0), transaction: "tx")
+        store.intend(.moveTab(surface: 3, toPane: 7, index: 0), transaction: "tx")
         #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
         #expect(store.pane(4)?.tabs.map(\.surface) == [13])
         #expect(store.pane(7)?.tabs.first === tab)
@@ -49,10 +49,11 @@ final class ManualFrameScheduler: FrameBatchScheduler {
         store.apply(snapshot: tree)
         #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
 
-        // The echo drops the patch; the next snapshot is daemon truth.
+        // The echo settles the intent; the next snapshot is daemon truth.
         let echo = TabDelta(workspace: 1, screen: 5, pane: 7, surface: 3, index: 0, entity: tab.snapshot, clientTransactionID: "tx")
         store.apply(.tabChanged(echo))
-        #expect(!store.hasPendingPatches)
+        #expect(!store.hasPendingIntents)
+        #expect(store.pane(7)?.tabs.map(\.surface) == [3, 6])
         store.apply(snapshot: tree)
         #expect(store.pane(7)?.tabs.map(\.surface) == [6])
         #expect(store.pane(4)?.tabs.map(\.surface) == [3, 13])

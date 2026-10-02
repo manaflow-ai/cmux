@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# shellcheck source=scripts/lib/stop-app-instances.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/stop-app-instances.sh"
 
 APP_NAME="cmux STAGING"
 BUNDLE_ID="com.cmuxterm.app.staging"
@@ -250,12 +252,8 @@ if [[ -f "$INFO_PLIST" ]]; then
 fi
 APP_PATH="$STAGING_APP_PATH"
 
-# Ensure any running instance is fully terminated, regardless of DerivedData path.
-/usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-sleep 0.3
 # Kill any running staging instance; allow side-by-side with the main and dev apps.
-pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-sleep 0.3
+cmux_stop_app_instances "$BUNDLE_ID" "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}"
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
   (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
