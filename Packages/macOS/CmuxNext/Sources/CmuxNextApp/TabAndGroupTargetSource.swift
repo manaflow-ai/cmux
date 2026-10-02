@@ -3,10 +3,11 @@ import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSidebar
 
-/// Palette target lists for tabs, tab groups and workspace groups, titled
-/// as the strip and sidebar show them: a rename prompt (Rename Tab…,
-/// Rename Tab Group…, Rename Group…) starts from the title listed here.
-/// Other kinds fall through to `next`.
+/// Names tabs, tab groups and workspace groups for rename prompts (Rename
+/// Tab…, Rename Tab Group…, Rename Group…), which start from the target's
+/// own name. It lists nothing itself: pickers of these kinds (Go to Tab…,
+/// Add Tab to Group…, Reopen and Delete Saved Tab Group…) keep the lists
+/// from `next`.
 final class TabAndGroupTargetSource: PaletteTargetSource {
     private unowned let services: AppServices
     private let next: any PaletteTargetSource
@@ -17,24 +18,28 @@ final class TabAndGroupTargetSource: PaletteTargetSource {
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
-        switch kind {
+        next.targets(of: kind)
+    }
+
+    /// The name the strip or sidebar shows; nil for an untitled tab, whose
+    /// "Terminal" label is not a name.
+    func title(of target: ActionTargetRef) -> String? {
+        let name: String?
+        switch target.kind {
         case .tab:
-            panes.flatMap(\.tabs).map { tab in
-                PaletteTargetOption(id: tab.id, title: tab.displayTitle.isEmpty ? Strings.untitledTerminal : tab.displayTitle,
-                                    symbol: tab.kind == .browser ? "globe" : "terminal")
-            }
+            name = panes.flatMap(\.tabs).first { $0.id == target.id }?.displayTitle
         case .tabGroup:
-            panes.flatMap(\.tabGroups).map { group in
-                PaletteTargetOption(id: group.id.rawValue, title: group.name, symbol: "circle.fill")
-            }
+            name = panes.flatMap(\.tabGroups).first { $0.id.rawValue == target.id }?.name
         case .workspaceGroup:
-            (services.windows.active?.sidebar.model.sections ?? []).flatMap(\.nodes).compactMap { node in
-                guard case .group(let group) = node else { return nil }
-                return PaletteTargetOption(id: group.id.rawValue, title: group.name, symbol: "folder")
-            }
+            let nodes = (services.windows?.active?.sidebar.model.sections ?? []).flatMap(\.nodes)
+            name = nodes.compactMap { node -> String? in
+                guard case .group(let group) = node, group.id.rawValue == target.id else { return nil }
+                return group.name
+            }.first
         default:
-            next.targets(of: kind)
+            return next.title(of: target)
         }
+        return name.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Every pane on every machine.

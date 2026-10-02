@@ -16,11 +16,12 @@ import Testing
     }
 
     /// Reopen Saved Tab Group…, Delete Saved Tab Group… and Add Tab to
-    /// Group… pick a `.tabGroup`; Go to Tab… picks a `.tab`. Their lists come
+    /// Group… pick a `.tabGroup`; Go to Tab… picks a `.tab`; Move Workspace
+    /// to Group… picks a `.workspaceGroup`. Their lists come
     /// from further down the chain, as before tabs and tab groups had names
     /// to offer: open groups (or other machines' groups) listed there are
     /// refused by those actions.
-    @Test(arguments: [ActionTargetKind.tab, .tabGroup])
+    @Test(arguments: [ActionTargetKind.tab, .tabGroup, .workspaceGroup])
     func tabPickersKeepTheirLists(_ kind: ActionTargetKind) {
         let services = AppServices(environment: AppEnvironment.current([:]))
         let source = TabAndGroupTargetSource(services: services, next: MarkerSource())

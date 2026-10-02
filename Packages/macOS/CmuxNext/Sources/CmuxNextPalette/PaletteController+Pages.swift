@@ -124,6 +124,7 @@ extension PaletteController {
                 title: PaletteStrings.renameTab,
                 placeholder: PaletteStrings.tabNamePlaceholder,
                 initialText: tab.title,
+                skipsUnchangedText: true,
                 submitTitle: PaletteStrings.renameTo,
                 submit: { source.renameTab(id: tab.id, to: $0) }
             ))
@@ -137,6 +138,7 @@ extension PaletteController {
                 title: PaletteStrings.renameWorkspace,
                 placeholder: PaletteStrings.workspaceNamePlaceholder,
                 initialText: workspace.title,
+                skipsUnchangedText: true,
                 submitTitle: PaletteStrings.renameTo,
                 submit: { source.renameWorkspace(id: workspace.id, to: $0) }
             ))

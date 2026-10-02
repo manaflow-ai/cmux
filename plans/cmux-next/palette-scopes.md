@@ -114,7 +114,7 @@ Effects: `load(levelID, scope, query, generation, context)`, `cancel(levelID)`, 
 2. **Typing.** `setQuery` changes only the top level: new generation, `pendingReset`, `load`. Exception, **prefix entry**: when the top query was empty and the new text starts with a prefix that the graph allows from the top scope, push that scope with the rest of the text as its query; the parent's query stays empty.
 3. **Backspace on an empty query** pops one level (cancel the child, refresh the parent, announce). At the root it does nothing and is consumed (no beep). Backspace with text is plain editing.
 4. **Tab.** In order: the top query equals a child keyword → push that scope with an empty query and clear the parent query; the selected row has `enters` → push it; the selected row has `drills` → push it with the row as context (the parent keeps query and selection); otherwise `openActions` (today's Tab). Shift-Tab pops one level whatever the query.
-5. **Escape** pops a level the user pushed inside this palette session (prefix, keyword, row, drill); at an `opened` level or the root it clears the query, then closes. Cmd-Shift-A then Esc closes, which is what a user who summoned Search Tabs expects; Backspace is the way to the root.
+5. **Escape** pops a level the user pushed inside this palette session (prefix, keyword, row, drill); at an `opened` level or the root it clears the query, then closes. Cmd-Shift-A then Esc closes, which is what a user who summoned Search Tabs expects; Backspace is the way to the root. Exception, **text steps**: a text-input level (a rename, an argument) holds an answer, not a search, so Escape there closes without clearing first; a step that opens on initial text (a rename's current name) selects it, and Return on that untouched text runs nothing (#16906).
 6. **Return** on a scope row enters the scope; on any other row it runs the primary command. While the top level waits for its current generation, Return is held (`pendingSubmit`) and runs on the first batch, so it never runs a stale row.
 7. **Results.** A batch is accepted only for the level's current generation. The first batch of a generation replaces the rows; later batches append (deduplicated by id). After a query change the selection goes to the default row (the first, or for an empty query the scope's `emptyQuerySelection` index, clamped). Otherwise the selection is kept by id, else the row at the same index, else the default.
 8. **Pop restores.** The parent shows its query and cached rows at once, refreshes (data may have changed in the child), and keeps its selection by id.
@@ -146,7 +146,7 @@ The reducer is a pure value function with no AppKit, clock or I/O, so a TLA+ mod
 | Tab | keyword entry, scope row, drill, else Actions menu |
 | Shift-Tab | leave the scope (pop) |
 | Backspace (empty query) | leave the scope |
-| Esc | pop a pushed level, else clear, else close |
+| Esc | pop a pushed level, else clear, else close (a text step closes without clearing) |
 | Return / Cmd-Return | enter a scope row / run primary / run alternate |
 | Cmd-K | Actions menu (Cmd-K on an action edits its shortcut) |
 | Up/Down, Page Up/Down, Cmd-Up/Down | move (selection memory per level) |
