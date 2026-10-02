@@ -767,7 +767,7 @@
       this._lazyCounter = 0;
       this._unsubscribe = [];
       // Hooks agent-tools.js installs (plans/cmux-next/browser-repl/browser-use-parity.md):
-      // the domain policy, secret redaction, recording and secret input.
+      // recording and downloads (the host owns the policy, secrets and masking).
       this.agentTools = null;
       const route = (event, fn) => this._unsubscribe.push(driver.on(event, (payload) => {
         payload = payload || {};
@@ -836,7 +836,7 @@
     reportError(e) {
       this.errors.push(e);
       const text = String((e && e.stack) || e);
-      if (this.host.console && this.host.console.error) this.host.console.error(this.agentTools ? this.agentTools.redactText(text) : text);
+      if (this.host.console && this.host.console.error) this.host.console.error(text);
     }
     _page(targetId, create = true) {
       let page = this.pages.get(targetId);
@@ -1377,7 +1377,8 @@
         const r = await frame._agent("fill", handle, value);
         if (r === "error:notconnected") throw Object.assign(new Error("Element is not attached to the DOM"), { code: "stale" });
         if (r === "needsinput") {
-          if (value) await this._page.keyboard.insertText(value);
+          if (this._page._isSecret(value)) await this._page._input("input.insertText", { targetId: this._page._targetId, text: value });
+          else if (value) await this._page.keyboard.insertText(value);
           else await this._page.keyboard.press("Delete");
         }
       });
@@ -1399,7 +1400,13 @@
     // that receives it.
     async _typeInto(text, options, title) {
       if (typeof text !== "string" && !this._page._isSecret(text)) throw new Error(`${title}: text: expected string, got ${typeof text}`);
-      return this._focusThen(options, title, async (frame) => this._page.keyboard.type(await this._page._inputText(frame, text, title), options));
+      return this._focusThen(options, title, async (frame) => {
+        const value = await this._page._inputText(frame, text, title);
+        // A secret handle goes to the host whole; it resolves the value for
+        // the focused frame and types it key by key ("typing": "keys").
+        if (this._page._isSecret(value)) return this._page._input("input.insertText", { targetId: this._page._targetId, text: value, typing: "keys", title, delayMs: options.delay || 0 });
+        return this._page.keyboard.type(value, options);
+      });
     }
     async type(text, options = {}) {
       return this._typeInto(text, options, "locator.type");
@@ -2320,11 +2327,10 @@
     _isSecret(value) {
       return !!(this._session.agentTools && this._session.agentTools.isSecret(value));
     }
-    // A secret(name) value becomes its text only here, for the frame it is
-    // typed into, after its domain check; other values pass through.
-    async _inputText(frame, value, title) {
-      if (typeof value === "string" || !this._isSecret(value)) return value;
-      return this._session.agentTools.resolveSecret(value, frame, title);
+    // A secret(name) value stays a {__secret: name} handle: the host resolves
+    // it for the frame that receives it, after its domain check.
+    async _inputText(frame, value) {
+      return value;
     }
     async _syncInfo() {
       if (this._closed) throw new Error("Target page, context or browser has been closed");

@@ -129,56 +129,9 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         self.analyzer = analyzer
-
-        guard !isFinishing else {
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw CancellationError()
-        }
-        do {
-            try startAudioEngine()
-        } catch is CancellationError {
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw CancellationError()
-        } catch {
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw DictationFailure.audioCaptureFailed(error.localizedDescription)
-        }
-
-        do {
-            try await analyzer.start(inputSequence: inputSequence)
-            guard self.analyzer === analyzer, !isFinishing else {
-                throw CancellationError()
-            }
-            analyzerStarted = true
-            try Task.checkCancellation()
-        } catch is CancellationError {
-            stopAudioEngine()
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw CancellationError()
-        } catch let failure as DictationFailure {
-            stopAudioEngine()
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw failure
-        } catch {
-            stopAudioEngine()
-            await finishInputPipeline(cancelConversion: true)
-            await cancelAnalyzer()
-            await releaseReservedLocale()
-            throw DictationFailure.transcriptionFailed(error.localizedDescription)
-        }
-
-        observeConfigurationChanges()
-
+        // Consume results before the analyzer starts: it transcribes the audio
+        // queued during startup at once, and those first words must reach
+        // someone.
         let (stream, continuation) = AsyncThrowingStream<DictationTranscriptionEvent, any Error>.makeStream(
             bufferingPolicy: .bufferingNewest(Self.eventBufferCapacity)
         )
@@ -188,6 +141,31 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
             continuation: continuation
         )
         resultsTask = Task { await resultConsumer.run() }
+
+        do {
+            guard !isFinishing else { throw CancellationError() }
+            // Load the model before capture starts; speech heard while it was
+            // still loading was never transcribed.
+            try await analyzer.prepareToAnalyze(in: analyzerFormat)
+            guard !isFinishing else { throw CancellationError() }
+            do {
+                try startAudioEngine()
+            } catch let error where !(error is CancellationError) {
+                throw DictationFailure.audioCaptureFailed(error.localizedDescription)
+            }
+            try await analyzer.start(inputSequence: inputSequence)
+            guard self.analyzer === analyzer, !isFinishing else {
+                throw CancellationError()
+            }
+            analyzerStarted = true
+            try Task.checkCancellation()
+        } catch {
+            await abortStartup()
+            if error is CancellationError { throw CancellationError() }
+            throw (error as? DictationFailure) ?? .transcriptionFailed(error.localizedDescription)
+        }
+
+        observeConfigurationChanges()
         return stream
     }
 
@@ -351,6 +329,18 @@ public actor SpeechAnalyzerDictationTranscriber: SpeechTranscribing {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         audioEngine = nil
+    }
+
+    /// Undoes a startup that failed or was cancelled before the caller got
+    /// the result stream.
+    private func abortStartup() async {
+        stopAudioEngine()
+        cancelResultsTask()
+        outputContinuation?.finish()
+        outputContinuation = nil
+        await finishInputPipeline(cancelConversion: true)
+        await cancelAnalyzer()
+        await releaseReservedLocale()
     }
 
     /// Cancels the result consumer when the analyzer cannot finish normally.

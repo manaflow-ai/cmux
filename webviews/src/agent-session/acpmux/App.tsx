@@ -28,6 +28,7 @@ import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { DiffPanel } from "./DiffPanel";
+import type { ChangesSource } from "./changes/model";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
@@ -99,6 +100,10 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
     },
   );
 }
+
+/// The changes view reads git scopes from whoever runs the session: the acpmux client
+/// (or the mock daemon), else the native host.
+const changesSource: ChangesSource = { scopeDiff: (scope) => callNative("git.scope.diff", { scope }) };
 
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
@@ -918,6 +923,8 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
+          "git.scope.diff": ({ scope }) => client.gitScopeDiff(String(scope)),
+          "git.status": () => client.gitStatus(),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1003,7 +1010,9 @@ function AcpmuxPane() {
               }
             />
           )}
-          {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
+          {diffView && diffFiles && (
+            <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} source={changesSource} />
+          )}
         </div>
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
