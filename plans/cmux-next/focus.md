@@ -178,10 +178,11 @@ Reducer `(FocusState, FocusEvent) -> (FocusState, [FocusEffect])`, pure, rules:
 - Initial placement and workspace switch: remembered pane if it exists, else the first
   pane. The target becomes `content`, except that keyboard navigation in the sidebar
   keeps `sidebar(keyboard: true)`.
-- The focused pane disappears: successor is the most recently focused surviving pane
-  (closing a split you just made returns to where you were), else the next surviving pane
-  after it in the old layout order, else the previous one. Deterministic, never a
-  dictionary order.
+- The focused pane disappears: successor per `layout.closeFocus` (close-focus.md):
+  default the previous pane in its column, else the next one there, else the column to the
+  left (its most recently focused pane), else the column to the right, on the same screen;
+  `mostRecent` takes the newest surviving pane of the history first. Deterministic, never
+  a dictionary order.
 - A tab moved to another pane by a shortcut, menu or CLI verb is followed: focus lands
   on it in its new pane once the daemon reports the move.
 - The focused pane's selected tab changes: focus follows it; `addressBar`/`findBar` of

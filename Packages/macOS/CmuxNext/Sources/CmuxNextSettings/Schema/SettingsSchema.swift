@@ -121,6 +121,16 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(StripScrollbarSetting.fallback.rawValue), keywords: ["niri", "scroll", "scrollbar", "minimap"]
             ),
+            SettingDescriptor(
+                CloseFocusSetting.configPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.closeFocus", "Focus After Closing a Pane"),
+                help: SettingsText.text("settings.layout.closeFocus.help", "Which pane gets focus when the focused pane closes."),
+                kind: .choice([
+                    SettingChoice(CloseFocusPolicy.previousNeighbor.rawValue, SettingsText.text("settings.choice.closeFocusPreviousNeighbor", "Previous Neighbor")),
+                    SettingChoice(CloseFocusPolicy.mostRecent.rawValue, SettingsText.text("settings.choice.closeFocusMostRecent", "Most Recently Focused")),
+                ]),
+                default: .string(CloseFocusSetting.fallback.rawValue), keywords: ["close", "focus", "neighbor", "recent"]
+            ),
         ]
     }
 

@@ -37,6 +37,8 @@ final class SidebarListView: NSView {
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
     var external: ExternalDrag?
+    /// The active row the last reload laid out (close-focus.md: reveal on change).
+    var revealedActive: SidebarRowKey?
     /// Offered a row drag whose pointer left the sidebar sideways (another
     /// window, outside every window); true takes it over.
     var onDragHandoff: ((SidebarDragHandoff) -> Bool)?
@@ -137,7 +139,8 @@ final class SidebarListView: NSView {
         // A removed workspace's card ends on the geometry check after the
         // rows apply (its anchor is gone); a kept one updates in place.
         if let shown = hoverCard.shownID { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shown)) }
-        apply(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)), animated: animated)
+        applyKeepingViewport(SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: true)),
+                             animated: animated)
     }
 
     func options(includeGap: Bool) -> SidebarLayoutOptions {
@@ -342,12 +345,6 @@ final class SidebarListView: NSView {
 
     var visibleWorkspaceOrder: [WorkspaceID] {
         displayed.rows.compactMap { if case let .workspace(id) = $0.key { id } else { nil } }
-    }
-
-    /// Scrolls so the active workspace row is fully visible.
-    func revealActive() {
-        guard let active = model.activeWorkspaceID, let row = displayed.row(for: .workspace(active)) else { return }
-        scrollToVisible(frame(for: row).insetBy(dx: 0, dy: -8))
     }
 
     // MARK: - Hover

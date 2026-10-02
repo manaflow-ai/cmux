@@ -34,6 +34,8 @@ public final class DesignSettings {
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
+    /// `layout.closeFocus`: who gets focus when the focused pane closes.
+    public var closeFocus: CloseFocusPolicy = .previousNeighbor
     /// `layout.defaultColumnWidth`: new column width, a viewport fraction.
     public var defaultColumnWidth: Double = 0.5
     /// `layout.newColumnWidth`: how a new column's width is chosen.
