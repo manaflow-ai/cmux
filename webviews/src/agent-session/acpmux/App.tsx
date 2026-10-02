@@ -958,15 +958,6 @@ function AcpmuxPane() {
           )}
           {diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}
         </div>
-        {snapshot.queue.length > 0 && (
-          <div className="acpmux-queue">
-            {snapshot.queue.map((entry) => (
-              <span className="acpmux-queued" key={entry.id}>
-                Queued: {entry.prompt}
-              </span>
-            ))}
-          </div>
-        )}
         {snapshot.permission?.pending && (
           <div className="acpmux-permission">
             <PermissionCard permission={snapshot.permission} />

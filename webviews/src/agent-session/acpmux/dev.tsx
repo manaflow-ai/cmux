@@ -4,4 +4,5 @@
 import "../shared/styles.css";
 import "./styles.css";
 import "./conversation/conversation.css";
+import "./changes/changes.css";
 import "./main";

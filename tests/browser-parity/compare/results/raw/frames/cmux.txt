@@ -1,0 +1,9 @@
+title: Frames Fixture
+url: http://localhost:18765/frames.html?peer=http%3A%2F%2F127.0.0.1%3A18766
+- heading "Frames" [level=1]
+- iframe "Same origin" [ref=e1]:
+  - button "Inside frame" [ref=f1e1]
+  - textbox "Frame field" [ref=f1e2]
+- iframe "Cross origin" [ref=e2]:
+  - button "Inside frame" [ref=f2e1]
+  - textbox "Frame field" [ref=f2e2]

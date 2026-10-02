@@ -4,6 +4,7 @@ import React from "react";
 import type { DiffEdit, TurnFile } from "../diff";
 import { ChevronDown, Eye, FileTypeIcon } from "../changeIcons";
 import { Counts } from "./Counts";
+import { FileMenu } from "./FileMenu";
 
 export type FileView = { collapsed: boolean; viewed: boolean };
 export type FileActions = { toggleCollapsed: (path: string) => void; toggleViewed: (path: string) => void };
@@ -51,6 +52,12 @@ export function FileHeader({
       >
         <Eye />
       </button>
+      <FileMenu
+        path={file.path}
+        name={file.displayPath}
+        collapsed={view.collapsed}
+        onToggleCollapsed={() => on.toggleCollapsed(file.path)}
+      />
     </div>
   );
 }

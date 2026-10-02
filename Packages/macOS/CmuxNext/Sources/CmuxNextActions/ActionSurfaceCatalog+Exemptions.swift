@@ -222,6 +222,9 @@ nonisolated extension ActionSurfaceCatalog {
     /// Why no right-click menu offers an action.
     static let contextMenuExemption: [ActionID: SurfaceExemption] = byReason(contextMenuExemptionsByReason)
     static let contextMenuExemptionsByReason: [SurfaceExemption: [ActionID]] = [
+        .experimental: [
+            "openBrowser.webkit",
+        ],
         .unimplemented: [
             "palette.openDirectoryDiffViewer",
             "openDiffViewer",
