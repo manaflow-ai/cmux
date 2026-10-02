@@ -1,6 +1,6 @@
 # Repository checkpoints and rewind
 
-Status: slice 2 proposal, 2026-10-02. Research and plan only. The coordinator selected cross-harness handoff first and requested private git snapshots next. Runtime implementation, the owner placement and operation names below still need agreement. This proposal does not change the handoff v1 contract.
+Status: slice 2 approved sequence, 2026-10-02. Explicit capture first, reviewed restore with Undo second, then automatic snapshots at handoff and before agent turns that can edit files. The existing session-host Git owner handles snapshots; this workstream owns the UI. Core names are being agreed with the Git owner. This plan does not change the handoff v1 contract.
 
 ## Recommendation
 
@@ -25,11 +25,13 @@ Inspected `origin/feat-cmux-next` at `994f80b2128` and GitHub on 2026-10-02. Ope
 
 The inspected open PR search for snapshot/checkpoint/rewind/git found no separate repository snapshot writer. This does not reserve another team's Git owner. Coordinate with the acpmux parity and store owners before adding one.
 
+The existing `git_ops/run.rs` is read-only: it drops inherited `GIT_*`, uses `GIT_OPTIONAL_LOCKS=0`, forces fsmonitor off/literal paths, bounds output and kills the process group after 20 seconds. Keep it unchanged. A sibling write runner permits only explicitly supplied temporary `GIT_INDEX_FILE` state, uses real Git locks, sanitizes inherited environment/configuration and reconciles uncertain writes at safe boundaries. `git.diff` may cap untracked reads and report `untracked_skipped`; checkpoint capture must instead refuse with the count or return reviewed omissions, never silently cap.
+
 Git's [update-ref transactions](https://git-scm.com/docs/git-update-ref), [alternate index support](https://git-scm.com/docs/git), [raw blob storage](https://git-scm.com/docs/git-hash-object), [tree writing](https://git-scm.com/docs/git-write-tree) and [worktree administrative directories](https://git-scm.com/docs/git-worktree) are the underlying primitives. [Git attributes](https://git-scm.com/docs/gitattributes) explain why ordinary add/checkout can run filters or transform bytes. [Git GC](https://git-scm.com/docs/git-gc) explains why removing a ref does not immediately reclaim its objects. [Push mirror behavior](https://git-scm.com/docs/git-push) means a local ref namespace is not a confidentiality boundary.
 
 ## Ownership and durable record
 
-Proposal: one repository service on the machine that owns the repository files, with a Rust actor and reducer. It is a host-local resource owner, separate from PTY state and workspace layout. The coordinator must confirm that role under the ownership principles before implementation. The workspace store keeps only checkpoint IDs referenced by tabs or handoffs; clients render owner records and send intents. The handoff owner continues to own capsule revisions, attestations and prompt delivery.
+Approved owner: the existing session-host Git resource owner, `OperationOwner::Git`, dispatching through `git_ops::dispatch`. Extend that owner with a serialized repository mutation service, rather than introducing another Git owner. Reuse `target.rs` resolution and the `Repository` wrapper (`root`, `base_branch`): a repository path or workspace/pane/tab/terminal selector resolves on that host; explicit paths must be absolute. The workspace store keeps only checkpoint IDs referenced by tabs or handoffs; clients render owner records and send intents. The handoff owner continues to own capsule revisions, attestations and prompt delivery.
 
 Identify the repository by canonical common Git directory plus a daemon-minted repository ID, and the worktree by canonical per-worktree Git directory plus a stable worktree ID. Do not key by a display path, cwd substring, branch name or session ID. Resolve the cwd to its repository root once at the owner. Worktrees share the object database, but have distinct indexes, paths and checkpoint histories. A repository moved or replaced must be rebound explicitly, never inferred from matching HEAD alone.
 
@@ -53,7 +55,7 @@ Namespace proposal: `refs/cmux/checkpoints/<worktree-id>/<checkpoint-id>`. Creat
 | Case | Capture and restore rule |
 | --- | --- |
 | Tracked stage-0 files | Default eligible scope, minus explicit exclusions. Capture the index object/mode independently of raw worktree bytes, including deletions and different staged/unstaged versions of the same path. Restore both representations. |
-| Untracked files | Explicit selection before first capture; only selected paths are owned by that checkpoint. New untracked files after capture remain untouched unless specifically included in the restore review. Never run `git clean`. |
+| Untracked files | Explicit selection before first capture, nonignored files strictly below 10 MB; only eligible selected paths are owned by that checkpoint. New untracked files after capture remain untouched unless specifically included in the restore review. Never run `git clean`. |
 | Ignored files | Omitted by default, including ignored files beneath selected directories. No automatic ignored-file opt-in in the smallest slice. Show count/reason. Already tracked files still need the tracked-file exclusion policy. |
 | Secret paths | User-configured exclusions and initial common credential patterns apply to tracked and untracked files before new blob storage. Gitignore and name patterns cannot prove absence of secrets. Show exclusions, preserve excluded index/worktree paths, and explain that existing tracked objects may already contain those bytes. Explicit later overrides require review, never a silent agent override. |
 | Symlinks | Record the link's literal target and Git symlink mode; never follow a leaf link during capture. Restore a link itself, not its target. Every parent component must be a directory without symlink traversal; parent substitution is a conflict. |
@@ -71,12 +73,12 @@ A full index tree containing excluded entries would retain their content and wea
 
 1. Resolve the repository/worktree and validate the scope, settings, supported index format, path types, budgets and advertised capability. A caller supplies a stable `captureKey`; the ledger binds it to the arguments. A reused key with different arguments is an error.
 2. Acquire the repository owner's common-directory mutation lease, then the worktree capture fence. All cmux Git writes, ref changes, captures and restores use this path. Ordinary read ops remain bounded and return a snapshot/freshness token. Git's index/ref locks remain mandatory in addition to the actor.
-3. Stop or await the source's active/queued turn for a handoff capture. A verified idle barrier is useful; it is not a filesystem lock. Ask the user to pause other repository writers. External editors, terminals, hooks and other daemons can still change files; cmux does not claim to serialize their effects.
+3. Refuse an active or queued source for explicit handoff capture; do not implicitly cancel a turn. A verified idle barrier is useful; it is not a filesystem lock. Ask the user to pause other repository writers. External editors, terminals, hooks and other daemons can still change files; cmux does not claim to serialize their effects.
 4. Read index/HEAD identity and an eligible-path manifest. Use an alternate temporary index for tree construction, sanitized `GIT_*` state and explicit Git configuration. Disable fsmonitor, hooks, external diff, textconv and all configured filters. Use literal pathspecs and direct argv, never shell commands from repository content.
 5. Open regular files without following links or blocking on devices/FIFOs. Hash/store raw bytes and symlink targets. Verify the complete included path set, file type/content fingerprints, index and HEAD again before publishing. A changed observation is `repository_changed`, not a successful mixed checkpoint. This is validated observation of a quiet repository, not an atomic filesystem snapshot.
 6. Durably publish the synthetic object/ref and ledger result as described above. Reply with an immutable record and coverage. Failure leaves HEAD/index/worktree unchanged; orphaned unpublished objects can become ordinary Git garbage.
 
-Duplicate capture clicks and retries after an uncertain reply return the original checkpoint. Reconnect reads `get` by ID/key before repeating any sent mutation. Offline requests are refused, never queued. One-shot deadlines apply to processes and bytes; no capture polling loop or idle work is introduced.
+Duplicate capture clicks and retries after an uncertain reply return the original checkpoint. Reconnect reads `get` by ID/key before repeating any sent mutation. Offline requests are refused, never queued. Bound read/hash preparation by deadlines and bytes; apply cancellation only at safe mutation boundaries. An uncertain write is reconciled from its journal/ref state before retry. Never apply the read runner's process-group deadline kill in the middle of update-ref, read-tree or checkout-index. No capture polling loop or idle work is introduced.
 
 ## Restore, freshness and Undo
 
@@ -100,20 +102,22 @@ Model the states as `preparing -> ready` for capture and `previewed -> applying 
 
 ## Proposed operations and surfaces
 
-Names are proposals pending catalog and acpmux parity agreement. Repository operations belong in the session-host resource catalog beside `git.diff`/`git.status`; they are not handoff-specific `_acpmux/handoff_*` methods. Avoid inventing a second CLI snapshot implementation inside acpmux.
+Core names proposed with the Git owner are `git.checkpoint.create/list/get/restore`; companion names below remain pending agreement. Repository operations belong in the session-host resource catalog beside `git.diff`/`git.status`; they are not handoff-specific `_acpmux/handoff_*` methods. Avoid inventing a second CLI snapshot implementation inside acpmux.
 
 | Proposed owner op | Kind and repeat key | CLI/MCP and native placement |
 | --- | --- | --- |
-| `git.checkpoint.capture` | mutation, `captureKey` | `cmux git checkpoint create --json`; MCP/tool catalog; palette Create checkpoint; Changes scope menu/header action. |
+| `git.checkpoint.create` | mutation, `captureKey` | `cmux git checkpoint create --json`; MCP/tool catalog; palette Create checkpoint; Changes scope menu/header action. |
 | `git.checkpoint.get` / `git.checkpoint.list` | bounded reads, cursor/barrier | `cmux git checkpoint show|list --json`; MCP/tools; inline history in Changes. |
-| `git.checkpoint.restore_preview` | read returning expiring token | `cmux git checkpoint restore --preview --json`; MCP/tools; Restore checkpoint… opens inline Changes review. |
+| `git.checkpoint.restore.preview` | read returning expiring token | `cmux git checkpoint restore --preview --json`; MCP/tools; Restore checkpoint… opens inline Changes review. |
 | `git.checkpoint.restore` | mutation, `restoreKey` + preview token | Same restore verb with explicit apply/token; same UI action path after review. |
-| `git.checkpoint.recovery_get` / `git.checkpoint.recover` | read / mutation, `recoveryKey` | `cmux git checkpoint recover --json`; MCP/tools; inline interrupted-operation action. |
+| `git.checkpoint.recovery.get` / `git.checkpoint.recover` | read / mutation, `recoveryKey` | `cmux git checkpoint recover --json`; MCP/tools; inline interrupted-operation action. |
 | `git.checkpoint.pin` / `git.checkpoint.delete` | mutation, key + expected revision | CLI/MCP; history item menu. Deletion refuses active handoff/Undo/journal pins. |
 
 The first slice exposes only capture, get, list and pin. Restore, recovery and deletion follow in later slices; retention proposals below do not enable automatic pruning in the capture-only slice.
 
 Undo uses the existing preview/restore operations against a safety checkpoint, not a second mutation engine. TUI and app/extension API receive the same generated catalog operations with repository scope. Code mode consumes those tools through its existing owner. No default shortcut is needed; record that exemption and allow a configurable shortcut through the shortcut registry if introduced. No arbitrary local path or command is added to a remote relay allowlist: target ownership and the relay policy need a separate review before remote exposure.
+
+A later compare-with-checkpoint view can extend `git.diff` with a checkpoint base and reuse its staged/unstaged/untracked scopes. Do not add another diff reader in the capture-only slice.
 
 Advertise a versioned `git-checkpoints-v1` capability and supported operation list, bounds and file/index modes. Unsupported owners hide the native actions and return `unsupported_capability` to automation. Handoff availability remains governed by its five-method negotiation. Common errors use stable codes: `repository_changed`, `base_changed`, `preview_stale`, `path_conflict`, `unsupported_index`, `capture_incomplete`, `budget_exceeded`, `repository_busy`, `recovery_required`, `pinned` and `key_conflict`. Align the final error envelope with #16766 rather than copying its names blindly.
 
@@ -129,13 +133,13 @@ Per-session native-policy/isolation labels stay unchanged. File coverage and che
 
 ## Retention, budgets and settings
 
-Proposed defaults are a starting point for coordinator review, not shipped settings:
+The coordinator approved these trigger, retention and untracked defaults. They ship with the corresponding slices; budgets remain proposals:
 
 | Setting | Proposed default | Rule |
 | --- | --- | --- |
-| Automatic checkpoint triggers | off until explicit capture/restore are proven; handoff first when enabled | No unverified terminal-only turn triggers. No capture of every keystroke/tool event. |
-| Untracked selection | none initially; saved project selection only after user choice | Ignored/credential exclusions win. Scope revision is recorded. |
-| Unpinned retention | 20 checkpoints per worktree, 7 days | Either bound makes old records eligible; pins remain. |
+| Checkpoint triggers | on demand first; automatically before every handoff and every agent turn that can edit files when automation lands | Integrate with owner-side prompt admission before execution. Without a reliable pre-turn barrier, report unavailable coverage and do not claim automatic protection. No keystroke/tool-event capture. |
+| Untracked selection | explicitly approved, not ignored, each file strictly below 10 MB (10,000,000 bytes) | Saved project selection requires user choice. Ignore/exclusion rules and size are rechecked each capture. No silent count cap. |
+| Unpinned retention | 50 checkpoints per repository, 7 days | Either bound makes old records eligible across its worktrees; pins remain. |
 | Repository logical snapshot budget | 512 MiB | Fail capture if projected usage exceeds policy after eligible pruning. Pinned records can prevent pruning. |
 | Per capture / per file | 128 MiB / 32 MiB | Bytes checked before storage and during reads. No truncated success. |
 | Minimum host free space | 1 GiB plus estimated capture/recovery staging need | Report `budget_exceeded`; do not steal another workload's space. |
@@ -149,7 +153,7 @@ Logical bytes are conservative policy accounting; deduplicated Git objects make 
 1. **Capture owner and explicit UI.** Agree owner/catalog/contract first; real-repository integration tests prove no mutation and stage/worktree/untracked fidelity, exclusions, bounds and idempotent crash recovery. No restore and no automatic trigger in this PR. Show a checkpoint receipt/coverage inline and allow it in manual handoff review.
 2. **Reviewed restore and Undo.** Journaled restore on unchanged HEAD, one scope, preflight conflicts, freshness tokens and pinned safety capture. Ship only after fault injection covers every destructive step and a bounded state model verifies no acknowledged replay is applied twice, no unexpected path is overwritten and unresolved journals block new writes.
 3. **Automatic handoff capture.** Versioned handoff extension, owner-to-owner keys/pins, fresh review and attestation. Dogfood Claude Code to Codex and back, using the same dirty-repository fixture as the first slice. Capture replaces the manual archive's ref, not the user's review.
-4. **Turn history and richer modes.** Reliable turn-boundary receipts, automatic retention, sparse/conflicted index support, multi-repository composition and cross-base transplant after separate designs. No promise of conversation rewind.
+4. **Pre-edit-turn capture and richer modes.** Capture before owner-admitted turns that can edit files, using a capability-backed barrier and a stable prompt-derived capture key. Capture failure blocks that automatic protected start until resolved or explicitly continued with unavailable coverage. Reliable turn-boundary receipts, automatic retention, sparse/conflicted index support, multi-repository composition and cross-base transplant after separate designs. No promise of conversation rewind.
 
 Tests use real temporary repositories and the same catalog dispatcher as CLI/MCP. Cases: staged and unstaged versions of one file; staged deletion and unstaged resurrection; approved/unapproved untracked files; excluded tracked secrets; ignored occupants; binaries; executable bits; symlink leaves and parent substitution; filters that would touch a marker; spaces/newlines/non-UTF-8 paths; case collisions; linked worktrees; unborn/detached HEAD; changed branch/HEAD; dirty submodules/nested repositories; unsupported index flags; changed scope/policy; capture/restore bounds; duplicate requests; lost acknowledgements; owner restart; two clients; concurrent external write during capture and review; unexpected changes during recovery; disk full; GC and pinned deletion refusal.
 
@@ -159,9 +163,9 @@ Dogfood on a tagged build: create a repository with staged, unstaged and selecte
 
 ## Decisions before runtime work
 
-- Confirm the host-local repository owner and common-directory lease with the store/acpmux owners.
+- Confirm the common-directory mutation lease implementation inside the approved session-host Git owner with the store/acpmux owners.
 - Agree the catalog names, capabilities, error envelope and repository targeting; do not reuse handoff RPC names for filesystem mutations.
-- Pick the initial exclusion/selection defaults and budget settings above.
+- Implement the approved trigger, retention and untracked defaults; agree exclusion patterns and remaining byte/free-space budgets above.
 - Approve the inline Changes preview/Undo placement; prototype UI options through the feature workflow before choosing a restore layout.
 - Agree the versioned handoff extension and the stale-checkpoint rule before automatic capture starts.
 
