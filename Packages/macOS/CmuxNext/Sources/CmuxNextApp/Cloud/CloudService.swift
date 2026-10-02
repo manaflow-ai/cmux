@@ -120,7 +120,7 @@ final class CloudService {
                 let wasLive = session.machine.status.isLive
                 session.machine = machine
                 if wasLive, !machine.status.isLive {
-                    session.disconnect()
+                    session.suspend()
                 } else if !wasLive, machine.status.isLive {
                     session.connect()
                 }

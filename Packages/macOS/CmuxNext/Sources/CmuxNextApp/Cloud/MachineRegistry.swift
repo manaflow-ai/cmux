@@ -163,4 +163,12 @@ final class CloudMachineSession {
         // task-owner: teardown hop; link.stop() is terminal and re-checked after every await in start
         Task { await link.stop() }
     }
+
+    /// Drops the daemon connection while keeping the link reusable after a
+    /// provider pause/resume transition.
+    func suspend() {
+        daemon.shutdownConnection()
+        let link = link
+        Task { await link.suspend() }
+    }
 }

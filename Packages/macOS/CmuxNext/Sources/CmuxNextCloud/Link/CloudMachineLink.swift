@@ -51,6 +51,16 @@ public actor CloudMachineLink {
         socket = nil
     }
 
+    /// Parks the link while its machine is paused. Unlike `stop`, parking is
+    /// reversible: a later resume can start a fresh attach endpoint and socket
+    /// on the same session.
+    public func suspend() {
+        guard !stopped else { return }
+        child?.terminate()
+        child = nil
+        socket = nil
+    }
+
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 

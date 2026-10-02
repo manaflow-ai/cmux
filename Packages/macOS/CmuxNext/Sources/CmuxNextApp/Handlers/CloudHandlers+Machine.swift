@@ -37,13 +37,13 @@ extension CloudHandlers {
         }
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            run("pause machine", context) {
+            runTracked("pause machine", context) {
                 try await cloud.pauseMachine(session.machineID)
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            run("resume machine", context) {
+            runTracked("resume machine", context) {
                 try await cloud.resumeMachine(session.machineID)
             }
         }
@@ -109,7 +109,7 @@ extension CloudHandlers {
             guard let snapshot = invocation["snapshot"]?.stringValue, !snapshot.isEmpty else {
                 throw ActionFailure(message: CloudStrings.snapshotRequired)
             }
-            run("delete snapshot", context) {
+            runTracked("delete snapshot", context) {
                 try await cloud.api.deleteSnapshot(session.machineID, snapshotID: snapshot)
                 await cloud.refresh()
             }

@@ -5988,6 +5988,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud delete-snapshot",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "id" : "palette.cloud.deleteSnapshot",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "cloud diagnostics",
       "context_menu" : "noObject",
       "context_menus" : [
