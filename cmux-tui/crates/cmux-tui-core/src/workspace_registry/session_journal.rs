@@ -10,9 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
-pub(super) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
+pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
-pub(super) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
 
@@ -26,7 +26,7 @@ pub enum JournalClass {
 }
 
 impl JournalClass {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::State => "state",
             Self::Observation => "observation",
@@ -45,7 +45,7 @@ pub enum JournalReplayPolicy {
 }
 
 impl JournalReplayPolicy {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Required => "required",
             Self::Advisory => "advisory",
@@ -64,7 +64,7 @@ pub enum JournalSensitivity {
 }
 
 impl JournalSensitivity {
-    pub(super) fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Public => "public",
             Self::Metadata => "metadata",
@@ -399,28 +399,28 @@ impl JournalRestoreCursor {
     }
 }
 
-pub(super) struct JournalAppend<'a> {
-    pub(super) event_id: &'a str,
-    pub(super) schema_version: u32,
-    pub(super) kind: &'a str,
-    pub(super) class: JournalClass,
-    pub(super) replay: JournalReplayPolicy,
-    pub(super) occurred_at_ms: u64,
-    pub(super) producer: &'a JournalProducer,
-    pub(super) authority: Option<&'a JournalAuthority>,
-    pub(super) causation_id: Option<&'a str>,
-    pub(super) correlation_id: Option<&'a str>,
-    pub(super) causation_depth: u16,
-    pub(super) subjects: &'a [JournalSubject],
-    pub(super) sensitivity: JournalSensitivity,
-    pub(super) payload: &'a Value,
-    pub(super) content: Option<&'a [u8]>,
-    pub(super) resource_revision: Option<u64>,
-    pub(super) previous_resource_revision: Option<u64>,
+pub(crate) struct JournalAppend<'a> {
+    pub(crate) event_id: &'a str,
+    pub(crate) schema_version: u32,
+    pub(crate) kind: &'a str,
+    pub(crate) class: JournalClass,
+    pub(crate) replay: JournalReplayPolicy,
+    pub(crate) occurred_at_ms: u64,
+    pub(crate) producer: &'a JournalProducer,
+    pub(crate) authority: Option<&'a JournalAuthority>,
+    pub(crate) causation_id: Option<&'a str>,
+    pub(crate) correlation_id: Option<&'a str>,
+    pub(crate) causation_depth: u16,
+    pub(crate) subjects: &'a [JournalSubject],
+    pub(crate) sensitivity: JournalSensitivity,
+    pub(crate) payload: &'a Value,
+    pub(crate) content: Option<&'a [u8]>,
+    pub(crate) resource_revision: Option<u64>,
+    pub(crate) previous_resource_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum ResourceEffectJournalState {
+pub(crate) enum ResourceEffectJournalState {
     Succeeded,
     Failed,
     Indeterminate,
@@ -436,7 +436,7 @@ impl ResourceEffectJournalState {
     }
 }
 
-pub(super) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     let subject_index_existed = transaction.query_row(
         "SELECT EXISTS(
            SELECT 1 FROM sqlite_master
@@ -565,7 +565,7 @@ fn ensure_session_journal_content_schema(transaction: &Transaction<'_>) -> anyho
     Ok(())
 }
 
-pub(super) fn ensure_journal_event_index_schema(
+pub(crate) fn ensure_journal_event_index_schema(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -682,7 +682,7 @@ pub(super) fn ensure_journal_event_index_schema(
     Ok(())
 }
 
-pub(super) fn migrate_resource_events_to_session_journal(
+pub(crate) fn migrate_resource_events_to_session_journal(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     create_session_journal_schema(transaction)?;
@@ -812,7 +812,7 @@ pub(super) fn migrate_resource_events_to_session_journal(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn append_resource_journal_record(
+pub(crate) fn append_resource_journal_record(
     transaction: &Transaction<'_>,
     revision: u64,
     previous_revision: u64,
@@ -837,7 +837,7 @@ pub(super) fn append_resource_journal_record(
     )
 }
 
-pub(super) fn append_resource_effect_journal_record(
+pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
     operation: &str,
@@ -941,8 +941,8 @@ fn append_resource_journal_record_at(
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
     let mut decorated = changes.clone();
-    state_values::decorate_changes(transaction, &mut decorated)?;
-    closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
+    crate::state::values::decorate_changes(transaction, &mut decorated)?;
+    crate::state::closed_history_store::drain_pending_changes(transaction, &mut decorated)?;
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
     let session_id = transaction.query_row(
@@ -990,7 +990,7 @@ fn append_resource_journal_record_at(
     Ok(())
 }
 
-pub(super) fn append_journal_record(
+pub(crate) fn append_journal_record(
     transaction: &Transaction<'_>,
     append: &JournalAppend<'_>,
 ) -> anyhow::Result<u64> {
@@ -1294,7 +1294,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(super) fn query_session_journal_after(
+pub(crate) fn query_session_journal_after(
     connection: &Connection,
     sequence: u64,
     limit: usize,
@@ -1366,7 +1366,7 @@ fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
     u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
-pub(super) fn query_session_journal_sequences(
+pub(crate) fn query_session_journal_sequences(
     connection: &Connection,
     sequences: &[u64],
 ) -> anyhow::Result<Vec<SessionJournalRecord>> {
@@ -1871,7 +1871,7 @@ fn encode_bytes_hex(bytes: &[u8]) -> String {
     encoded
 }
 
-pub(super) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
+pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {
     let mut archived = record.clone();
     if let Some(bytes) = record.terminal_output.as_deref()
         && let Some(payload) = archived.payload.as_object_mut()
@@ -2027,7 +2027,7 @@ fn collect_subjects(value: &Value, subjects: &mut BTreeSet<JournalSubject>) {
     }
 }
 
-pub(super) fn expand_topology_subjects(
+pub(crate) fn expand_topology_subjects(
     transaction: &Transaction<'_>,
     subjects: &mut BTreeSet<JournalSubject>,
 ) -> anyhow::Result<()> {
@@ -2078,7 +2078,7 @@ pub(super) fn expand_topology_subjects(
     Ok(())
 }
 
-pub(super) fn terminal_topology_subjects_batch(
+pub(crate) fn terminal_topology_subjects_batch(
     transaction: &Transaction<'_>,
     terminal_ids: impl IntoIterator<Item = String>,
 ) -> anyhow::Result<HashMap<String, Vec<JournalSubject>>> {

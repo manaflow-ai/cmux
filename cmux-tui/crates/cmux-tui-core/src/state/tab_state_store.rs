@@ -5,7 +5,7 @@
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
-use super::presentation_store::{
+use crate::workspace_registry::presentation_store::{
     SavedTabGroupRecord, SavedTabMember, TabGroupState, delete_saved_tab_group_in,
     put_saved_tab_group_in, read_saved_tab_groups, write_tab_group_state,
 };
@@ -62,7 +62,10 @@ impl TabStateUpdate {
                 "bad request: a history list holds at most {MAX_HISTORY_URLS} URLs"
             );
             for url in list {
-                super::presentation_store::validate_frontend_browser_url("history URL", url)?;
+                crate::workspace_registry::presentation_store::validate_frontend_browser_url(
+                    "history URL",
+                    url,
+                )?;
             }
         }
         Ok(())

@@ -50,6 +50,7 @@ mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod state;
 mod stream_interrupt;
 mod surface;
 mod terminal_metadata;

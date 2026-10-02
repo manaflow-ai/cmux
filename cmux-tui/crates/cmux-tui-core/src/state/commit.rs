@@ -6,8 +6,9 @@
 
 use rusqlite::Transaction;
 
-use super::*;
-use crate::workspace_registry::state_store::{StateChanges, StateCommit};
+use crate::mux::*;
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit};
 
 /// What a committed state mutation must refresh besides the event feed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

@@ -7,21 +7,21 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
-use super::{
+use crate::mux::{PersonalChange, ScreenChange, StripRequest, WorkspaceStatusChange};
+use crate::resource::{ResourceError, ResourceOperation};
+use crate::resource_router::{
     ParsedResourceRequest, expected_revision, mutation_result, operation_name,
     resource_operation_error, validation_error,
 };
-use crate::mux::{PersonalChange, ScreenChange, StripRequest, WorkspaceStatusChange};
-use crate::resource::{ResourceError, ResourceOperation};
-use crate::workspace_registry::state_store::StateCommit;
-use crate::workspace_registry::tab_state_store::TabStateUpdate;
-use crate::workspace_registry::{
-    ResourcePatchCommit, WorkspacePresentationUpdate, closed_history_store, personal_state_store,
-    screen_state_store, tab_state_store,
+use crate::state::store::StateCommit;
+use crate::state::tab_state_store::TabStateUpdate;
+use crate::state::{
+    closed_history_store, personal_state_store, screen_state_store, tab_state_store,
 };
+use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
 
-pub(super) fn handles(operation: ResourceOperation) -> bool {
+pub(crate) fn handles(operation: ResourceOperation) -> bool {
     use ResourceOperation as Op;
     matches!(
         operation,
@@ -178,7 +178,7 @@ fn found(value: Option<Value>, scope: &str, id: &str) -> Result<Value, ResourceE
     })
 }
 
-pub(super) fn dispatch(
+pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {

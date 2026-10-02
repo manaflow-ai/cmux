@@ -11,15 +11,15 @@
 use rusqlite::{Connection, Transaction};
 use serde_json::{Value, json};
 
-use super::WorkspaceRegistry;
-use super::personal_mutations::{
+use super::values::{local_registry_id, workspace_ref};
+use crate::workspace_registry::WorkspaceRegistry;
+use crate::workspace_registry::personal_mutations::{
     PersonalWorkspaceUpdate, ProfileDeletion, ProfileInput, ProfileUpdate,
 };
-use super::personal_store::{
+use crate::workspace_registry::personal_store::{
     PersonalGroup, PersonalProfile, PersonalWorkspace, read_group, read_groups, read_pins,
     read_profile, read_profiles, read_workspaces,
 };
-use super::state_values::{local_registry_id, workspace_ref};
 
 fn group_value(group: &PersonalGroup) -> Value {
     json!({

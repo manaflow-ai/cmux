@@ -7,10 +7,10 @@ use serde_json::json;
 /// runs in batches, so a live registry may temporarily retain the interval as
 /// slack; startup always restores the hard bound. Non-terminal effect or
 /// creation receipts remain protected by their authoritative receipt tables.
-pub(super) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
-pub(super) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
+pub(crate) const RESOURCE_MUTATION_REPLAY_CAPACITY: usize = 4096;
+pub(crate) const RESOURCE_MUTATION_PRUNE_INTERVAL: u64 = 128;
 const RESOURCE_EVENT_PAGE_SIZE: usize = 1024;
-pub(super) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
+pub(crate) const AGENT_HOOK_RETRY_PAGE_SIZE: i64 = 64;
 // Rows that reach this cap stay durable as dead-letter records. Selectors
 // exclude them, so a permanent projection failure cannot spin forever.
 pub(crate) const AGENT_HOOK_MAX_ATTEMPTS: i64 = 8;
@@ -38,7 +38,7 @@ pub(crate) type PendingAgentHookProjection = (String, String, String, u64, Journ
 /// `(event_sequence, idempotency_key, rowid)` resume cursor for paged reads.
 pub(crate) type PendingAgentHookCursor = (u64, String, i64);
 
-pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS resource_identities (
            public_id TEXT PRIMARY KEY NOT NULL,
@@ -292,7 +292,7 @@ pub(super) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
 }
 
 /// Additive migration: pre-authority labels remain user-owned.
-pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
+pub(crate) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Result<()> {
     let columns = connection
         .prepare("PRAGMA table_info(resource_tabs)")?
         .query_map([], |row| row.get::<_, String>(1))?
@@ -325,7 +325,7 @@ pub(super) fn migrate_tab_name_authority(connection: &Connection) -> anyhow::Res
 /// any number of live tabs, while browser content retains its single-view
 /// invariant. Foreign keys are disabled by the caller for this table rebuild
 /// and checked immediately after the migration commits.
-pub(super) fn migrate_resource_tabs_to_multiview(
+pub(crate) fn migrate_resource_tabs_to_multiview(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let duplicate_live_browser = transaction.query_row(
@@ -384,7 +384,7 @@ pub(super) fn migrate_resource_tabs_to_multiview(
 /// Detect a legacy table-level `UNIQUE(content_id)` constraint or a missing or
 /// malformed browser-view index. Any such shape must be rebuilt before terminal
 /// content can have multiple views without weakening the one-live-view browser rule.
-pub(super) fn resource_tabs_needs_multiview_normalization(
+pub(crate) fn resource_tabs_needs_multiview_normalization(
     connection: &Connection,
 ) -> anyhow::Result<bool> {
     const CANONICAL_BROWSER_VIEW_INDEX: &str = concat!(
@@ -442,7 +442,7 @@ pub(crate) struct AgentHookProjectionState {
     pub ended_at_ms: Option<u64>,
 }
 
-pub(super) fn migrate_resource_agent_projections(
+pub(crate) fn migrate_resource_agent_projections(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute(
@@ -472,7 +472,7 @@ pub(super) fn migrate_resource_agent_projections(
     Ok(())
 }
 
-pub(super) fn migrate_resource_mutations_to_session_scope(
+pub(crate) fn migrate_resource_mutations_to_session_scope(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     transaction.execute_batch(
@@ -497,13 +497,13 @@ pub(super) fn migrate_resource_mutations_to_session_scope(
     Ok(())
 }
 
-pub(super) fn initialize_resource_mutation_retention(
+pub(crate) fn initialize_resource_mutation_retention(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     compact_resource_mutations(transaction)
 }
 
-pub(super) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn prune_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     if transaction_resource_revision(transaction)? % RESOURCE_MUTATION_PRUNE_INTERVAL != 0 {
         return Ok(());
     }
@@ -543,7 +543,7 @@ fn compact_resource_mutations(transaction: &Transaction<'_>) -> anyhow::Result<(
     Ok(())
 }
 
-pub(super) fn migrate_resource_browser_metadata(
+pub(crate) fn migrate_resource_browser_metadata(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let columns = {
@@ -608,7 +608,7 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(())
     }
-    pub(super) fn stage_agent_hook_pending(
+    pub(crate) fn stage_agent_hook_pending(
         transaction: &Transaction<'_>,
         producer_id: &str,
         origin: &str,
@@ -1514,7 +1514,7 @@ impl WorkspaceRegistry {
             Some(write) => {
                 let mut changes = deltas.as_array().cloned().unwrap_or_default();
                 write(&tx, &mut result, &mut changes)?;
-                written = Value::Array(state_store::finish_changes(changes));
+                written = Value::Array(crate::state::store::finish_changes(changes));
                 &written
             }
             None => deltas,
@@ -2094,7 +2094,7 @@ impl WorkspaceRegistry {
     }
 }
 
-pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
+pub(crate) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut Vec<String>) {
     match layout {
         RegistryLayoutNode::Leaf { .. } | RegistryLayoutNode::Stack { .. } => {}
         RegistryLayoutNode::Split { split, first, second, .. } => {
@@ -2105,7 +2105,7 @@ pub(super) fn collect_split_public_ids(layout: &RegistryLayoutNode, output: &mut
     }
 }
 
-pub(super) fn collect_screen_split_public_ids(
+pub(crate) fn collect_screen_split_public_ids(
     layout: &RegistryLayoutNode,
     viewport: &RegistryViewport,
     output: &mut Vec<String>,
@@ -2118,7 +2118,7 @@ pub(super) fn collect_screen_split_public_ids(
     }
 }
 
-pub(super) fn resource_patch_replay(
+pub(crate) fn resource_patch_replay(
     transaction: &Connection,
     mutation: &WorkspaceMutation,
     operation: &str,
@@ -2158,7 +2158,7 @@ pub(super) fn resource_patch_replay(
     }))
 }
 
-pub(super) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_patch(patch: &ResourcePatch) -> anyhow::Result<()> {
     let mut targets = HashSet::new();
     let mut singleton_changes = HashSet::new();
     for change in &patch.changes {
@@ -2406,7 +2406,7 @@ pub(crate) fn validate_registry_screen_projection(
     validate_registry_viewport(&screen.viewport, &screen.layout, &layout_pane_refs, &layout_splits)
 }
 
-pub(super) fn complete_terminal_close_patch(
+pub(crate) fn complete_terminal_close_patch(
     transaction: &Transaction<'_>,
     terminals: &[(String, Option<String>)],
     patch: &ResourcePatch,
@@ -2465,7 +2465,7 @@ pub(super) fn complete_terminal_close_patch(
 /// Load the live resource topology from `connection`. The registry's
 /// snapshot and the startup repair (which runs inside the open transaction,
 /// before this open's generation exists) share it.
-pub(super) fn load_resource_topology(
+pub(crate) fn load_resource_topology(
     connection: &Connection,
     session_id: SessionPublicId,
     generation: String,
@@ -2679,7 +2679,7 @@ pub(super) fn load_resource_topology(
 /// pane (its index and focus may move) and every screen that holds such a
 /// pane (its layout lists the pane's tabs and active tab), so an event-feed
 /// client converges without waiting for the next full topology projection.
-pub(super) fn repair_dangling_terminal_resources(
+pub(crate) fn repair_dangling_terminal_resources(
     transaction: &Transaction<'_>,
 ) -> anyhow::Result<()> {
     let current_revision = current_resource_revision(transaction)?;
@@ -2885,14 +2885,14 @@ fn restate_repaired_panes(
 /// Changes whose target row already holds the same value are dropped first,
 /// so a commit rewrites (and journals) only the rows it changes. Callers
 /// journal the returned patch, not their input.
-pub(super) fn apply_resource_patch(
+pub(crate) fn apply_resource_patch(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,
 ) -> anyhow::Result<ResourcePatch> {
     let patch = prune_unchanged_resource_changes(transaction, patch)?;
     // Closes by any path land in the closed history before their rows go.
-    closed_history_store::capture_closed(transaction, &patch)?;
+    crate::state::closed_history_store::capture_closed(transaction, &patch)?;
     apply_effective_resource_patch(transaction, &patch, revision)?;
     Ok(patch)
 }
@@ -2917,15 +2917,15 @@ fn decorate_snapshot_result(
         (Some("tab"), Some("tab")) => "tab",
         _ => return Ok(()),
     };
-    if !state_store::state_tables_ready(transaction)? {
+    if !crate::state::store::state_tables_ready(transaction)? {
         return Ok(());
     }
-    state_values::decorate_value(transaction, resource, target)
+    crate::state::values::decorate_value(transaction, resource, target)
 }
 
 /// Apply a patch whose closes are not user closes (a terminal that exited
 /// on its own), so they stay out of the closed history.
-pub(super) fn apply_resource_patch_unrecorded(
+pub(crate) fn apply_resource_patch_unrecorded(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
     revision: i64,
@@ -3046,7 +3046,7 @@ fn apply_effective_resource_patch(
 /// child is validated against its parent's order in the same patch, and an
 /// earlier write in the transaction (the legacy workspace ledger) may
 /// already have stored the new order.
-pub(super) fn prune_unchanged_resource_changes(
+pub(crate) fn prune_unchanged_resource_changes(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
 ) -> anyhow::Result<ResourcePatch> {
@@ -5141,7 +5141,7 @@ fn validate_positions_for_parent(
     Ok(())
 }
 
-pub(super) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn validate_resource_invariants(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     ensure_no_foreign_key_violations(transaction)?;
     validate_concrete_identity_lifecycles(transaction)?;
     validate_contiguous_positions(

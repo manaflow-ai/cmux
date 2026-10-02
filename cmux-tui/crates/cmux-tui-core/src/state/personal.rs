@@ -6,13 +6,12 @@
 use rusqlite::Transaction;
 use serde::Serialize;
 
-use super::state_commit::{StateEffects, state_not_found, workspace_identity};
-use super::*;
-use crate::workspace_registry::personal_state_store as personal;
-use crate::workspace_registry::state_store::{
-    StateChanges, StateCommit, state_delete, state_upsert,
-};
-use crate::workspace_registry::state_values::local_registry_id;
+use crate::mux::*;
+use crate::state::commit::{StateEffects, state_not_found, workspace_identity};
+use crate::state::personal_state_store as personal;
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::state::values::local_registry_id;
 use crate::workspace_registry::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 
 /// One personal state mutation.
@@ -133,12 +132,7 @@ fn refs(transaction: &Transaction<'_>, pairs: &[(String, String)]) -> anyhow::Re
     pairs
         .iter()
         .map(|(session, key)| {
-            crate::workspace_registry::state_values::workspace_ref(
-                transaction,
-                &local,
-                session,
-                key,
-            )
+            crate::state::values::workspace_ref(transaction, &local, session, key)
         })
         .collect()
 }

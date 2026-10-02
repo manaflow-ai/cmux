@@ -3,13 +3,15 @@
 //! from the one storage `screen_store` owns: `screen_presentation`,
 //! `screen_groups` (keyed by the stable workspace key), and
 //! `screen_group_members`. The raw screen commands and the v2 operations
-//! write those rows through the same commit (`mux/state_screens.rs`).
+//! write those rows through the same commit (`state/screens.rs`).
 
 use rusqlite::{Connection, OptionalExtension, Transaction};
 use serde_json::{Value, json};
 
-use super::presentation_store::{validate_presentation_color, validate_presentation_icon};
-use super::screen_store::ScreenPresentationState;
+use crate::workspace_registry::presentation_store::{
+    validate_presentation_color, validate_presentation_icon,
+};
+use crate::workspace_registry::screen_store::ScreenPresentationState;
 
 /// A partial screen metadata update: `None` keeps a field, `Some(None)`
 /// clears it.
@@ -37,7 +39,7 @@ pub(crate) fn write_screen_rows(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,
 ) -> anyhow::Result<()> {
-    super::screen_store::write_screen_state(transaction, state)
+    crate::workspace_registry::screen_store::write_screen_state(transaction, state)
 }
 
 /// Live member screens of a group, in screen order, within the group's

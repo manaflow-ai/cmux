@@ -21,17 +21,17 @@ use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
-use super::personal_store::personal_revision;
-use super::resource_store::{prune_resource_mutations, resource_patch_replay};
-use super::session_journal::append_resource_journal_record;
-use super::{
+use crate::workspace_registry::personal_store::personal_revision;
+use crate::workspace_registry::resource_store::{prune_resource_mutations, resource_patch_replay};
+use crate::workspace_registry::session_journal::append_resource_journal_record;
+use crate::workspace_registry::{
     ResourcePatchCommit, WorkspaceMutation, WorkspaceRegistry, canonical_json,
     transaction_resource_revision, validate_identifier,
 };
 
 const SAVED_GROUPS_MIGRATED_META_KEY: &str = "personal_saved_tab_groups_v1";
 
-pub(super) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_state (
            workspace_id TEXT PRIMARY KEY NOT NULL,
@@ -85,7 +85,7 @@ pub(super) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
 /// Whether this registry has the state tables yet. Migrations of older
 /// registries append resource journal batches before the current schema
 /// exists; those batches carry no state.
-pub(super) fn state_tables_ready(connection: &Connection) -> anyhow::Result<bool> {
+pub(crate) fn state_tables_ready(connection: &Connection) -> anyhow::Result<bool> {
     Ok(connection
         .query_row(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'state_pending_changes'",
@@ -99,7 +99,7 @@ pub(super) fn state_tables_ready(connection: &Connection) -> anyhow::Result<bool
 /// One-time move of the shared saved tab groups into the personal table,
 /// all in the `default` room. Idempotent: a `meta` flag records it, and the
 /// shared rows are read only here.
-pub(super) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> anyhow::Result<()> {
+pub(crate) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> anyhow::Result<()> {
     let tx = connection.unchecked_transaction()?;
     let migrated =
         tx.query_row("SELECT 1 FROM meta WHERE key = ?1", [SAVED_GROUPS_MIGRATED_META_KEY], |_| {
@@ -114,7 +114,7 @@ pub(super) fn migrate_saved_tab_groups_to_personal(connection: &Connection) -> a
              )
              SELECT saved_id, ?1, name, color, members_json, position, updated_at_ms
              FROM saved_tab_groups",
-            [super::personal_store::DEFAULT_PROFILE_ID],
+            [crate::workspace_registry::personal_store::DEFAULT_PROFILE_ID],
         )?;
         tx.execute(
             "INSERT INTO meta(key, value) VALUES(?1, '1')",
@@ -298,10 +298,14 @@ pub(crate) fn state_snapshot(connection: &Connection) -> anyhow::Result<Value> {
 pub(crate) fn write_workspace_identity(
     transaction: &Transaction<'_>,
     workspace_key: &str,
-    update: &super::WorkspacePresentationUpdate,
+    update: &crate::workspace_registry::WorkspacePresentationUpdate,
 ) -> anyhow::Result<()> {
     anyhow::ensure!(update.group.is_none(), "workspace groups are personal state");
-    super::presentation_store::write_workspace_presentation(transaction, workspace_key, update)
+    crate::workspace_registry::presentation_store::write_workspace_presentation(
+        transaction,
+        workspace_key,
+        update,
+    )
 }
 
 /// Mark a workspace ephemeral: the daemon closes it at its next start.

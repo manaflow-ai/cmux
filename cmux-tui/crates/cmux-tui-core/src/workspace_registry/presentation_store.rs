@@ -37,7 +37,7 @@ pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
 pub const MAX_WORKSPACE_GROUP_ID_BYTES: usize = 64;
 
-pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_groups (
            group_id TEXT PRIMARY KEY NOT NULL,
@@ -334,7 +334,7 @@ pub fn new_saved_tab_group_id() -> String {
 }
 
 /// Replace every tab group row in the caller's transaction.
-pub(super) fn write_tab_group_state(
+pub(crate) fn write_tab_group_state(
     transaction: &Transaction<'_>,
     state: &TabGroupState,
 ) -> anyhow::Result<()> {
@@ -408,7 +408,7 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
     Ok(state)
 }
 
-pub(super) fn read_saved_tab_groups(
+pub(crate) fn read_saved_tab_groups(
     connection: &Connection,
 ) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
     let mut statement = connection.prepare(
@@ -444,7 +444,7 @@ pub(super) fn read_saved_tab_groups(
 
 /// Create or replace a saved tab group in the caller's transaction, keeping
 /// its bar position and room (new records go last, in `record.room`).
-pub(super) fn put_saved_tab_group_in(
+pub(crate) fn put_saved_tab_group_in(
     transaction: &Transaction<'_>,
     record: &SavedTabGroupRecord,
 ) -> anyhow::Result<()> {
@@ -497,7 +497,7 @@ pub(super) fn put_saved_tab_group_in(
 
 /// Delete a saved tab group in the caller's transaction and unlink live
 /// groups from it. Returns whether it existed.
-pub(super) fn delete_saved_tab_group_in(
+pub(crate) fn delete_saved_tab_group_in(
     transaction: &Transaction<'_>,
     saved_id: &str,
 ) -> anyhow::Result<bool> {
@@ -797,7 +797,7 @@ fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<Strin
 
 /// Append the immutable fact for one presentation mutation in the caller's
 /// transaction.
-pub(super) fn append_presentation_record(
+pub(crate) fn append_presentation_record(
     transaction: &Transaction<'_>,
     kind: &str,
     subjects: Vec<JournalSubject>,
@@ -907,7 +907,7 @@ fn read_workspace_presentation(
 
 /// Write one workspace's presentation row inside a workspace-registry
 /// transaction. A named group must exist.
-pub(super) fn write_workspace_presentation(
+pub(crate) fn write_workspace_presentation(
     transaction: &Transaction<'_>,
     workspace_key: &str,
     update: &WorkspacePresentationUpdate,

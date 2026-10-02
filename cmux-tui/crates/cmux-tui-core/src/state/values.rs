@@ -11,10 +11,10 @@ use std::collections::{HashMap, HashSet};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Map, Value, json};
 
-use super::resource_store::load_resource_topology;
-use super::state_store::resource_upsert;
-use super::{meta_value, required_meta};
+use super::store::resource_upsert;
 use crate::resource::SessionPublicId;
+use crate::workspace_registry::resource_store::load_resource_topology;
+use crate::workspace_registry::{meta_value, required_meta};
 
 fn extra_mut(value: &mut Value) -> Option<&mut Map<String, Value>> {
     let object = value.as_object_mut()?;
@@ -186,7 +186,7 @@ pub(crate) fn decorate_value(
 /// Decorate every ordinary upsert of a change batch.
 pub(crate) fn decorate_changes(connection: &Connection, changes: &mut Value) -> anyhow::Result<()> {
     let Some(changes) = changes.as_array_mut() else { return Ok(()) };
-    if !super::state_store::state_tables_ready(connection)? {
+    if !super::store::state_tables_ready(connection)? {
         return Ok(());
     }
     for change in changes {

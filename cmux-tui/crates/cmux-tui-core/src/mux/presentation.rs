@@ -138,7 +138,7 @@ fn tab_is_pinned(state: &State, presentation: &PresentationSnapshot, surface: Su
         .is_some_and(|tab| presentation.pinned_tabs.contains(tab.as_str()))
 }
 
-pub(super) fn tab_changed_delta(
+pub(crate) fn tab_changed_delta(
     state: &State,
     decorations: &TreeDecorations,
     surface: SurfaceId,
@@ -177,7 +177,7 @@ impl Mux {
 
     /// Reload the presentation snapshot from the registry. The caller holds
     /// the registry lock, so no other commit can interleave.
-    pub(super) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
+    pub(crate) fn reload_presentation(&self, registry: &WorkspaceRegistry) -> anyhow::Result<()> {
         let snapshot = registry.presentation_snapshot()?;
         *self.presentation.lock().unwrap() = Arc::new(snapshot);
         Ok(())
@@ -916,13 +916,13 @@ impl Mux {
 mod tests {
     use super::*;
 
-    pub(super) struct PresentationTestSession {
+    pub(crate) struct PresentationTestSession {
         root: std::path::PathBuf,
         session: &'static str,
     }
 
     impl PresentationTestSession {
-        pub(super) fn new(session: &'static str) -> Self {
+        pub(crate) fn new(session: &'static str) -> Self {
             let root = std::env::temp_dir().join(format!(
                 "cmux-presentation-{session}-{}",
                 WorkspacePublicId::random().unwrap()
@@ -930,7 +930,7 @@ mod tests {
             Self { root, session }
         }
 
-        pub(super) fn open(&self) -> Arc<Mux> {
+        pub(crate) fn open(&self) -> Arc<Mux> {
             let registry = WorkspaceRegistry::open(&self.root, self.session).unwrap();
             Mux::from_workspace_registry(
                 self.session.into(),

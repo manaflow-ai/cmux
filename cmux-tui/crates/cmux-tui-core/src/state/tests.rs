@@ -5,9 +5,13 @@ use std::path::PathBuf;
 
 use serde_json::json;
 
-use super::*;
+use crate::mux::ProviderWorkspaceState;
+use crate::mux::*;
 use crate::resource_router::handle_resource_message;
+use crate::state::prelude::*;
+use crate::surface::SurfaceOptions;
 use crate::workspace_registry::WorkspacePresentationUpdate;
+use crate::workspace_registry::WorkspaceRegistry;
 
 struct Session {
     root: PathBuf,

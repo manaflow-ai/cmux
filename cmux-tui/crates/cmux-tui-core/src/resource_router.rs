@@ -7,7 +7,6 @@ mod auxiliary;
 mod content;
 mod effects;
 mod session;
-mod state;
 mod topology;
 
 use std::collections::{HashMap, HashSet};
@@ -843,7 +842,7 @@ fn dispatch_resource_request(
         OperationOwner::Content => content::dispatch(mux, request),
         OperationOwner::Topology => topology::dispatch(mux, request),
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
-        OperationOwner::State => state::dispatch(mux, request),
+        OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -1795,7 +1794,7 @@ mod tests {
                 OperationOwner::Content => assert!(content::handles(operation)),
                 OperationOwner::Topology => assert!(topology::handles(operation)),
                 OperationOwner::Auxiliary => assert!(auxiliary::handles(operation)),
-                OperationOwner::State => assert!(state::handles(operation)),
+                OperationOwner::State => assert!(crate::state::router::handles(operation)),
                 OperationOwner::Machine | OperationOwner::Snapshot | OperationOwner::Connection => {
                 }
             }

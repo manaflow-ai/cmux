@@ -3,14 +3,13 @@
 //! [`Mux::commit_tab_strip_change`] (tab order changes) or
 //! [`Mux::commit_state`] (rows only), keyed by the request's idempotency key.
 
-use super::state_commit::{StateEffects, state_not_found};
-use super::tab_groups::{pane_by_public_id, tab_public_id};
-use super::tab_strip::{StripRequest, StripResult};
-use super::*;
-use crate::workspace_registry::state_store::{
-    StateChanges, StateCommit, state_delete, state_upsert,
-};
-use crate::workspace_registry::tab_state_store::{
+use crate::mux::tab_groups::{pane_by_public_id, tab_public_id};
+use crate::mux::tab_strip::{StripRequest, StripResult};
+use crate::mux::*;
+use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::prelude::*;
+use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::state::tab_state_store::{
     TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_group_ids, tab_group_snapshot,
 };
 

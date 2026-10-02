@@ -14,17 +14,16 @@
 
 use std::collections::BTreeSet;
 
-use super::state_commit::{StateEffects, state_not_found};
-use super::tab_strip::StripRequest;
-use super::*;
-use crate::workspace_registry::ScreenPresentationState;
-use crate::workspace_registry::screen_state_store::{
+use crate::mux::tab_strip::StripRequest;
+use crate::mux::*;
+use crate::state::commit::{StateEffects, state_not_found};
+use crate::state::prelude::*;
+use crate::state::screen_state_store::{
     ScreenMetaUpdate, screen_group_snapshot, write_screen_rows,
 };
-use crate::workspace_registry::state_store::{
-    StateChanges, StateCommit, state_delete, state_upsert,
-};
-use crate::workspace_registry::state_values::{fresh_upserts, upserted_value};
+use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
+use crate::state::values::{fresh_upserts, upserted_value};
+use crate::workspace_registry::ScreenPresentationState;
 
 /// What a screen change returns as its v2 result.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
