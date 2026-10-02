@@ -7,6 +7,10 @@ import type { AcpmuxRow } from "../model";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
+/// Rows added for the turn still running: "Thinking" until it has output, then a ticking
+/// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
+export const THINKING = "thinking";
+export const WORKING = "working";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -37,8 +41,9 @@ const isEdit = (row: AcpmuxRow) =>
   row.kind === "activity" &&
   (row.items ?? []).some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
 
-/// The rows to draw. `expanded` holds the ids of open disclosures.
-export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
+/// The rows to draw. `expanded` holds the ids of open disclosures; `working` says the last
+/// turn is still running (the snapshot's `isWorking`).
+export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<string>, working = false): AcpmuxRow[] {
   const out: AcpmuxRow[] = [];
   let index = 0;
   // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
@@ -53,17 +58,18 @@ export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<strin
       const row = rows[index++]!;
       (row.kind === "user" ? held : turn).push(row);
     }
-    out.push(user, ...shapeTurn(user, turn, expanded), ...held);
+    const live = working && index >= rows.length;
+    out.push(user, ...shapeTurn(user, turn, expanded, live), ...held);
   }
   return out;
 }
 
 const isUnsent = (row: AcpmuxRow) => Boolean(row.pending || row.failed);
 
-function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
+function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>, live: boolean): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
-  // A turn still running shows its work as it happens.
-  if (end < 0) return turn;
+  // A turn still running shows its work as it happens, under its live status.
+  if (end < 0) return live ? liveTurn(user, turn) : turn;
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   let final = -1;
@@ -94,7 +100,8 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
       toolCount: summary.toolCount,
       durationMs: answer ? Math.max(0, answer.at - user.at) : (summary.durationMs ?? Math.max(0, summary.at - user.at)),
     });
-    if (open) shaped.push(...work.map((row) => (isEdit(row) ? { ...row, id: `${row.id}${FOLDED}` } : row)));
+    if (open)
+      shaped.push(...work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })));
   }
   if (answer) shaped.push(answer);
   shaped.push(...rest, ...edits);
@@ -107,6 +114,22 @@ function shapeTurn(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<str
 }
 
 const VERSION_SPAN = 1_000_000;
+
+/// The live status, shaped as the turn will fold when it ends: rows before the latest text are
+/// its work, so a turn so far only streaming its answer draws no status (it ends without a
+/// fold). The line is timed from the prompt and draws its own clock; while text streams, the
+/// clock stops at that text's start, where "Worked for" would time the turn if it ended there.
+/// The client's empty "typing" placeholder gives way to it.
+function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[]): AcpmuxRow[] {
+  const rows = turn.filter((row) => row.kind !== "typing");
+  const last = rows.at(-1);
+  if (!last) return [{ id: `${THINKING}-${user.id}`, version: 1, at: user.at, kind: THINKING }];
+  const answering = last.kind === "assistant";
+  if (answering && rows.length === 1) return rows;
+  const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at: user.at, kind: WORKING };
+  if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
+  return [status, ...rows];
+}
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
 export const isFoldedCopy = (row: AcpmuxRow) => row.id.endsWith(FOLDED);

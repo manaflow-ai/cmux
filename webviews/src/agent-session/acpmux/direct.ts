@@ -502,6 +502,16 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// The selected session's repository changes in one git scope (changes/model.ts).
+  gitScopeDiff(scope: string): Promise<unknown> {
+    return this.request("git.scope.diff", { sessionId: this.selectedSessionId, scope });
+  }
+
+  /// The selected session's branch, upstream and how far it is ahead and behind.
+  gitStatus(): Promise<unknown> {
+    return this.request("git.status", { sessionId: this.selectedSessionId });
+  }
+
   private request(method: string, params: Record<string, unknown>): Promise<any> {
     if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
     const id = this.nextRequest++;
