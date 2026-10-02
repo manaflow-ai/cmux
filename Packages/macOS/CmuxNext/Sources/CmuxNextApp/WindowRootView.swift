@@ -49,7 +49,7 @@ final class WindowRootView: NSView {
     ///   radius from the Ghostty config.
     init(sidebar: SidebarContainerView, rail: WindowRailView,
          reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency },
-         applyWindowBlur: @escaping @MainActor (NSWindow) -> Void = { _ in }) {
+         applyWindowBlur: @escaping @MainActor (NSWindow) -> Void = { GhosttyRuntime.shared.applyBackgroundBlur(to: $0) }) {
         self.sidebar = sidebar
         self.rail = rail
         self.reduceTransparency = reduceTransparency
@@ -257,7 +257,8 @@ final class WindowRootView: NSView {
 
     /// An opaque window paints the solid background on this layer. Over a
     /// material the layer stays clear and the backdrop view's tint is the
-    /// one sheet. No CGS blur is applied: the material view blurs itself.
+    /// one sheet; a frosted window's blur is the window's CGS radius
+    /// (`applyBackdrop(to:)`).
     private func paintBackground() {
         let backdrop = self.backdrop
         performWithTheme {
@@ -267,7 +268,8 @@ final class WindowRootView: NSView {
         }
     }
 
-    /// Sets `window`'s opacity and background for this view's theme.
+    /// Sets `window`'s opacity, background and blur radius for this view's
+    /// theme.
     /// Values that already match are not written again, so a repeat call
     /// (an appearance change while the window installs this view) never
     /// touches the theme frame.
@@ -278,5 +280,6 @@ final class WindowRootView: NSView {
             : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
         if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
         if window.backgroundColor != color { window.backgroundColor = color }
+        if backdrop.setsWindowBlurRadius { applyWindowBlur(window) }
     }
 }
