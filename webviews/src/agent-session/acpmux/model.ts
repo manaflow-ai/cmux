@@ -69,7 +69,10 @@ export type AcpmuxSnapshot = {
     model?: string;
     effort?: string;
     status?: string;
-    modes?: { availableModes: { id: string; name?: string; description?: string }[]; currentModeId?: string };
+    modes?: {
+      availableModes: { id: string; name?: string; description?: string; _meta?: { [key: string]: unknown } | null }[];
+      currentModeId?: string;
+    };
     configOptions?: {
       id: string;
       name?: string;

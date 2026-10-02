@@ -46,7 +46,7 @@ export const codexModels = [
 ];
 
 // As the agents' ACP adapters report them: @agentclientprotocol/claude-agent-acp 0.85
-// (session-mode.js) and Codex's built-in approval presets (codex-rs approval-presets).
+// (session-mode.js), and Codex as recorded in acpmux-preview/fixtures/codex-session-events.ndjson.
 const claudeModes = {
   availableModes: [
     { id: "default", name: "Manual", description: "Always ask before making changes" },
@@ -61,24 +61,24 @@ const codexModes = {
   availableModes: [
     {
       id: "read-only",
-      name: "Read Only",
-      description:
-        "Codex can read files in the current workspace. Approval is required to edit files or access the internet.",
+      name: "Ask for approval",
+      description: "Always ask to edit external files and use the internet",
+      _meta: { kind: "standard" },
     },
     {
-      id: "auto",
-      name: "Default",
-      description:
-        "Codex can read and edit files in the current workspace, and run commands. Approval is required to access the internet or edit other files. (Identical to Agent mode)",
+      id: "agent",
+      name: "Approve for me",
+      description: "Only ask for actions detected as potentially unsafe",
+      _meta: { kind: "auto_review" },
     },
     {
-      id: "full-access",
-      name: "Full Access",
-      description:
-        "Codex can edit files outside this workspace and access the internet without asking for approval. Exercise caution when using.",
+      id: "agent-full-access",
+      name: "Full access",
+      description: "Unrestricted access to the internet and any file on your computer",
+      _meta: { kind: "full_access" },
     },
   ],
-  currentModeId: "auto",
+  currentModeId: "agent",
 };
 const effort = (currentValue: string) => [
   {

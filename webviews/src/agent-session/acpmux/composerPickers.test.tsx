@@ -370,12 +370,13 @@ describe("acpmux composer pickers", () => {
   });
 
   test("the approval menu asks how the agent's actions are approved, links its docs, and marks each mode's level", async () => {
+    // As a recorded Codex session reports them (acpmux-preview/fixtures/codex-session-events.ndjson).
     const codexModes = {
-      currentModeId: "auto",
+      currentModeId: "agent",
       availableModes: [
-        { id: "read-only", name: "Read Only", description: "Approval is required to edit files" },
-        { id: "auto", name: "Default", description: "Approval is required to access the internet" },
-        { id: "full-access", name: "Full Access", description: "Without asking for approval" },
+        { id: "read-only", name: "Ask for approval", description: "Always ask", _meta: { kind: "standard" } },
+        { id: "agent", name: "Approve for me", description: "Only ask when unsafe", _meta: { kind: "auto_review" } },
+        { id: "agent-full-access", name: "Full access", description: "Unrestricted", _meta: { kind: "full_access" } },
       ],
     };
     await render(snapshot({ modes: codexModes }));
@@ -383,11 +384,12 @@ describe("acpmux composer pickers", () => {
     const heading = doc.querySelector(".acpmux-menu-heading")!;
     expect(heading.querySelector("span")!.textContent).toBe("How should Codex actions be approved?");
     expect(heading.querySelector("a")!.getAttribute("href")).toBe(
-      "https://developers.openai.com/codex/agent-approvals-security",
+      "https://learn.chatgpt.com/docs/agent-approvals-security",
     );
     expect(heading.querySelector("a")!.textContent).toBe("Learn more");
     // The question describes the listbox, which holds only the modes.
     expect(doc.querySelector("[role=listbox]")!.getAttribute("aria-describedby")).toBe(heading.id);
+    expect(button("Mode")!.getAttribute("aria-describedby")).toBe(heading.id);
     // Hand, approve badge, warning shield: each glyph's first stroke tells them apart.
     const glyph = (d: string) =>
       d.startsWith("M5.4 8.6")
@@ -402,17 +404,27 @@ describe("acpmux composer pickers", () => {
         glyph(option.querySelector("svg path")!.getAttribute("d")!),
       ),
     ).toEqual(["hand", "approve", "shield"]);
-    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe(
-      "Full AccessWithout asking for approval",
-    );
-    // An agent without a known docs page gets the question alone.
-    await act(async () => button("Mode")!.click());
+    expect(doc.querySelector(".acpmux-menu-item.acpmux-unrestricted")!.textContent).toBe("Full accessUnrestricted");
+    // Tab moves from the modes to "Learn more" with the menu still open; Escape there closes it.
+    const key = (target: Element, key: string, shiftKey = false) =>
+      act(async () => {
+        target.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, shiftKey, bubbles: true }));
+      });
+    await key(button("Mode")!, "Tab");
+    expect(doc.activeElement).toBe(heading.querySelector("a"));
+    expect(button("Mode")!.getAttribute("aria-expanded")).toBe("true");
+    await key(doc.activeElement!, "Escape");
+    expect(doc.querySelector(".acpmux-menu-heading")).toBeNull();
+    expect(doc.activeElement).toBe(button("Mode"));
+    // An agent without a known docs page gets the question alone, and Tab leaves its menu.
     await render(snapshot({ harness: "gemini", modes: codexModes }));
     await act(async () => button("Mode")!.click());
     expect(doc.querySelector(".acpmux-menu-heading span")!.textContent).toBe(
       "How should Gemini CLI actions be approved?",
     );
     expect(doc.querySelector(".acpmux-menu-heading a")).toBeNull();
+    await key(button("Mode")!, "Tab");
+    expect(button("Mode")!.getAttribute("aria-expanded")).toBe("false");
   });
 
   test("approval levels follow each agent's mode ids, and docs follow the agent a variant belongs to", () => {
@@ -422,7 +434,17 @@ describe("acpmux composer pickers", () => {
       "auto",
       "full",
     ]);
-    expect(["read-only", "auto", "full-access"].map(approvalLevel)).toEqual(["ask", "auto", "full"]);
+    expect(["read-only", "auto", "full-access", "dontAsk"].map((id) => approvalLevel(id))).toEqual([
+      "ask",
+      "auto",
+      "full",
+      "ask",
+    ]);
+    // A stated kind wins over the id; an unknown kind falls back to it.
+    expect(approvalLevel({ id: "agent", _meta: { kind: "full_access" } })).toBe("full");
+    expect(approvalLevel({ id: "agent-full-access", _meta: { kind: "standard" } })).toBe("ask");
+    expect(approvalLevel({ id: "read-only", _meta: { kind: "toString" } })).toBe("ask");
+    expect(approvalLevel({ id: "agent", _meta: null })).toBe("auto");
     expect(approvalDocs("claude-sr")).toBe("https://code.claude.com/docs/en/permission-modes");
     expect(approvalDocs("constructor")).toBeUndefined();
     expect(approvalDocs(undefined)).toBeUndefined();

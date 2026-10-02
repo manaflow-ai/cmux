@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { agentName } from "./agents";
 import { ApproveIcon, HandIcon } from "./approvalIcons";
-import { approvalDocs, approvalLevel, type ApprovalLevel } from "./approvalModes";
+import { approvalDocs, approvalLevel, type ApprovalLevel, type ApprovalMode } from "./approvalModes";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -73,7 +73,15 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
 
 const comboId = (model: string, effort?: string) => `${model}\u0000${effort ?? ""}`;
 
-export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
+export type Choice = {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  /// Draws the row in the theme's warning color: a mode that skips approvals.
+  warn?: boolean;
+};
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -95,11 +103,13 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
     (model) => ({ id: model.id, name: model.name || model.id }),
   );
   const allModes: Choice[] = (summary?.modes?.availableModes ?? []).map((mode) => {
+    const level = approvalLevel(mode);
     return {
       id: mode.id,
       name: mode.name || mode.id,
       description: mode.description,
-      icon: approvalIcon(approvalLevel(mode.id)),
+      icon: approvalIcon(level),
+      warn: level === "full",
     };
   });
   const plan = allModes.find((choice) => isPlan(choice.id));
@@ -202,8 +212,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort, settleMs 
       {modes.length > 0 && (
         <Picker
           label={PICKER_LABELS.mode}
-          warnUnrestricted
-          className={`acpmux-mode${mode && unrestricted(mode.id) ? " acpmux-unrestricted" : ""}`}
+          className={`acpmux-mode${mode?.warn ? " acpmux-unrestricted" : ""}`}
           button={
             <>
               <ShieldIcon />
@@ -377,8 +386,8 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
 }
 
 /// Modes that skip approvals draw in the theme's warning color, as Codex draws "Full access".
-export function unrestricted(modeId: string): boolean {
-  return approvalLevel(modeId) === "full";
+export function unrestricted(mode: ApprovalMode | string): boolean {
+  return approvalLevel(mode) === "full";
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
@@ -397,7 +406,6 @@ export function Picker({
   button,
   sections,
   align,
-  warnUnrestricted = false,
   returnFocus = true,
   search,
   heading,
@@ -408,7 +416,6 @@ export function Picker({
   button: React.ReactNode;
   sections: Section[];
   align: "start" | "end";
-  warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
   search?: MenuSearch;
@@ -424,6 +431,7 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const learnMore = useRef<HTMLAnchorElement>(null);
   const menuId = useId();
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
@@ -498,7 +506,11 @@ export function Picker({
     }
     // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
     else if (event.key === " ") event.preventDefault();
-    else if (event.key === "Tab") setOpen(false);
+    // Tab reaches the heading's link before it leaves the menu; Shift-Tab from the link comes back.
+    else if (event.key === "Tab" && !event.shiftKey && learnMore.current) {
+      event.preventDefault();
+      learnMore.current.focus();
+    } else if (event.key === "Tab") setOpen(false);
   };
   const keyUp = (event: React.KeyboardEvent) => {
     if (open && event.key === " " && !search?.query) {
@@ -527,6 +539,7 @@ export function Picker({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
+        aria-describedby={open && heading ? `${menuId}-heading` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         onClick={() => (open ? setOpen(false) : show())}
@@ -541,7 +554,19 @@ export function Picker({
             <div className="acpmux-menu-heading" id={`${menuId}-heading`}>
               <span>{heading.label}</span>
               {heading.link && (
-                <a href={heading.link} rel="noreferrer" onMouseDown={(event) => event.preventDefault()}>
+                <a
+                  ref={learnMore}
+                  href={heading.link}
+                  rel="noreferrer"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      close();
+                    }
+                  }}
+                >
                   {PICKER_LABELS.learnMore}
                 </a>
               )}
@@ -590,7 +615,7 @@ export function Picker({
                         tabIndex={-1}
                         aria-selected={at === selected}
                         aria-checked={section.current === undefined ? undefined : current}
-                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${warnUnrestricted && unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
+                        className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}${choice.warn ? " acpmux-unrestricted" : ""}`}
                         onMouseMove={() => {
                           if (at !== selected) setActive(at);
                         }}
