@@ -64,7 +64,7 @@ scenario (`key` its golden value), `unit:` a `node --test` file.
 | browser-use | cmux | Proof | Verdict |
 | --- | --- | --- | --- |
 | `allowed_domains`, `prohibited_domains`, `block_ip_addresses` | `session.allowedDomains([...], { lock })`, `session.prohibitedDomains([...])`, `session.blockIPAddresses(true)`, `session.blockedNavigations()` | 32-agent-tools `policy-*`; unit: agent-tools `domain patterns` | better: also covers the REPL's `fetch`, `tabs.content` and site tools; `{ lock: true }` keeps the agent from lifting it; a port in a pattern must match; unsafe patterns are refused instead of ignored. As in browser-use, subresource requests are not filtered (WebKit has no request interception) |
-| redirect or link to a blocked domain | the tab goes to `about:blank`, the action fails or a notice prints | 32-agent-tools `policy-after-link` | same |
+| redirect or link to a blocked domain | the tab goes to `about:blank` and the action, or the next read of or action on the tab (each checks the live URL first), fails | 32-agent-tools `policy-after-link` | same |
 | `storage_state` load and save | `session.storageState({ path, urls })`, `session.setStorageState(stateOrPath)`, `page.context().storageState()` (Playwright's format) | unit: agent-tools `storage state: …` | same |
 | downloads tracking, `downloaded_files` | `session.downloads()`, `page.waitForEvent("download")`, `download.path()` | 32-agent-tools `downloads`, 10-files | same |
 | `auto_download_pdfs` | `page.pdf()` or `fetch` the PDF and `fs.writeFileSync` | 14-screenshots, 21-fs | skipped: WebKit shows PDFs inline; saving is one explicit call |
