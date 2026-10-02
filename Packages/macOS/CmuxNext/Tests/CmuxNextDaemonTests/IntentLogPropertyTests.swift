@@ -40,11 +40,15 @@ import Testing
     static let steps = 80
 
     @Test(arguments: 0..<8)
-    func mirrorAndIntentLogKeepTheirInvariants(chunk: Int) throws {
+    func mirrorAndIntentLogKeepTheirInvariants(chunk: Int) async throws {
         let template = try Fixture.response(DaemonTree.self, "list-workspaces.json")
         for seed in (chunk * Self.seedsPerCase)..<((chunk + 1) * Self.seedsPerCase) {
             var world = IntentWorld(seed: UInt64(seed), template: template)
             try world.run(steps: Self.steps)
+            // Each seed runs on the main actor; yield between seeds so the
+            // package's other main-actor tests (socket round trips with
+            // deadlines) are not starved for the whole chunk.
+            await Task.yield()
         }
     }
 }
