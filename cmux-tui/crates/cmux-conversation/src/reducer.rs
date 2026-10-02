@@ -228,6 +228,9 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
         }
+        // Edits, retractions and reactions change a message, not the
+        // conversation list order, so `updated_at` stays (their change
+        // carries only the message).
         Op::MessageEdit { message_id, parts } => {
             let mut message = target(head, request, message_id)?;
             if message.author != request.actor {
@@ -241,7 +244,6 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             message.edited_at = Some(now.to_string());
             let part_count = message.parts.len();
             message.reactions.retain(|reaction| (reaction.part_index as usize) < part_count);
-            next.updated_at = now.to_string();
             updated(message)
         }
         Op::MessageRetract { message_id } => {
@@ -255,7 +257,6 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
             message.parts.clear();
             message.reactions.clear();
             message.retracted_at = Some(now.to_string());
-            next.updated_at = now.to_string();
             updated(message)
         }
         Op::ReactionAdd { message_id, part_index, reaction } => {
@@ -280,11 +281,13 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 kind: reaction.clone(),
                 at: now.to_string(),
             });
-            next.updated_at = now.to_string();
             updated(message)
         }
         Op::ReactionRemove { message_id, part_index, reaction } => {
             let mut message = target(head, request, message_id)?;
+            if message.retracted_at.is_some() {
+                return Err(Reject::Retracted);
+            }
             let position = message
                 .reactions
                 .iter()
@@ -295,7 +298,6 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 })
                 .ok_or(Reject::UnknownReaction)?;
             message.reactions.remove(position);
-            next.updated_at = now.to_string();
             updated(message)
         }
         Op::ReadCursorSet { seq } => {

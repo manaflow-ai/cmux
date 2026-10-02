@@ -984,7 +984,7 @@ pub enum MuxEvent {
         conversation: String,
         rev: u64,
         transaction: Option<Arc<str>>,
-        change: Arc<serde_json::Value>,
+        change: Arc<Value>,
     },
     /// A conversation participant started or stopped typing. Ephemeral:
     /// never stored and never replayed.

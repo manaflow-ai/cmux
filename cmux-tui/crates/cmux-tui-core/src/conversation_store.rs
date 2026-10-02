@@ -555,7 +555,7 @@ mod tests {
             let mut store = ConversationStore::open(Some(&directory)).unwrap();
             let created = store.create("create-1", "user_local", "mux", &participants()).unwrap();
             assert!(!created.replayed);
-            let id = created.summary.id.clone();
+            let id = created.summary.id;
             assert!(id.starts_with("conv_") && id.len() == 31);
             for index in 1..=3 {
                 let key = format!("c{index}");

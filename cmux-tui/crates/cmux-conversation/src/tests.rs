@@ -49,11 +49,12 @@ struct Host {
     head: ConversationHead,
     messages: Vec<Message>,
     next_id: u64,
+    now: &'static str,
 }
 
 impl Host {
     fn new() -> Self {
-        Self { head: new_head(), messages: Vec::new(), next_id: 1 }
+        Self { head: new_head(), messages: Vec::new(), next_id: 1, now: NOW }
     }
 
     fn find(&self, id: &str) -> Option<&Message> {
@@ -68,7 +69,7 @@ impl Host {
             actor,
             idempotency_key: key,
             op: &op,
-            now: NOW,
+            now: self.now,
             new_message_id: &new_message_id,
             target,
             reply_target,
@@ -268,6 +269,32 @@ fn conversation_concurrent_reactions_from_two_authors_both_survive() {
         reaction: ReactionKind::Tapback(Tapback::Like),
     };
     assert_eq!(host.run(ALICE, "a6", out_of_range).unwrap_err(), Reject::InvalidPartIndex);
+}
+
+#[test]
+fn conversation_message_changes_keep_the_list_order() {
+    let mut host = Host::new();
+    let message = host.send(ALICE, "c1", "hi");
+    host.now = "2026-10-01T13:00:00.000Z";
+    let love = ReactionKind::Tapback(Tapback::Love);
+    let id = message.id;
+    for (key, op) in [
+        ("a1", Op::ReactionAdd { message_id: id.clone(), part_index: 0, reaction: love.clone() }),
+        ("e1", Op::MessageEdit { message_id: id.clone(), parts: vec![text("edited")] }),
+        (
+            "d1",
+            Op::ReactionRemove { message_id: id.clone(), part_index: 0, reaction: love.clone() },
+        ),
+        ("a2", Op::ReactionAdd { message_id: id.clone(), part_index: 0, reaction: love.clone() }),
+        ("r1", Op::MessageRetract { message_id: id.clone() }),
+    ] {
+        host.run(ALICE, key, op).unwrap();
+        assert_eq!(host.head.updated_at, NOW, "{key} must not reorder the list");
+    }
+    let remove = Op::ReactionRemove { message_id: id, part_index: 0, reaction: love };
+    assert_eq!(host.run(ALICE, "d2", remove).unwrap_err(), Reject::Retracted);
+    host.run(ALICE, "t1", Op::TitleSet { title: "renamed".to_string() }).unwrap();
+    assert_eq!(host.head.updated_at, "2026-10-01T13:00:00.000Z");
 }
 
 #[test]
