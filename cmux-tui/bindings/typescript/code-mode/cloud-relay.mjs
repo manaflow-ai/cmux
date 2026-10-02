@@ -1,4 +1,5 @@
 import { createServer } from "node:net";
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const VM = new Set(["vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
@@ -59,11 +60,11 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
       const isMutation = descriptor.class === "mutation";
       method = isMutation ? "POST" : "POST";
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? crypto.randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
     } else {
       // Network policy operations are owner-routed through the Cloud API catalog.
       const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? crypto.randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,
