@@ -4,6 +4,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 
 ## Active streams (who owns what)
 
+- Passkeys/WebAuthn in CEF and WebKit panes (plans/cmux-next/passkeys.md proposal, its "Known bugs: do not repeat" table is required reading for every browser parity agent; local test RP and oracle in tests/passkeys): passkeys lead. CEF visibility/occlusion and agent-lease changes that touch WebAuthn coordinate with the browser lead.
 - Rust `cmux` CLI, compat-layer removal, daemon v2 state ops in `cmux-tui-core::state`: session feat-cmux-next-99, PR #16174 (branch feat-cmux-next-acpmux).
 - Ownership rewrite (session host / workspace store / client view state, strict projection, intent log + universal transaction echo, client identity, daemon-owned workspace lifecycle): ownership lead; design plans/cmux-next/ownership.md, model plans/cmux-next/formal/OwnershipConvergence.tla; step 4 (app intent log): every OptimisticPatch kind migrated (feat-cmux-next-intent-log2); remaining: sidebar model.apply copy, tab strip overrides, LayoutModel overrides, pendingClosed/pendingSelect, WindowManager pending.
 - Typed LayoutOp, daemon tab-conservation validation, proptest, TLA+ model (plans/cmux-next/formal/): tab-loss agent.
