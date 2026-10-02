@@ -408,14 +408,14 @@
       "machines": {
         "title": "Machines",
         "empty": "You have no Cloud machines.",
-        "personal": "personal",
-        "team": "team",
+        "personal": "Personal",
+        "team": "Team",
         "status": {
-          "provisioning": "starting",
-          "running": "running",
-          "failed": "failed",
-          "paused": "paused",
-          "destroyed": "deleted"
+          "provisioning": "Starting",
+          "running": "Running",
+          "failed": "Failed",
+          "paused": "Paused",
+          "destroyed": "Deleted"
         }
       },
       "network": {

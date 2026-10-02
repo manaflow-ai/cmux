@@ -309,10 +309,8 @@ export async function POST(request: Request): Promise<Response> {
       const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
-      const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
-      if (!networkPolicy.ok) return networkPolicy.response;
-      const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
-      if (!agentUpdates.ok) return agentUpdates.response;
+      const machineOptions = parseCreateMachineOptions(candidate);
+      if (!machineOptions.ok) return machineOptions.response;
 
       // Resolve provider/image only after the paid-plan boundary. A free or
       // unknown plan must receive `vm_requires_pro` without consulting
@@ -377,8 +375,8 @@ export async function POST(request: Request): Promise<Response> {
         memoryMb,
         imageSize: imageSelection.size ?? undefined,
         modelPlane,
-        networkPolicy: networkPolicy.policy,
-        agentUpdates: agentUpdates.setting,
+        networkPolicy: machineOptions.networkPolicy,
+        agentUpdates: machineOptions.agentUpdates,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
@@ -415,6 +413,15 @@ export async function POST(request: Request): Promise<Response> {
       });
     },
   );
+}
+
+/** The create body's outbound network policy and agent-update setting. */
+function parseCreateMachineOptions(candidate: Record<string, unknown>) {
+  const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
+  if (!networkPolicy.ok) return networkPolicy;
+  const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
+  if (!agentUpdates.ok) return agentUpdates;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
 }
 
 /**

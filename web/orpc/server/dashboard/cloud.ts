@@ -56,7 +56,8 @@ const machines = authed
   .output(cloudMachinesSchema)
   .handler(async ({ context }) => {
     const { user } = context;
-    const teamId = user.selectedTeamId && user.selectedTeamId !== user.id ? user.selectedTeamId : null;
+    const selectedTeamId = user.selectedTeam?.id ?? null;
+    const teamId = selectedTeamId && selectedTeamId !== user.id ? selectedTeamId : null;
     const [personal, team] = await Promise.all([
       runVmWorkflow(listUserVms(user.id)),
       teamId ? runVmWorkflow(listUserVms(user.id, teamId)) : Promise.resolve([]),
