@@ -46,7 +46,7 @@ import Testing
         #expect(labels["fromTo"]?.contains("%@") == true)
         #expect(labels["memoryLimit"]?.contains("32") == true)
         let checkpointLabels = try #require(value["checkpointStrings"] as? [String: String])
-        #expect(checkpointLabels.count == 38)
+        #expect(checkpointLabels.count == 39)
         #expect(checkpointLabels["title"] == "Repository checkpoint")
         #expect(checkpointLabels["createCheckpoint"] == "Create checkpoint")
     }
