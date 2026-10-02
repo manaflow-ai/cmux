@@ -165,7 +165,7 @@ Corners come in two shapes. Continuous (`cornerCurve = .continuous`): tab pills,
 | Tab strip (darker or foreign theme) | ChromeBackdropView: .headerView behind-window blur, strip tint over it at 0.82 × its alpha | same | blur hidden, strip tint solid (also in an opaque window) | PaneContentView.swift:15,56,185 (PaneContentView.stripBackdrop, stripTint); ChromeBackdropView.swift:17,74-81 (defaultTintOpacity, applyTheme) |
 | Window | Ghostty rules: opaque, translucent + CGS blur, or macOS glass | | | WindowBackdrop.swift (WindowBackdrop) |
 
-The floating overlay row is the target for every listed surface. Today only the drop overlay, drop highlight, sticky column backdrop and refusal HUD go through `OverlaySurface`. The palette (`PaletteContentView.glass`), its actions menu and shortcut recorder, hover cards (`HoverCardPanel`), and the browser find bar, prompt bar and notices call `Glass.makePanel` directly, so under Reduce Transparency they show system Liquid Glass, not the opaque fallback. A code fix is in progress in a separate lane.
+Every listed surface draws through `OverlaySurfaceView`: the drop overlay, drop highlight, sticky column backdrop and refusal HUD directly, the palette, its actions menu and shortcut recorder, hover cards, and the browser find bar, prompt bar and notices through `Glass.makeOverlayPanel`. One observer (`ReduceTransparency`) switches every live surface when the setting changes; a theme scope repaint recolors the fallback.
 
 The "older macOS" column cannot run in the macOS app today: `Packages/macOS/CmuxNext/Package.swift` requires macOS 26. Ports on a platform without Liquid Glass use the vibrancy row where the platform has a blur, else the opaque fallback.
 

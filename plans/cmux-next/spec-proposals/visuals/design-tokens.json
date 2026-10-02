@@ -997,19 +997,19 @@
  "materials": {
   "overlay": {
    "select": "Reduce Transparency -> opaque; macOS >= 26 -> liquidGlass (NSGlassEffectView .regular, tint token:glassTint); else vibrancy (NSVisualEffectView .popover, withinWindow, tint view token:glassTint, 1/scale border token:separator)",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift:17-32,103-178 (OverlayMaterial.select)",
-   "appliesTo": "OverlaySurface users today: drop overlay, drop highlight, sticky column backdrop, refusal HUD",
-   "target": "Target for every floating glass surface, including the palette, its actions menu and shortcut recorder, hover cards, and the browser find bar, prompt bar and notices. Those surfaces call Glass.makePanel directly today, so they show system Liquid Glass under Reduce Transparency instead of the opaque fallback below. Code fix in progress in a separate lane; ports implement the target.",
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (OverlayMaterial.select, ReduceTransparency); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Glass.swift (Glass.makeOverlayPanel)",
+   "appliesTo": "Every floating glass surface: palette, its actions menu and shortcut recorder, hover cards, browser find bar, prompt bar and notices (Glass.makeOverlayPanel), drop overlay, drop highlight, sticky column backdrop, refusal HUD (OverlaySurfaceView)",
+   "liveUpdate": "One NSWorkspace accessibility observer switches every live surface; a theme scope repaint recolors the fallback.",
    "olderMacOS": "The vibrancy branch cannot run in the macOS app today: Packages/macOS/CmuxNext/Package.swift requires macOS 26. Ports without Liquid Glass use vibrancy where the platform has a blur, else the opaque fallback."
   },
   "opaqueFallback": {
    "value": "mix(opaque windowBackground, opaque textPrimary, 0.14) with 1/scale border opaque separator",
-   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift:170-174 (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
+   "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlayMaterial.swift (ThemeTokens.opaqueOverlayFill); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/OverlaySurface.swift (OverlaySurfaceView.applyTheme); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:40-42 (ChromeTunables.opaqueOverlayLift)"
   },
   "glassTintStrength": {
    "value": 1,
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/ChromeTunables.swift:43-45 (ChromeTunables.glassOverlayTintStrength)",
-   "appliesTo": "OverlaySurface only (drop overlay and the other users in materials.overlay.appliesTo). Glass.makePanel panels use token:glassTint unscaled."
+   "appliesTo": "OverlaySurface surfaces (materials.overlay.appliesTo). Raw Glass.makePanel panels use token:glassTint unscaled."
   },
   "glassPanel": {
    "value": {
@@ -2079,7 +2079,7 @@
     "cornerRadius": "panelCornerRadius",
     "offset": "space2 below or beside the anchor, space2 screen margin"
    },
-   "material": "Glass panel, tint token:glassTint. Target: the materials.overlay fallbacks (opaque under Reduce Transparency). Today the panel calls Glass.makePanel directly; code fix in progress in a separate lane.",
+   "material": "Glass panel, tint token:glassTint. The materials.overlay fallbacks (opaque under Reduce Transparency), through Glass.makeOverlayPanel.",
    "motion": {
     "workspaceDelay": "0.6 s"
    }
@@ -2224,7 +2224,7 @@
    },
    "states": {
     "panel": {
-     "material": "Glass .regular tint token:glassTint. Target: the materials.overlay fallbacks (opaque under Reduce Transparency). Today PaletteContentView.glass is Glass.makePanel; code fix in progress in a separate lane.",
+     "material": "Glass .regular tint token:glassTint. The materials.overlay fallbacks (opaque under Reduce Transparency); PaletteContentView.glass is Glass.makeOverlayPanel.",
      "rules": "token:separator above and below the list",
      "shadow": {
       "value": "alpha(token:shadow,0.22), blur space6+space4 (24), offset y space4 (8)",

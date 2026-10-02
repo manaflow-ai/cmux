@@ -3,7 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextBrowser
 import Testing
 
-/// The find bar and the prompt bar are overlay surfaces: under Reduce
+/// The find bar, prompt bar and page notices are overlay surfaces: under Reduce
 /// Transparency (injected, never the system toggle) they draw the opaque
 /// theme fill, and they follow the setting live.
 @MainActor @Suite struct BrowserOverlayReduceTransparencyTests {
@@ -26,6 +26,12 @@ import Testing
     @Test func thePromptBarResolvesThroughTheOverlaySurface() throws {
         defer { ReduceTransparency.override = nil }
         try expectFollowsReduceTransparency(PromptBarView(frame: .zero).glass, "prompt bar")
+    }
+
+    @Test func theNoticesResolveThroughTheOverlaySurface() throws {
+        defer { ReduceTransparency.override = nil }
+        try expectFollowsReduceTransparency(BrowserNoticeView(frame: .zero).glass, "notice")
+        try expectFollowsReduceTransparency(PageUnresponsiveView(frame: .zero).glass, "page unresponsive")
     }
 
     @Test func barsStartOpaqueUnderReduceTransparency() throws {
