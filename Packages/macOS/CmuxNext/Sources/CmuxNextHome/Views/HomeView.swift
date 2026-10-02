@@ -34,8 +34,16 @@ public final class HomeView: NSView {
 
     public override var acceptsFirstResponder: Bool { true }
 
+    /// Accepts focus, then hands it to the composer once AppKit finished
+    /// installing this view as first responder (a nested makeFirstResponder
+    /// inside becomeFirstResponder would be overwritten by the outer call).
     public override func becomeFirstResponder() -> Bool {
-        window?.makeFirstResponder(composer.textView) ?? false
+        // task-owner: one main-actor hop; nothing to cancel, it only moves focus inside this view
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window, window.firstResponder === self else { return }
+            window.makeFirstResponder(self.composer.textView)
+        }
+        return true
     }
 
     private func wire() {
