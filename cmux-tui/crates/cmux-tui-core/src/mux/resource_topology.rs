@@ -3235,8 +3235,10 @@ impl Mux {
             "terminal {terminal_id} is not exited"
         );
         // Invariant 3: a receipt of a host loss (outcome unknown) keeps the
-        // tabs, dead; only a recorded exit status or signal detaches them.
-        let Some(proof) = TerminalEnd::from_receipt(terminal.exit.as_ref()).detach_proof() else {
+        // tabs, dead; only a recorded exit status or signal detaches them,
+        // and a signal during a session shutdown counts as a host loss.
+        let end = self.session_shutdown.classify(TerminalEnd::from_receipt(terminal.exit.as_ref()));
+        let Some(proof) = end.detach_proof() else {
             return Ok(false);
         };
         let Some(terminal_public_id) = registry.terminal_resource_id(terminal_id)? else {
