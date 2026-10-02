@@ -394,7 +394,8 @@ public actor CloudWireGuardHub {
                 return try await start(
                     generation: startGeneration,
                     allowWhenCloudDisabled: allowWhenCloudDisabled,
-                    expectedTeamScope: expectedTeamScope
+                    expectedTeamScope: expectedTeamScope,
+                    refreshEnrollment: attempt > 0
                 )
             } catch {
                 try Task.checkCancellation()
@@ -410,10 +411,17 @@ public actor CloudWireGuardHub {
     private func start(
         generation startGeneration: UInt64,
         allowWhenCloudDisabled: Bool,
-        expectedTeamScope: AuthenticatedTeamScope?
+        expectedTeamScope: AuthenticatedTeamScope?,
+        refreshEnrollment: Bool
     ) async throws -> Ready {
         let enrollment: Enrollment
-        if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
+        if refreshEnrollment, let refresh = configuration.refreshEnrollment {
+            // A hub process can reject a previously written config without
+            // producing a useful enrollment error. Recovery must replace that
+            // state before retrying, otherwise every retry starts the same
+            // dead child and the shared socket never becomes ready.
+            enrollment = try await refresh()
+        } else if allowWhenCloudDisabled, let activationEnrollment = configuration.enrollWhenCloudDisabled {
             enrollment = try await activationEnrollment(expectedTeamScope)
         } else {
             enrollment = try await configuration.enroll()
