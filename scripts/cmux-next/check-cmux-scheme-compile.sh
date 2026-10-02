@@ -41,7 +41,7 @@ build() {
 }
 status=0
 build || status=$?
-if (( status )) && grep -qE "has been modified since the (module|precompiled) file '" "$log"; then
+if (( status )) && "$repo_root/scripts/cmux-next/stale-pcm-retry-needed.sh" "$log"; then
   echo "check-cmux-scheme-compile: stale precompiled modules in $derived_data; removing them and building again"
   "$repo_root/scripts/cmux-next/clear-stale-scheme-build-state.sh" "$derived_data"
   status=0

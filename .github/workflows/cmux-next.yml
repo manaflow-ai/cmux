@@ -28,6 +28,7 @@ on:
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -63,6 +64,7 @@ on:
       - Resources/Localizable.xcstrings
       - scripts/cmux-next/check-*.sh
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
+      - scripts/cmux-next/stale-pcm-retry-needed.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
