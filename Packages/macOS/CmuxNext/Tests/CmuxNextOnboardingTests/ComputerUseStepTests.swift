@@ -76,12 +76,13 @@ import Testing
     }
 
     /// Each row's number presses its Allow, as clicking does; a granted row's key does nothing.
-    @Test func eachRowsNumberKeyAllowsIt() throws {
+    @Test func eachRowsNumberKeyAllowsIt() async throws {
         let source = MockComputerUsePermissionSource(current: ComputerUsePermissions(accessibility: true, screenRecording: false))
         let services = MockOnboardingServices()
         services.computerUseSource = source
         let model = OnboardingModel(services: services, start: .computerUse)
         model.stepDidAppear()
+        await settle { model.computerUse.permissions.accessibility }
         let view = ComputerUseStepView(model: model.computerUse)
         view.frame = NSRect(x: 0, y: 0, width: 520, height: 200)
         view.layoutSubtreeIfNeeded()
