@@ -26,12 +26,29 @@ final class HomeConversationSession {
     private(set) var log = ConversationIntentLog()
     /// Participants typing now (ephemeral, from `conversation-typing`).
     private(set) var typing: Set<String> = []
-    @ObservationIgnored var onChange: ((Change) -> Void)?
+    /// Observers by token (each window showing this conversation has one).
+    @ObservationIgnored private var observers: [UInt64: (Change) -> Void] = [:]
+    @ObservationIgnored private var nextObserver: UInt64 = 0
     @ObservationIgnored private var loading: Task<Void, Never>?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     init(id: String) {
         self.id = id
+    }
+
+    /// Adds an observer; returns the token that removes it.
+    func observe(_ handler: @escaping (Change) -> Void) -> UInt64 {
+        nextObserver += 1
+        observers[nextObserver] = handler
+        return nextObserver
+    }
+
+    func removeObserver(_ token: UInt64) {
+        observers[token] = nil
+    }
+
+    private func emit(_ change: Change) {
+        for observer in observers.values { observer(change) }
     }
 
     /// Fetches the snapshot (first open, a gap, a reconnect). Events that
@@ -46,7 +63,7 @@ final class HomeConversationSession {
                 guard let self, !Task.isCancelled else { return }
                 if mirror == nil { mirror = ConversationMirror(snapshot: snapshot) } else { mirror?.reset(snapshot) }
                 if let mirror { log.settle(against: mirror) }
-                onChange?(.reset)
+                emit(.reset)
                 resend?()
             } catch {
                 self?.logger.error("conversation-snapshot \(id, privacy: .public): \(String(describing: error), privacy: .public)")
@@ -66,11 +83,11 @@ final class HomeConversationSession {
         case .applied(let change):
             let settled = log.settle(against: current)
             switch change {
-            case .message(let message): onChange?(.appended([message]))
-            case .messageUpdated(let message): onChange?(.updated(message))
+            case .message(let message): emit(.appended([message]))
+            case .messageUpdated(let message): emit(.updated(message))
             default: break
             }
-            if !settled.isEmpty { onChange?(.pendingChanged) }
+            if !settled.isEmpty { emit(.pendingChanged) }
             return true
         }
     }
@@ -78,13 +95,13 @@ final class HomeConversationSession {
     func setTyping(_ participant: String, on: Bool) {
         let before = typing
         if on { typing.insert(participant) } else { typing.remove(participant) }
-        if typing != before { onChange?(.typing(typing)) }
+        if typing != before { emit(.typing(typing)) }
     }
 
     // MARK: Intents
 
     func addPending(_ send: PendingConversationSend) {
-        if log.add(send) { onChange?(.pendingChanged) }
+        if log.add(send) { emit(.pendingChanged) }
     }
 
     func acknowledge(_ clientMsgID: String, result: ConversationOpResult) {
@@ -93,20 +110,20 @@ final class HomeConversationSession {
         // between the reply and the event.
         if var current = mirror, current.apply(rev: result.rev, change: result.change) != .gap {
             mirror = current
-            if case .message(let message) = result.change, !result.replayed { onChange?(.appended([message])) }
+            if case .message(let message) = result.change, !result.replayed { emit(.appended([message])) }
         }
         log.acknowledge(clientMsgID, rev: result.rev)
         if let mirror { log.settle(against: mirror) }
-        onChange?(.pendingChanged)
+        emit(.pendingChanged)
     }
 
     func reject(_ clientMsgID: String, reason: String) {
         log.reject(clientMsgID, reason: reason)
-        onChange?(.pendingChanged)
+        emit(.pendingChanged)
     }
 
     func retry(_ clientMsgID: String) -> PendingConversationSend? {
-        defer { onChange?(.pendingChanged) }
+        defer { emit(.pendingChanged) }
         return log.retry(clientMsgID)
     }
 }
