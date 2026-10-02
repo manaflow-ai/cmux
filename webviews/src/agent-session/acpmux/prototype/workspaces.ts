@@ -4,19 +4,28 @@
 import { WORKED_SESSION } from "../mockFixture";
 
 export type TabKind = "agent" | "terminal" | "browser";
-export type WorkspaceTab = { id: string; kind: TabKind; title: string; sessionId?: string; url?: string };
-export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string };
+export type WorkspaceTab = {
+  id: string;
+  kind: TabKind;
+  title: string;
+  sessionId?: string;
+  url?: string;
+  /** A browser tab's profile, fixed when the tab is made (data-model.md 5). */
+  browserProfile?: string;
+};
+/** `browserProfile` is the workspace's own default, over its room's. */
+export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string; browserProfile?: string };
 export type Stack = { workspaces: Workspace[]; activeId: string };
 
-const agent = (sessionId: string, title: string): WorkspaceTab => ({
+export const agent = (sessionId: string, title: string): WorkspaceTab => ({
   id: `agent-${sessionId}`,
   kind: "agent",
   title,
   sessionId,
 });
-const terminal = (id: string, title: string): WorkspaceTab => ({ id, kind: "terminal", title });
-const browser = (id: string, title: string, url: string): WorkspaceTab => ({ id, kind: "browser", title, url });
-const workspace = (id: string, ...tabs: WorkspaceTab[]): Workspace => ({ id, tabs, activeTabId: tabs[0]!.id });
+export const terminal = (id: string, title: string): WorkspaceTab => ({ id, kind: "terminal", title });
+export const browser = (id: string, title: string, url: string): WorkspaceTab => ({ id, kind: "browser", title, url });
+export const workspace = (id: string, ...tabs: WorkspaceTab[]): Workspace => ({ id, tabs, activeTabId: tabs[0]!.id });
 
 /** What a few hours of work leave open, on the #16642 fixture's sessions. */
 export const seedStack: Stack = {
