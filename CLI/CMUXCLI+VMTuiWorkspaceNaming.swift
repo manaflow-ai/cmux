@@ -19,15 +19,24 @@ extension CMUXCLI.VMTuiOpenOptions {
 }
 
 extension CMUXCLI {
-    /// Parameters shared by both Cloud bind calls. The generated title is
-    /// metadata about the local placeholder, never an identity or a remote
-    /// workspace name; explicit titles intentionally omit it.
+    static func remoteWorkspaceName(
+        _ workspaceID: String,
+        machine: String,
+        in catalog: [String: Any]
+    ) -> String? {
+        VMRemoteWorkspaceResolver().remoteWorkspaceName(workspaceID, machine: machine, in: catalog)
+    }
+
+    /// Parameters shared by both Cloud bind calls. The generated title identifies
+    /// the local optimistic placeholder; the optional remote name is an accepted
+    /// daemon label used to adopt that placeholder without a later name flash.
     static func cloudWorkspaceBindingParameters(
         workspaceID: String,
         vmID: String,
         base: Bool,
         remoteWorkspaceID: String? = nil,
-        generatedTitle: String?
+        generatedTitle: String?,
+        remoteWorkspaceName: String? = nil
     ) -> [String: Any] {
         var params: [String: Any] = [
             "workspace_id": workspaceID,
@@ -39,6 +48,9 @@ extension CMUXCLI {
         }
         if let generatedTitle, !generatedTitle.isEmpty {
             params["generated_title"] = generatedTitle
+        }
+        if let remoteWorkspaceName, !remoteWorkspaceName.isEmpty {
+            params["remote_workspace_name"] = remoteWorkspaceName
         }
         return params
     }

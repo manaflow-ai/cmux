@@ -2,7 +2,7 @@
 set -euo pipefail
 
 : "${CMUX_DERIVED_DATA_PATH:?CMUX_DERIVED_DATA_PATH is required}"
-SOURCE_PACKAGES_DIR="${CMUX_SOURCE_PACKAGES_DIR:-$PWD/.ci-source-packages}"
+: "${CMUX_UI_XCTESTRUN:?CMUX_UI_XCTESTRUN is required}"
 
 DRC_HELPER_PATH=""
 DRC_DIAG_PATH=""
@@ -94,7 +94,7 @@ find_app_binary() {
 }
 
 run_display_resolution_churn() {
-  local token app_binary display_id app_pid app_ready render_ready xcodebuild_ok
+  local token app_binary app_frameworks display_id app_pid app_ready render_ready xcodebuild_ok
   token="$(uuidgen)"
   DRC_HELPER_PATH="$RUNNER_TEMP/create-virtual-display-display-churn-${token}"
   DRC_DIAG_PATH="/tmp/cmux-ui-test-display-churn-${token}.json"
@@ -115,6 +115,14 @@ run_display_resolution_churn() {
     exit 1
   fi
   echo "App binary: $app_binary"
+  # The relocated Debug app's first rpath is the producer's absolute
+  # DerivedData. On an owned Mac that path is this host's own compile slot at
+  # another revision, so dyld binds its frameworks and the app aborts with
+  # "Symbol not found". Point dyld at the restored products, as xctestrun does.
+  # Set on the exec line: /usr/bin/env (this script's shebang) strips DYLD_*.
+  local products
+  products="${app_binary%/cmux DEV.app/*}"
+  app_frameworks="$products:$products/PackageFrameworks"
 
   for attempt in 1 2; do
     cleanup_display_churn 2>/dev/null || true
@@ -169,7 +177,8 @@ run_display_resolution_churn() {
     display_id="$(tr -d '\n' < "$DRC_DISPLAY_ID_PATH")"
     echo "Virtual display ready: ID=$display_id"
 
-    CMUX_UI_TEST_MODE=1 \
+    DYLD_FRAMEWORK_PATH="$app_frameworks" \
+      CMUX_UI_TEST_MODE=1 \
       CMUX_UI_TEST_DIAGNOSTICS_PATH="$DRC_DIAG_PATH" \
       CMUX_UI_TEST_DISPLAY_RENDER_STATS=1 \
       CMUX_UI_TEST_TARGET_DISPLAY_ID="$display_id" \
@@ -260,10 +269,7 @@ PRELAUNCH_EOF
     DRC_START_SIGNAL_PID=$!
 
     xcodebuild_ok=false
-    if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-      -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-      -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-      -disableAutomaticPackageResolution \
+    if xcodebuild -xctestrun "$CMUX_UI_XCTESTRUN" \
       -destination "platform=macOS" \
       -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
       test-without-building 2>&1 | tee "$DRC_XCODEBUILD_LOG"; then
@@ -356,10 +362,7 @@ run_browser_find_focus() {
   persistent_display_id="$(tr -d '\n' < "$PERSISTENT_ID_PATH")"
 
   CMUX_UI_TEST_TARGET_DISPLAY_ID="$persistent_display_id" \
-    xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
-    -derivedDataPath "$CMUX_DERIVED_DATA_PATH" \
-    -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
-    -disableAutomaticPackageResolution \
+    xcodebuild -xctestrun "$CMUX_UI_XCTESTRUN" \
     -destination "platform=macOS" \
     -maximum-test-execution-time-allowance 180 \
     -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \

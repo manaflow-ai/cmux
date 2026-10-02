@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3e8a21a3080c830d3765698c21641715ff9592b480170c4c7e6a7a764d362543";
+inline constexpr std::string_view kProtocolIrSha256 = "2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -42,6 +42,8 @@ struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
 struct DeclarativeLayout;
+struct DetachClientTarget;
+enum class DetachReason;
 struct EmptyResult;
 struct ExportLayoutResult;
 struct ExportedPane;
@@ -50,6 +52,11 @@ enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
 struct FrontendProjection;
 struct GetCellPixelsResult;
+struct GetSizeStateResult;
+struct GuestUrlAcknowledgeResult;
+struct GuestUrlClaimResult;
+struct GuestUrlOpenResult;
+struct GuestUrlSubscribeResult;
 struct Id;
 struct IdMapping;
 struct IdentifyResult;
@@ -69,6 +76,7 @@ struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
 struct NotifyResult;
@@ -80,6 +88,7 @@ struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
+struct ReattachViewResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -105,9 +114,20 @@ struct ServerStatsRegistryLock;
 struct ServerStatsResult;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetSizeCountsResult;
+struct SetSizePolicyResult;
+struct SetTerminalIdlePolicyResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
+struct SizeDetachActor;
+enum class SizeDeviceKind;
+enum class SizeMode;
+struct SizeParticipant;
+struct SizePolicy;
+enum class SizeReason;
+struct SizeState;
+struct SizingIdentity;
 enum class SplitDirection;
 struct SurfaceResult;
 struct Tab;
@@ -168,6 +188,7 @@ struct FocusPaneRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
 struct GetFrontendProjectionRequest;
+struct GetSizeStateRequest;
 struct IdentifyRequest;
 struct IdsRequest;
 struct JournalFrontendEventRequest;
@@ -183,6 +204,7 @@ struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveTabRequest;
+struct MoveTabToWorkspaceRequest;
 struct MoveTerminalRequest;
 struct MoveWorkspaceRequest;
 struct NewBrowserTabRequest;
@@ -191,14 +213,18 @@ struct NewPaneRightRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
+struct NoteSizeActivityRequest;
 struct NotifyRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct PasteImageRequest;
+struct PasteImageResult;
 struct PingRequest;
 struct ProcessInfoRequest;
 struct PutFrontendProjectionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
@@ -227,7 +253,10 @@ struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
 struct SetRatioRequest;
+struct SetSizeCountsRequest;
+struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
+struct SetTerminalIdlePolicyRequest;
 struct SetViewportPaneWidthRequest;
 struct SetWindowTitleRequest;
 struct ShutdownDaemonRequest;
@@ -238,6 +267,10 @@ struct SwapPaneRequest;
 struct TerminalEventsRequest;
 struct UndoLayoutRequest;
 struct UnregisterBrowserProviderRequest;
+struct UrlOpenRequest;
+struct UrlOpenClaimRequest;
+struct UrlOpenResultRequest;
+struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
 struct ZoomPaneRequest;
@@ -272,6 +305,7 @@ struct ScreenAddedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
+struct SizeStateEvent;
 struct StatusEvent;
 struct SurfaceExitedEvent;
 struct SurfaceOutputEvent;
@@ -283,6 +317,7 @@ struct TabRenamedEvent;
 struct TerminalRegistryChangedEvent;
 struct TitleChangedEvent;
 struct TreeChangedEvent;
+struct UrlOpenEvent;
 struct VtStateEvent;
 struct WindowTitleRequestedEvent;
 struct WorkspaceAddedEvent;
@@ -319,6 +354,7 @@ enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
 enum class AgentSource {
+    plugin,
     detected,
     socket,
     hook,
@@ -338,6 +374,7 @@ struct Id {
 };
 
 struct AgentChangedEvent {
+    Field<std::string> agent{};
     std::optional<std::string> session{};
     AgentSource source{};
     AgentState state{};
@@ -419,9 +456,11 @@ enum class AttachSurfaceRequestMode {
 
 struct AttachSurfaceRequest {
     Field<std::uint16_t> cols{};
+    Field<std::string> expected_generation{};
+    Field<std::string> expected_terminal_id{};
     Field<AttachSurfaceRequestMode> mode{};
     Field<std::uint16_t> rows{};
-    Id surface{};
+    Field<Id> surface{};
     friend bool operator==(const AttachSurfaceRequest&, const AttachSurfaceRequest&) = default;
 };
 
@@ -439,6 +478,7 @@ struct AttachedViewOutcomeResult {
 struct AttachedViewResizeResult {
     bool accepted{};
     ViewAttachmentOutcome outcome{};
+    std::optional<std::string> participant{};
     std::optional<std::uint64_t> reservation_id{};
     friend bool operator==(const AttachedViewResizeResult&, const AttachedViewResizeResult&) = default;
 };
@@ -1054,18 +1094,44 @@ struct DeadPane {
 };
 
 struct DetachAttachedViewRequest {
-    std::string lease{};
+    Field<std::string> lease{};
     Id surface{};
+    Field<std::string> view{};
     friend bool operator==(const DetachAttachedViewRequest&, const DetachAttachedViewRequest&) = default;
 };
 
+struct DetachClientTarget {
+    Json value{};
+    friend bool operator==(const DetachClientTarget&, const DetachClientTarget&) = default;
+};
+
+struct SizeDetachActor {
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizeDetachActor&, const SizeDetachActor&) = default;
+};
+
 struct DetachClientRequest {
-    std::uint64_t client{};
+    Field<SizeDetachActor> by{};
+    DetachClientTarget client{};
+    Field<Id> surface{};
     friend bool operator==(const DetachClientRequest&, const DetachClientRequest&) = default;
 };
 
+enum class DetachReason {
+    network,
+    disconnected_by,
+    host_shutdown,
+    superseded,
+};
+
 struct DetachedEvent {
+    std::optional<SizeDetachActor> by{};
+    std::optional<DetachReason> reason{};
+    std::optional<std::string> scope{};
     Id surface{};
+    std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
 };
 
@@ -1249,6 +1315,83 @@ struct GetFrontendProjectionRequest {
     friend bool operator==(const GetFrontendProjectionRequest&, const GetFrontendProjectionRequest&) = default;
 };
 
+struct GetSizeStateRequest {
+    Id surface{};
+    friend bool operator==(const GetSizeStateRequest&, const GetSizeStateRequest&) = default;
+};
+
+struct Size {
+    std::uint16_t cols{};
+    std::uint16_t rows{};
+    friend bool operator==(const Size&, const Size&) = default;
+};
+
+enum class SizeDeviceKind {
+    mac,
+    iphone,
+    ipad,
+    tui,
+    browser,
+    unknown,
+};
+
+struct SizeParticipant {
+    bool counts{};
+    std::optional<bool> counts_override{};
+    std::optional<std::string> device_id{};
+    SizeDeviceKind device_kind{};
+    std::optional<std::string> device_name{};
+    std::optional<std::string> display_name{};
+    std::string id{};
+    std::string priority_key{};
+    std::optional<std::string> user_id{};
+    std::optional<std::string> via{};
+    std::optional<Size> viewport{};
+    friend bool operator==(const SizeParticipant&, const SizeParticipant&) = default;
+};
+
+enum class SizeMode {
+    latest,
+    smallest,
+    largest,
+    priority,
+    fixed,
+};
+
+struct SizePolicy {
+    Field<Size> fixed{};
+    std::optional<SizeMode> mode{};
+    std::optional<std::vector<std::string>> priority{};
+    friend bool operator==(const SizePolicy&, const SizePolicy&) = default;
+};
+
+enum class SizeReason {
+    latest,
+    smallest,
+    largest,
+    priority,
+    fixed,
+    held,
+    priority_fallback,
+};
+
+struct SizeState {
+    std::uint16_t cols{};
+    std::uint64_t generation{};
+    std::vector<std::string> owners{};
+    std::vector<SizeParticipant> participants{};
+    SizePolicy policy{};
+    SizeReason reason{};
+    std::uint16_t rows{};
+    friend bool operator==(const SizeState&, const SizeState&) = default;
+};
+
+struct GetSizeStateResult {
+    std::optional<std::string> self_participant{};
+    SizeState state{};
+    friend bool operator==(const GetSizeStateResult&, const GetSizeStateResult&) = default;
+};
+
 enum class GraphicsStatusEventKind {
     kitty_image_budget_worker_start_failed,
     kitty_image_budget_update_failed,
@@ -1265,6 +1408,26 @@ struct GraphicsStatusEvent {
     std::optional<bool> retry_exhausted{};
     std::optional<std::string> summary{};
     friend bool operator==(const GraphicsStatusEvent&, const GraphicsStatusEvent&) = default;
+};
+
+struct GuestUrlAcknowledgeResult {
+    bool accepted{};
+    friend bool operator==(const GuestUrlAcknowledgeResult&, const GuestUrlAcknowledgeResult&) = default;
+};
+
+struct GuestUrlClaimResult {
+    bool claimed{};
+    friend bool operator==(const GuestUrlClaimResult&, const GuestUrlClaimResult&) = default;
+};
+
+struct GuestUrlOpenResult {
+    bool opened{};
+    friend bool operator==(const GuestUrlOpenResult&, const GuestUrlOpenResult&) = default;
+};
+
+struct GuestUrlSubscribeResult {
+    bool url_open_ready{};
+    friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
 enum class IdMappingKind {
@@ -1466,12 +1629,6 @@ struct NotificationMarker {
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
 
-struct Size {
-    std::uint16_t cols{};
-    std::uint16_t rows{};
-    friend bool operator==(const Size&, const Size&) = default;
-};
-
 enum class TabBrowserSource {
     external,
     launched,
@@ -1572,6 +1729,7 @@ struct MintTerminalRendererResult {
     std::string incarnation{};
     std::uint16_t protocol_version{};
     std::uint32_t rights{};
+    std::optional<bool> supports_viewer_size_priority{};
     std::string terminal_id{};
     std::string token{};
     std::uint64_t ttl_ms{};
@@ -1583,6 +1741,12 @@ struct MoveTabRequest {
     Id pane{};
     Id surface{};
     friend bool operator==(const MoveTabRequest&, const MoveTabRequest&) = default;
+};
+
+struct MoveTabToWorkspaceRequest {
+    Id surface{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveTabToWorkspaceRequest&, const MoveTabToWorkspaceRequest&) = default;
 };
 
 struct MoveTerminalRequest {
@@ -1667,6 +1831,18 @@ struct NewWorkspaceRequest {
     Field<std::string> name{};
     Field<std::uint16_t> rows{};
     friend bool operator==(const NewWorkspaceRequest&, const NewWorkspaceRequest&) = default;
+};
+
+struct NoteSizeActivityRequest {
+    Id surface{};
+    Field<std::string> view{};
+    friend bool operator==(const NoteSizeActivityRequest&, const NoteSizeActivityRequest&) = default;
+};
+
+struct NoteSizeActivityResult {
+    bool changed{};
+    std::string participant{};
+    friend bool operator==(const NoteSizeActivityResult&, const NoteSizeActivityResult&) = default;
 };
 
 struct NotificationEvent {
@@ -1772,6 +1948,24 @@ struct PaneNeighborResult {
     friend bool operator==(const PaneNeighborResult&, const PaneNeighborResult&) = default;
 };
 
+struct PasteImageRequest {
+    Field<std::string> data{};
+    std::string lease{};
+    Field<std::string> mime{};
+    Field<std::uint64_t> offset{};
+    std::string op{};
+    Field<std::uint64_t> size{};
+    Id surface{};
+    std::string terminal_id{};
+    std::string upload_id{};
+    friend bool operator==(const PasteImageRequest&, const PasteImageRequest&) = default;
+};
+
+struct PasteImageResult {
+    bool accepted{};
+    friend bool operator==(const PasteImageResult&, const PasteImageResult&) = default;
+};
+
 struct PingRequest {
     friend bool operator==(const PingRequest&, const PingRequest&) = default;
 };
@@ -1793,6 +1987,7 @@ struct ProcessInfoResult {
     std::optional<std::string> command{};
     std::optional<std::string> cwd{};
     Field<std::string> foreground_cwd{};
+    Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
 };
@@ -1867,6 +2062,18 @@ struct ReadScrollbackResult {
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
 };
 
+struct ReattachViewRequest {
+    Field<bool> counts{};
+    Id surface{};
+    friend bool operator==(const ReattachViewRequest&, const ReattachViewRequest&) = default;
+};
+
+struct ReattachViewResult {
+    std::string participant{};
+    SizeState state{};
+    friend bool operator==(const ReattachViewResult&, const ReattachViewResult&) = default;
+};
+
 struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
@@ -1877,8 +2084,9 @@ struct RegisterBrowserProviderRequest {
 };
 
 struct ReleaseAttachedViewSizeRequest {
-    std::string lease{};
+    Field<std::string> lease{};
     Id surface{};
+    Field<std::string> view{};
     friend bool operator==(const ReleaseAttachedViewSizeRequest&, const ReleaseAttachedViewSizeRequest&) = default;
 };
 
@@ -2049,11 +2257,22 @@ struct ReportFocusRequest {
     friend bool operator==(const ReportFocusRequest&, const ReportFocusRequest&) = default;
 };
 
+struct SizingIdentity {
+    Field<std::string> device_id{};
+    Field<std::string> device_kind{};
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
+    Field<std::string> user_id{};
+    friend bool operator==(const SizingIdentity&, const SizingIdentity&) = default;
+};
+
 struct ResizeAttachedViewRequest {
     std::uint16_t cols{};
-    std::string lease{};
+    Field<SizingIdentity> identity{};
+    Field<std::string> lease{};
     std::uint16_t rows{};
     Id surface{};
+    Field<std::string> view{};
     friend bool operator==(const ResizeAttachedViewRequest&, const ResizeAttachedViewRequest&) = default;
 };
 
@@ -2310,8 +2529,13 @@ struct SetCellPixelsResult {
 
 struct SetClientInfoRequest {
     Field<std::vector<std::string>> capabilities{};
+    Field<std::string> device_id{};
+    Field<std::string> device_kind{};
+    Field<std::string> device_name{};
+    Field<std::string> display_name{};
     Field<std::string> kind{};
     Field<std::string> name{};
+    Field<std::string> user_id{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
 };
 
@@ -2343,11 +2567,53 @@ struct SetRatioRequest {
     friend bool operator==(const SetRatioRequest&, const SetRatioRequest&) = default;
 };
 
+struct SetSizeCountsRequest {
+    Field<std::uint64_t> client{};
+    Field<bool> counts{};
+    Field<std::string> lease{};
+    Field<std::string> participant{};
+    Id surface{};
+    Field<std::string> view{};
+    friend bool operator==(const SetSizeCountsRequest&, const SetSizeCountsRequest&) = default;
+};
+
+struct SetSizeCountsResult {
+    std::optional<bool> changed{};
+    ViewAttachmentOutcome outcome{};
+    std::optional<std::string> participant{};
+    friend bool operator==(const SetSizeCountsResult&, const SetSizeCountsResult&) = default;
+};
+
+struct SetSizePolicyRequest {
+    Field<SizePolicy> policy{};
+    Field<Id> surface{};
+    Field<Id> workspace{};
+    friend bool operator==(const SetSizePolicyRequest&, const SetSizePolicyRequest&) = default;
+};
+
+struct SetSizePolicyResult {
+    std::optional<SizeState> state{};
+    friend bool operator==(const SetSizePolicyResult&, const SetSizePolicyResult&) = default;
+};
+
 struct SetSplitRatioRequest {
     float ratio{};
     Id split{};
     Field<std::uint64_t> transaction{};
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
+};
+
+struct SetTerminalIdlePolicyRequest {
+    Field<std::uint64_t> idle_close_seconds{};
+    Field<Id> surface{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyRequest&, const SetTerminalIdlePolicyRequest&) = default;
+};
+
+struct SetTerminalIdlePolicyResult {
+    std::optional<std::uint64_t> idle_close_seconds{};
+    std::string terminal_id{};
+    friend bool operator==(const SetTerminalIdlePolicyResult&, const SetTerminalIdlePolicyResult&) = default;
 };
 
 struct SetViewportPaneWidthRequest {
@@ -2387,6 +2653,13 @@ struct SidebarPluginResult {
     std::optional<std::uint64_t> retry_after_ms{};
     std::optional<Id> surface{};
     friend bool operator==(const SidebarPluginResult&, const SidebarPluginResult&) = default;
+};
+
+struct SizeStateEvent {
+    std::optional<std::string> self_participant{};
+    SizeState state{};
+    Id surface{};
+    friend bool operator==(const SizeStateEvent&, const SizeStateEvent&) = default;
 };
 
 struct SplitRequest {
@@ -2572,6 +2845,35 @@ struct UndoLayoutRequest {
 
 struct UnregisterBrowserProviderRequest {
     friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
+};
+
+struct UrlOpenClaimRequest {
+    std::string request_id{};
+    friend bool operator==(const UrlOpenClaimRequest&, const UrlOpenClaimRequest&) = default;
+};
+
+struct UrlOpenEvent {
+    std::string request_id{};
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const UrlOpenEvent&, const UrlOpenEvent&) = default;
+};
+
+struct UrlOpenRequest {
+    std::string terminal_id{};
+    std::string url{};
+    friend bool operator==(const UrlOpenRequest&, const UrlOpenRequest&) = default;
+};
+
+struct UrlOpenResultRequest {
+    bool opened{};
+    std::string request_id{};
+    friend bool operator==(const UrlOpenResultRequest&, const UrlOpenResultRequest&) = default;
+};
+
+struct UrlOpenSubscribeRequest {
+    std::vector<std::string> terminal_ids{};
+    friend bool operator==(const UrlOpenSubscribeRequest&, const UrlOpenSubscribeRequest&) = default;
 };
 
 struct VtStateEvent {
@@ -2852,6 +3154,18 @@ struct Codec<DeclarativeLayout> {
 };
 
 template <>
+struct Codec<DetachClientTarget> {
+    static Result<Json> encode(const DetachClientTarget& value);
+    static Result<DetachClientTarget> decode(const Json& value);
+};
+
+template <>
+struct Codec<DetachReason> {
+    static Result<Json> encode(const DetachReason& value);
+    static Result<DetachReason> decode(const Json& value);
+};
+
+template <>
 struct Codec<EmptyResult> {
     static Result<Json> encode(const EmptyResult& value);
     static Result<EmptyResult> decode(const Json& value);
@@ -2897,6 +3211,36 @@ template <>
 struct Codec<GetCellPixelsResult> {
     static Result<Json> encode(const GetCellPixelsResult& value);
     static Result<GetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GetSizeStateResult> {
+    static Result<Json> encode(const GetSizeStateResult& value);
+    static Result<GetSizeStateResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlAcknowledgeResult> {
+    static Result<Json> encode(const GuestUrlAcknowledgeResult& value);
+    static Result<GuestUrlAcknowledgeResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlClaimResult> {
+    static Result<Json> encode(const GuestUrlClaimResult& value);
+    static Result<GuestUrlClaimResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlOpenResult> {
+    static Result<Json> encode(const GuestUrlOpenResult& value);
+    static Result<GuestUrlOpenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<GuestUrlSubscribeResult> {
+    static Result<Json> encode(const GuestUrlSubscribeResult& value);
+    static Result<GuestUrlSubscribeResult> decode(const Json& value);
 };
 
 template <>
@@ -3014,6 +3358,12 @@ struct Codec<MoveTerminalResult> {
 };
 
 template <>
+struct Codec<NoteSizeActivityResult> {
+    static Result<Json> encode(const NoteSizeActivityResult& value);
+    static Result<NoteSizeActivityResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<NotificationLevel> {
     static Result<Json> encode(const NotificationLevel& value);
     static Result<NotificationLevel> decode(const Json& value);
@@ -3077,6 +3427,12 @@ template <>
 struct Codec<ReadScrollbackResult> {
     static Result<Json> encode(const ReadScrollbackResult& value);
     static Result<ReadScrollbackResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReattachViewResult> {
+    static Result<Json> encode(const ReattachViewResult& value);
+    static Result<ReattachViewResult> decode(const Json& value);
 };
 
 template <>
@@ -3230,6 +3586,24 @@ struct Codec<SetCellPixelsResult> {
 };
 
 template <>
+struct Codec<SetSizeCountsResult> {
+    static Result<Json> encode(const SetSizeCountsResult& value);
+    static Result<SetSizeCountsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetSizePolicyResult> {
+    static Result<Json> encode(const SetSizePolicyResult& value);
+    static Result<SetSizePolicyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalIdlePolicyResult> {
+    static Result<Json> encode(const SetTerminalIdlePolicyResult& value);
+    static Result<SetTerminalIdlePolicyResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonResult> {
     static Result<Json> encode(const ShutdownDaemonResult& value);
     static Result<ShutdownDaemonResult> decode(const Json& value);
@@ -3245,6 +3619,54 @@ template <>
 struct Codec<Size> {
     static Result<Json> encode(const Size& value);
     static Result<Size> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeDetachActor> {
+    static Result<Json> encode(const SizeDetachActor& value);
+    static Result<SizeDetachActor> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeDeviceKind> {
+    static Result<Json> encode(const SizeDeviceKind& value);
+    static Result<SizeDeviceKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeMode> {
+    static Result<Json> encode(const SizeMode& value);
+    static Result<SizeMode> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeParticipant> {
+    static Result<Json> encode(const SizeParticipant& value);
+    static Result<SizeParticipant> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizePolicy> {
+    static Result<Json> encode(const SizePolicy& value);
+    static Result<SizePolicy> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeReason> {
+    static Result<Json> encode(const SizeReason& value);
+    static Result<SizeReason> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizeState> {
+    static Result<Json> encode(const SizeState& value);
+    static Result<SizeState> decode(const Json& value);
+};
+
+template <>
+struct Codec<SizingIdentity> {
+    static Result<Json> encode(const SizingIdentity& value);
+    static Result<SizingIdentity> decode(const Json& value);
 };
 
 template <>
@@ -3608,6 +4030,12 @@ struct Codec<GetFrontendProjectionRequest> {
 };
 
 template <>
+struct Codec<GetSizeStateRequest> {
+    static Result<Json> encode(const GetSizeStateRequest& value);
+    static Result<GetSizeStateRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<IdentifyRequest> {
     static Result<Json> encode(const IdentifyRequest& value);
     static Result<IdentifyRequest> decode(const Json& value);
@@ -3698,6 +4126,12 @@ struct Codec<MoveTabRequest> {
 };
 
 template <>
+struct Codec<MoveTabToWorkspaceRequest> {
+    static Result<Json> encode(const MoveTabToWorkspaceRequest& value);
+    static Result<MoveTabToWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MoveTerminalRequest> {
     static Result<Json> encode(const MoveTerminalRequest& value);
     static Result<MoveTerminalRequest> decode(const Json& value);
@@ -3746,6 +4180,12 @@ struct Codec<NewWorkspaceRequest> {
 };
 
 template <>
+struct Codec<NoteSizeActivityRequest> {
+    static Result<Json> encode(const NoteSizeActivityRequest& value);
+    static Result<NoteSizeActivityRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NotifyRequest> {
     static Result<Json> encode(const NotifyRequest& value);
     static Result<NotifyRequest> decode(const Json& value);
@@ -3761,6 +4201,18 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageRequest> {
+    static Result<Json> encode(const PasteImageRequest& value);
+    static Result<PasteImageRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PasteImageResult> {
+    static Result<Json> encode(const PasteImageResult& value);
+    static Result<PasteImageResult> decode(const Json& value);
 };
 
 template <>
@@ -3791,6 +4243,12 @@ template <>
 struct Codec<ReadScrollbackRequest> {
     static Result<Json> encode(const ReadScrollbackRequest& value);
     static Result<ReadScrollbackRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReattachViewRequest> {
+    static Result<Json> encode(const ReattachViewRequest& value);
+    static Result<ReattachViewRequest> decode(const Json& value);
 };
 
 template <>
@@ -3962,9 +4420,27 @@ struct Codec<SetRatioRequest> {
 };
 
 template <>
+struct Codec<SetSizeCountsRequest> {
+    static Result<Json> encode(const SetSizeCountsRequest& value);
+    static Result<SetSizeCountsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetSizePolicyRequest> {
+    static Result<Json> encode(const SetSizePolicyRequest& value);
+    static Result<SetSizePolicyRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetSplitRatioRequest> {
     static Result<Json> encode(const SetSplitRatioRequest& value);
     static Result<SetSplitRatioRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetTerminalIdlePolicyRequest> {
+    static Result<Json> encode(const SetTerminalIdlePolicyRequest& value);
+    static Result<SetTerminalIdlePolicyRequest> decode(const Json& value);
 };
 
 template <>
@@ -4025,6 +4501,30 @@ template <>
 struct Codec<UnregisterBrowserProviderRequest> {
     static Result<Json> encode(const UnregisterBrowserProviderRequest& value);
     static Result<UnregisterBrowserProviderRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenRequest> {
+    static Result<Json> encode(const UrlOpenRequest& value);
+    static Result<UrlOpenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenClaimRequest> {
+    static Result<Json> encode(const UrlOpenClaimRequest& value);
+    static Result<UrlOpenClaimRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenResultRequest> {
+    static Result<Json> encode(const UrlOpenResultRequest& value);
+    static Result<UrlOpenResultRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenSubscribeRequest> {
+    static Result<Json> encode(const UrlOpenSubscribeRequest& value);
+    static Result<UrlOpenSubscribeRequest> decode(const Json& value);
 };
 
 template <>
@@ -4232,6 +4732,12 @@ struct Codec<ScrollChangedEvent> {
 };
 
 template <>
+struct Codec<SizeStateEvent> {
+    static Result<Json> encode(const SizeStateEvent& value);
+    static Result<SizeStateEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<StatusEvent> {
     static Result<Json> encode(const StatusEvent& value);
     static Result<StatusEvent> decode(const Json& value);
@@ -4295,6 +4801,12 @@ template <>
 struct Codec<TreeChangedEvent> {
     static Result<Json> encode(const TreeChangedEvent& value);
     static Result<TreeChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<UrlOpenEvent> {
+    static Result<Json> encode(const UrlOpenEvent& value);
+    static Result<UrlOpenEvent> decode(const Json& value);
 };
 
 template <>

@@ -28,6 +28,15 @@ The alias `cmux tmux attach work` is accepted for scripts that prefer the
 shorter tmux vocabulary. The alias is attach-only; use `cmux local-tmux` for
 session listing and lifecycle operations.
 
+### In the app
+
+Open **Settings → Terminal → Keep Local Sessions Alive** to see the same
+`local-tmux list` state, start a named persistent session, or attach an
+existing live session. The Settings actions call the bundled `cmux local-tmux`
+CLI; they do not enable tmux globally or move ordinary terminal sessions into
+tmux. Use the CLI directly for the full lifecycle surface, including status,
+detach, close, cleanup, headless attach, and explicit workspace targeting.
+
 ## Lifecycle and identity
 
 The tmux server owns the shell, agent, dev-server, PTY, and scrollback process;

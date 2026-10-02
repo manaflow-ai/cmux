@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import Testing
 
 #if canImport(cmux_DEV)
@@ -12,10 +13,10 @@ import Testing
 @Suite("Cloud tree native drag ownership", .serialized)
 struct CloudTreeNativeDragOwnershipTests {
     private final class HoverWindow: NSWindow {
-        var keyWindow = false
+        var simulatedKeyWindow = false
         var pointerOnScreen = NSPoint.zero
 
-        override var isKeyWindow: Bool { keyWindow }
+        override var isKeyWindow: Bool { simulatedKeyWindow }
         override var mouseLocationOutsideOfEventStream: NSPoint { pointerOnScreen }
     }
 
@@ -37,34 +38,45 @@ struct CloudTreeNativeDragOwnershipTests {
 
         // The provisional writer must not claim an active native owner before
         // AppKit has called willBeginAt.
-        var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
-            outline,
-            pasteboardWriterForItem: node
-        )
-        let dragID: UUID = try {
-            let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
-            let pasteboard = NSPasteboard(
-                name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+        weak var abandonedWriter: CloudTreeSurfaceDragPasteboardWriter?
+        let dragID = try autoreleasepool {
+            var writer: (any NSPasteboardWriting)? = coordinator.outlineView(
+                outline,
+                pasteboardWriterForItem: node
             )
-            #expect(pasteboard.writeObjects([writer]))
-            #expect(transferRegistry.resolve(from: pasteboard) != nil)
-            let record = try #require(
-                pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
-                    .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
-            )
-            #expect(record.dragID == writer.dragID)
-            let expectedResources = try #require(node.dragGroup?.resources)
-            #expect(record.resourceIDs == expectedResources)
-            return writer.dragID
-        }()
+            let result: UUID = try {
+                let writer = try #require(writer as? CloudTreeSurfaceDragPasteboardWriter)
+                abandonedWriter = writer
+                let pasteboard = NSPasteboard(
+                    name: NSPasteboard.Name("cloud-tree-provisional-payload-\(UUID().uuidString)")
+                )
+                // A private named pasteboard owns server resources beyond an
+                // autorelease pool; release that owner before testing ARC.
+                defer { pasteboard.releaseGlobally() }
+                #expect(pasteboard.writeObjects([writer]))
+                #expect(transferRegistry.resolve(from: pasteboard) != nil)
+                let record = try #require(
+                    pasteboard.data(forType: DragOverlayRoutingPolicy.surfaceResourceTransferType)
+                        .flatMap { try? JSONDecoder().decode(SurfaceResourceDragPasteboardRecord.self, from: $0) }
+                )
+                #expect(record.dragID == writer.dragID)
+                let expectedResources = try #require(node.dragGroup?.resources)
+                #expect(record.resourceIDs == expectedResources)
+                return writer.dragID
+            }()
+            writer = nil
+            return result
+        }
         #expect(outline.activeNativeDragCoordinator == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) != nil)
 
         // No native session was promoted. Releasing the writer is the exact
         // terminal boundary and must revoke both process-local registries now.
-        writer = nil
-        await flushMainActor()
+        _ = await AppKitTestEventPump().waitUntil {
+            abandonedWriter == nil && SurfaceResourceDragRegistry.shared.group(id: dragID) == nil
+        }
 
+        #expect(abandonedWriter == nil)
         #expect(SurfaceResourceDragRegistry.shared.group(id: dragID) == nil)
         #expect(!coordinator.isDragging)
         #expect(outline.activeNativeDragCoordinator == nil)
@@ -313,11 +325,12 @@ struct CloudTreeNativeDragOwnershipTests {
         let cell = try #require(outline.view(atColumn: 0, row: 0, makeIfNecessary: true) as? CloudTreeCellView)
         let buttons = try #require(cell.subviews.last)
         let rowPoint = NSPoint(x: outline.rect(ofRow: 0).midX, y: outline.rect(ofRow: 0).midY)
-        window.pointerOnScreen = window.convertToScreen(outline.convert(rowPoint, to: nil))
+        let rowRect = NSRect(origin: outline.convert(rowPoint, to: nil), size: .zero)
+        window.pointerOnScreen = window.convertToScreen(rowRect).origin
 
         NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
         #expect(buttons.alphaValue == 0)
-        window.keyWindow = true
+        window.simulatedKeyWindow = true
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(buttons.alphaValue == 1)
         _ = window
@@ -346,7 +359,6 @@ struct CloudTreeNativeDragOwnershipTests {
     }
 
     private static let machineActions = MachineRowActions(
-        setupVPN: { _ in },
         openShell: { _ in },
         openDesktop: { _ in },
         runCommand: { _, _ in },
@@ -374,14 +386,6 @@ struct CloudTreeNativeDragOwnershipTests {
         copyPortLink: { _ in },
         refresh: {}
     )
-
-    private func flushMainActor() async {
-        await withCheckedContinuation { continuation in
-            RunLoop.main.perform(inModes: [.common]) {
-                continuation.resume()
-            }
-        }
-    }
 
     private final class TestDraggingSession: NSDraggingSession {
         private let sequence: Int

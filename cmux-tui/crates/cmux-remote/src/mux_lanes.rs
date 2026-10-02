@@ -90,6 +90,8 @@ struct MuxEnvelope<'a> {
     scope: Option<MuxName<'a>>,
     #[serde(borrow)]
     mode: Option<MuxName<'a>>,
+    #[serde(borrow)]
+    op: Option<MuxName<'a>>,
 }
 
 fn parse_envelope(line: &[u8]) -> Result<MuxEnvelope<'_>, serde_json::Error> {
@@ -158,7 +160,14 @@ impl MuxLaneTracker {
 pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
     let Ok(envelope) = parse_envelope(line) else { return Lane::Control };
     match envelope.cmd.as_ref().map(MuxName::as_str) {
-        Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state") => Lane::Bulk,
+        Some("paste-image") if envelope.op.as_ref().map(MuxName::as_str) == Some("commit") => {
+            Lane::Interactive
+        }
+        // Image transactions acknowledge every chunk before commit, so they can
+        // use bulk backpressure without delaying interactive keys or reordering paste.
+        Some("attach-surface" | "read-screen" | "read-scrollback" | "vt-state" | "paste-image") => {
+            Lane::Bulk
+        }
         Some("copy") if envelope.mode.as_ref().map(MuxName::as_str) == Some("scrollback") => {
             Lane::Bulk
         }
@@ -180,6 +189,21 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cloud_image_paste_uses_bulk_capacity_instead_of_keyboard_capacity() {
+        assert_eq!(
+            classify_client_line(br#"{"id":11,"cmd":"paste-image","op":"commit"}"#),
+            Lane::Interactive
+        );
+        assert_eq!(
+            classify_client_line(br#"{"id":9,"cmd":"paste-image","op":"chunk","data":"eA=="}"#),
+            Lane::Bulk
+        );
+        assert_eq!(
+            classify_client_line(br#"{"id":10,"cmd":"send","surface":1,"bytes":"eA=="}"#),
+            Lane::Interactive
+        );
+    }
     use std::alloc::{GlobalAlloc, Layout, System};
     use std::cell::Cell;
 

@@ -1,92 +1,110 @@
+import CmuxCloud
 import CmuxCloudMachines
 import CmuxFoundation
 import SwiftUI
 
-/// Resource readings stay below the name, aligned across machines at every width.
+/// Compact rows keep identity, resources and usage on one baseline; cards stack details.
 /// This view receives only an immutable snapshot; the panel owns stats refreshes.
 struct CloudTreeMachineRowContent: View {
     let machine: MachineSnapshot
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    var now: Date = .now
+    var resources: CloudTreeMachineResourceSection? = nil
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var fontMagnification
 
     var body: some View {
         CloudTreeMachineBand(style: style) {
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                Image(systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-                        Text(machine.displayName)
-                            .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        if machine.isDefault {
-                            Image(systemName: "star.fill")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .help(String(localized: "machines.row.default.help", defaultValue: "Default machine for New Cloud Workspace"))
-                        }
-                        if let fact = inlineFact {
-                            Text(fact)
-                                .cmuxFont(size: style.detailSize, design: style.fontDesign)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 0)
-                    }
-                    .frame(height: style.machineNameLineHeight)
-                    if style.showsMachineStats {
-                        CloudTreeMachineResourceView(metrics: CloudMachineResourcePresentation(machine: machine), style: style)
-                            .padding(.top, 3)
-                    }
+            HStack(alignment: .top, spacing: scaled(style.iconGap)) {
+                CloudTreeRowIcon(
+                    style: style,
+                    systemName: machine.freeAccess == .expired ? "lock.fill" : "cloud",
+                    tint: CloudTreeIconPalette.machine
+                )
+                .frame(width: scaled(max(style.iconSlot, style.iconSize)), height: scaled(style.machineNameLineHeight))
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                    nameRow
                     if style.machineRowLayout == .twoLine {
                         Text(subtitle)
                             .cmuxFont(size: style.detailSize, design: style.fontDesign)
                             .foregroundStyle(.tertiary)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                            .frame(height: style.machineSubtitleLineHeight)
+                            .frame(height: scaled(style.machineSubtitleLineHeight))
                     }
                 }
             }
-            .padding(.vertical, style.machineVerticalPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    /// Combines this machine's identity, activity, and resource readings for assistive technology.
-    var accessibilityLabel: String {
-        var parts = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
-        if machine.isDefault {
-            parts.append(String(localized: "machines.row.default.accessibilityLabel", defaultValue: "Default machine"))
+    /// Machine identity retains its own line at every sidebar width.
+    private var nameRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+            HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                Text(machine.displayName)
+                    .cmuxFont(size: style.machineNameSize, weight: .medium, design: style.fontDesign)
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    // Generated names use adjective-colour-noun, so the tail is the
+                    // word that distinguishes machines. Keep both ends when space is tight.
+                    .truncationMode(.middle)
+                    .layoutPriority(1)
+            }
+            Spacer(minLength: 0)
         }
+        .frame(height: scaled(style.machineNameLineHeight))
+    }
+
+    /// Combines this machine's identity, activity, and resource readings for assistive technology.
+    ///
+    /// `subtitle` in the same position the tooltip puts it: the default preset
+    /// is single-line, so the id and the created-at are not rendered anywhere
+    /// and the pointer only reaches them by hovering. Assistive technology has
+    /// no pointer, so without this the row says less to the people who have the
+    /// least other way to get it. `subtitle` always has at least the kind, so
+    /// there is no empty component to filter.
+    var accessibilityLabel: String {
+        var parts = [machine.displayName, machine.activityLabel, metrics.summary]
+        parts.append(subtitle)
+        parts.append(usageSummary)
         return parts.joined(separator: ", ")
     }
 
     /// Expands the row with its sample time, machine details, and optional billing usage.
     var toolTip: String {
-        var lines = [machine.displayName, machine.activityLabel, CloudMachineResourcePresentation(machine: machine).summary]
-        if let stats = machine.stats {
+        var lines = [machine.displayName, machine.activityLabel, metrics.summary]
+        if let sampledAt = machine.stats?.resourceSampledAt {
             lines.append(String(
                 format: String(localized: "cloudTree.resources.sampled", defaultValue: "Sampled %@"),
-                stats.sampledAt.formatted(date: .abbreviated, time: .standard)
+                sampledAt.formatted(date: .abbreviated, time: .standard)
             ))
         }
         lines.append(subtitle)
         lines.append(machine.image)
-        if let usageLine { lines.append(usageLine) }
-        return lines.joined(separator: "\n")
+        lines.append(usageSummary)
+        // A machine the catalog found before the fleet list named it is built
+        // with `image: info.image ?? ""`, and an empty line in the middle of a
+        // popup reads as a missing fact rather than an absent one.
+        return lines
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
     }
 
-    /// "$1.23 · 41K tokens · 30d": coderouter spend over the usage window. Nil
-    /// when the machine routed nothing, so an idle machine shows no spend row.
+    /// A missing backend report remains visible instead of looking like a removed feature.
+    var usageSummary: String {
+        resources?.usageSummary ?? usageLine ?? String(localized: "machines.usage.unavailable", defaultValue: "Token usage unavailable")
+    }
+
+    private var metrics: CloudMachineResourcePresentation {
+        resources?.metrics ?? CloudMachineResourcePresentation(machine: machine, now: now)
+    }
+
+    /// "$1.23 · 41K tokens · 30d", including a measured zero. Nil means no report.
     var usageLine: String? {
-        guard let usage = machine.usage, !usage.totals.isEmpty else { return nil }
-        let cost = Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
-            ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
+        guard let usage = machine.usage, let cost = usageCost else { return nil }
         let tokens = usage.totals.totalTokens.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))
         let period = String(
             format: String(localized: "machines.usage.period.days", defaultValue: "%dd"),
@@ -96,6 +114,13 @@ struct CloudTreeMachineRowContent: View {
             format: String(localized: "machines.usage.line", defaultValue: "%1$@ \u{00B7} %2$@ tokens \u{00B7} %3$@"),
             cost, tokens, period
         )
+    }
+
+    /// API-equivalent spend from a reported usage sample, including zero.
+    private var usageCost: String? {
+        guard let usage = machine.usage else { return nil }
+        return Self.usdFormatter.string(from: NSNumber(value: usage.totals.apiEquivalentUsd))
+            ?? String(format: "$%.2f", usage.totals.apiEquivalentUsd)
     }
 
     /// API-equivalent spend is always in US dollars, whatever the user's locale.
@@ -120,8 +145,17 @@ struct CloudTreeMachineRowContent: View {
             parts.append(machine.id)
         }
         parts.append(machine.kindLabel)
+        // Before the age, so "by Ada Lovelace · 3 hours ago" reads as one
+        // thought: who made it and when.
+        if let author = CloudMachineCreatorLabel.text(creator: machine.createdBy) {
+            parts.append(author)
+        }
         if let createdAt = machine.createdAt {
-            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: Date()))
+            // `now`, not `Date()`: every other part of this struct reads the
+            // injected clock, so the age was the one value a test could not
+            // pin. Both shipping call sites leave `now` at its default, so
+            // this changes no rendered text today.
+            parts.append(Self.relativeFormatter.localizedString(for: createdAt, relativeTo: now))
         }
         if machine.freeAccess == .expired {
             parts.append(String(localized: "machines.row.locked", defaultValue: "Locked"))
@@ -129,11 +163,25 @@ struct CloudTreeMachineRowContent: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Locked explains access behavior; resource and billing details have their own homes.
+    /// Legacy summary retained for callers that use the machine row model;
+    /// rendering now places these details in the Resources section.
     var inlineFact: String? {
-        machine.freeAccess == .expired
-            ? String(localized: "machines.row.locked", defaultValue: "Locked")
-            : nil
+        if machine.freeAccess == .expired {
+            return String(localized: "machines.row.locked", defaultValue: "Locked")
+        }
+        var parts: [String] = []
+        if style.showsMachineStats {
+            let metrics = self.metrics
+            parts.append([metrics.cpu, metrics.memory, metrics.disk]
+                .map { "\($0.label)\u{00A0}\($0.value)" }
+                .joined(separator: " · "))
+        }
+        parts.append(usageSummary)
+        return parts.joined(separator: " · ")
+    }
+
+    private func scaled(_ size: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(size, percent: fontMagnification)
     }
 
     private static let relativeFormatter: RelativeDateTimeFormatter = {

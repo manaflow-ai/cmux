@@ -143,6 +143,7 @@ struct MemoryPressureAggregateSample: Equatable, Sendable {
             "physical_memory_bytes": physicalMemoryBytes.map { NSNumber(value: $0) } ?? NSNull(),
             "available_memory_bytes": availableMemoryBytes.map { NSNumber(value: $0) } ?? NSNull(),
             "process_count": processCount,
+            "process_count_available": source != .coalition,
             "missing_process_count": missingProcessCount,
             "complete": isUsable
         ]

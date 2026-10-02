@@ -21,12 +21,15 @@ extension RemoteSessionCoordinator {
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
         resetBootstrapFailureTrackingLocked()
-        reconnectSuspended = false
+        endReadinessSeekLocked()
         reachabilityProbeGeneration &+= 1
         cancelControlMasterReapObservationLocked()
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
         let cleanupSucceeded = stopReverseRelayLocked(cleanupScope: cleanupScope)
+        if cleanupSucceeded {
+            cleanupRemotePasteDirectoryLocked()
+        }
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil

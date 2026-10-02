@@ -28,8 +28,9 @@ extension TabManager {
         source: Workspace.CustomTitleSource = .user,
         propagateToRemoteTmux: Bool = true,
         propagateToCloud: Bool = true,
-        catalog: SurfaceCatalog = .shared
+        catalog: SurfaceCatalog? = nil
     ) -> Bool {
+        let catalog = catalog ?? SurfaceCatalog.shared
         guard let index = tabs.firstIndex(where: { $0.id == tabId }) else { return false }
         let previousCustomTitle = tabs[index].customTitle
         let previousSource = tabs[index].effectiveCustomTitleSource

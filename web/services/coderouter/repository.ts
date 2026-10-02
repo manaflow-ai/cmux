@@ -1,11 +1,22 @@
+import { grantVmImportedAccount } from "./vmAccountImport";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
+  AccountDeletionMutationBlockedError,
+  accountDeletionAdvisoryLockKey,
+  assertAccountDeletionUserMutationAllowed,
+} from "../account/deletionLock";
+import { reportCoderouterFailure } from "./observability";
+import {
+  cloudVms,
+  coderouterPools,
+  coderouterPoolAccounts,
   coderouterAccounts,
   coderouterApiKeys,
   coderouterCredentials,
+  coderouterHandoffLeases,
   coderouterRouteTokens,
   coderouterSessionAccounts,
   coderouterVaultLeases,
@@ -20,9 +31,35 @@ import {
   type CodeRouterProvider,
 } from "./types";
 
+import { accountAccessPredicate, scopedSessionKey, type CoderouterAccountAccess } from "./accountAccess";
+import { signVmAuthorization, verifyVmAuthorization, type VmAuthorizationClaims } from "./vmAuthorization";
+import { createLastUsedWriter } from "./lastUsedWriter";
+import { refreshCompletionRegistry } from "./refreshSignal";
+import {
+  buildCooldownWriteExpressions,
+  nonTransientFailureCodePredicate,
+} from "./cooldownWrite";
+
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
+export const CODEROUTER_HANDOFF_LEASE_TTL_MS = 2 * 60 * 1_000;
+const CODEROUTER_HANDOFF_LEASE_BYTES = 32;
+const CODEROUTER_HANDOFF_LEASE_SUFFIX_LENGTH = 43;
+const MAX_HANDOFF_PRINCIPAL_ID_LENGTH = 200;
+const CODEROUTER_HANDOFF_LEASE_PATTERN = new RegExp(
+  `^crh_[A-Za-z0-9_-]{${CODEROUTER_HANDOFF_LEASE_SUFFIX_LENGTH}}$`,
+);
+const HANDOFF_LEASE_RETENTION_MS = 10 * 60 * 1_000;
+const HANDOFF_LEASE_CLEANUP_BATCH_SIZE = 100;
+const HANDOFF_LOCK_NAMESPACE = "coderouter-handoff";
 const VAULT_LEASE_MS = 30_000;
 const REFRESH_LEASE_MS = 30_000;
+export type CodeRouterHandoffTransaction = Parameters<
+  Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]
+>[0];
+
+export class CodeRouterHandoffEntitlementDenied extends Error {
+  readonly _tag = "CodeRouterHandoffEntitlementDenied";
+}
 
 export class CodeRouterLeaseBusy extends Error {
   readonly _tag = "CodeRouterLeaseBusy";
@@ -36,14 +73,160 @@ export function routeTokenHash(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
+/**
+ * Hashes the bearer value before it crosses the database boundary. Keep this
+ * separate from routeTokenHash so callers cannot accidentally persist a
+ * handoff value while adding a new repository operation.
+ */
+export function handoffLeaseHash(lease: string): string {
+  return createHash("sha256").update(lease, "utf8").digest("hex");
+}
+
+function handoffLockKey(scope: "team" | "user", id: string): string {
+  const digest = createHash("sha256").update(id, "utf8").digest("hex");
+  return `${HANDOFF_LOCK_NAMESPACE}:${scope}:${digest}`;
+}
+
+async function lockHandoffUser(
+  tx: CodeRouterHandoffTransaction,
+  stackUserId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${handoffLockKey("user", stackUserId)}, 0))`,
+  );
+}
+
+async function lockHandoffPrincipal(
+  tx: CodeRouterHandoffTransaction,
+  teamId: string,
+  stackUserId: string,
+): Promise<void> {
+  // Every operation that can create or invalidate authority acquires the
+  // team lock first, then the user lock. Keeping this order avoids deadlocks
+  // between team-scoped and user-scoped billing revocations.
+  await lockHandoffTeam(tx, teamId);
+  await lockHandoffUser(tx, stackUserId);
+}
+
+async function lockHandoffTeam(
+  tx: CodeRouterHandoffTransaction,
+  teamId: string,
+): Promise<void> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${handoffLockKey("team", teamId)}, 0))`,
+  );
+}
+
+/**
+ * Account deletion and handoff operations use the account-deletion lock first,
+ * then team and user handoff locks. Keeping invalidation in this transaction
+ * makes the tombstone/authority boundary atomic: a mint or exchange cannot
+ * insert or claim a lease after deletion has won the user lock.
+ */
+export async function invalidateCoderouterHandoffAuthority(
+  tx: CodeRouterHandoffTransaction,
+  input: {
+    readonly stackUserId: string;
+    readonly teamIds?: readonly string[];
+  },
+  now = new Date(),
+): Promise<void> {
+  const teamIds = [...new Set(input.teamIds ?? [])]
+    .filter((teamId) => boundedHandoffPrincipalId(teamId))
+    .sort();
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(input.stackUserId)}, 0))`,
+  );
+  for (const teamId of teamIds) {
+    await lockHandoffTeam(tx, teamId);
+  }
+  await lockHandoffUser(tx, input.stackUserId);
+
+  const leaseAuthority = teamIds.length > 0
+    ? or(
+      eq(coderouterHandoffLeases.stackUserId, input.stackUserId),
+      inArray(coderouterHandoffLeases.teamId, teamIds),
+    )
+    : eq(coderouterHandoffLeases.stackUserId, input.stackUserId);
+  const routeAuthority = teamIds.length > 0
+    ? or(
+      eq(coderouterRouteTokens.stackUserId, input.stackUserId),
+      inArray(coderouterRouteTokens.teamId, teamIds),
+    )
+    : eq(coderouterRouteTokens.stackUserId, input.stackUserId);
+  await tx
+    .update(coderouterHandoffLeases)
+    .set({ consumedAt: now })
+    .where(and(leaseAuthority, isNull(coderouterHandoffLeases.consumedAt)));
+  await tx
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(routeAuthority, isNull(coderouterRouteTokens.revokedAt)));
+}
+
+export function isValidCoderouterHandoffLease(lease: string): boolean {
+  return CODEROUTER_HANDOFF_LEASE_PATTERN.test(lease);
+}
+
+function newRouteToken(now: Date): { token: string; expiresAt: Date } {
+  const token = `crt_${randomBytes(32).toString("base64url")}`;
+  return {
+    token,
+    expiresAt: new Date(now.getTime() + ROUTE_TOKEN_LIFETIME_MS),
+  };
+}
+
+
 const ROUTE_TOKEN_PATTERN = /^crt_[A-Za-z0-9_-]{40,}$/;
+// cloud_vms.id is a uuid; coderouter_route_tokens.vm_id is text. Compare the
+// two only through a validated parameter, never column to column.
+const CLOUD_VM_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const API_KEY_PATTERN = /^crk_[A-Za-z0-9_-]{40,}$/;
 const API_KEY_LIFETIME_LABEL = "api key";
+// `last_used_at` is display metadata. Keep it fresh enough for the control
+// plane without turning every authenticated request into a Postgres write.
+// The usage ledger remains per-request and is the source of truth for billing.
+const LAST_USED_WRITE_INTERVAL_MS = 60_000;
 
-const pendingApiKeyUsageWrites = new Map<string, {
-  readonly teamId: string;
-  readonly promise: Promise<void>;
-}>();
+const apiKeyLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterApiKeys)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterApiKeys.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterApiKeys.id, id),
+        isNull(coderouterApiKeys.revokedAt),
+        or(isNull(coderouterApiKeys.lastUsedAt), lte(coderouterApiKeys.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("api_key_usage", "api_key_last_used"),
+});
+
+const routeTokenLastUsed = createLastUsedWriter({
+  intervalMs: LAST_USED_WRITE_INTERVAL_MS,
+  write: (id, now, staleBefore) => {
+    const nowIso = now.toISOString();
+    return cloudDb()
+      .update(coderouterRouteTokens)
+      .set({
+        lastUsedAt: sql`GREATEST(COALESCE(${coderouterRouteTokens.lastUsedAt}, ${nowIso}::timestamptz), ${nowIso}::timestamptz)`,
+      })
+      .where(and(
+        eq(coderouterRouteTokens.id, id),
+        or(isNull(coderouterRouteTokens.lastUsedAt), lte(coderouterRouteTokens.lastUsedAt, staleBefore)),
+      ));
+  },
+  reportFailure: () => reportLastUsedWriteFailure("route_token_usage", "route_token_last_used"),
+});
+
+/** Resolves when this process's deferred route-token `last_used_at` writes for the team have settled. */
+export function routeTokenLastUsedWritesSettled(teamId: string): Promise<void> {
+  return routeTokenLastUsed.settled(teamId);
+}
 
 export type RouteTokenPrincipal = {
   readonly teamId: string;
@@ -52,6 +235,7 @@ export type RouteTokenPrincipal = {
   readonly vmId: string | null;
   /** Opaque database id when a long-lived API key authenticated the request. */
   readonly apiKeyId?: string | null;
+  readonly poolId?: string | null;
 };
 
 export async function issueRouteToken(
@@ -60,14 +244,223 @@ export async function issueRouteToken(
   label = "cli",
   options?: { readonly vmId?: string },
 ): Promise<{ token: string; expiresAt: Date }> {
-  const token = `crt_${randomBytes(32).toString("base64url")}`;
+  const issued = newRouteToken(new Date());
+  await cloudDb().insert(coderouterRouteTokens).values({
+    teamId,
+    stackUserId,
+    tokenHash: routeTokenHash(issued.token),
+    label,
+    vmId: options?.vmId ?? null,
+    expiresAt: issued.expiresAt,
+  });
+  return issued;
+}
+
+export async function issueCoderouterHandoffLease(
+  teamId: string,
+  stackUserId: string,
+  now = new Date(),
+  authorize?: CodeRouterHandoffAuthorizer,
+): Promise<{ lease: string; expiresAt: Date }> {
+  if (!boundedHandoffPrincipalId(teamId) || !boundedHandoffPrincipalId(stackUserId)) {
+    throw new Error("invalid CodeRouter handoff principal");
+  }
+  const lease = `crh_${
+    randomBytes(CODEROUTER_HANDOFF_LEASE_BYTES).toString("base64url")
+  }`;
+  const expiresAt = new Date(now.getTime() + CODEROUTER_HANDOFF_LEASE_TTL_MS);
+  const db = cloudDb();
+  // Cleanup is deliberately isolated from issuance. PostgreSQL aborts the
+  // surrounding transaction after a failed DELETE; catching that exception
+  // would not make a subsequent INSERT usable.
+  const cleanupBefore = new Date(
+    now.getTime() - HANDOFF_LEASE_RETENTION_MS,
+  ).toISOString();
+  try {
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        delete from "coderouter_handoff_leases"
+        where "id" in (
+          select "id"
+          from "coderouter_handoff_leases"
+          where "expires_at" < ${cleanupBefore}::timestamptz
+          order by "expires_at" asc
+          limit ${HANDOFF_LEASE_CLEANUP_BATCH_SIZE}
+          for update skip locked
+        )
+      `);
+    });
+  } catch (error) {
+    // Expired rows are harmless; leave them for the next mint or scheduled
+    // database maintenance rather than failing closed on cleanup alone.
+    try {
+      reportCoderouterFailure("rds", error, {
+        operation: "cleanup_handoff_leases",
+      });
+    } catch {
+      // Observability is also best-effort; issuance must remain independent.
+    }
+  }
+
+  await db.transaction(async (tx) => {
+    // Serialize minting with billing revocation on the same principal lock.
+    // The entitlement read happens before this repository call, but the
+    // transaction-bound authorizer below rechecks it after this lock. This
+    // makes the entitlement decision and lease insert one authority check.
+    await assertAccountDeletionUserMutationAllowed(tx, stackUserId);
+    await lockHandoffPrincipal(tx, teamId, stackUserId);
+    if (authorize && !(await authorize({ teamId, stackUserId }, tx))) {
+      throw new CodeRouterHandoffEntitlementDenied(
+        "CodeRouter entitlement is no longer active",
+      );
+    }
+    await tx.insert(coderouterHandoffLeases).values({
+      teamId,
+      stackUserId,
+      leaseHash: handoffLeaseHash(lease),
+      expiresAt,
+      createdAt: now,
+    });
+  });
+  return { lease, expiresAt };
+}
+
+function boundedHandoffPrincipalId(value: string): boolean {
+  return value.length > 0 &&
+    value.length <= MAX_HANDOFF_PRINCIPAL_ID_LENGTH &&
+    value === value.trim() &&
+    !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+export type CodeRouterHandoffIdentity = {
+  readonly teamId?: string;
+  readonly stackUserId?: string;
+};
+
+export type CodeRouterHandoffEntitlementDb = Pick<
+  ReturnType<typeof cloudDb>,
+  "select"
+>;
+
+export type CodeRouterHandoffAuthorizer = (
+  identity: {
+    readonly teamId: string;
+    readonly stackUserId: string;
+  },
+  db: CodeRouterHandoffEntitlementDb,
+) => Promise<boolean>;
+
+/**
+ * Claims a handoff row and inserts the existing route-token record in one
+ * database transaction. PostgreSQL's conditional UPDATE serializes competing
+ * claims; a failed token insert rolls the consumed marker back with the
+ * transaction, so a transient database error never burns a valid lease. An
+ * optional authorizer is evaluated against the stored principal immediately
+ * before the claim, which lets hosted billing revalidate possession-only
+ * exchanges without requiring Stack credentials.
+ */
+export async function exchangeCoderouterHandoffLease(
+  lease: string,
+  now = new Date(),
+  expectedIdentity: CodeRouterHandoffIdentity = {},
+  authorize?: CodeRouterHandoffAuthorizer,
+): Promise<
+  | {
+    readonly teamId: string;
+    readonly stackUserId: string;
+    readonly token: string;
+    readonly expiresAt: Date;
+  }
+  | null
+> {
+  if (!isValidCoderouterHandoffLease(lease)) return null;
+  const hasExpectedTeam = expectedIdentity.teamId !== undefined;
+  const hasExpectedUser = expectedIdentity.stackUserId !== undefined;
+  if (
+    (hasExpectedTeam &&
+      !boundedHandoffPrincipalId(expectedIdentity.teamId!)) ||
+    (hasExpectedUser &&
+      !boundedHandoffPrincipalId(expectedIdentity.stackUserId!))
+  ) {
+    return null;
+  }
+
+  const leaseHash = handoffLeaseHash(lease);
+  const predicates = [
+    eq(coderouterHandoffLeases.leaseHash, leaseHash),
+    gt(coderouterHandoffLeases.expiresAt, sql`now()`),
+    isNull(coderouterHandoffLeases.consumedAt),
+    ...(hasExpectedTeam
+      ? [eq(coderouterHandoffLeases.teamId, expectedIdentity.teamId!)]
+      : []),
+    ...(hasExpectedUser
+      ? [eq(coderouterHandoffLeases.stackUserId, expectedIdentity.stackUserId!)]
+      : []),
+  ];
+  return await cloudDb().transaction(async (tx) => {
+    const [candidate] = await tx
+      .select({
+        teamId: coderouterHandoffLeases.teamId,
+        stackUserId: coderouterHandoffLeases.stackUserId,
+      })
+      .from(coderouterHandoffLeases)
+      .where(and(...predicates))
+      .limit(1);
+    if (!candidate) return null;
+    try {
+      await assertAccountDeletionUserMutationAllowed(tx, candidate.stackUserId);
+    } catch (error) {
+      if (error instanceof AccountDeletionMutationBlockedError) return null;
+      throw error;
+    }
+    await lockHandoffPrincipal(tx, candidate.teamId, candidate.stackUserId);
+    if (authorize && !(await authorize(candidate, tx))) return null;
+
+    const [claimed] = await tx
+      .update(coderouterHandoffLeases)
+      .set({ consumedAt: now })
+      .where(and(
+        ...predicates,
+        gt(coderouterHandoffLeases.expiresAt, sql`now()`),
+      ))
+      .returning({
+        teamId: coderouterHandoffLeases.teamId,
+        stackUserId: coderouterHandoffLeases.stackUserId,
+      });
+    if (!claimed) return null;
+
+    const issued = newRouteToken(now);
+    await tx.insert(coderouterRouteTokens).values({
+      teamId: claimed.teamId,
+      stackUserId: claimed.stackUserId,
+      tokenHash: routeTokenHash(issued.token),
+      label: "native-handoff",
+      expiresAt: issued.expiresAt,
+    });
+    return { ...claimed, ...issued };
+  });
+}
+
+/** Issue a signed, VM-bound token. The hash is still persisted so revocation
+ * remains immediate during key rotation and VM teardown. */
+export async function issueVmAuthorizationToken(
+  teamId: string,
+  stackUserId: string,
+  vmId: string,
+): Promise<{ token: string; expiresAt: Date }> {
   const expiresAt = new Date(Date.now() + ROUTE_TOKEN_LIFETIME_MS);
+  const token = await signVmAuthorization({
+    vmId,
+    teamId,
+    ownerId: stackUserId,
+    expiresAt,
+  });
   await cloudDb().insert(coderouterRouteTokens).values({
     teamId,
     stackUserId,
     tokenHash: routeTokenHash(token),
-    label,
-    vmId: options?.vmId ?? null,
+    label: "vm-signed",
+    vmId,
     expiresAt,
   });
   return { token, expiresAt };
@@ -110,11 +503,41 @@ export async function revokeRouteTokensForVm(
     ));
 }
 
+/** A member left the team (Stack team_membership.deleted): their sessions
+ * for that team end now. Other teams' sessions and VM-bound tokens of the
+ * team's machines are untouched (machines are team resources). */
+export async function revokeRouteTokensForTeamMember(
+  input: { readonly teamId: string; readonly userId: string },
+  now = new Date(),
+): Promise<void> {
+  await cloudDb()
+    .update(coderouterRouteTokens)
+    .set({ revokedAt: now })
+    .where(and(
+      eq(coderouterRouteTokens.teamId, input.teamId),
+      eq(coderouterRouteTokens.stackUserId, input.userId),
+      isNull(coderouterRouteTokens.vmId),
+      isNull(coderouterRouteTokens.revokedAt),
+    ));
+}
+
 export async function revokeRouteTokensForUser(
   stackUserId: string,
   now = new Date(),
 ): Promise<void> {
   await cloudDb().transaction(async (tx) => {
+    // Keep account deletion and handoff authority invalidation serialized.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${accountDeletionAdvisoryLockKey(stackUserId)}, 0))`,
+    );
+    await lockHandoffUser(tx, stackUserId);
+    await tx
+      .update(coderouterHandoffLeases)
+      .set({ consumedAt: now })
+      .where(and(
+        eq(coderouterHandoffLeases.stackUserId, stackUserId),
+        isNull(coderouterHandoffLeases.consumedAt),
+      ));
     await tx
       .update(coderouterRouteTokens)
       .set({ revokedAt: now })
@@ -137,6 +560,14 @@ export async function revokeRouteTokensForTeam(
   now = new Date(),
 ): Promise<void> {
   await cloudDb().transaction(async (tx) => {
+    await lockHandoffTeam(tx, teamId);
+    await tx
+      .update(coderouterHandoffLeases)
+      .set({ consumedAt: now })
+      .where(and(
+        eq(coderouterHandoffLeases.teamId, teamId),
+        isNull(coderouterHandoffLeases.consumedAt),
+      ));
     await tx
       .update(coderouterRouteTokens)
       .set({ revokedAt: now })
@@ -158,22 +589,63 @@ export async function authenticateRouteToken(
   token: string,
   now = new Date(),
 ): Promise<RouteTokenPrincipal | null> {
-  if (!ROUTE_TOKEN_PATTERN.test(token)) return null;
-  const [row] = await cloudDb()
-    .update(coderouterRouteTokens)
-    .set({ lastUsedAt: now })
+  if (!ROUTE_TOKEN_PATTERN.test(token)) {
+    const claims = await verifyVmAuthorization(token, now);
+    return claims ? await authenticateVmAuthorization(token, claims, now) : null;
+  }
+  // Authentication is a read-only lookup. Every model request passes here,
+  // and a per-request UPDATE made concurrent requests on one token queue on
+  // its row lock. The display timestamp is written later, rate-limited.
+  const [tokenRow] = await cloudDb()
+    .select({
+      id: coderouterRouteTokens.id,
+      teamId: coderouterRouteTokens.teamId,
+      stackUserId: coderouterRouteTokens.stackUserId,
+      vmId: coderouterRouteTokens.vmId,
+    })
+    .from(coderouterRouteTokens)
     .where(and(
       eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
       isNotNull(coderouterRouteTokens.stackUserId),
       gt(coderouterRouteTokens.expiresAt, now),
       isNull(coderouterRouteTokens.revokedAt),
     ))
-    .returning({
-      teamId: coderouterRouteTokens.teamId,
-      stackUserId: coderouterRouteTokens.stackUserId,
-      vmId: coderouterRouteTokens.vmId,
-    });
-  return row ?? null;
+    .limit(1);
+  if (!tokenRow) return null;
+  routeTokenLastUsed.schedule(tokenRow.id, tokenRow.teamId, now);
+  const row = { teamId: tokenRow.teamId, stackUserId: tokenRow.stackUserId, vmId: tokenRow.vmId };
+  if (row.vmId === null) return row;
+  if (!CLOUD_VM_ID_PATTERN.test(row.vmId)) return null;
+  const [vm] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(cloudVms)
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(eq(cloudVms.id, row.vmId), eq(cloudVms.ownerTeamId, row.teamId), sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`)).limit(1);
+  return vm ? { ...row, poolId: vm.poolId } : null;
+}
+
+/** Claims must come from verifyVmAuthorization. One read enforces immediate
+ * revocation, token/VM/owner binding, current pool and live VM ownership. */
+async function authenticateVmAuthorization(
+  token: string,
+  claims: VmAuthorizationClaims,
+  now = new Date(),
+): Promise<RouteTokenPrincipal | null> {
+  if (!CLOUD_VM_ID_PATTERN.test(claims.vm_id)) return null;
+  const [row] = await cloudDb().select({ poolId: cloudVms.coderouterPoolId })
+    .from(coderouterRouteTokens)
+    .innerJoin(cloudVms, eq(cloudVms.id, claims.vm_id))
+    .innerJoin(coderouterPools, and(eq(coderouterPools.id, cloudVms.coderouterPoolId), eq(coderouterPools.teamId, cloudVms.ownerTeamId)))
+    .where(and(
+      eq(coderouterRouteTokens.tokenHash, routeTokenHash(token)),
+      eq(coderouterRouteTokens.teamId, claims.team_id),
+      eq(coderouterRouteTokens.stackUserId, claims.owner_id),
+      eq(coderouterRouteTokens.vmId, claims.vm_id),
+      gt(coderouterRouteTokens.expiresAt, now),
+      isNull(coderouterRouteTokens.revokedAt),
+      eq(cloudVms.ownerTeamId, claims.team_id),
+      sql`${cloudVms.status} in ('provisioning', 'running', 'paused')`,
+    )).limit(1);
+  return row ? { teamId: claims.team_id, stackUserId: claims.owner_id, vmId: claims.vm_id, poolId: row.poolId } : null;
 }
 
 export type CoderouterApiKeySummary = {
@@ -234,11 +706,7 @@ export async function createApiKey(
 }
 
 export async function listApiKeys(teamId: string): Promise<readonly CoderouterApiKeySummary[]> {
-  await Promise.all(
-    [...pendingApiKeyUsageWrites.values()]
-      .filter((pending) => pending.teamId === teamId)
-      .map((pending) => pending.promise),
-  );
+  await apiKeyLastUsed.settled(teamId);
   const rows = await cloudDb()
     .select({
       id: coderouterApiKeys.id,
@@ -283,30 +751,26 @@ export async function authenticateApiKey(
   if (!row) return null;
   // Authentication stays a read-only lookup. A best-effort metadata write is
   // deferred so a slow Postgres update cannot add latency to model requests.
-  scheduleApiKeyUsageWrite(row.id, row.teamId, now);
+  apiKeyLastUsed.schedule(row.id, row.teamId, now);
   return { teamId: row.teamId, stackUserId: row.stackUserId, vmId: null, apiKeyId: row.id };
 }
 
-function scheduleApiKeyUsageWrite(id: string, teamId: string, now: Date): void {
-  if (pendingApiKeyUsageWrites.has(id)) return;
-  let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
-  pendingApiKeyUsageWrites.set(id, { teamId, promise });
-  queueMicrotask(() => {
-    void cloudDb()
-      .update(coderouterApiKeys)
-      .set({ lastUsedAt: now })
-      .where(and(
-        eq(coderouterApiKeys.id, id),
-        isNull(coderouterApiKeys.revokedAt),
-      ))
-      .then(() => undefined)
-      .catch(() => undefined)
-      .then(() => {
-        resolve();
-        pendingApiKeyUsageWrites.delete(id);
-      });
-  });
+function reportLastUsedWriteFailure(
+  failure: "api_key_usage" | "route_token_usage",
+  operation: string,
+): void {
+  // Keep repository authentication independent from the telemetry module's
+  // analytics dependency. Failure reporting is best-effort and never joins
+  // the request's critical path.
+  void import("./observability")
+    .then(({ reportCoderouterFailure }) => {
+      reportCoderouterFailure(
+        failure,
+        new Error("coderouter last-used metadata write failed"),
+        { operation },
+      );
+    })
+    .catch(() => undefined);
 }
 
 export async function revokeApiKey(
@@ -351,12 +815,17 @@ export async function revokeRouteToken(
 }
 
 export async function deleteAccount(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly teamId: string;
+  readonly stackUserId?: string;
   readonly accountId: string;
   readonly now?: Date;
 }): Promise<{ removed: boolean; lastAccount: boolean }> {
   const now = input.now ?? new Date();
   return await cloudDb().transaction(async (tx) => {
+    // Serialize account removal with handoff mint/exchange before checking
+    // whether the final provider account is being deleted.
+    await lockHandoffTeam(tx, input.teamId);
     await tx.execute(
       sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + input.teamId}, 0))`,
     );
@@ -364,6 +833,7 @@ export async function deleteAccount(input: {
       .delete(coderouterAccounts)
       .where(and(
         eq(coderouterAccounts.id, input.accountId),
+        nativeAccess(input.access ?? (input.stackUserId ? { kind: "user", userId: input.stackUserId } : undefined)),
         eq(coderouterAccounts.teamId, input.teamId),
       ))
       .returning({ id: coderouterAccounts.id });
@@ -378,6 +848,13 @@ export async function deleteAccount(input: {
       .where(eq(coderouterAccounts.teamId, input.teamId))
       .limit(1);
     if (!remaining) {
+      await tx
+        .update(coderouterHandoffLeases)
+        .set({ consumedAt: now })
+        .where(and(
+          eq(coderouterHandoffLeases.teamId, input.teamId),
+          isNull(coderouterHandoffLeases.consumedAt),
+        ));
       await tx
         .update(coderouterRouteTokens)
         .set({ revokedAt: now })
@@ -399,6 +876,7 @@ export async function deleteAccount(input: {
 
 export async function listAccounts(
   teamId: string,
+  access?: CoderouterAccountAccess,
 ): Promise<readonly CodeRouterAccountSummary[]> {
   const [rows, sessionCounts] = await Promise.all([
     cloudDb()
@@ -408,12 +886,14 @@ export async function listAccounts(
         providerAccountId: coderouterAccounts.providerAccountId,
         label: coderouterAccounts.label,
         state: coderouterAccounts.state,
+        visibility: coderouterAccounts.visibility,
+        createdBy: coderouterAccounts.createdBy,
         credentialExpiresAt: coderouterAccounts.credentialExpiresAt,
         lastFailureCode: coderouterAccounts.lastFailureCode,
         cooldownUntil: coderouterAccounts.cooldownUntil,
       })
       .from(coderouterAccounts)
-      .where(eq(coderouterAccounts.teamId, teamId)),
+      .where(and(eq(coderouterAccounts.teamId, teamId), nativeAccess(access))),
     countActiveSessionsByAccount(teamId),
   ]);
   return rows.map((row) => ({
@@ -462,17 +942,46 @@ export async function transferEncryptedAccount(input: {
   credential: EncryptedCredential;
 }): Promise<boolean> {
   if (input.sourceTeamId === input.destinationTeamId) return false;
+  if (input.credential.accountId !== input.accountId || input.credential.teamId !== input.destinationTeamId) {
+    throw new CodeRouterCredentialRace("transfer envelope scope mismatch");
+  }
+  const expectedRevision = input.credential.credentialRevision - 1;
   return await cloudDb().transaction(async (tx) => {
-    await lockCoderouterAccountMutation(tx, input.sourceTeamId, input.stackUserId);
-    await lockHandoffTeam(tx, input.destinationTeamId);
+    // Coordinate with account deletion using its existing team lock. Sorting
+    // both teams prevents opposite-direction transfers from deadlocking.
+    for (const teamId of [input.sourceTeamId, input.destinationTeamId].sort()) {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + teamId}, 0))`);
+    }
+    // Match refresh/replacement lock order: credential first, then account.
+    // Encryption happens before this transaction, so compare the source
+    // revision instead of overwriting a refresh that completed in the meantime.
+    const [updatedCredential] = await tx.update(coderouterCredentials)
+      .set({ ...encryptedValues(input.credential), updatedAt: new Date() })
+      .where(and(
+        eq(coderouterCredentials.accountId, input.accountId),
+        eq(coderouterCredentials.teamId, input.sourceTeamId),
+        eq(coderouterCredentials.provider, input.credential.provider),
+        eq(coderouterCredentials.credentialRevision, expectedRevision),
+      ))
+      .returning({ accountId: coderouterCredentials.accountId });
+    if (!updatedCredential) throw new CodeRouterCredentialRace("transfer credential revision changed");
+    await tx.delete(coderouterPoolAccounts).where(and(eq(coderouterPoolAccounts.teamId, input.sourceTeamId), eq(coderouterPoolAccounts.accountId, input.accountId)));
     const [updated] = await tx.update(coderouterAccounts)
-      .set({ teamId: input.destinationTeamId, updatedAt: new Date() })
-      .where(and(eq(coderouterAccounts.id, input.accountId), eq(coderouterAccounts.teamId, input.sourceTeamId)))
+      .set({ teamId: input.destinationTeamId, vaultRevision: input.credential.credentialRevision, updatedAt: new Date() })
+      .where(and(
+        eq(coderouterAccounts.id, input.accountId),
+        nativeAccess({ kind: "user", userId: input.stackUserId }),
+        eq(coderouterAccounts.teamId, input.sourceTeamId),
+        eq(coderouterAccounts.provider, input.credential.provider),
+        eq(coderouterAccounts.vaultRevision, expectedRevision),
+        isNull(coderouterAccounts.refreshLeaseId),
+      ))
       .returning({ id: coderouterAccounts.id });
-    if (!updated) return false;
-    await tx.update(coderouterCredentials)
-      .set({ teamId: input.destinationTeamId, ciphertext: input.credential.ciphertext, nonce: input.credential.nonce, authTag: input.credential.authTag, encryptedDataKey: input.credential.encryptedDataKey, kmsKeyId: input.credential.kmsKeyId, updatedAt: new Date() })
-      .where(eq(coderouterCredentials.accountId, input.accountId));
+    if (!updated) throw new CodeRouterCredentialRace("transfer account changed or refresh is in progress");
+    await tx.delete(coderouterSessionAccounts).where(and(
+      eq(coderouterSessionAccounts.accountId, input.accountId),
+      eq(coderouterSessionAccounts.teamId, input.sourceTeamId),
+    ));
     return true;
   });
 }
@@ -505,6 +1014,25 @@ export async function listEncryptedCredentials(
     .then((rows) => rows.map(encryptedCredentialRow));
 }
 
+/** Whether `access` may manage the team's native account: it exists in the
+ * team and is shared or the caller's own private account. */
+export async function nativeAccountAccessible(
+  teamId: string,
+  accountId: string,
+  access: CoderouterAccountAccess,
+): Promise<boolean> {
+  const [row] = await cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      eq(coderouterAccounts.teamId, teamId),
+      nativeAccess(access),
+    ))
+    .limit(1);
+  return Boolean(row);
+}
+
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
@@ -533,17 +1061,27 @@ export async function encryptedCredentialForAccount(
 }
 
 export async function insertAccountWithCredential(input: {
+  readonly access?: CoderouterAccountAccess;
+  readonly createdBy?: string;
+  readonly visibility?: "private" | "team";
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
 }): Promise<boolean> {
   const db = cloudDb();
   return await db.transaction(async (tx) => {
+    // Pair with deleteAccount's lock. This is a control-plane fence only, so
+    // model requests never wait on it.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${"coderouter:accounts:" + input.encrypted.teamId}, 0))`,
+    );
     const label = credentialLabel(input.credential);
     const [inserted] = await tx
       .insert(coderouterAccounts)
       .values({
         id: input.encrypted.accountId,
         teamId: input.encrypted.teamId,
+        createdBy: input.createdBy ?? null,
+        visibility: input.visibility ?? "private",
         provider: input.credential.provider,
         providerAccountId: providerIdentityKey(input.credential),
         label,
@@ -562,11 +1100,13 @@ export async function insertAccountWithCredential(input: {
       .returning({ id: coderouterAccounts.id });
     if (!inserted) return false;
     await tx.insert(coderouterCredentials).values(encryptedValues(input.encrypted));
+    await grantVmImportedAccount(tx, input.encrypted.teamId, inserted.id, "native", input.access);
     return true;
   });
 }
 
 export async function replaceAccountCredential(input: {
+  readonly access?: CoderouterAccountAccess;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
   readonly expectedRevision: number;
@@ -601,6 +1141,7 @@ export async function replaceAccountCredential(input: {
       })
       .where(and(
         eq(coderouterAccounts.id, input.encrypted.accountId),
+        nativeAccess(input.access),
         eq(coderouterAccounts.teamId, input.encrypted.teamId),
         eq(coderouterAccounts.vaultRevision, input.expectedRevision),
       ))
@@ -696,10 +1237,13 @@ export async function findAccountByProviderIdentity(
   teamId: string,
   provider: CodeRouterProvider,
   providerAccountId: string,
-): Promise<{ id: string; state: string; vaultRevision: number } | null> {
+  access?: CoderouterAccountAccess,
+): Promise<{ id: string; state: string; vaultRevision: number; visibility: "private" | "team"; createdBy: string | null } | null> {
   const [row] = await cloudDb()
     .select({
       id: coderouterAccounts.id,
+      visibility: coderouterAccounts.visibility,
+      createdBy: coderouterAccounts.createdBy,
       state: coderouterAccounts.state,
       vaultRevision: coderouterAccounts.vaultRevision,
     })
@@ -708,6 +1252,7 @@ export async function findAccountByProviderIdentity(
       eq(coderouterAccounts.teamId, teamId),
       eq(coderouterAccounts.provider, provider),
       eq(coderouterAccounts.providerAccountId, providerAccountId),
+      nativeAccess(access),
     ))
     .limit(1);
   return row ?? null;
@@ -741,9 +1286,9 @@ export async function bindCodexOwnerIdentity(input: {
   return row !== undefined;
 }
 
-export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential): Promise<void> {
+export async function updateAccountLabel(teamId: string, accountId: string, credential: CodeRouterCredential, access?: CoderouterAccountAccess): Promise<void> {
   await cloudDb().update(coderouterAccounts).set({ label: credentialLabel(credential), updatedAt: new Date() })
-    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId)));
+    .where(and(eq(coderouterAccounts.teamId, teamId), eq(coderouterAccounts.id, accountId), nativeAccess(access)));
 }
 
 export type RoutedAccount = {
@@ -791,21 +1336,21 @@ async function sweepExpiredRefreshLeases(
   signal?: AbortSignal,
 ): Promise<void> {
   const now = new Date();
-  await runWithCloudDbQuerySignal(signal, async () => {
-    await cloudDb()
-      .update(coderouterAccounts)
-      .set({
-        state: "active",
-        refreshLeaseId: null,
-        refreshLeaseExpiresAt: null,
-        updatedAt: now,
-      })
-      .where(and(
-        eq(coderouterAccounts.teamId, teamId),
-        eq(coderouterAccounts.state, "refreshing"),
-        lte(coderouterAccounts.refreshLeaseExpiresAt, now),
-      ));
-  });
+  const swept = await runWithCloudDbQuerySignal(signal, async () => await cloudDb()
+    .update(coderouterAccounts)
+    .set({
+      state: "active",
+      refreshLeaseId: null,
+      refreshLeaseExpiresAt: null,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(coderouterAccounts.teamId, teamId),
+      eq(coderouterAccounts.state, "refreshing"),
+      lte(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .returning({ id: coderouterAccounts.id }));
+  for (const { id } of swept) refreshCompletionRegistry.settled(id);
 }
 
 /**
@@ -819,6 +1364,7 @@ export async function findSessionAccount(
   sessionKey: string,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   let result: unknown;
   try {
@@ -828,6 +1374,7 @@ export async function findSessionAccount(
       sessionKey,
       excludedAccountIds,
       signal,
+      access,
     );
   } catch (error) {
     // The session table's migration has not been applied yet. Route without
@@ -852,6 +1399,7 @@ async function findSessionAccountStatement(
   sessionKey: string,
   excludedAccountIds: readonly string[],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<unknown> {
   return await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
       update "coderouter_session_accounts" as binding
@@ -861,6 +1409,8 @@ async function findSessionAccountStatement(
         and binding."provider" = ${bindingProvider(provider)}
         and binding."session_key" = ${sessionKey}
         and account."id" = binding."account_id"
+        and account."team_id" = binding."team_id"
+        and ${nativeAccess(access, true)}
         -- 'refreshing' is a healthy account with a credential refresh in
         -- flight (seconds). Moving the session would discard its prompt
         -- cache for no reason, so the binding stays usable.
@@ -888,14 +1438,15 @@ export async function claimAccountForPlacement(
   provider: ProviderPool,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   try {
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, true, signal);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, true, signal, access);
   } catch (error) {
     // The session table's migration has not been applied yet. Claim without
     // the session-load ordering term rather than failing the request.
     if (!isMissingSessionTableError(error)) throw error;
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, false, signal);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, false, signal, access);
   }
 }
 
@@ -905,6 +1456,7 @@ async function claimWithOrdering(
   excludedAccountIds: readonly string[],
   withSessionLoad: boolean,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   // First pass skips rows other placements hold locked, so overlapping claims
   // fan out across different accounts instead of herding onto one.
@@ -915,6 +1467,7 @@ async function claimWithOrdering(
     true,
     withSessionLoad,
     signal,
+    access,
   );
   if (spread) return spread;
   // Every usable account was locked by a concurrent claim (or none exists).
@@ -927,6 +1480,7 @@ async function claimWithOrdering(
     false,
     withSessionLoad,
     signal,
+    access,
   );
 }
 
@@ -937,12 +1491,14 @@ async function claimStatement(
   skipLocked: boolean,
   withSessionLoad: boolean,
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   const result = await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
       with candidate as (
         select account."id"
         from "coderouter_accounts" as account
         where account."team_id" = ${teamId}
+          and ${nativeAccess(access, true)}
           and ${providerMatch(sql`account."provider"`, provider)}
           and account."state" = 'active'
           and (account."cooldown_until" is null or account."cooldown_until" <= now())
@@ -1056,19 +1612,22 @@ export function createSessionAccountSelector(
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
   signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
 }) => Promise<StickyRoutedAccount | null> {
   return async (input) => {
     throwIfAborted(input.signal);
     const excluded = input.excludedAccountIds ?? [];
+    const sessionKey = scopedSessionKey(input.sessionKey, input.access);
     await dependencies.sweepLeases(input.teamId, input.signal);
     throwIfAborted(input.signal);
-    if (input.sessionKey) {
+    if (sessionKey) {
       const bound = await dependencies.findBound(
         input.teamId,
         input.provider,
-        input.sessionKey,
+        sessionKey,
         excluded,
         input.signal,
+        input.access,
       );
       throwIfAborted(input.signal);
       if (bound) return { ...bound, sticky: true };
@@ -1078,14 +1637,15 @@ export function createSessionAccountSelector(
       input.provider,
       excluded,
       input.signal,
+      input.access,
     );
     throwIfAborted(input.signal);
     if (!placed) return null;
-    if (input.sessionKey) {
+    if (sessionKey) {
       await dependencies.bind(
         input.teamId,
         bindingProvider(input.provider),
-        input.sessionKey,
+        sessionKey,
         placed.id,
         input.signal,
       );
@@ -1112,11 +1672,12 @@ export async function selectAccountForRequest(
   provider: ProviderPool,
   excludedAccountIds: readonly string[] = [],
   signal?: AbortSignal,
+  access?: CoderouterAccountAccess,
 ): Promise<RoutedAccount | null> {
   throwIfAborted(signal);
   await sweepExpiredRefreshLeases(teamId, signal);
   throwIfAborted(signal);
-  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds, signal);
+  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds, signal, access);
   throwIfAborted(signal);
   return account;
 }
@@ -1150,17 +1711,52 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
   return Array.isArray(rows) ? rows as readonly Record<string, unknown>[] : [];
 }
 
+/**
+ * When the soonest account of the pool cooling down for a transient reason
+ * (capacity, rate limit, outage) becomes usable again; `null` when none is.
+ * The Codex proxy holds a request for capacity only while this is in reach.
+ */
+export async function nextCapacityAvailableAt(input: {
+  teamId: string;
+  provider: ProviderPool;
+  signal?: AbortSignal;
+  access?: CoderouterAccountAccess;
+}): Promise<Date | null> {
+  const nonTransientFailure = nonTransientFailureCodePredicate(sql`account."last_failure_code"`);
+  const result = await runWithCloudDbQuerySignal(input.signal, () => cloudDb().execute(sql`
+      select min(account."cooldown_until") as "availableAt"
+      from "coderouter_accounts" as account
+      where account."team_id" = ${input.teamId}
+        and ${nativeAccess(input.access, true)}
+        and ${providerMatch(sql`account."provider"`, input.provider)}
+        and account."state" = 'active'
+        and account."cooldown_until" > now()
+        and not (${nonTransientFailure})
+    `));
+  const [row] = databaseRows(result);
+  const value = row?.availableAt;
+  if (value === null || value === undefined) return null;
+  const at = value instanceof Date ? value : new Date(String(value));
+  return Number.isFinite(at.getTime()) ? at : null;
+}
+
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
   signal?: AbortSignal,
+  failureCode = "rate_limited",
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
+  const cooldownUntil = new Date(Date.now() + bounded);
   await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
-      cooldownUntil: new Date(Date.now() + bounded),
-      lastFailureCode: "rate_limited",
+      ...buildCooldownWriteExpressions(
+        coderouterAccounts.cooldownUntil,
+        coderouterAccounts.lastFailureCode,
+        cooldownUntil,
+        failureCode,
+      ),
       updatedAt: new Date(),
     })
     .where(eq(coderouterAccounts.id, accountId)));
@@ -1235,6 +1831,28 @@ export async function completeRefreshLease(input: {
       throw new CodeRouterCredentialRace("credential refresh lost lease");
     }
   }));
+  refreshCompletionRegistry.settled(input.accountId);
+}
+
+/**
+ * True while the account row holds an unexpired refresh lease. Waiters on
+ * other instances re-read this to learn that a refresh has settled.
+ */
+export async function refreshLeaseActive(
+  accountId: string,
+  signal?: AbortSignal,
+  now = new Date(),
+): Promise<boolean> {
+  const [row] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
+    .select({ id: coderouterAccounts.id })
+    .from(coderouterAccounts)
+    .where(and(
+      eq(coderouterAccounts.id, accountId),
+      isNotNull(coderouterAccounts.refreshLeaseId),
+      gt(coderouterAccounts.refreshLeaseExpiresAt, now),
+    ))
+    .limit(1));
+  return row !== undefined;
 }
 
 export async function releaseRefreshLease(
@@ -1255,6 +1873,7 @@ export async function releaseRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function failRefreshLease(
@@ -1277,6 +1896,7 @@ export async function failRefreshLease(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
     )));
+  refreshCompletionRegistry.settled(accountId);
 }
 
 export async function withVaultLease<T>(
@@ -1357,4 +1977,13 @@ function encryptedCredentialRow(row: {
     ...row,
     algorithm: "aes-256-gcm",
   };
+}
+
+function nativeAccess(access?: CoderouterAccountAccess, alias = false) {
+  return accountAccessPredicate(alias ? {
+    id: sql`account.id`, teamId: sql`account.team_id`, visibility: sql`account.visibility`, createdBy: sql`account.created_by`,
+  } : {
+    id: sql`${coderouterAccounts.id}`, teamId: sql`${coderouterAccounts.teamId}`,
+    visibility: sql`${coderouterAccounts.visibility}`, createdBy: sql`${coderouterAccounts.createdBy}`,
+  }, "native", access);
 }

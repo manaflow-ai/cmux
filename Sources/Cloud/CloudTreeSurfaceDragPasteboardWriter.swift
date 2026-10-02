@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import Foundation
@@ -12,29 +13,29 @@ import Foundation
 @MainActor
 final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
     let provisionalToken: ProvisionalDragWriterOwnership.Token
-    let dragID: UUID
-    let registration: TabDragTransferRegistration
+    var dragID: UUID { registration.id }
+    let registration: CloudTreeDragRegistration
+    let machineOrdering: CloudMachineOrderingActions?
     private var sourceView: NSOutlineView?
     private var coordinator: CloudTreeOutlineView.Coordinator?
 
     init(
-        dragID: UUID,
-        registration: TabDragTransferRegistration,
+        registration: CloudTreeDragRegistration,
         sourceView: NSOutlineView,
         coordinator: CloudTreeOutlineView.Coordinator,
         provisionalToken: ProvisionalDragWriterOwnership.Token,
         nodeID: String? = nil,
-        exposesProjection: Bool = true
+        machineOrdering: CloudMachineOrderingActions? = nil
     ) {
-        self.dragID = dragID
         self.registration = registration
+        self.machineOrdering = machineOrdering
         self.sourceView = sourceView
         self.coordinator = coordinator
         self.provisionalToken = provisionalToken
         super.init()
         // Organization-only sources must not expose a pane-opening capability.
         // They still use this writer so provisional/native ownership is shared.
-        if exposesProjection { materializeRegistrationPayload() }
+        materializeRegistrationPayload()
         if let nodeID { setString(nodeID, forType: .cloudSidebarRow) }
     }
 
@@ -61,9 +62,9 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
         // only reads values written with `setPropertyList`, so proxy each
         // representation through the matching accessor before falling back to
         // a true property-list value.
-        return registration.pasteboardItem.string(forType: type)
-            ?? registration.pasteboardItem.data(forType: type)
-            ?? registration.pasteboardItem.propertyList(forType: type)
+        return registration.pasteboardRegistration?.pasteboardItem.string(forType: type)
+            ?? registration.pasteboardRegistration?.pasteboardItem.data(forType: type)
+            ?? registration.pasteboardRegistration?.pasteboardItem.propertyList(forType: type)
     }
 
     /// Copies the registration into ``NSPasteboardItem`` storage before AppKit
@@ -71,7 +72,7 @@ final class CloudTreeSurfaceDragPasteboardWriter: NSPasteboardItem {
     /// (without asking the ``NSPasteboardWriting`` accessors), so keeping the
     /// concrete item populated is required for both code paths.
     private func materializeRegistrationPayload() {
-        let item = registration.pasteboardItem
+        guard let item = registration.pasteboardRegistration?.pasteboardItem else { return }
         for type in item.types {
             if let string = item.string(forType: type) {
                 _ = setString(string, forType: type)

@@ -212,7 +212,7 @@ struct RemoteReconnectPolicyTests {
             coordinator.isSystemSleeping = true
             coordinator.reconnectRetryCount = 8
             coordinator.consecutiveUnreachableProbeCount = policy.maxConsecutiveUnreachableProbes
-            coordinator.reconnectSuspended = true
+            coordinator.parkedState = RemoteSessionParkedState(cause: .hostUnreachable, detail: "test")
         }
 
         coordinator.resetReconnectPolicyAndReconnect(reason: "test wake")
@@ -245,7 +245,7 @@ struct RemoteReconnectPolicyTests {
             coordinator.queue.sync {}
             provider.tunnel.stop()
         }
-        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424)
+        let endpoint = BrowserProxyEndpoint(host: "127.0.0.1", port: 42_424, credential: .random())
 
         coordinator.queue.sync {
             coordinator.proxyLeaseGeneration = 2
@@ -269,7 +269,7 @@ struct RemoteReconnectPolicyTests {
         let panelID = UUID()
         coordinator.queue.sync {
             coordinator.isSystemSleeping = true
-            coordinator.reconnectSuspended = true
+            coordinator.parkedState = RemoteSessionParkedState(cause: .hostUnreachable, detail: "test")
             coordinator.remotePortScanGeneration = 7
             coordinator.remotePortScanBurstActive = true
             coordinator.remotePortScanActiveReason = .command

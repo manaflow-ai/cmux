@@ -5,19 +5,31 @@ import Testing
 
 @Suite("Cloud banner core")
 struct CloudBannerCoreTests {
-    @Test("VPN warning preserves unknown and non-off states")
-    func vpnWarningOnlyProjectsExplicitOff() {
-        #expect(CloudPortsVPNWarning.projection(tunnelState: nil) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .starting) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .awaitingApproval) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .up) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .stopping) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .failed("route")) == nil)
-        #expect(CloudPortsVPNWarning.projection(tunnelState: .off) != nil)
+    /// A dismissal query participates in Observation so SwiftUI owners redraw after dismiss.
+    @MainActor
+    @Test("isDismissed observes changes made by the store")
+    func dismissalQueryInvalidatesObservation() async {
+        let suiteName = "cloud-banner-observation-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let store = CloudBannerDismissalStore(defaults: defaults)
+        let changes = AsyncStream<Void>.makeStream()
+        withObservationTracking {
+            _ = store.isDismissed(id: "tree", signature: "error-v1")
+        } onChange: {
+            changes.continuation.yield()
+        }
+
+        store.dismiss(id: "tree", signature: "error-v1")
+
+        var iterator = changes.stream.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
+        #expect(store.isDismissed(id: "tree", signature: "error-v1"))
     }
 
     @MainActor
-    @Test("two live clients preserve each other's dismissals")
+    @Test("separate clients preserve persisted dismissals")
     func clientsReadModifyWriteTheCurrentMap() {
         let suiteName = "cloud-banner-core-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -28,9 +40,8 @@ struct CloudBannerCoreTests {
         first.dismiss(id: "tunnel", signature: "awaiting-v1")
         second.dismiss(id: "stale", signature: "error-v1")
 
-        #expect(first.isDismissed(id: "tunnel", signature: "awaiting-v1"))
-        #expect(first.isDismissed(id: "stale", signature: "error-v1"))
-        #expect(second.isDismissed(id: "tunnel", signature: "awaiting-v1"))
-        #expect(second.isDismissed(id: "stale", signature: "error-v1"))
+        let restored = CloudBannerDismissalStore(defaults: defaults)
+        #expect(restored.isDismissed(id: "tunnel", signature: "awaiting-v1"))
+        #expect(restored.isDismissed(id: "stale", signature: "error-v1"))
     }
 }

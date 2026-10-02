@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import GhosttyKit
 
 class KeyboardLayout {
     private enum ModifierTranslationMode {
@@ -59,6 +60,70 @@ class KeyboardLayout {
             return result
         }
         return nil
+    }
+
+    /// Selects the event AppKit should interpret for terminal text input.
+    ///
+    /// Ghostty's auto-detected Option-as-Alt mode must not suppress AppKit's
+    /// dead-key state. An explicit `macos-option-as-alt` value remains claimed
+    /// by Ghostty, so readline and Emacs keep receiving their Meta chords.
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        config: ghostty_config_t?
+    ) -> NSEvent {
+        textInputEvent(
+            for: event,
+            translatedEvent: translatedEvent,
+            isDeadKey: isDeadKey(
+                forKeyCode: event.keyCode,
+                modifierFlags: event.modifierFlags
+            ),
+            config: config
+        )
+    }
+
+    static func textInputEvent(
+        for event: NSEvent,
+        translatedEvent: NSEvent,
+        isDeadKey: Bool,
+        config: ghostty_config_t?
+    ) -> NSEvent {
+        guard !isOptionAsAltExplicitlyConfigured(in: config),
+              isDeadKey else {
+            return translatedEvent
+        }
+        return event
+    }
+
+    /// Returns whether the key starts a dead-key composition in the active layout.
+    static func isDeadKey(
+        forKeyCode keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags
+    ) -> Bool {
+        guard let source = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let layoutDataPointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else {
+            return false
+        }
+        let layoutData = unsafeBitCast(layoutDataPointer, to: CFData.self)
+        guard let bytes = CFDataGetBytePtr(layoutData) else { return false }
+        let keyboardLayout = UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var deadKeyState: UInt32 = 0
+        var chars = [UniChar](repeating: 0, count: 4)
+        var length = 0
+        let status = UCKeyTranslate(
+            keyboardLayout, keyCode, UInt16(kUCKeyActionDisplay),
+            translationModifierKeyState(for: modifierFlags, mode: .textInput),
+            UInt32(LMGetKbdType()), 0, &deadKeyState, chars.count, &length, &chars
+        )
+        return status == noErr && deadKeyState != 0
+    }
+
+    private static func isOptionAsAltExplicitlyConfigured(in config: ghostty_config_t?) -> Bool {
+        guard let config else { return false }
+        var value: UnsafePointer<Int8>?
+        let key = "macos-option-as-alt"
+        return ghostty_config_get(config, &value, key, UInt(key.utf8.count))
     }
 
     /// Translate a physical keyCode using the current input source exactly as

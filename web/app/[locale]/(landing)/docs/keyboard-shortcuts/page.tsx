@@ -29,6 +29,7 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
   });
 }
 
+/** Documents the default bindings and the syntax for customizing shortcuts. */
 export default function KeyboardShortcutsPage() {
   const t = useTranslations("docs.keyboardShortcuts");
 

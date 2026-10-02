@@ -35,3 +35,11 @@ the checker, trusted workflow, complexity rule, and Oxlint lock entries
 unchanged in normal pull requests. Policy changes need a separate reviewed
 update. The contributor-side `Web complexity candidate` check is only an early
 local diagnostic.
+
+## Database provider
+
+cmux Cloud uses PlanetScale PostgreSQL, organization `cmux`, database `cmux-prod`. Branches are `main` (production), `staging`, and `development`. Vercel uses a PlanetScale `DATABASE_URL`; migration jobs use `DATABASE_URL` and `bun run cloud-vm:migrate -- <target>`. Aurora/RDS IAM and AWS migration-role instructions are retired. AWS KMS access for coderouter encryption is separate from database access. For PlanetScale CLI work, run `pscale auth check --format json` and pass `--org cmux` plus the confirmed branch.
+
+## Running Cloud machines
+
+Machines never update themselves: a change to guest software, the daemon's command line, or the attach contract reaches only new machines unless it is shipped to running ones. Before changing `services/vms/images/devbox/`, `scripts/build-devbox-freestyle.ts`, or attach/open/route code that reads `providerMetadata`, read [docs/cloud-guest-upgrades.md](../docs/cloud-guest-upgrades.md). Never gate a running machine on a create-time marker without a backfill in the same PR, and never answer a permanent refusal with a retryable `502`. Upgrade cmux-tui on running machines with `bun scripts/upgrade-fleet-cmux-tui.ts`.

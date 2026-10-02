@@ -11,14 +11,16 @@ struct ChatArtifactMarkdownView: View {
     let markdown: String
 
 #if canImport(UIKit)
+    @State private var assets = MarkdownWebViewerAssets(bundle: .main)
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        if MarkdownWebViewerAssets.shared.isUsable {
+        if assets.isUsable {
             MarkdownWebContentView(
                 markdown: markdown,
+                assets: assets,
                 theme: .resolve(isDark: colorScheme == .dark),
                 pageZoom: Self.pageZoom(for: dynamicTypeSize),
                 openURL: openURL

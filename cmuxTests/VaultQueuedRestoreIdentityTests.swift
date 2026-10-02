@@ -189,6 +189,21 @@ struct VaultQueuedRestoreIdentityTests {
             at: hookStateDirectory,
             withIntermediateDirectories: true
         )
+        let codexHome = hookStateDirectory.deletingLastPathComponent().appendingPathComponent(".codex", isDirectory: true)
+        let rollout = codexHome.appendingPathComponent("sessions/rollout-\(sessionID).jsonl")
+        try fileManager.createDirectory(at: rollout.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "cwd": "/tmp/vault-queued-identity",
+                "source": "cli",
+                "originator": "codex_cli_rs",
+            ],
+        ]
+        var rolloutData = try JSONSerialization.data(withJSONObject: metadata, options: [.sortedKeys])
+        rolloutData.append(0x0a)
+        try rolloutData.write(to: rollout, options: .atomic)
         let storeURL = RestorableAgentKind.codex.hookStoreFileURL(
             environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDirectory.path]
         )

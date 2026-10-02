@@ -1,5 +1,4 @@
 internal import Foundation
-
 /// The surface domain (`surface.*` plus `debug.terminals`), lifted byte-faithfully
 /// from the former `TerminalController.v2Surface*` / `v2DebugTerminals` bodies.
 /// Each payload is built directly as a ``JSONValue``; the encoded wire bytes match.
@@ -164,7 +163,8 @@ extension ControlCommandCoordinator {
                 if let dev = surface.developerToolsVisible {
                     item["developer_tools_visible"] = .bool(dev)
                 }
-                if surface.isTerminal {
+                let relayScoped = params["_cmux_remote_workspace_id"] != nil
+                if surface.isTerminal, !relayScoped {
                     item["requested_working_directory"] = orNull(surface.requestedWorkingDirectory)
                     item["initial_command"] = orNull(surface.initialCommand)
                     item["tmux_start_command"] = orNull(surface.tmuxStartCommand)
@@ -410,6 +410,8 @@ extension ControlCommandCoordinator {
             return .err(code: "not_found", message: "No focused surface", data: nil)
         case .createFailed:
             return .err(code: "internal_error", message: "Failed to create split", data: nil)
+        case .noSpace:
+            return noSpaceForNewPaneResult
         case .mirrorUnsupportedOptions(let unsupported):
             return mirrorUnsupportedOptionsResult(unsupported)
         case .routedToRemote(let windowID, let workspaceID, let typeRawValue):
@@ -634,10 +636,16 @@ extension ControlCommandCoordinator {
         if hasSurfaceIDParam, surfaceID == nil {
             return .err(code: "not_found", message: context.controlSurfaceNotFoundMessage(), data: nil)
         }
+        // Capture the target's ref before closing. Teardown forgets a closed
+        // surface's ref, so minting one for the reply would hand the caller a
+        // fresh ref for a surface that no longer exists.
+        let targetSurfaceID = surfaceID ?? routing.surfaceID
+        let targetSurfaceRef = targetSurfaceID.flatMap { handles.existingRef(kind: .surface, uuid: $0) }
         let resolution = context.controlSurfaceClose(
             routing: routing,
             surfaceID: surfaceID,
-            hasSurfaceIDParam: hasSurfaceIDParam
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            force: bool(params, "force") ?? false
         )
         switch resolution {
         case .tabManagerUnavailable:
@@ -656,18 +664,25 @@ extension ControlCommandCoordinator {
             )
         case .lastSurface:
             return .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+        case .confirmationRequired(let id):
+            return .err(
+                code: "confirmation_required",
+                message: context.controlSurfaceCloseStrings().confirmationRequired,
+                data: .object(["surface_id": .string(id.uuidString)])
+            )
         case .closeFailed(let id):
             return .err(
                 code: "internal_error",
-                message: "Failed to close surface",
+                message: context.controlSurfaceCloseStrings().failed,
                 data: .object(["surface_id": .string(id.uuidString)])
             )
-        case .closed(let windowID, let workspaceID, let surfaceID):
+        case .closed(let windowID, let workspaceID, let closedSurfaceID):
+            let closedSurfaceRef = closedSurfaceID == targetSurfaceID ? targetSurfaceRef.map(JSONValue.string) : nil
             return .ok(.object([
                 "workspace_id": .string(workspaceID.uuidString),
                 "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(surfaceID.uuidString),
-                "surface_ref": ref(.surface, surfaceID),
+                "surface_id": .string(closedSurfaceID.uuidString),
+                "surface_ref": closedSurfaceRef ?? ref(.surface, closedSurfaceID),
                 "window_id": orNull(windowID?.uuidString),
                 "window_ref": ref(.window, windowID),
             ]))

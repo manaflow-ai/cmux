@@ -212,10 +212,7 @@ struct PanelContentView: View {
                     .onTapGesture { onRequestPanelFocus() }
             }
         case .cloudVMLoading:
-            if let pendingPanel = panel as? CloudTerminalPendingPanel {
-                CloudTerminalPendingPanelView(panel: pendingPanel)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let loadingPanel = panel as? CloudVMLoadingPanel {
+            if let loadingPanel = panel as? CloudVMLoadingPanel {
                 CloudVMLoadingPanelView(panel: loadingPanel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -235,13 +232,14 @@ struct PanelContentView: View {
                 )
             }
         case .cloudVPNSetup:
-            if let vpnPanel = panel as? CloudVPNSetupPanel {
+            if let cloudVPNSetupPanel = panel as? CloudVPNSetupPanel {
                 CloudVPNSetupPanelView(
+                    model: cloudVPNSetupPanel.model,
                     appearance: appearance,
-                    onRequestPanelFocus: onRequestPanelFocus,
-                    model: vpnPanel.model
+                    onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+
         }
     }
 
@@ -277,8 +275,12 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            CmuxSystemSymbolImage(systemName: iconSystemName, pointSize: 16, tint: .secondary)
-                .frame(width: 16)
+            CmuxSystemSymbolImage(
+                systemName: iconSystemName,
+                pointSize: RightSidebarChromeMetrics.contentIconFrameSize,
+                tint: .secondary
+            )
+            .frame(width: RightSidebarChromeMetrics.contentIconFrameSize)
             Text(filePath)
                 .cmuxFont(size: 11, design: .monospaced)
                 .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
@@ -288,8 +290,8 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
             Spacer(minLength: 8)
             trailingContent()
         }
-        .padding(.horizontal, 12)
-        .frame(height: 30)
+        .padding(.horizontal, RightSidebarChromeMetrics.contentIconLeadingPadding)
+        .frame(height: RightSidebarChromeMetrics.secondaryBarHeight)
         .background(Color.clear)
     }
 }
@@ -316,8 +318,16 @@ struct PanelHeaderIconGlyph: View {
     let systemName: String
 
     var body: some View {
-        CmuxSystemSymbolImage(systemName: systemName, pointSize: 13, tint: .secondary)
-            .frame(width: 20, height: 20, alignment: .center)
+        CmuxSystemSymbolImage(
+            systemName: systemName,
+            pointSize: RightSidebarChromeMetrics.headerIconSize,
+            tint: .secondary
+        )
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize,
+            alignment: .center
+        )
             .contentShape(Rectangle())
     }
 }

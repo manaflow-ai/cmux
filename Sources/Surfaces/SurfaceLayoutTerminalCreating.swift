@@ -1,3 +1,5 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 
 /// A Cloud provider can author a native new-tab/split intent in the daemon's
@@ -5,4 +7,11 @@ import Foundation
 @MainActor
 protocol SurfaceLayoutTerminalCreating: SurfaceProvider {
     func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?) async throws -> SurfaceResource
+    func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource
+}
+
+extension SurfaceLayoutTerminalCreating {
+    func createTerminal(nearTabID: String, splitDirection: SurfaceSplitDirection?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource {
+        try await createTerminal(nearTabID: nearTabID, splitDirection: splitDirection)
+    }
 }
