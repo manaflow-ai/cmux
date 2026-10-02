@@ -1,0 +1,19 @@
+{
+  "oracle": {},
+  "cmux": {
+    "get-blocked-url": "blocked",
+    "get-hides-blocked-site": 0,
+    "set-blocked-site": "blocked",
+    "clear-blocked-tab": "blocked",
+    "peer-cookies-after-policy": [
+      "parity"
+    ],
+    "named-site-ignored": [
+      "parity"
+    ],
+    "clear-all-profile": "refused: profile",
+    "profile-kept-after-clear-all": [
+      "parity"
+    ]
+  }
+}

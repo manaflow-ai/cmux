@@ -121,10 +121,10 @@ test("buildApng: valid chunks, frame count, sequence numbers; other sizes skippe
 });
 
 // One REPL session on the dev driver, with the app's output cap.
-async function withRepl(fn, { maxOutput } = {}) {
+async function withRepl(fn, { maxOutput, setupContext } = {}) {
   const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-repl-bu-")));
   const sessionId = `bu-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  const browser = await createDevBrowser();
+  const browser = await createDevBrowser({ setupContext });
   const driver = browser.driver();
   const lines = [];
   const host = createNodeHost({ workDir: dir, sessionId, print: (level, text) => lines.push(text) });
@@ -355,8 +355,8 @@ test("clearCookies: scoped to the current tab's site unless { all: true }", asyn
         await page.context().addCookies([{ name: "a3", value: "1", url: "${primary}/" }, { name: "b3", value: "1", url: "${peer}/" }]);
         await page.goto("about:blank");
         try { await page.context().clearCookies(); } catch (e) { out.noSite = e.message; }
-        await page.context().clearCookies({ all: true });
-        out.all = await jar();
+        try { await page.context().clearCookies({ all: true }); out.all = "cleared"; } catch (e) { out.all = e.message; }
+        out.afterAll = await jar();
         fs.writeFileSync("./clear.json", JSON.stringify(out));
       `);
       assert.equal(r.error, null);
@@ -369,15 +369,16 @@ test("clearCookies: scoped to the current tab's site unless { all: true }", asyn
       assert.deepEqual(out.byRegExp, jar([a, "a2"], [b, "b1"], [b, "b2"], [b, "parity"]), "a RegExp filter stays on the tab's site");
       assert.deepEqual(out.otherSite, jar([a, "a2"]), "another tab clears its own site");
       assert.deepEqual(out.thisSite, [], "no filter clears the tab's whole site");
-      assert.match(out.noSite, /clearCookies: .*\{ all: true \}/, "a tab with no site clears nothing");
-      assert.deepEqual(out.all, [], "{ all: true } clears every site");
+      assert.match(out.noSite, /clearCookies: .*has no site to scope to/, "a tab with no site clears nothing");
+      assert.match(out.all, /clearCookies: .*user's browser profile/, "{ all: true } is refused on the user's profile");
+      assert.deepEqual(out.afterAll, jar([a, "a3"], [b, "b3"]));
     });
   } finally {
     await servers.close();
   }
 });
 
-test("cookies.clear: the dev driver never clears the whole profile without { all: true }", async () => {
+test("cookies.clear: the driver clears the target tab's site, never a named one or the whole profile", async () => {
   const servers = await startFixtureServers();
   const { primary, peer } = servers.origins;
   const browser = await createDevBrowser();
@@ -385,16 +386,50 @@ test("cookies.clear: the dev driver never clears the whole profile without { all
     const driver = browser.driver();
     await driver.call("cookies.set", { cookies: [{ name: "a", value: "1", url: `${primary}/` }, { name: "b", value: "1", url: `${peer}/` }] });
     const names = async () => (await driver.call("cookies.get", {})).map((c) => c.name).sort();
-    await assert.rejects(driver.call("cookies.clear", {}), (e) => e.code === "invalid" && /\{ all: true \}/.test(e.message));
+    const { targetId: blank } = await driver.call("tabs.open", {});
+    await assert.rejects(driver.call("cookies.clear", { targetId: blank }), (e) => e.code === "invalid" && /no site/.test(e.message));
+    await assert.rejects(driver.call("cookies.clear", { targetId: blank, all: true }), (e) => e.code === "invalid" && /user's browser profile/.test(e.message));
     assert.deepEqual(await names(), ["a", "b"]);
-    await driver.call("cookies.clear", { site: new URL(peer).hostname });
-    assert.deepEqual(await names(), ["a"]);
-    await driver.call("cookies.clear", { all: true });
-    assert.deepEqual(await names(), []);
+    const { targetId } = await driver.call("tabs.open", { url: `${primary}/index.html` });
+    await driver.call("cookies.clear", { targetId, site: new URL(peer).hostname });
+    assert.deepEqual(await names(), ["b"], "the tab's own site, not the named one");
   } finally {
     await browser.close();
     await servers.close();
   }
+});
+
+test("cookie and storage-state scope follow the Public Suffix List", async () => {
+  // x.co.at and y.co.at are different sites (co.at is a public suffix), as
+  // are two github.io pages; www.example.co.uk shares example.co.uk.
+  const hosts = ["x.co.at", "y.co.at", "ada.github.io", "bob.github.io", "www.example.co.uk", "example.co.uk"];
+  const setupContext = async (ctx) => {
+    await ctx.route((url) => hosts.includes(url.hostname), (route) => route.fulfill({ status: 200, headers: { "content-type": "text/html" }, body: "<!doctype html><title>psl</title>" }));
+  };
+  await withRepl(async ({ run, dir }) => {
+    const r = await run(`
+      const jar = async () => (await page.context().cookies()).map((c) => c.domain).sort();
+      await page.context().addCookies(${JSON.stringify(hosts)}.map((h) => ({ name: "c", value: "1", url: "https://" + h + "/" })));
+      const out = {};
+      await page.goto("https://x.co.at/");
+      out.state = (await session.storageState()).cookies.map((c) => c.domain).sort();
+      await page.context().clearCookies();
+      out.afterCoAt = await jar();
+      await page.goto("https://ada.github.io/");
+      await page.context().clearCookies();
+      out.afterGithub = await jar();
+      await page.goto("https://www.example.co.uk/");
+      await page.context().clearCookies();
+      out.afterCoUk = await jar();
+      fs.writeFileSync("./psl.json", JSON.stringify(out));
+    `);
+    assert.equal(r.error, null);
+    const out = JSON.parse(fs.readFileSync(path.join(dir, "psl.json"), "utf8"));
+    assert.deepEqual(out.state, ["x.co.at"]);
+    assert.deepEqual(out.afterCoAt, ["ada.github.io", "bob.github.io", "example.co.uk", "www.example.co.uk", "y.co.at"]);
+    assert.deepEqual(out.afterGithub, ["bob.github.io", "example.co.uk", "www.example.co.uk", "y.co.at"]);
+    assert.deepEqual(out.afterCoUk, ["bob.github.io", "y.co.at"]);
+  }, { setupContext });
 });
 
 test("storage state: registrable domains", () => {
