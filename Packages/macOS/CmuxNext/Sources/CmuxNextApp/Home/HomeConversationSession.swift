@@ -59,7 +59,7 @@ final class HomeConversationSession {
         // task-owner: one conversation-snapshot read; ends with its reply
         loading = Task { [weak self] in
             do {
-                let snapshot = try await connection.conversationSnapshot(id, tail: tail)
+                let snapshot = try await ConversationClient(connection).snapshot(id, tail: tail)
                 guard let self, !Task.isCancelled else { return }
                 if mirror == nil { mirror = ConversationMirror(snapshot: snapshot) } else { mirror?.reset(snapshot) }
                 if let mirror { log.settle(against: mirror) }

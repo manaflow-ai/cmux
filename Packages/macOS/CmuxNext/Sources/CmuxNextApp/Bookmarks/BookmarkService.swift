@@ -64,7 +64,9 @@ final class BookmarkService {
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
-        services.machines.local.store.onBookmarksChanged = { [weak self] profile in self?.daemonChanged(profile) }
+        services.machines.local.store.sideEvents.subscribe { [weak self] event in
+            if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
+        }
         // task-owner: one-shot launch read of the bookmark file
         Task { [weak self] in
             let loaded = await file.load()

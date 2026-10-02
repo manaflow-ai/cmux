@@ -31,7 +31,7 @@ final class HomeService {
     /// conversations reloads the list and every open session, then resends
     /// what is still sending (same keys; the owner applies each once).
     func start() {
-        services.machines.local.store.onConversationEvent = { [weak self] event in self?.handle(event) }
+        services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
         let local = services.machines.local
         // task-owner: lives as long as the service; event-driven (Observation)
         availability = Task { [weak self] in
@@ -78,7 +78,7 @@ final class HomeService {
         // task-owner: one conversation-list read; ends with its reply
         listing = Task { [weak self] in
             do {
-                let list = try await connection.listConversations()
+                let list = try await ConversationClient(connection).list()
                 guard let self, !Task.isCancelled else { return }
                 conversations = list
             } catch {
@@ -159,7 +159,7 @@ final class HomeService {
                                             transaction: nil, op: .setReadCursor(seq: seq))
         // task-owner: one conversation-op write; ends with its reply
         Task { [weak self] in
-            do { _ = try await connection.conversationOp(request) } catch {
+            do { _ = try await ConversationClient(connection).op(request) } catch {
                 self?.logger.error("read_cursor.set: \(String(describing: error), privacy: .public)")
             }
         }
@@ -178,7 +178,7 @@ final class HomeService {
         // task-owner: one conversation-op write; ends with its reply
         Task { [weak self, weak session] in
             do {
-                let result = try await connection.conversationOp(request)
+                let result = try await ConversationClient(connection).op(request)
                 session?.acknowledge(send.clientMsgID, result: result)
             } catch DaemonError.command(_, let message, _) {
                 session?.reject(send.clientMsgID, reason: message)

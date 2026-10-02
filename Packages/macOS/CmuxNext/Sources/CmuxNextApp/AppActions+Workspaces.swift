@@ -31,14 +31,14 @@ extension AppActions {
             // Sidebar order across every machine section; digit 1 is Home.
             let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id) ?? []
             switch SidebarNumbering.target(digit: number, workspaces: all) {
-            case .home: services.windows.showHome(in: state)
+            case .home: HomeNavigation.show(in: state, windows: services.windows)
             case .workspace(let id): services.windows.show(workspaceID: id.rawValue, in: state)
             case nil: break
             }
         })
         registry.bind("home.show") {
             guard let state = services.windows.active?.state else { return }
-            services.windows.showHome(in: state)
+            HomeNavigation.show(in: state, windows: services.windows)
         }
         registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })

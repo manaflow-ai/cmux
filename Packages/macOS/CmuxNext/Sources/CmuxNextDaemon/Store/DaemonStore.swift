@@ -71,11 +71,8 @@ public final class DaemonStore {
     /// observer or frame runs. The App keeps window membership in step here,
     /// so a window never shows after its last workspace is gone.
     @ObservationIgnored public var onWorkspaceListChanged: (() -> Void)?
-    /// A browser profile's bookmarks changed (`bookmarks-changed`), on the main actor.
-    @ObservationIgnored public var onBookmarksChanged: ((String) -> Void)?
-    /// Local conversation events (`conversation-changed`, `conversation-typing`)
-    /// in arrival order; the Home service owns their mirrors.
-    @ObservationIgnored public var onConversationEvent: ((DaemonEvent) -> Void)?
+    /// Bookmark and conversation events (not in the tree snapshot), on the main actor.
+    @ObservationIgnored public let sideEvents = DaemonSideEvents()
     /// The list last reported to `onWorkspaceListChanged`.
     @ObservationIgnored var notifiedWorkspaceList: [String]?
     /// Nesting of batch applies; the hook runs when the outermost ends.

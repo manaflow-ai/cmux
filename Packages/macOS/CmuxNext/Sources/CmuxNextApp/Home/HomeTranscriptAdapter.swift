@@ -37,7 +37,7 @@ final class HomeTranscriptAdapter: HomeTranscriptSource {
             if local.count == limit || local.first?.seq == 1 { return local.map(HomeMapping.message) }
         }
         guard let connection = service.connection else { throw DaemonError.notConnected }
-        return try await connection.conversationHistory(conversationID, before: UInt64(seq), limit: limit).map(HomeMapping.message)
+        return try await ConversationClient(connection).history(conversationID, before: UInt64(seq), limit: limit).map(HomeMapping.message)
     }
 
     func observe(_ handler: @escaping @MainActor (HomeTranscriptChange) -> Void) -> HomeObservation {

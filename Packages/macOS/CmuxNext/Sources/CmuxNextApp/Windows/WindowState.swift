@@ -76,6 +76,12 @@ final class WindowState {
 }
 
 extension WindowState {
+    /// Shows `workspaceID` (nil: the empty state) in place of Home.
+    func select(_ workspaceID: String?) {
+        showsHome = false
+        self.workspaceID = workspaceID
+    }
+
     /// The state saved for one window.
     convenience init(record: WindowRecord) {
         self.init(id: record.id)

@@ -19,7 +19,7 @@ extension HomeService {
         // task-owner: one conversation-create write; ends with its reply
         Task { [weak self] in
             do {
-                _ = try await connection.createConversation(request)
+                _ = try await ConversationClient(connection).create(request)
                 self?.reloadList(connection)
             } catch {
                 self?.logger.error("conversation-create: \(String(describing: error), privacy: .public)")
