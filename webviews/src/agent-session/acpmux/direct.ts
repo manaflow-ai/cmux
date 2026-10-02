@@ -153,6 +153,8 @@ export function mergeToolItem(
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
+  // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
+  if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
 }
