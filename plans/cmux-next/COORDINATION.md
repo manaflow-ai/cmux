@@ -5,7 +5,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 ## Active streams (who owns what)
 
 - Rust `cmux` CLI, compat-layer removal, daemon v2 state ops in `cmux-tui-core::state`: session feat-cmux-next-99, PR #16174 (branch feat-cmux-next-acpmux).
-- Ownership rewrite (session host / workspace store / client view state, strict projection, intent log + universal transaction echo, daemon-owned workspace lifecycle): plans/cmux-next/ownership.md (design; code on hold until decisions).
+- Ownership rewrite (session host / workspace store / client view state, strict projection, intent log + universal transaction echo, client identity, daemon-owned workspace lifecycle): ownership lead; design plans/cmux-next/ownership.md, model plans/cmux-next/formal/OwnershipConvergence.tla; step 4 (app intent log) in progress on feat-cmux-next-intent-log.
 - Typed LayoutOp, daemon tab-conservation validation, proptest, TLA+ model (plans/cmux-next/formal/): tab-loss agent.
 - Sticky column (layout document fields + app) and strip scrollbar: sticky-column lead.
 - Federation daemon (remote-terminal tabs, detached create, terminal.project delta): branch feat-cmux-next-federation-tui-r8.
@@ -14,6 +14,7 @@ One line per landed change to a shared surface (daemon protocol or state, layout
 
 ## Landed
 
+- 2026-10-01 780648d7cd0 plans: ownership.md design (three roles, op protocol: commit before publish, request-settled with sequence, snapshot carries decided keys, held early replies, resend on reconnect; window records per (install_id, window_id) with owner CAS; steps 1-6) and formal/OwnershipConvergence.tla (safety 5,680,649 states, liveness 1,785,780, seven mutants fail) (ownership lead)
 - 2026-10-01 2c4f2bb293e formal: TLA+ model plans/cmux-next/formal/TabLayout.tla of the layout protocol (owner, mirror + intent log, request-settled write barrier, reorder/duplicate, reconnect, owner restart, drag presentation); TLC passes I1-I4, P1, DP1, principles 4-6 and EventuallyConverged; BUGGY_DETACH reproduces the own-pane hidden tab. Assumes durable replay record and never-reused ids (layout TLA+ agent)
 - 2026-10-01 9033c0e089a control/app: action.run `origin` (user|cli|mcp|script|remote, absent = cli) and `focus`; ActionInvocation.origin/focusRequested; AppServices.viewChangeAllowed; DropRevealPolicy (view change after a user drop or move; Option files away); WindowActivation.presentBehind; WindowManager.claim(select:) with quiet pending claims (review fixes e9ed036b585). Gap: the check is read by the move handlers, not yet central for every action; no descriptor `focuses` flag (Rust CLI session adds it) (tab-loss agent)
 - 2026-10-01 7b80809f580..43478eb63bd+ layout/app: sticky columns (app side): LayoutColumn.sticky, LayoutIntent.setColumnSticky (validated, no optimistic copy), daemon client SetColumnStickyRequest + columns[].sticky decode, capability sticky-columns-v1 in awaitingPin (actions disabled until a pin includes it), debug.sticky, layout.stripScrollbar setting; daemon side lands from branch feat-cmux-next-sticky-tui (sticky-column lead)
