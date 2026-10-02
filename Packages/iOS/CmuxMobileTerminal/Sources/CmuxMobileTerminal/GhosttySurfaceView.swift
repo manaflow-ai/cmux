@@ -366,6 +366,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #if DEBUG
         /// Rate-limits slow-batch perf log lines (scroll-hitch investigation).
         var lastPerfLogTime: CFTimeInterval = 0
+        /// Rate-limits successful pixel-scroll trace lines used by the
+        /// deterministic scroll simulation. The trace records whether a
+        /// batch rebased from the held gesture anchor and which row-space
+        /// revision Ghostty applied.
+        var lastTraceLogTime: CFTimeInterval = 0
         #endif
     }
     // Carve-out: main-actor gestures and synchronous libghostty callbacks share one pixel-scroll snapshot.
@@ -446,7 +451,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// it to hold position through replays mid-gesture, so it must compile in
     /// every configuration, not just DEBUG.
     var scrollInteractionActive: Bool {
-        scrollMechanicsView.isTracking
+        #if DEBUG
+        if debugScrollInteractionActive {
+            return true
+        }
+        #endif
+        return scrollMechanicsView.isTracking
             || scrollMechanicsView.isDragging
             || scrollMechanicsView.isDecelerating
     }
@@ -508,6 +518,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Frame counter + one-shot latch for the scripted headless scroll
     /// (`Debug/GhosttySurfaceView+ScrollScriptDebug.swift`).
     var debugScrollScriptFrame = 0
+    /// Synthetic ownership for the scripted gesture. Real UIKit scrolling
+    /// exposes this through `UIScrollView` tracking/deceleration state; the
+    /// deterministic script drives the same pixel-scroll path without a
+    /// touch stream, so DEBUG can model that lifecycle explicitly.
+    var debugScrollInteractionActive = false
     /// Scroll-smoothness audit: aggregates display-link cadence while a scroll
     /// gesture or its deceleration is active, logging one summary per second.
     struct DebugScrollFrameRateStats {
@@ -760,6 +775,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Daemon-authoritative grid used for modes that need exact remote-cell
     /// replay. When nil, the surface fills the phone's natural capacity.
     var effectiveGrid: (cols: Int, rows: Int)?
+    /// Effective-grid echoes are asynchronous with respect to native scrolling.
+    /// Keep the latest one out of Ghostty until a local content anchor reaches
+    /// the tail, otherwise `set_size` reflows the row space under the rows the
+    /// user is reading.
+    private var effectiveGridScrollGate = TerminalEffectiveGridScrollGate()
     /// Cached cell metrics derived from the most recent
     /// `ghostty_surface_size` measurement. Used to translate an effective
     /// cols×rows pin into a pixel box without re-round-tripping through
@@ -2999,6 +3019,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     /// Drops scroll work tied to a surface generation that will no longer run.
     func resetScrollStateForSurfaceReplacement() {
+        effectiveGridScrollGate.reset()
         pendingScrollLines = 0
         linePathFractionCarry = 0
         pendingScrollPixels = 0
@@ -4730,6 +4751,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
             }
         }
         sampleHostedKeyboardPresentation()
+        flushDeferredEffectiveGridIfSafe()
         // Apply geometry at most once per frame. Every trigger (resize, zoom,
         // keyboard, effective-grid pin) only marks `needsGeometrySync`, so a
         // fast pinch can no longer drive a synchronous per-event storm of
@@ -4742,7 +4764,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 syncSurfaceGeometry(shouldReassertNaturalSize: reassert)
             }
         }
-        let cursorRenderWakeDue = cursorRenderWakeState.consumeWakeIfDue(now: now)
+        // UIKit owns the viewport while a finger or deceleration is active.
+        // Output can keep the terminal model dirty during that interval, but
+        // an ordinary model render would compete with the pixel-scroll render
+        // that carries the current viewport anchor. Keep the dirty bit until
+        // the gesture ends so the next ordinary frame catches up once, after
+        // the native-looking scroll phase has finished.
+        let scrollRenderPhaseActive = scrollInteractionActive
+        let cursorRenderWakeDue = scrollRenderPhaseActive
+            ? false
+            : cursorRenderWakeState.consumeWakeIfDue(now: now)
         // Draw on content changes, Ghostty cursor wake-ups, and for a short
         // bounded burst after any geometry change. iOS has no renderer-side vsync, so a frame is
         // only produced when we ask. The renderer draws at the layer size read
@@ -4754,15 +4785,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // loop) so it never floods the main queue with `setSurface` present
         // blocks, which made the app unresponsive.
         let geometrySettling = pendingRenderFrames > 0
-        if geometrySettling { pendingRenderFrames -= 1 }
+        if geometrySettling, !scrollRenderPhaseActive { pendingRenderFrames -= 1 }
         if needsDraw || cursorRenderWakeDue || geometrySettling {
-            needsDraw = false
-            // Keep the dirty bit when the surface cannot accept a submission.
-            // A replay can hold the presentation gate while a scroll or output
-            // update arrives. Clearing this bit before the gate accepts work
-            // loses that update until an unrelated event requests a frame.
-            if !requestRender() {
+            if scrollRenderPhaseActive {
+                // Local scroll submissions are admitted by the scroll pump.
+                // Ordinary submissions wait for the end of the UIKit phase.
                 needsDraw = true
+                #if DEBUG
+                if ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1" {
+                    MobileDebugLog.anchormux(
+                        "scroll.trace ordinary.defer needs_draw=\(needsDraw ? 1 : 0)"
+                    )
+                }
+                #endif
+            } else {
+                needsDraw = false
+                // Keep the dirty bit when the surface cannot accept a submission.
+                // A replay can hold the presentation gate while a scroll or output
+                // update arrives. Clearing this bit before the gate accepts work
+                // loses that update until an unrelated event requests a frame.
+                if !requestRender() {
+                    needsDraw = true
+                }
             }
         }
 
@@ -4901,9 +4945,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private func shouldReplacePendingRenderSubmission(
         with submission: RenderSubmission
     ) -> Bool {
-        guard let pendingRenderSubmission else { return true }
-        return pendingRenderSubmission.kind != .verifiedReplay
-            || submission.kind == .verifiedReplay
+        guard let gatePending = renderPresentationGate.pending else {
+            return false
+        }
+        // The reducer may retain a local-scroll ticket when an ordinary
+        // output request arrives behind it. Keep the payload paired with the
+        // ticket the reducer actually retained; replacing it with the newer
+        // ordinary payload would leave the gate and UIKit admission out of
+        // sync and silently drop the pixel frame.
+        guard gatePending.token == submission.token else {
+            return false
+        }
+        if let pendingRenderSubmission,
+           pendingRenderSubmission.ticket == gatePending {
+            return false
+        }
+        return true
     }
 
     /// Replaces the current token when a geometry pass invalidates its
@@ -4954,12 +5011,28 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         renderInFlight = true
         renderInFlightSince = CACurrentMediaTime()
         let enqueuedAt = CACurrentMediaTime()
+        #if DEBUG
+        let traceScroll = ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1"
+        if traceScroll {
+            MobileDebugLog.anchormux(
+                "scroll.trace render.enqueue token=\(submission.token) kind=\(submission.kind) "
+                    + "inflight=\(renderPresentationGate.inFlight?.token == submission.token ? 1 : 0)"
+            )
+        }
+        #endif
         let workQueue = outputQueue
         // Ordinary steady-state frames are intentionally uninstrumented.
         let phaseLog = submission.kind == .verifiedReplay || pendingRenderFrames > 0 ? diagnosticLog : nil
         let phaseContext = terminalWorkSnapshot(transition: .unknown)
         let accepted = workQueue.async({ [weak self] in
             let lagMs = (CACurrentMediaTime() - enqueuedAt) * 1000
+            #if DEBUG
+            if traceScroll {
+                MobileDebugLog.anchormux(
+                    "scroll.trace render.start token=\(submission.token) kind=\(submission.kind) queue_ms=\(Int(lagMs))"
+                )
+            }
+            #endif
             if lagMs > 150 { MobileDebugLog.anchormux("oq.render.LAG \(Int(lagMs))ms") }
             let work = phaseLog?.beginTerminalWork(.rendererRefresh, context: phaseContext)
             defer { work?.end() }
@@ -4974,6 +5047,11 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
                 // with VT applies and scroll batches, so a slow frame
                 // stretches everything behind it.
                 let renderMs = (CACurrentMediaTime() - renderStartedAt) * 1000
+                if traceScroll {
+                    MobileDebugLog.anchormux(
+                        "scroll.trace render.done token=\(submission.token) kind=\(submission.kind) render_ms=\(Int(renderMs))"
+                    )
+                }
                 if renderMs > 8 {
                     let perfNow = CACurrentMediaTime()
                     if perfNow - workQueue.lastRenderPerfLogTime >= 0.25 {
@@ -5070,6 +5148,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Called only from the render-presented bridge callback. A stale callback
     /// cannot release the gate or advance fallback visibility.
     func finishRenderSubmission(token: UInt64) {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1",
+           let submission = renderSubmission,
+           submission.token == token {
+            let ageMs = renderInFlightSince.map { Int((CACurrentMediaTime() - $0) * 1000) } ?? 0
+            MobileDebugLog.anchormux(
+                "scroll.trace render.present token=\(token) kind=\(submission.kind) age_ms=\(ageMs)"
+            )
+        }
+        #endif
         releaseRenderSubmission(token: token, presented: true)
     }
 
@@ -5447,6 +5535,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func applyViewSizeAndWait(cols: Int, rows: Int) async -> Bool {
+        effectiveGridScrollGate.reset()
         let changed = updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: false)
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)
@@ -5540,13 +5629,80 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     private func applyViewSize(cols: Int, rows: Int, confirmedViewportEcho: Bool) {
-        guard updateEffectiveGrid(cols: cols, rows: rows, confirmedViewportEcho: confirmedViewportEcho) else { return }
+        guard cols > 0, rows > 0 else { return }
+        if confirmedViewportEcho {
+            // The report handshake can settle while the visual grid remains
+            // deferred behind a local scroll anchor. Confirmation owns retry
+            // state; it does not make the resize safe to apply mid-gesture.
+            markViewportReportConfirmed()
+        }
+        let update = TerminalEffectiveGridScrollGate.Update.remoteGrid(
+            columns: cols,
+            rows: rows
+        )
+        guard let ready = effectiveGridScrollGate.submit(
+            update,
+            anchorUndocked: localScrollAnchorUndocked || scrollInteractionActive
+        ) else {
+            MobileDebugLog.anchormux(
+                "zoom.deferViewSize grid=\(cols)x\(rows) "
+                    + "anchor=\(localScrollAnchorUndocked ? 1 : 0) "
+                    + "active=\(scrollInteractionActive ? 1 : 0)"
+            )
+            needsDraw = true
+            return
+        }
+        guard commitEffectiveGridUpdate(ready) else { return }
         // Mark dirty instead of recomputing synchronously. This breaks the
         // feedback loop (didResize → updateTerminalViewport RPC → applyViewSize
         // → syncSurfaceGeometry → didResize …) that, under fast zoom, drove a
         // storm of set_size calls + viewport RPCs. Geometry now settles once
         // per frame, and reassert=false avoids re-reporting the unchanged
         // natural grid back through the round trip.
+        setNeedsGeometrySync(reassertNaturalSize: false)
+    }
+
+    /// True when the local pixel path has a content anchor away from the live
+    /// tail. The anchor survives UIKit deceleration, which is the important
+    /// window: a late viewport echo can otherwise land after `isDecelerating`
+    /// becomes false and still move the visible rows.
+    private var localScrollAnchorUndocked: Bool {
+        localPixelScrollState.withLock { state in
+            guard let held = state.lastApplied else { return false }
+            return !held.dockedAtTail
+        }
+    }
+
+    /// Commit a deferred grid at the same ownership boundary as an immediate
+    /// grid update. The gate is reset before the geometry pass so an older
+    /// echo cannot be replayed after this one.
+    @discardableResult
+    private func commitEffectiveGridUpdate(
+        _ update: TerminalEffectiveGridScrollGate.Update
+    ) -> Bool {
+        effectiveGridScrollGate.reset()
+        switch update {
+        case .natural:
+            return clearEffectiveGrid()
+        case .remoteGrid(let columns, let rows):
+            return updateEffectiveGrid(
+                cols: columns,
+                rows: rows,
+                confirmedViewportEcho: false
+            )
+        }
+    }
+
+    /// Releases the latest echo only after native scrolling has stopped and a
+    /// held local anchor is docked. This is display-link driven, so no timer
+    /// can race a new touch or add work to the scroll callback.
+    private func flushDeferredEffectiveGridIfSafe() {
+        let anchorUndocked = localScrollAnchorUndocked || scrollInteractionActive
+        guard let update = effectiveGridScrollGate.flushIfSafe(
+            anchorUndocked: anchorUndocked
+        ) else { return }
+        MobileDebugLog.anchormux("zoom.flushViewSize anchor=0")
+        guard commitEffectiveGridUpdate(update) else { return }
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
@@ -5562,7 +5718,18 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     public func useNaturalViewSize() {
-        guard clearEffectiveGrid() else { return }
+        guard let ready = effectiveGridScrollGate.submit(
+            .natural,
+            anchorUndocked: localScrollAnchorUndocked || scrollInteractionActive
+        ) else {
+            MobileDebugLog.anchormux(
+                "zoom.deferNaturalViewSize anchor=\(localScrollAnchorUndocked ? 1 : 0) "
+                    + "active=\(scrollInteractionActive ? 1 : 0)"
+            )
+            needsDraw = true
+            return
+        }
+        guard commitEffectiveGridUpdate(ready) else { return }
         setNeedsGeometrySync(reassertNaturalSize: false)
     }
 
@@ -5571,6 +5738,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// - Returns: `false` when the surface reset before the geometry applied.
     @discardableResult
     public func useNaturalViewSizeAndWait() async -> Bool {
+        effectiveGridScrollGate.reset()
         let changed = clearEffectiveGrid()
         if changed || needsGeometrySync {
             return await syncSurfaceGeometryAndWait(shouldReassertNaturalSize: false)

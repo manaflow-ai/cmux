@@ -117,9 +117,60 @@ struct TerminalRenderPresentationGateTests {
 
         #expect(gate.enqueue(inFlight) == .started(inFlight))
         #expect(gate.enqueue(replay) == .queued(replay))
-        #expect(gate.enqueue(newerOrdinary) == .queued(newerOrdinary))
+        #expect(gate.enqueue(newerOrdinary) == .queued(replay))
         #expect(gate.pending == replay)
         #expect(gate.complete(token: inFlight.token, generation: inFlight.generation) == .started(replay))
+    }
+
+    @Test("a pending pixel-scroll frame survives ordinary output renders")
+    func pendingPixelScrollSurvivesOrdinaryFrames() {
+        var gate = TerminalRenderPresentationGate()
+        let inFlight = TerminalRenderSubmission(
+            token: 60,
+            generation: 8,
+            kind: .ordinary
+        )
+        let localScroll = TerminalRenderSubmission(
+            token: 61,
+            generation: 8,
+            kind: .localScroll
+        )
+        let newerOrdinary = TerminalRenderSubmission(
+            token: 62,
+            generation: 8,
+            kind: .ordinary
+        )
+
+        #expect(gate.enqueue(inFlight) == .started(inFlight))
+        #expect(gate.enqueue(localScroll) == .queued(localScroll))
+        #expect(gate.enqueue(newerOrdinary) == .queued(localScroll))
+        #expect(gate.pending == localScroll)
+        #expect(gate.complete(token: inFlight.token, generation: inFlight.generation) == .started(localScroll))
+    }
+
+    @Test("a newer pixel-scroll frame replaces a pending ordinary frame")
+    func newerPixelScrollReplacesOrdinaryFrame() {
+        var gate = TerminalRenderPresentationGate()
+        let inFlight = TerminalRenderSubmission(
+            token: 70,
+            generation: 9,
+            kind: .ordinary
+        )
+        let ordinary = TerminalRenderSubmission(
+            token: 71,
+            generation: 9,
+            kind: .ordinary
+        )
+        let localScroll = TerminalRenderSubmission(
+            token: 72,
+            generation: 9,
+            kind: .localScroll
+        )
+
+        #expect(gate.enqueue(inFlight) == .started(inFlight))
+        #expect(gate.enqueue(ordinary) == .queued(ordinary))
+        #expect(gate.enqueue(localScroll) == .queued(localScroll))
+        #expect(gate.pending == localScroll)
     }
 }
 #endif

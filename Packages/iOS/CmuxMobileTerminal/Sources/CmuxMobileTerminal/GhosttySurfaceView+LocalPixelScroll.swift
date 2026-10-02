@@ -88,10 +88,23 @@ extension GhosttySurfaceView {
         let pushedRowsCounter = localScrollbackRowsPushed
         #if DEBUG
         let enqueuedAt = CACurrentMediaTime()
+        let traceScroll = ProcessInfo.processInfo.environment["CMUX_UITEST_SCROLL_TRACE"] == "1"
+        if traceScroll {
+            let deltaDescription = String(format: "%.2f", deltaPixels)
+            MobileDebugLog.anchormux(
+                "scroll.trace batch.enqueue token=\(token) delta_px=\(deltaDescription) "
+                    + "active=\(scrollInteractionActive ? 1 : 0)"
+            )
+        }
         #endif
         workQueue.asyncPriority { [weak self] in
             #if DEBUG
             let batchStartedAt = CACurrentMediaTime()
+            if traceScroll {
+                MobileDebugLog.anchormux(
+                    "scroll.trace batch.start token=\(token) wait_ms=\(Int((batchStartedAt - enqueuedAt) * 1000))"
+                )
+            }
             #endif
             Self.applyPixelScrollBatch(
                 operation: operation,
@@ -114,10 +127,22 @@ extension GhosttySurfaceView {
             let batchEndedAt = CACurrentMediaTime()
             let waitMs = (batchStartedAt - enqueuedAt) * 1000
             let applyMs = (batchEndedAt - batchStartedAt) * 1000
+            if traceScroll {
+                MobileDebugLog.anchormux(
+                    "scroll.trace batch.done token=\(token) apply_ms=\(Int(applyMs))"
+                )
+            }
             #endif
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 #if DEBUG
+                if traceScroll {
+                    let renderKind = self.renderSubmission.map { String(describing: $0.kind) } ?? "none"
+                    MobileDebugLog.anchormux(
+                        "scroll.trace batch.main token=\(token) hop_ms=\(Int((CACurrentMediaTime() - batchEndedAt) * 1000)) "
+                            + "render_inflight=\(renderKind)"
+                    )
+                }
                 if waitMs > 8 || applyMs > 8 {
                     let hopMs = (CACurrentMediaTime() - batchEndedAt) * 1000
                     let shouldLogPerf = pixelState.withLock { state -> Bool in
@@ -224,10 +249,11 @@ extension GhosttySurfaceView {
             )
             let next = resolved.positionPx
             var row = UInt64((next / cellHeightPx).rounded(.down))
-            // Ghostty gets whole device pixels: a fractional-pixel offset
-            // makes glyph antialiasing resample every frame (shimmer);
-            // native scrollers always move content by integral pixels.
-            var pixelOffset = (next - Double(row) * cellHeightPx).rounded()
+            // Preserve the fractional remainder. Ghostty's renderer carries
+            // this as a floating-point translation, so rounding it here
+            // would quantize the viewport between row boundaries and make a
+            // native drag look like row-by-row stepping.
+            var pixelOffset = next - Double(row) * cellHeightPx
             if pixelOffset >= cellHeightPx {
                 row += 1
                 pixelOffset = 0
@@ -270,6 +296,23 @@ extension GhosttySurfaceView {
                         dockedAtTail: dockedAtTail
                     )
                 }
+#if DEBUG
+                let shouldTrace = pixelState.withLock { state -> Bool in
+                    guard state.epoch == operation.pixelStateEpoch else { return false }
+                    let now = CACurrentMediaTime()
+                    guard now - state.lastTraceLogTime >= 0.25 else { return false }
+                    state.lastTraceLogTime = now
+                    return true
+                }
+                if shouldTrace {
+                    let heldSummary = held.map { "\($0.row)/\($0.revision)" } ?? "nil"
+                    MobileDebugLog.anchormux(
+                        "pixel_scroll.apply delta_px=\(Int(deltaPixels)) rebase=\(rebaseFromHeldPosition ? 1 : 0) "
+                            + "from=\(scrollbar.offset)/\(total) rev=\(scrollbar.row_space_revision) held=\(heldSummary) "
+                            + "to=\(appliedRow)/\(Int(appliedOffset)) total=\(appliedTotal) rev=\(appliedRevision)"
+                    )
+                }
+#endif
                 return
             }
             // Content changed shape mid-batch; retry once with a zeroed
