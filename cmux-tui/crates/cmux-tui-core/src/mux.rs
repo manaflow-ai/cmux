@@ -20602,6 +20602,12 @@ fn restore_dragged_tab(
         None if current == restore.origin_pane => {
             return Err(stale("the dragged tab is already in its origin pane"));
         }
+        // The pane the tab moved into existed before the move and is part
+        // of the layout being restored. If its other tabs have left since,
+        // moving the tab back would leave that pane empty (I3).
+        None if state.panes.get(&current).is_some_and(|pane| pane.tabs.len() == 1) => {
+            return Err(stale("the dragged tab is the last tab of its pane"));
+        }
         None => {}
     }
     {
