@@ -16597,6 +16597,58 @@ struct CMUXCLI {
             ))
         }
 
+        func validateBrowserProfileMutationArguments(
+            _ values: [String],
+            valueOptions: Set<String> = [],
+            allowedFlags: Set<String> = [],
+            commandName: String
+        ) throws {
+            var index = 0
+            var pastTerminator = false
+            while index < values.count {
+                let value = values[index]
+                if pastTerminator {
+                    index += 1
+                    continue
+                }
+                if value == "--" {
+                    pastTerminator = true
+                    index += 1
+                    continue
+                }
+                if allowedFlags.contains(value) {
+                    index += 1
+                    continue
+                }
+                if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
+                    let option = String(value[..<equal])
+                    let optionValue = String(value[value.index(after: equal)...])
+                    if valueOptions.contains(option), !optionValue.isEmpty {
+                        index += 1
+                        continue
+                    }
+                }
+                if valueOptions.contains(value) {
+                    guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
+                        throw CLIError(message: "\(value) requires a value")
+                    }
+                    index += 2
+                    continue
+                }
+                if value.hasPrefix("-") {
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.readSelection.error.unexpectedArguments",
+                            defaultValue: "%@: unexpected arguments: %@"
+                        ),
+                        commandName,
+                        value
+                    ))
+                }
+                index += 1
+            }
+        }
+
         func optionValues(_ values: [String], names: Set<String>) throws -> [String] {
             var result: [String] = []
             var index = 0
@@ -16705,6 +16757,11 @@ struct CMUXCLI {
                 }
             case "create":
                 let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--name"],
+                    commandName: commandName
+                )
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
                 let parsed = try browserProfileArguments(remaining, commandName: commandName)
                 if nameOpt != nil {
@@ -16725,6 +16782,11 @@ struct CMUXCLI {
                 }
             case "rename":
                 let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile", "--name"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
                 let parsed = try browserProfileArguments(rem2, commandName: commandName)
@@ -16755,6 +16817,12 @@ struct CMUXCLI {
                 }
             case "clear":
                 let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile"],
+                    allowedFlags: ["--all", "--force"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let parsed = try browserProfileArguments(
                     rem1,
@@ -16787,6 +16855,11 @@ struct CMUXCLI {
                 }
             case "delete":
                 let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserProfileMutationArguments(
+                    profileArgs,
+                    valueOptions: ["--profile"],
+                    commandName: commandName
+                )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let parsed = try browserProfileArguments(rem1, commandName: commandName)
                 let positional = parsed.positionals
