@@ -311,15 +311,39 @@ Lawrence wants a documents/buffers primitive and app composition (embedding) in 
 - **Scopes compose across apps.** A scope may list another app's scope as a child (`contributes.paletteScopes[].children: ["app:cmux/notes#notes"]`), and a row may `enters` or `drills` into any registered scope with itself as context (a task row drills into the notes linked to it). The host composes: each scope runs with its own app's grants; the parent app never sees the child's items. Composition is by scope id and `ActionRef` through the catalog, so an agent can do the same with `palette.query`.
 - **Embedding in detail.** A scope's detail may embed another app's view by reference (`{embed: {app, view, args}}` scene node, mounted by the host in its own sandbox with its own grants). Proposed to the platform lead as the general embedding node; the palette only reserves the slot.
 
+### 6.9 Fit with Platform v2 (app-platform.md section 12)
+
+Platform v2 (V1 to V12) changes how apps declare things; palette scopes follow it without a second mechanism.
+
+| v2 decision | Palette scopes |
+| --- | --- |
+| V1 catalog fragment | an item's `ActionRef` names an op of the app's catalog fragment (owner `app:<id>`) or a cmux op; `contributes.commands` becomes fragment ops with palette surfaces. `palette.query` and the CLI/MCP generators read the same fragment, so agent-callable stays one declaration |
+| V2 typed interfaces, places as interfaces | a palette scope is the interface `cmux.palette.scope/1` (static part: id, title, symbol, keywords, layout, ranking, federates, filters, children; methods: `snapshot`, `query`, `detail`). `cmux.search.provider/1` is the federation part (a scope with `federates: true` implements both). Proposed schema: section 3.1 plus the v1 manifest fields of PR 16844; `contributes.paletteScopes` maps one to one to `implements: ["cmux.palette.scope/1"]` entries when manifest v2 lands |
+| V3 documents | the `documents` scope of section 6.8 is `document.search` over the document host; drill = the document's parts |
+| V4 embeds | `detail` may embed another app's `cmux.viewer/1` through `cmux.ui.embed` (own mount, own grant) |
+| V6 handles | rows of files, hosts and credentials carry handles, never paths or secrets; ActionRef args take handles |
+| V7 semantic components | the palette is the host renderer of `List`, `Section`, `Row`, `Detail`, `Form`, `ActionPanel` for scopes; scene pages in the palette use the same components |
+| V8 Rust supervisor | scope sources run in the per-app QuickJS host; the supervisor caches the last snapshot per scope (offline first paint) and streams batches to the client with the generation; the Mac app keeps only the palette rendering |
+| V11 gesture tokens | palette Return or click mints the gesture for a row's own-command ActionRef; the host enforces mint, spend and revoke (PR 16844 ABI.md) |
+
 ## 7. Prototypes (DEV and NIGHTLY, Debug Settings > Palette)
 
 | Tunable | Variants | What changes |
 | --- | --- | --- |
-| `palette.scopeChip` | `token` (default), `breadcrumb`, `header` | `token`: a gray capsule with icon and title inside the field before the caret, lower levels collapsed to "…"; `breadcrumb`: a thin row above the field ("Commands › Tabs"), field below; `header`: the scope icon and title replace the magnifier in semibold with a gray rule under the field |
-| `palette.scopeEntry` | `all` (default), `prefix`, `keyword`, `list` | which entry gestures are on: prefix characters, keyword plus Tab ("Tab to search Tabs" hint at the right of the field), the scope list as the first section of the empty root |
-| `palette.itemActions` | `menu` (default), `scope` | Cmd-K opens the floating menu, or pushes the `actions` scope with a chip |
+| `palette.scopeChip` | `token` (default), `breadcrumb`, `header` | `token`: a gray capsule with icon and title at the start of the field; the level below shows as a dimmer capsule; `breadcrumb`: a small path above the field ("Commands › Actions"), the magnifier stays; `header`: the scope icon and semibold title before the field with a hairline after it |
+| `palette.scopeEntry` | `all` (default), `prefix`, `keyword`, `list` | `all`: prefixes, keyword plus Tab ("Search Tabs ⇥" at the right of the field), prefix hints in the footer of the empty root, scope rows when typing; `prefix`: prefixes and footer hints only; `keyword`: keyword plus Tab only; `list`: a Search In section at the top of the empty root, no prefix or keyword |
+| `palette.itemActions` | `menu` (default), `scope` | Tab on a row with commands opens the floating Actions menu, or pushes its `actions` scope with a chip |
 
-Screenshots come from a throwaway demo executable that links `CmuxNextPalette` with mock sources (AGENT-BRIEF). Recommendation after screenshots: section 9.
+Evidence: a tagged fleet build (job f1de6fe5…, then 2b0945ed…), launched with no activation; `debug.key` drives the palette and DEBUG `debug.palette.capture` writes the panel's own window image (no Screen Recording grant). Twelve captures, one per variant and state, are kept outside the repo for the coordinator.
+
+What the captures and the live run show:
+- `token` reads as "you are inside Tabs" at the place the eye already is (the caret), and it is the only style where Backspace visibly removes something. It takes horizontal space from the query.
+- `breadcrumb` shows the whole path, which helps at depth 3 and more, but it is small and above the field, so the scope is easy to miss at depth 2 (the common case).
+- `header` is the quietest and keeps the field wide, but a semibold title before the field looks like the page title and does not suggest that Backspace leaves it.
+- Footer prefix hints (`@ Tabs  # Workspaces  > Commands  ? All Scopes`) make prefixes discoverable without a row; the `list` section costs four rows of the empty root.
+- The keyword hint ("Search Tabs ⇥") appears exactly when Tab will enter, so it teaches the gesture.
+
+Recommendation: `token` + `all` + `menu` (the defaults). `token` is the most visible scope and makes Backspace's effect obvious, which is what PA2 asks; `all` keeps every entry gesture and teaches them through the footer and the keyword hint without spending rows; Tab on a row keeps the floating menu until a drill exists that users want more than the menu (the `actions` scope works and stays one switch away).
 
 ## 8. Steps
 
@@ -327,10 +351,11 @@ Screenshots come from a throwaway demo executable that links `CmuxNextPalette` w
 | --- | --- | --- |
 | 1 | This proposal, the private research note | PR 16824 |
 | 2 | `CmuxNextPalette/Scopes/`: descriptor, graph, `PaletteNavReducer`, example and property tests | PR 16824 |
-| 3 | Palette UI on the reducer: `PaletteModel` runs the reducer's effects (one page per level, the root built only when shown), chip styles, entry styles, keyword hint, footer prefix hints, scope list (`?`), item actions as a scope, Debug Settings tunables | this PR |
-| 4 | Search Tabs is scope `tabs` (`@`, `tabs` Tab); Cmd-Shift-A opens it above the root, so Backspace shows the full palette | this PR |
-| 5 | Catalog `palette.open` (CLI, MCP, keyboard, palette); socket `palette.scopes` and `palette.query`; CLI request `palette-scopes.md`; `palette.run` waits for typed ActionRefs | this PR |
-| 6 | Extension contribution: schema `contributes.paletteScopes`, runtime `palette.*`/`act`, Swift bridge from the app registry, sample app, harness with shared vectors | after 5, with the app platform lead |
+| 3 | Palette UI on the reducer: `PaletteModel` runs the reducer's effects (one page per level, the root built only when shown), chip styles, entry styles, keyword hint, footer prefix hints, scope list (`?`), item actions as a scope, Debug Settings tunables | PR 16849 |
+| 4 | Search Tabs is scope `tabs` (`@`, `tabs` Tab); Cmd-Shift-A opens it above the root, so Backspace shows the full palette | PR 16849, after lane 2's follow-up PR 16839 |
+| 5 | Catalog `palette.open` (CLI, MCP, keyboard, palette); socket `palette.scopes` and `palette.query`; CLI request `palette-scopes.md`; `palette.run` waits for typed ActionRefs | PR 16849 |
+| 6 | Extension contribution v1: schema `contributes.paletteScopes` and command `mode`, runtime `palette.*`/`act`, gesture capability, `@cmux/app-test` harness, 64 shared navigation vectors (Swift and TypeScript), sample `palette-notes` | PR 16844 (merged a835b277bd6) |
+| 7 | Platform v2 form (section 6.9): `cmux.palette.scope/1` interface, ActionRefs to the catalog fragment, Rust supervisor serving scope sources, Swift bridge from scene streams to palette pages, host-side checks of ABI.md | with the app platform lead, after v2 steps 2 and 3 |
 
 ## 9. Decisions
 
