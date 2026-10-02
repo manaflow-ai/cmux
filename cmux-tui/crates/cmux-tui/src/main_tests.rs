@@ -1,4 +1,3 @@
-
 #[cfg(unix)]
 #[test]
 fn loopback_forward_denies_every_daemon_listener_port() {

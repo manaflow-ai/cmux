@@ -1,4 +1,3 @@
-
 use super::*;
 
 /// A user bubble's row text lines up with its display cells, so a

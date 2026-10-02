@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn prof(kind: HarnessKind, argv: &[&str]) -> HarnessProfile {
