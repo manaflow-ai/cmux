@@ -276,8 +276,15 @@ enum AgentHookNotificationPolicy {
     static func notificationTitle(
         agentName: String,
         displayName: String,
-        surfaceTitle: String?
+        surfaceTitle: String?,
+        workspaceTitle: String? = nil
     ) -> String {
+        if agentName == "claude",
+           let workspaceTitle = workspaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceTitle.isEmpty,
+           workspaceTitle.caseInsensitiveCompare(displayName) != .orderedSame {
+            return "\(workspaceTitle) · \(displayName)"
+        }
         guard agentName == "pi",
               let surfaceTitle = surfaceTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !surfaceTitle.isEmpty else {
