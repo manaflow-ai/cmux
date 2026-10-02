@@ -31,6 +31,7 @@ import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { PermissionCard } from "./PermissionCard";
 import { agentName } from "./agents";
 import { t } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -203,23 +204,13 @@ const NoticeRow = memo(
 const PermissionRow = memo(
   function PermissionRow({ row }: RowProps) {
     const permission = row.permission;
-    return (
-      <div className="acpmux-permission-card">
-        <strong>{permission?.title || "Permission required"}</strong>
-        <div className="acpmux-permission-buttons">
-          {permission?.options.map((option) => (
-            <button
-              key={option.id}
-              onClick={() =>
-                void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
-              }
-            >
-              {option.name}
-            </button>
-          ))}
+    if (!permission)
+      return (
+        <div className="acpmux-permission-card">
+          <strong>{t("permission.required")}</strong>
         </div>
-      </div>
-    );
+      );
+    return <PermissionCard permission={permission} onAnswer={answerPermission(permission)} />;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -645,25 +636,9 @@ export function VirtualTranscript({
   );
 }
 
-function PermissionCard({ permission }: { permission: AcpmuxPermission }) {
-  return (
-    <div className="acpmux-permission-card">
-      <strong>{permission.title || "Permission required"}</strong>
-      <div className="acpmux-permission-buttons">
-        {permission.options.map((option) => (
-          <button
-            key={option.id}
-            onClick={() =>
-              void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
-            }
-          >
-            {option.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+/// Answers `permission` with the option a button or key picked.
+const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
+  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   return (
@@ -1332,7 +1307,12 @@ function AcpmuxPane() {
                       onUndo={trustAsk.undo}
                     />
                   )}
-                  {individualPermission && <PermissionCard permission={individualPermission} />}
+                  {individualPermission && (
+                    <PermissionCard
+                      permission={individualPermission}
+                      onAnswer={answerPermission(individualPermission)}
+                    />
+                  )}
                 </div>
               )}
               {/* Between the hero and the docked composer. */}

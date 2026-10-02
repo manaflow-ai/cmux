@@ -1784,7 +1784,7 @@ describe("acpmux docked permission asks", () => {
       expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
       const buttons = () => [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
       expect(buttons()).toContain("Allow for this chat");
-      expect(buttons()).not.toContain("Individual allow");
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(false);
       // An interactive request remains individually answerable beside both asks.
       await act(async () =>
         host.cmuxAcpmuxBridge!.receive({
@@ -1792,7 +1792,7 @@ describe("acpmux docked permission asks", () => {
           permission: { ...permission, permissionId: "interactive", groupId: undefined },
         } as never),
       );
-      expect(buttons()).toContain("Individual allow");
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(true);
       expect(buttons()).toContain("Allow for this chat");
       expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
     } finally {

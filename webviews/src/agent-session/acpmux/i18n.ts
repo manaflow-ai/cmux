@@ -48,6 +48,7 @@ const en = {
   "project.choose": "Choose project",
   "project.search": "Search projects",
   "project.none": "No matching projects",
+  "permission.required": "Permission required",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -98,6 +99,7 @@ const ja: Record<StringKey, string> = {
   "project.choose": "プロジェクトを選択",
   "project.search": "プロジェクトを検索",
   "project.none": "一致するプロジェクトはありません",
+  "permission.required": "許可が必要です",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

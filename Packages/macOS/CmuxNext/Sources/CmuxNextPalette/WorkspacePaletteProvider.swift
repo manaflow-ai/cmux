@@ -39,6 +39,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                         title: PaletteStrings.renameWorkspace,
                         placeholder: PaletteStrings.workspaceNamePlaceholder,
                         initialText: workspace.title,
+                        skipsUnchangedText: true,
                         submitTitle: PaletteStrings.renameTo,
                         submit: { source.renameWorkspace(id: id, to: $0) }
                     ))),
