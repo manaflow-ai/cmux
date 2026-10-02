@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0";
+inline constexpr std::string_view kProtocolIrSha256 = "72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -137,7 +137,10 @@ struct Tab;
 struct TabRef;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
+struct TerminalCommandList;
+struct TerminalCommandRecord;
 struct TerminalEventsResult;
 struct TerminalExit;
 struct TerminalExitOutcome;
@@ -206,6 +209,7 @@ struct DeletePersonalGroupRequest;
 struct DeleteProfileRequest;
 struct DeleteSavedScreenGroupRequest;
 struct DeleteSavedTabGroupRequest;
+struct DeleteTerminalCommandsRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
@@ -230,6 +234,7 @@ struct ListPersonalRequest;
 struct ListSavedScreenGroupsRequest;
 struct ListSavedTabGroupsRequest;
 struct ListTabGroupsRequest;
+struct ListTerminalCommandsRequest;
 struct ListTerminalsRequest;
 struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
@@ -1322,6 +1327,13 @@ struct DeleteSavedTabGroupRequest {
     friend bool operator==(const DeleteSavedTabGroupRequest&, const DeleteSavedTabGroupRequest&) = default;
 };
 
+struct DeleteTerminalCommandsRequest {
+    std::optional<bool> all{};
+    Field<std::vector<std::string>> ids{};
+    Field<std::string> started_since_ms{};
+    friend bool operator==(const DeleteTerminalCommandsRequest&, const DeleteTerminalCommandsRequest&) = default;
+};
+
 struct DeleteWorkspaceGroupRequest {
     std::string group{};
     friend bool operator==(const DeleteWorkspaceGroupRequest&, const DeleteWorkspaceGroupRequest&) = default;
@@ -1818,6 +1830,12 @@ struct ListSavedTabGroupsRequest {
 
 struct ListTabGroupsRequest {
     friend bool operator==(const ListTabGroupsRequest&, const ListTabGroupsRequest&) = default;
+};
+
+struct ListTerminalCommandsRequest {
+    Field<std::string> after_id{};
+    Field<std::uint32_t> limit{};
+    friend bool operator==(const ListTerminalCommandsRequest&, const ListTerminalCommandsRequest&) = default;
 };
 
 struct ListTerminalsRequest {
@@ -3153,6 +3171,7 @@ struct SetTabPinnedRequest {
 
 struct SetTerminalCommandHistoryRequest {
     bool enabled{};
+    Field<std::uint32_t> retention_days{};
     friend bool operator==(const SetTerminalCommandHistoryRequest&, const SetTerminalCommandHistoryRequest&) = default;
 };
 
@@ -3357,9 +3376,35 @@ struct TabRenamedEvent {
     friend bool operator==(const TabRenamedEvent&, const TabRenamedEvent&) = default;
 };
 
+struct TerminalCommandDeleteResult {
+    std::uint64_t deleted{};
+    friend bool operator==(const TerminalCommandDeleteResult&, const TerminalCommandDeleteResult&) = default;
+};
+
 struct TerminalCommandHistoryResult {
     bool enabled{};
+    std::uint32_t retention_days{};
     friend bool operator==(const TerminalCommandHistoryResult&, const TerminalCommandHistoryResult&) = default;
+};
+
+struct TerminalCommandRecord {
+    std::optional<std::string> command{};
+    std::optional<std::string> cwd{};
+    std::string duration_ms{};
+    std::optional<std::int32_t> exit_code{};
+    std::string id{};
+    std::string started_at_ms{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalCommandRecord&, const TerminalCommandRecord&) = default;
+};
+
+struct TerminalCommandList {
+    std::vector<TerminalCommandRecord> commands{};
+    std::string deletions{};
+    std::string registry_id{};
+    std::uint32_t retention_days{};
+    bool truncated{};
+    friend bool operator==(const TerminalCommandList&, const TerminalCommandList&) = default;
 };
 
 struct TerminalEventsRequest {
@@ -4473,9 +4518,27 @@ struct Codec<TerminalColors> {
 };
 
 template <>
+struct Codec<TerminalCommandDeleteResult> {
+    static Result<Json> encode(const TerminalCommandDeleteResult& value);
+    static Result<TerminalCommandDeleteResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalCommandHistoryResult> {
     static Result<Json> encode(const TerminalCommandHistoryResult& value);
     static Result<TerminalCommandHistoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandList> {
+    static Result<Json> encode(const TerminalCommandList& value);
+    static Result<TerminalCommandList> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandRecord> {
+    static Result<Json> encode(const TerminalCommandRecord& value);
+    static Result<TerminalCommandRecord> decode(const Json& value);
 };
 
 template <>
@@ -4887,6 +4950,12 @@ struct Codec<DeleteSavedTabGroupRequest> {
 };
 
 template <>
+struct Codec<DeleteTerminalCommandsRequest> {
+    static Result<Json> encode(const DeleteTerminalCommandsRequest& value);
+    static Result<DeleteTerminalCommandsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<DeleteWorkspaceGroupRequest> {
     static Result<Json> encode(const DeleteWorkspaceGroupRequest& value);
     static Result<DeleteWorkspaceGroupRequest> decode(const Json& value);
@@ -5028,6 +5097,12 @@ template <>
 struct Codec<ListTabGroupsRequest> {
     static Result<Json> encode(const ListTabGroupsRequest& value);
     static Result<ListTabGroupsRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListTerminalCommandsRequest> {
+    static Result<Json> encode(const ListTerminalCommandsRequest& value);
+    static Result<ListTerminalCommandsRequest> decode(const Json& value);
 };
 
 template <>

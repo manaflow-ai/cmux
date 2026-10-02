@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0. */
+/* cmux-tui mux protocol 12, IR 72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0" as const;
+export const SDK_IR_SHA256 = "72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -617,6 +617,16 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "delete-terminal-commands": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "terminal-command-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Runs after every command queued before it; deleted rows are zeroed (secure delete) and ids are never reused."
+    ]
+  },
   "delete-workspace-group": {
     "authority": "control",
     "since": 12,
@@ -835,6 +845,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "list-terminal-commands": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "terminal-command-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Returns the newest limit unexpired rows with an id above after_id, oldest first; truncated is true when older rows after after_id were left out.",
+      "deletions counts client deletes (not expiry); a reader that saw another deletions or registry_id reads again from the start and drops rows older than retention_days itself."
     ]
   },
   "list-terminals": {
@@ -1890,12 +1911,13 @@ export const COMMAND_METADATA = {
   "set-terminal-command-history": {
     "authority": "local-admin",
     "since": 12,
-    "capability": "terminal-command-journal-v1",
+    "capability": "terminal-command-history-v1",
     "fields": {},
     "stream": null,
     "constraints": [
       "Off by default and after a daemon restart.",
-      "When on, finished OSC 133 shell commands are journaled as sensitive shell.command.finished records."
+      "When on, finished OSC 133 shell commands are stored as deletable rows, read with list-terminal-commands.",
+      "Lists hide rows older than retention_days at once; the daemon deletes them when it starts, on every store and retention change, and at the oldest row's expiry time."
     ]
   },
   "set-terminal-idle-policy": {
@@ -7669,6 +7691,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "TerminalCommandDeleteResult": {
+    "additional_properties": false,
+    "fields": {
+      "deleted": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "TerminalCommandHistoryResult": {
     "additional_properties": false,
     "fields": {
@@ -7678,6 +7714,125 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "boolean"
+        }
+      },
+      "retention_days": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandList": {
+    "additional_properties": false,
+    "fields": {
+      "commands": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "TerminalCommandRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "deletions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "registry_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "retention_days": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "TerminalCommandRecord": {
+    "additional_properties": false,
+    "fields": {
+      "command": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "cwd": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "exit_code": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "int32"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "started_at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -11137,6 +11292,53 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "delete-terminal-commands": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "Exactly one of ids, started_since_ms or all.",
+        "ids holds 1 to 1000 decimal strings; started_since_ms is a decimal string."
+      ],
+      "fields": {
+        "all": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "ids": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array",
+            "min_items": 1
+          }
+        },
+        "started_since_ms": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandDeleteResult"
+    }
+  },
   "delete-workspace-group": {
     "request": {
       "additional_properties": false,
@@ -11646,6 +11848,40 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "list-terminal-commands": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "after_id is a decimal string.",
+        "limit is 1 to 1000 (default 1000)."
+      ],
+      "fields": {
+        "after_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "limit": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "TerminalCommandList"
     }
   },
   "list-terminals": {
@@ -15841,6 +16077,9 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
   "set-terminal-command-history": {
     "request": {
       "additional_properties": false,
+      "constraints": [
+        "retention_days is 1 to 3650; when absent the stored retention (default 30) is kept."
+      ],
       "fields": {
         "enabled": {
           "nullable": false,
@@ -15848,6 +16087,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "boolean"
+          }
+        },
+        "retention_days": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
           }
         }
       },

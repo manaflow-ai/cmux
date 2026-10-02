@@ -118,9 +118,8 @@ pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
-/// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-/// when a trusted client turns it on with `set-terminal-command-history`.
-pub const TERMINAL_COMMAND_JOURNAL_CAPABILITY: &str = "terminal-command-journal-v1";
+/// Finished shell commands (OSC 133) as deletable rows with a retention.
+pub const TERMINAL_COMMAND_HISTORY_CAPABILITY: &str = "terminal-command-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
@@ -359,7 +358,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
-        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
+        TERMINAL_COMMAND_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
         FRONTEND_JOURNAL_CAPABILITY,
@@ -1026,11 +1025,20 @@ enum Command {
     /// with holder sites, journal writer batch metrics, and connection
     /// admission. Owner-only diagnostics, never journaled.
     ServerStats,
-    /// Turn terminal command history on or off for this daemon
-    /// (`terminal-command-journal-v1`). Off by default and after a restart;
-    /// trusted local connections only.
+    /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
     SetTerminalCommandHistory {
         enabled: bool,
+        retention_days: Option<u32>,
+    },
+    ListTerminalCommands {
+        after_id: Option<String>,
+        limit: Option<u32>,
+    },
+    DeleteTerminalCommands {
+        ids: Option<Vec<String>>,
+        started_since_ms: Option<String>,
+        #[serde(default)]
+        all: bool,
     },
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
@@ -10154,13 +10162,7 @@ fn handle_journal_extension_request(
                             format!("journal event is invalid: {error}"),
                         )
                     })?;
-            // Only the daemon writes terminal command records.
-            if ingress.producer_id == crate::shell_history::SHELL_PRODUCER_ID {
-                return Err(ResourceError::validation_invalid(
-                    Some("event"),
-                    "the cmux shell producer is written only by the daemon".to_string(),
-                ));
-            }
+            command_history::refuse_reserved_producer(&ingress)?;
             let idempotency_key = request
                 .envelope
                 .idempotency_key
@@ -13310,13 +13312,9 @@ fn handle_command_with_cancellation(
             data,
         }
         .handle(mux, client),
-        Command::SetTerminalCommandHistory { enabled } => {
-            if !mux.control_clients.is_unix(client) {
-                anyhow::bail!("terminal command history requires a trusted local connection");
-            }
-            mux.set_terminal_command_history(enabled);
-            Ok(json!({ "enabled": enabled }))
-        }
+        command @ (Command::SetTerminalCommandHistory { .. }
+        | Command::ListTerminalCommands { .. }
+        | Command::DeleteTerminalCommands { .. }) => command_history::handle(mux, client, command),
         Command::ServerStats => {
             if !mux.control_clients.is_unix(client) {
                 anyhow::bail!("server stats requires a trusted local connection");

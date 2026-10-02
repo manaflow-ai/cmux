@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0.
+// cmux-tui mux protocol 12, IR 72c0f53c29ece0fd385a09eda356ab009a05dd61ad60faf89e5e6413647910dc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1361,8 +1361,37 @@ pub struct TerminalColors {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandDeleteResult {
+    pub deleted: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TerminalCommandHistoryResult {
     pub enabled: bool,
+    pub retention_days: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandList {
+    pub commands: Vec<TerminalCommandRecord>,
+    pub deletions: String,
+    pub registry_id: String,
+    pub retention_days: u32,
+    pub truncated: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalCommandRecord {
+    pub command: Nullable<String>,
+    pub cwd: Nullable<String>,
+    pub duration_ms: String,
+    pub exit_code: Nullable<i32>,
+    pub id: String,
+    pub started_at_ms: String,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]
