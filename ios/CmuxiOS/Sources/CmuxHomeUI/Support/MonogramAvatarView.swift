@@ -29,6 +29,7 @@ final class MonogramAvatarView: UIView {
         front.configure(shown.first)
         back.isHidden = !isGroup
         if isGroup { back.configure(shown[1]) }
+        back.labelShift = isGroup ? -0.18 : 0
         setNeedsLayout()
     }
 
@@ -49,6 +50,11 @@ final class MonogramAvatarView: UIView {
 @MainActor
 private final class MonogramCircle: UIView {
     private let label = UILabel()
+    /// Moves the initials toward the top leading corner by this fraction of
+    /// the width (the back circle of a group is half covered).
+    var labelShift: CGFloat = 0 {
+        didSet { setNeedsLayout() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -74,7 +80,8 @@ private final class MonogramCircle: UIView {
         layer.cornerRadius = bounds.width / 2
         layer.borderWidth = bounds.width < 40 ? 1.5 : 0
         layer.borderColor = HomePalette.background.resolvedColor(with: traitCollection).cgColor
-        label.font = .systemFont(ofSize: max(10, bounds.width * 0.38), weight: .semibold)
-        label.frame = bounds.insetBy(dx: bounds.width * 0.12, dy: 0)
+        let shift = bounds.width * labelShift
+        label.font = .systemFont(ofSize: max(10, bounds.width * (labelShift == 0 ? 0.38 : 0.32)), weight: .semibold)
+        label.frame = bounds.insetBy(dx: bounds.width * 0.12, dy: 0).offsetBy(dx: shift, dy: shift)
     }
 }

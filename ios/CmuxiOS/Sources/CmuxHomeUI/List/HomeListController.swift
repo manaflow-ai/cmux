@@ -143,6 +143,8 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
 
     private func updateBanner() {
         guard let layout = collectionView.collectionViewLayout as? UICollectionViewCompositionalLayout else { return }
+        let topOffset = -collectionView.adjustedContentInset.top
+        let wasAtTop = collectionView.contentOffset.y <= topOffset + 1
         let configuration = UICollectionViewCompositionalLayoutConfiguration()
         if !isOnline {
             let banner = NSCollectionLayoutBoundarySupplementaryItem(
@@ -151,6 +153,10 @@ final class HomeListController: NSObject, UICollectionViewDelegate {
             configuration.boundarySupplementaryItems = [banner]
         }
         layout.configuration = configuration
+        if wasAtTop, hasApplied {
+            collectionView.layoutIfNeeded()
+            collectionView.setContentOffset(CGPoint(x: 0, y: -collectionView.adjustedContentInset.top), animated: false)
+        }
     }
 
     private func swipe(at indexPath: IndexPath, leading: Bool) -> UISwipeActionsConfiguration? {

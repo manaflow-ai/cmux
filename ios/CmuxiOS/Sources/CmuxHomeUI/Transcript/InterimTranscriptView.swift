@@ -46,7 +46,7 @@ final class InterimTranscriptView: NSObject, TranscriptPresenting, UICollectionV
         guard let dataSource else { return }
         let previousFirst = order.first
         let wasEmpty = order.isEmpty
-        let stickToBottom = wasEmpty || collectionView.isNearBottom
+        let stickToBottom = wasEmpty || collectionView.followsBottom
         let previousItems = items
 
         items = Dictionary(next.map { ($0.key, $0) }, uniquingKeysWith: { _, last in last })
@@ -87,6 +87,7 @@ final class InterimTranscriptView: NSObject, TranscriptPresenting, UICollectionV
     @discardableResult
     func scroll(to key: IdempotencyKey, animated: Bool) -> Bool {
         guard let indexPath = dataSource?.indexPath(for: .message(key)) else { return false }
+        collectionView.followsBottom = false
         collectionView.layoutIfNeeded()
         collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
         return true
@@ -153,6 +154,9 @@ final class InterimTranscriptView: NSObject, TranscriptPresenting, UICollectionV
     // MARK: UICollectionViewDelegate
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView.isTracking || scrollView.isDecelerating {
+            collectionView.followsBottom = collectionView.isNearBottom
+        }
         guard hasOlder, let first = order.first, first != requestedOlderAtFirst else { return }
         let distanceFromTop = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
         guard distanceFromTop < scrollView.bounds.height else { return }
@@ -180,10 +184,14 @@ final class InterimTranscriptView: NSObject, TranscriptPresenting, UICollectionV
 }
 
 /// A collection view whose content sits at the bottom when it is shorter
-/// than the view, and that stays pinned to the newest message when its
-/// height changes (keyboard, composer growth, rotation).
+/// than the view, and that follows the newest message while the reader is
+/// there: any size change (self-sizing bubbles, keyboard, composer growth,
+/// rotation) keeps the bottom in view until the reader scrolls away.
 @MainActor
 final class BottomAnchoredCollectionView: UICollectionView {
+    /// True while the newest message should stay in view.
+    var followsBottom = true
+    private var lastContentHeight: CGFloat = 0
     private var lastHeight: CGFloat = 0
 
     var isNearBottom: Bool {
@@ -192,22 +200,19 @@ final class BottomAnchoredCollectionView: UICollectionView {
     }
 
     override func layoutSubviews() {
-        let heightChanged = bounds.height != lastHeight
-        let wasNearBottom = heightChanged && lastHeight > 0 && wasNearBottomBeforeResize
         super.layoutSubviews()
         anchorContentToBottom()
-        if heightChanged {
-            lastHeight = bounds.height
-            if wasNearBottom { scrollToBottom(animated: false) }
-        }
-        wasNearBottomBeforeResize = isNearBottom
+        let changed = contentSize.height != lastContentHeight || bounds.height != lastHeight
+        lastContentHeight = contentSize.height
+        lastHeight = bounds.height
+        if changed, followsBottom, !isTracking, !isDecelerating { scrollToBottom(animated: false) }
     }
 
-    private var wasNearBottomBeforeResize = true
-
     func scrollToBottom(animated: Bool) {
+        followsBottom = true
         let bottom = contentSize.height - bounds.height + adjustedContentInset.bottom
         let target = max(-adjustedContentInset.top, bottom)
+        guard abs(contentOffset.y - target) > 0.5 else { return }
         setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: animated)
     }
 

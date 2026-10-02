@@ -126,7 +126,10 @@ final class NewGroupViewController: UIViewController, ComposeScreen, UICollectio
             content.imageProperties.tintColor = HomePalette.secondaryText
             cell.contentConfiguration = content
             cell.tintColor = HomePalette.accent
-            cell.accessories = [.checkmark(displayed: .whenSelected)]
+            cell.configurationUpdateHandler = { cell, state in
+                guard let cell = cell as? UICollectionViewListCell else { return }
+                cell.accessories = state.isSelected ? [.checkmark()] : []
+            }
         }
         let headerRegistration = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
             elementKind: UICollectionView.elementKindSectionHeader) { [weak self] header, _, indexPath in

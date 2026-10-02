@@ -101,6 +101,7 @@ final class InvitePreviewView: UIView {
         messageView.accessibilityLabel = HomeText.invitePreviewMessageA11y
 
         linkLabel.text = InviteCopy.link
+        linkLabel.isHidden = editable
         linkLabel.font = .preferredFont(forTextStyle: .footnote)
         linkLabel.adjustsFontForContentSizeCategory = true
         linkLabel.textColor = HomePalette.secondaryText

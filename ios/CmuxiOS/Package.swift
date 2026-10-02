@@ -61,6 +61,11 @@ let package = Package(
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
+        .testTarget(
+            name: "CmuxHomeUITests",
+            dependencies: ["CmuxHomeUI", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
         .target(
             name: "CmuxiOSTerminal",
             swiftSettings: [.swiftLanguageMode(.v6)]

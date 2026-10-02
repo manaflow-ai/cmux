@@ -167,6 +167,7 @@ final class UnreadBadgeView: UIView {
         didSet {
             isHidden = count == 0
             label.text = count > 99 ? "99+" : count.formatted()
+            invalidateIntrinsicContentSize()
         }
     }
 
@@ -194,6 +195,13 @@ final class UnreadBadgeView: UIView {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// An intrinsic size so the stack keeps the capsule at its text's width.
+    override var intrinsicContentSize: CGSize {
+        let text = label.intrinsicContentSize
+        let height = text.height + 4
+        return CGSize(width: max(height, text.width + 12), height: height)
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
