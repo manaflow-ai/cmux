@@ -5,3 +5,4 @@
 dist/
 .vercel
 .env*
+public/og/runtime/

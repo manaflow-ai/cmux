@@ -13,7 +13,8 @@ export const Route = createFileRoute("/i/$code")({
   head: ({ loaderData, params }) => {
     const origin = loaderData?.origin ?? "https://console.cmux.dev"
     const url = `${origin}/i/${INVITE_CODE.test(params.code) ? params.code : ""}`
-    const image = `${origin}/og/invite.png`
+    // Per-invite card (inviter first name and avatar; generic until the API knows the code).
+    const image = INVITE_CODE.test(params.code) ? `${origin}/og/invite/${params.code}.png` : `${origin}/og/invite.png`
     return {
       meta: [
         { title: TITLE },
