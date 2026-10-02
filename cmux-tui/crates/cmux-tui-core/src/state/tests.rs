@@ -1427,6 +1427,10 @@ fn sidebar_layout_ops_commit_replay_and_reject() {
         [("state_upsert".to_string(), json!("1")), ("state_upsert".to_string(), json!("2"))]
     );
     assert_eq!(snapshot(&mux)["extra"]["state"]["sidebar_layout"]["revision"], "2");
+    // Raw clients follow the layout through personal-changed.
+    let personal = mux.personal_snapshot().unwrap().personal_revision;
+    update("s-6", json!({"kind": "item.remove", "id": "itm_settings"})).unwrap();
+    assert_eq!(mux.personal_snapshot().unwrap().personal_revision, personal + 1);
 }
 
 /// The layout survives a reopen; a reused key with another op is

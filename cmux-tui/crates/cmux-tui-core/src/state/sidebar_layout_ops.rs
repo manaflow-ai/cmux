@@ -1,6 +1,7 @@
 //! `sidebar_layout.update`: one reducer op on the state commit path (rows,
 //! replay record and one `session.events` batch with a `state_upsert` of
-//! resource `sidebar_layout`, id `user`).
+//! resource `sidebar_layout`, id `user`), plus `personal-changed` for raw
+//! clients.
 
 use serde_json::json;
 
@@ -10,6 +11,7 @@ use crate::state::prelude::*;
 use crate::state::sidebar_layout::{self, Op};
 use crate::state::sidebar_layout_store::{self as store, ID, RESOURCE};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
+use crate::workspace_registry::personal_store::commit_personal;
 
 impl Mux {
     /// Apply `op` (the wire JSON of a sidebar layout op) under `mutation`'s
@@ -39,6 +41,10 @@ impl Mux {
                     return Ok(StateChanges::new(value, Vec::new()));
                 }
                 store::write_document(transaction, &next)?;
+            // Raw-protocol clients (the Mac app today) follow personal state
+            // through `personal-changed`; bump `personal_revision` so they
+            // refetch the layout (v2 clients read the state_upsert).
+            commit_personal(transaction, "personal.sidebar_layout.updated", Vec::new(), &json!({"revision": next.revision}))?;
                 Ok(StateChanges::new(value.clone(), vec![state_upsert(RESOURCE, ID, value)]))
             },
         )
