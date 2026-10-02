@@ -315,9 +315,25 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   async function clipboardShortcut(tab, key) {
     const page = tab.page;
     if (key === "v") {
+      // The app runs WebKit's Paste against the tab's clipboard, so the page
+      // gets a paste event with clipboardData. Playwright WebKit's own paste
+      // reads the system clipboard, so this double dispatches the event (not
+      // trusted) in the focused frame and inserts the text unless cancelled.
       const item = tab.clipboard.find((i) => i.type === "text/plain");
       const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
-      if (text) await page.keyboard.insertText(text);
+      const entries = tab.clipboard.filter((i) => /^[\w.+-]+\/[\w.+-]+$/.test(i.type)).map((i) => [i.type, Buffer.from(i.base64, "base64").toString("utf8")]);
+      let frame = page.mainFrame();
+      for (const f of page.frames()) {
+        if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
+      }
+      const cancelled = await frame.evaluate((entries) => {
+        const data = new DataTransfer();
+        for (const [type, value] of entries) data.setData(type, value);
+        let el = document.activeElement || document.body;
+        while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+        return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
+      }, entries);
+      if (!cancelled && text) await page.keyboard.insertText(text);
       return;
     }
     const selection = await page.evaluate(() => {

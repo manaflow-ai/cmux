@@ -198,8 +198,8 @@
         await t.waitIn(page, () => { const b = document.querySelector("#docs-save-indicator-badge, .docs-save-indicator-badge"); return !b || !/Saving/i.test(b.textContent || b.getAttribute("aria-label") || ""); }, undefined, { timeout: 20000, what: "the editor to save" }).catch(() => {});
       },
       // Checks the edit through an export, backing off (exports are rate-limited).
-      async verify(check) {
-        for (const wait of [800, 1500, 2500, 4000, 6000, 8000]) {
+      async verify(check, waits = [800, 1500, 2500, 4000, 6000, 8000]) {
+        for (const wait of waits) {
           await t.sleep(wait);
           try {
             if (await check()) return true;

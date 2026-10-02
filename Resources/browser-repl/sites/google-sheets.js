@@ -37,8 +37,21 @@
           summary: `Write ${values.length} row(s) at ${target} in Google Sheet ${r.id}`,
           preview: { file: sheet, range: target, values },
           run: async (page) => {
-            // Typed keys, cell by cell (Tab moves right, Enter starts the
-            // next row): Sheets' cell editor ignores a paste or inserted text.
+            const want = new Map();
+            values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
+            const check = async () => {
+              const got = new Map((await api.cells(sheet, { ...(options || {}), range: target })).cells.map((c) => [c.cell, c]));
+              return [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
+            };
+            // One paste of the rows as TSV at the top-left cell, as a person
+            // pastes a range: Sheets reads the paste event's clipboardData.
+            await selectRange(page, start);
+            await page.clipboard.writeText(values.map((row) => row.map((v) => (v === null || v === undefined ? "" : String(v))).join("\t")).join("\n"));
+            await page.keyboard.press("ControlOrMeta+v");
+            await ed.saved(page);
+            if (await ed.verify(check, [800, 1500, 2500])) return { status: "written", range: target, verified: true };
+            // An editor that dropped the paste gets typed keys, cell by cell
+            // (Tab moves right, Enter starts the next row).
             await selectRange(page, start);
             for (const row of values) {
               row.forEach((v, j) => {
@@ -51,13 +64,7 @@
               await page.keyboard.press("Enter");
             }
             await ed.saved(page);
-            const want = new Map();
-            values.forEach((row, i) => row.forEach((v, j) => want.set(`${ed.colName(c0 + j)}${r0 + i}`, v === null || v === undefined ? "" : String(v))));
-            const verified = await ed.verify(async () => {
-              const got = new Map((await api.cells(sheet, { ...(options || {}), range: target })).cells.map((c) => [c.cell, c]));
-              return [...want].every(([cell, v]) => v === "" || (got.has(cell) && (v.startsWith("=") ? got.get(cell).formula === v : got.get(cell).value === v)));
-            });
-            return { status: "written", range: target, verified };
+            return { status: "written", range: target, verified: await ed.verify(check) };
           },
         }));
       }

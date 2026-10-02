@@ -149,7 +149,7 @@ the file back to verify.
 | `googleSheets.read(url, { gid, sheet, range })` | CSV export: values | read |
 | `googleSheets.cells(url, { sheet, gid, range })` | xlsx export unzipped in a docs.google.com page (`DecompressionStream`): `{ cell, value, formula }` | read |
 | `googleSheets.find(url, text)` | the same, every tab | read |
-| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, each value typed with real keys (Tab between cells, Enter after a row; `=` makes a formula), verified through the xlsx export. Live, Sheets' cell editor ignored cmux's paste and inserted text | write |
+| `googleSheets.write(url, range, rows)` | name box selects the top-left cell, then one Meta+V of the rows as TSV from the tab's clipboard (a trusted `paste` whose `clipboardData` Sheets reads; `=` makes a formula); if the export does not show the values within about 5 s, each value is typed with real keys (Tab between cells, Enter after a row). Verified through the xlsx export | write |
 | `googleSheets.append(url, rows)` | the same after the last non-empty row | write |
 | `googleSheets.clear(url, range)` | name box selects the range, Delete, verified | write |
 | `googleDocs.structure(url)` | HTML export parsed in a blank tab: headings with levels, paragraphs, lists, tables | read |
