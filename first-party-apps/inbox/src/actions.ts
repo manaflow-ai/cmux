@@ -1,80 +1,96 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// What the user (or an agent through a command) does to feed items. Every
-// view and command goes through these, so tap, menu, palette and MCP share
-// one path. Each is one call to the feed owner; nothing is kept here.
+// What the user does to feed items. Every view and command goes through
+// these, so tap, menu and palette share one path. Each is one call to the
+// feed owner (or to the feed's own open action); nothing is kept here.
 
-import { feed, type FeedAction, type FeedItem, type FeedMutation } from "./feed.ts"
+import { feed, isOpenRequest, type FeedFilter, type FeedItem } from "./feed.ts"
 import { t } from "./l10n.ts"
-import { describe, filters, items, noteRevision, noticeFor, selected, setSelected, toFeedFilter } from "./store.ts"
+import { codeOf, describe, filters, items, noticeFor, selected, setSelected } from "./store.ts"
 
-const fail = (key: string, english: string) => (e: unknown) => {
-  noticeFor(t(key, english, { reason: describe(e) }))
-  return undefined
-}
-const settle = (p: Promise<FeedMutation>) => p.then((m) => noteRevision(m?.revision)).catch(fail("error.feed", "The feed did not accept that: {reason}"))
-
-/** Runs an action target from the cmux action registry. */
-const run = (target: { action: string; args: Record<string, unknown> }) => cmux.actions.run(target.action, target.args)
+/** Resolves true when the owner accepted the call; a refusal shows a notice and resolves false. */
+const quiet = (p: Promise<unknown>): Promise<boolean> =>
+  p.then(
+    () => true,
+    (e: unknown) => {
+      noticeFor(t("error.feed", { reason: describe(e) }))
+      return false
+    }
+  )
 
 /**
- * Opens an item's target (the agent's tab, the pull request, the browser tab
- * for a sign-in) and marks it seen. The target runs first and synchronously,
- * so it is inside the tap's user turn (origin `user`).
+ * Opens an item through the feed's own action `feed.openItem`: it reads the
+ * item and runs its open target (`tab.focus`, `workspace.focus`, `url.open`,
+ * ...), and for sign-in and passkey requests the whole handover (the agent's
+ * tab paused, the user's copy opened next to it). Called synchronously in the
+ * tap, so the call carries the tap's gesture token (origin user).
  */
-export async function openItem(item: FeedItem): Promise<void> {
+export function openItem(item: FeedItem): Promise<boolean> {
   setSelected(item.id)
-  const opening = item.open ? run(item.open).catch(fail("error.open", "Could not open: {reason}")) : null
-  if (item.seenAt === null) await settle(feed.mark([item.id], "seen"))
-  await opening
+  return quiet(
+    cmux.actions.run("feed.openItem", { item: item.id }).catch((e: unknown) => {
+      throw codeOf(e) === "operation.unsupported" ? new Error(t("open.unsupported")) : e
+    })
+  )
 }
 
-export const markSeen = (list: readonly FeedItem[]) => (list.length ? settle(feed.mark(list.map((i) => i.id), "seen")) : Promise.resolve())
-
-/** Finishes items; the selection moves to the next item still listed. */
-export async function markDone(list: readonly FeedItem[]): Promise<void> {
-  moveSelectionOff(list.map((i) => i.id))
-  if (list.length) await settle(feed.mark(list.map((i) => i.id), "done"))
+/** The gesture token of the running user event; answers and declines refuse to run without one. */
+function userGesture(): string | null {
+  const g = cmux.gesture()
+  if (!g) noticeFor(t("answer.needsTap"))
+  return g
 }
 
-/** Snoozes items; the owner wakes them, not this app. */
-export async function snoozeItems(list: readonly FeedItem[], until: number): Promise<void> {
-  moveSelectionOff(list.map((i) => i.id))
-  const at = new Date(until).toISOString()
-  for (const item of list) await settle(feed.snooze(item.id, at))
-}
-
-/** Back to open (from snoozed or done). */
-export const reopen = (list: readonly FeedItem[]) => settle(feed.mark(list.map((i) => i.id), "open"))
-
-/** Answers a request. Must be called synchronously from a tap or menu handler: responding needs origin `user`. */
-export function respond(item: FeedItem, value: unknown): Promise<void> {
-  const sending = feed.respond(item.id, value)
+/**
+ * Answers a request. Only the user answers: the call presents the gesture
+ * token of the tap that chose the answer (origin user); without one (a
+ * command, an agent) nothing is sent.
+ */
+export function answer(item: FeedItem, value: unknown): Promise<boolean> {
+  const gesture = userGesture()
+  if (!gesture) return Promise.resolve(false)
   moveSelectionOff([item.id])
-  return settle(sending)
+  return quiet(feed.answer(item.id, value, gesture))
 }
 
-/** One of the item's own actions. */
-export function runAction(item: FeedItem, action: FeedAction): Promise<unknown> {
-  switch (action.kind) {
-    case "open":
-      return openItem(item)
-    case "respond":
-      return respond(item, action.value)
-    case "done":
-      return markDone([item])
-    case "snooze":
-      return snoozeItems([item], Date.now() + 3_600_000)
-    case "custom":
-      return action.target ? run(action.target).catch(fail("error.open", "Could not open: {reason}")) : Promise.resolve()
-  }
+/** Declines a request (`feed.cancel`, reason `declined`): the waiting agent gets "declined". */
+export function decline(item: FeedItem): Promise<boolean> {
+  const gesture = userGesture()
+  if (!gesture || !isOpenRequest(item)) return Promise.resolve(false)
+  moveSelectionOff([item.id])
+  return quiet(feed.decline(item.id, gesture))
 }
 
-/** Marks everything the current filters show as seen, in one owner call. */
-export async function markAllSeen(): Promise<number> {
-  const m = await feed.markMatching({ ...toFeedFilter(filters()), unseen: true }, "seen")
-  noteRevision(m?.revision)
-  return m?.changed ?? 0
+export const markRead = (list: readonly FeedItem[]) => {
+  const unread = list.filter((i) => i.read_at === null).map((i) => i.id)
+  return unread.length ? quiet(feed.read({ items: unread })) : Promise.resolve(false)
 }
+
+/** Archives ("done"). Open requests cannot be archived: answer or decline them. */
+export function markDone(list: readonly FeedItem[]): Promise<boolean> {
+  const ids = list.filter((i) => !isOpenRequest(i)).map((i) => i.id)
+  if (!ids.length) return Promise.resolve(false)
+  moveSelectionOff(ids)
+  return quiet(feed.archive({ items: ids }))
+}
+
+/** Snoozes; the owner wakes them, not this app. Open requests cannot be snoozed. */
+export function snoozeItems(list: readonly FeedItem[], until: number): Promise<boolean> {
+  const ids = list.filter((i) => !isOpenRequest(i)).map((i) => i.id)
+  if (!ids.length) return Promise.resolve(false)
+  moveSelectionOff(ids)
+  return quiet(feed.snooze(ids, until))
+}
+
+/** Back from done to the active list. */
+export const unarchive = (list: readonly FeedItem[]) => quiet(feed.unarchive(list.map((i) => i.id)))
+
+const currentFilter = (): FeedFilter => (filters().source === "all" ? {} : { poster_kind: filters().source as FeedFilter["poster_kind"] })
+
+/** Reads everything the source filter shows, in one owner call. */
+export const markAllRead = () => quiet(filters().source === "all" ? feed.read({ all: true }) : feed.read({ filter: currentFilter() }))
+
+/** Archives everything the source filter shows; the owner skips open requests. */
+export const markAllDone = () => quiet(feed.archive({ filter: currentFilter() }))
 
 function moveSelectionOff(ids: string[]) {
   const sel = selected()

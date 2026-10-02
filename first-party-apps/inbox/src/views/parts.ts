@@ -2,51 +2,24 @@
 // View pieces shared by the variants: rows, menus, filter controls, notices,
 // empty and error states. Everything renders feed items as the owner sent them.
 
-import { markAllSeen, markDone, markSeen, openItem, reopen, respond, snoozeItems } from "../actions.ts"
-import type { FeedItem, RequestKind, SourceKind } from "../feed.ts"
+import { answer, decline, markAllDone, markAllRead, markDone, markRead, openItem, snoozeItems, unarchive } from "../actions.ts"
+import { answerButtons, approveAnswer, formOf } from "../answers.ts"
+import { isOpenRequest, type FeedItem, type PosterKind } from "../feed.ts"
 import { t } from "../l10n.ts"
-import { counts, feedError, filters, groupBy, items, loaded, notice, setFilters, setGrouping, type SourceFilter } from "../store.ts"
+import { counts, filters, groupBy, notice, setFilters, setGrouping, SOURCES, type FeedView, type SourceFilter } from "../store.ts"
 import { ago, clock, snoozePresets } from "../time.ts"
 
-const REQUEST_LABELS: Record<RequestKind, [string, string]> = {
-  question: ["request.question", "Question"],
-  choice: ["request.choice", "Choose"],
-  approve: ["request.approve", "Approval"],
-  confirm: ["request.confirm", "Confirm"],
-  "sign-in": ["request.sign-in", "Sign-in"],
-  passkey: ["request.passkey", "Passkey"],
-  review: ["request.review", "Review"],
-  input: ["request.input", "Input"],
-  file: ["request.file", "File"],
-  handoff: ["request.handoff", "Handoff"]
-}
+const BUILT_IN_KINDS = new Set(["question", "choice", "approve", "confirm", "sign-in", "passkey", "review", "input", "file", "handoff"])
 
-const SOURCE_LABELS: Record<SourceKind, [string, string]> = {
-  agent: ["source.agent", "Agents"],
-  app: ["source.app", "Apps"],
-  run: ["source.run", "Runs"],
-  integration: ["source.integration", "Integrations"],
-  user: ["source.user", "People"]
-}
-
-const FILTER_LABELS: Record<SourceFilter, [string, string]> = {
-  all: ["filter.all", "All"],
-  agent: ["source.agent", "Agents"],
-  integration: ["source.integration", "Integrations"],
-  other: ["filter.other", "Apps and Runs"]
-}
-
-export const sourceKindLabel = (k: SourceKind) => t(...SOURCE_LABELS[k])
-export const filterLabel = (f: SourceFilter) => t(...FILTER_LABELS[f])
-
-/** "Choose", "Approval", ...; notifications and watches have no kind label. */
+/** "Choose", "Approval", ...; notices have no kind label, custom kinds read "Request". */
 export function kindLabel(i: FeedItem): string {
-  if (i.kind === "request" && i.requestKind) return t(...REQUEST_LABELS[i.requestKind])
-  if (i.kind === "watch") return t("kind.watch", "In progress")
-  return ""
+  if (i.type !== "request") return ""
+  return BUILT_IN_KINDS.has(i.kind) ? t(`kind.${i.kind}`) : t("kind.custom")
 }
 
-const REQUEST_SYMBOLS: Record<RequestKind, string> = {
+export const sourceLabel = (k: SourceFilter | PosterKind) => t(`source.${k}`)
+
+const KIND_SYMBOLS: Record<string, string> = {
   question: "questionmark.bubble",
   choice: "list.bullet",
   approve: "checkmark.shield",
@@ -59,110 +32,130 @@ const REQUEST_SYMBOLS: Record<RequestKind, string> = {
   handoff: "arrow.triangle.branch"
 }
 
-const SOURCE_SYMBOLS: Record<SourceKind, string> = { agent: "sparkles", app: "app", run: "play.circle", integration: "link", user: "person" }
+const POSTER_SYMBOLS: Record<string, string> = { agent: "sparkles", harness: "sparkles", app: "app", server: "server.rack", vm: "cloud", automation: "play.circle", integration: "link", system: "gearshape", user: "person" }
 
 export function itemSymbol(i: FeedItem): string {
-  if (i.kind === "request" && i.requestKind) return REQUEST_SYMBOLS[i.requestKind]
-  if (i.kind === "watch") return "hourglass"
-  if (i.urgency === "critical" || i.urgency === "high") return "exclamationmark.triangle"
-  return SOURCE_SYMBOLS[i.source.kind]
+  if (i.type === "request") return KIND_SYMBOLS[i.kind] ?? "questionmark.bubble"
+  if (i.priority === "urgent" || i.priority === "high") return "exclamationmark.triangle"
+  return POSTER_SYMBOLS[i.poster.kind] ?? "bell"
 }
 
 export function itemTint(i: FeedItem): string {
-  if (i.urgency === "critical") return "danger"
-  if (i.needsResponse || i.urgency === "high") return "warning"
-  if (i.kind === "watch") return "accent"
-  return i.urgency === "low" ? "tertiary" : "secondary"
+  if (i.priority === "urgent") return "danger"
+  if (isOpenRequest(i) || i.priority === "high") return "warning"
+  return i.priority === "low" ? "tertiary" : "secondary"
 }
 
-/** "Choose · 2m · Claude · api-server"; snoozed items say when they come back. */
-export function subtitleOf(i: FeedItem, now: number): string {
-  const when = i.snoozedUntil ? t("snooze.until", "Snoozed until {time}", { time: clock(Date.parse(i.snoozedUntil), now) }) : ago(Date.parse(i.updatedAt), now)
-  const place = i.subject.workspaceName ?? ""
-  return [kindLabel(i), when, i.source.name, place].filter(Boolean).join(" · ")
+/** Workspace names for context ids (live; empty without `workspace:read`). */
+export function workspaceNames(): (id: string | undefined) => string {
+  const live = cmux.live<Cmux.WorkspaceSnapshot[]>("workspace.list", {})
+  const byId = computed(() => new Map((live() ?? []).map((w) => [w.id, w.name])))
+  return (id) => (id ? (byId().get(id) ?? "") : "")
+}
+
+/** "Approval · 2m · Claude · api-server"; snoozed and closed items say so. */
+export function subtitleOf(i: FeedItem, now: number, workspace: (id: string | undefined) => string): string {
+  let when = ago(i.updated_at, now)
+  if (i.snoozed_until && i.snoozed_until > now) when = t("snooze.until", { time: clock(i.snoozed_until, now) })
+  else if (i.state === "answered") when = t("state.answered", { time: ago(i.closed_at ?? i.updated_at, now) })
+  else if (i.state === "cancelled") when = i.cancel?.reason === "declined" ? t("state.declined") : t("state.cancelled")
+  else if (i.state === "expired") when = t("state.expired")
+  return [kindLabel(i), when, i.poster.label, workspace(i.context.workspace)].filter(Boolean).join(" · ")
 }
 
 export function snoozeMenu(list: () => FeedItem[]): CmuxView {
   return Menu(
-    t("action.snooze", "Snooze"),
+    t("action.snooze"),
     snoozePresets(Date.now()).map((p) => Button(p.label, () => snoozeItems(list(), p.until)))
   )
 }
 
-/** Response choices as menu entries (so a request can be answered from the row menu). */
-function respondMenu(i: FeedItem): CmuxView | null {
-  const r = i.response
-  if (!i.needsResponse || !r) return null
-  const entries: CmuxView[] =
-    r.type === "choice"
-      ? r.options.map((o) => Button(o.label, () => respond(i, { choice: o.value })))
-      : r.type === "approve"
-        ? [Button(t("respond.approve", "Approve"), () => respond(i, { approved: true })), Button(t("respond.deny", "Deny"), () => respond(i, { approved: false }))]
-        : r.type === "confirm"
-          ? [Button(t("respond.confirm", "Confirm"), () => respond(i, { confirmed: true })), Button(t("respond.cancel", "Cancel"), () => respond(i, { confirmed: false }))]
-          : []
-  return entries.length ? Menu(t("action.respond", "Respond"), entries) : null
+/** One-tap answers for the row menu: poster buttons with a value, and the kinds whose answer needs no typing. */
+function answerMenu(i: FeedItem): CmuxView | null {
+  if (!isOpenRequest(i)) return null
+  const form = formOf(i)
+  const entries: CmuxView[] = answerButtons(i).map((a) => Button(a.label, () => answer(i, a.answer)))
+  if (form.kind === "approve") {
+    entries.push(Button(t("answer.allow"), () => answer(i, approveAnswer("allow"))))
+    if (form.scopes.includes("session")) entries.push(Button(t("answer.allowSession"), () => answer(i, approveAnswer("allow", "session"))))
+    entries.push(Button(t("answer.deny"), () => answer(i, approveAnswer("deny"))))
+  } else if (form.kind === "confirm") {
+    entries.push(Button(form.confirmLabel ?? t("answer.confirm"), () => answer(i, { confirmed: true })))
+    entries.push(Button(form.cancelLabel ?? t("answer.reject"), () => answer(i, { confirmed: false })))
+  } else if (form.kind === "choice" && form.oneTap) {
+    const q = form.questions[0]!
+    for (const o of q.options) entries.push(Button(o.label, () => answer(i, { answers: { [q.id]: { selected: [o.id] } } })))
+  }
+  return entries.length ? Menu(t("action.answer"), entries) : null
 }
 
-/** The per-item actions (row menu). */
+/**
+ * The per-item actions (row menu). An open request offers Open, its answers
+ * and Decline; Done and Snooze appear only for items that may be archived or
+ * snoozed (the owner refuses both for open requests).
+ */
 export function itemMenu(i: FeedItem): CmuxView[] {
-  const views: CmuxView[] = []
-  if (i.open) views.push(Button(t("action.open", "Open"), () => openItem(i)))
-  const answer = respondMenu(i)
-  if (answer) views.push(answer)
-  views.push(Button(t("action.done", "Mark as Done"), () => markDone([i])))
-  views.push(i.snoozedUntil ? Button(t("action.unsnooze", "Unsnooze"), () => reopen([i])) : snoozeMenu(() => [i]))
-  if (i.seenAt === null) views.push(Button(t("action.markSeen", "Mark as Seen"), () => markSeen([i])))
+  const views: CmuxView[] = [Button(i.kind === "sign-in" || i.kind === "passkey" ? t("answer.continueInBrowser") : t("action.open"), () => openItem(i))]
+  if (isOpenRequest(i)) {
+    const answers = answerMenu(i)
+    if (answers) views.push(answers)
+    views.push(Button(t("action.decline"), () => decline(i)).destructive())
+  } else if (i.archived_at !== null) {
+    views.push(Button(t("action.unarchive"), () => unarchive([i])))
+  } else {
+    views.push(Button(t("action.done"), () => markDone([i])))
+    views.push(snoozeMenu(() => [i]))
+  }
+  if (i.read_at === null) views.push(Button(t("action.markRead"), () => markRead([i])))
   return views
 }
 
-/** A standard row; `tapOpens` opens on click, otherwise a click selects. */
-export function ItemRow(item: () => FeedItem, options: { tapOpens: boolean; selectedId?: () => string | null; onSelect?: (id: string) => void }): CmuxView {
+/** A standard row; `tapOpens` opens on click, otherwise a click selects (and reads). */
+export function ItemRow(item: () => FeedItem, workspace: (id: string | undefined) => string, options: { tapOpens: boolean; selectedId?: () => string | null; onSelect?: (i: FeedItem) => void }): CmuxView {
   return Row({
     title: () => item().title,
-    subtitle: () => subtitleOf(item(), Date.now()),
+    subtitle: () => subtitleOf(item(), Date.now(), workspace),
     symbol: () => itemSymbol(item()),
     tint: () => itemTint(item()),
-    unread: () => item().seenAt === null,
+    unread: () => item().read_at === null,
+    badge: () => (item().count > 1 ? item().count : null),
     selected: () => (options.selectedId ? options.selectedId() === item().id : false)
   })
-    .help(() => [kindLabel(item()), item().title, item().body ?? ""].filter(Boolean).join("\n"))
-    .onTap(() => (options.tapOpens || !options.onSelect ? openItem(item()) : options.onSelect(item().id)))
+    .help(() => [kindLabel(item()), item().title, item().body].filter(Boolean).join("\n"))
+    .onTap(() => (options.tapOpens || !options.onSelect ? openItem(item()) : options.onSelect(item())))
     .contextMenu(() => itemMenu(item()))
 }
 
-/** "All", "Agents · Unseen", ... */
+/** "All", "Agents · Unread", ... */
 export function filterSummary(): string {
   const f = filters()
-  const label = f.showSnoozed ? t("snoozed.title", "Snoozed") : filterLabel(f.source)
-  const parts = [label]
-  if (f.needsResponseOnly) parts.push(t("filter.needsResponseShort", "Needs you"))
-  if (f.unseenOnly) parts.push(t("filter.unseenShort", "Unseen"))
+  const parts = [f.showDone ? t("done.title") : sourceLabel(f.source)]
+  if (f.needsResponseOnly && !f.showDone) parts.push(t("filter.needsResponseShort"))
+  if (f.unreadOnly) parts.push(t("filter.unreadShort"))
   return parts.join(" · ")
 }
 
-/** The filter pull-down. The current source shows disabled: menus have no checked state yet. */
+/** The filter pull-down. The current choice shows disabled: menus have no checked state yet. */
 export function FilterMenu(): CmuxView {
   return Menu(filterSummary, []).contextMenu(() => filterChoices())
 }
 
 function filterChoices(): CmuxView[] {
   const f = filters()
-  const sources: SourceFilter[] = ["all", "agent", "integration", "other"]
   const g = groupBy()
   return [
-    ...sources.map((s) => Button(filterLabel(s), () => setFilters({ source: s, showSnoozed: false })).disabled(f.source === s && !f.showSnoozed)),
+    ...SOURCES.map((s) => Button(sourceLabel(s), () => setFilters({ source: s })).disabled(f.source === s)),
     Divider(),
-    Button(f.needsResponseOnly ? t("filter.everything", "Show Everything") : t("filter.needsResponse", "Show Only What Needs a Response"), () => setFilters({ needsResponseOnly: !f.needsResponseOnly })),
-    Button(f.unseenOnly ? t("filter.showSeen", "Show Seen Items") : t("filter.unseenOnly", "Show Unseen Only"), () => setFilters({ unseenOnly: !f.unseenOnly })),
-    Button(f.showSnoozed ? t("snoozed.hide", "Hide Snoozed") : t("snoozed.show", "Show Snoozed"), () => setFilters({ showSnoozed: !f.showSnoozed })),
+    Button(f.needsResponseOnly ? t("filter.everything") : t("filter.needsResponse"), () => setFilters({ needsResponseOnly: !f.needsResponseOnly })).disabled(f.showDone),
+    Button(f.unreadOnly ? t("filter.showRead") : t("filter.unreadOnly"), () => setFilters({ unreadOnly: !f.unreadOnly })),
+    Button(f.showDone ? t("done.hide") : t("done.show"), () => setFilters({ showDone: !f.showDone })),
     Divider(),
-    Button(t("group.source", "Group by Source"), () => setGrouping("source")).disabled(g === "source"),
-    Button(t("group.workspace", "Group by Workspace"), () => setGrouping("workspace")).disabled(g === "workspace"),
-    Button(t("group.thread", "Group by Thread"), () => setGrouping("thread")).disabled(g === "thread"),
+    Button(t("group.poster"), () => setGrouping("poster")).disabled(g === "poster"),
+    Button(t("group.workspace"), () => setGrouping("workspace")).disabled(g === "workspace"),
+    Button(t("group.thread"), () => setGrouping("thread")).disabled(g === "thread"),
     Divider(),
-    Button(t("action.markAllSeen", "Mark All as Seen"), () => markAllSeen()),
-    Button(t("action.markAllDone", "Mark All as Done"), () => markDone(items()))
+    Button(t("action.markAllRead"), () => markAllRead()),
+    Button(t("action.markAllDone"), () => markAllDone()).disabled(f.showDone)
   ]
 }
 
@@ -179,46 +172,48 @@ export function Notices(): CmuxView {
 }
 
 /** Feed missing, loading, all clear, or nothing matching the filters. */
-export function Empty(): CmuxView {
+export function Empty(view: FeedView): CmuxView {
   return Group([
     () => {
-      const err = feedError()
-      if (err && items().length === 0) {
-        if (err.code === "operation.unsupported") return EmptyState({ title: t("feed.unavailable", "The feed is not available yet"), message: t("feed.unavailableHelp", "This version of cmux has no feed owner."), symbol: "tray" })
-        if (err.code === "scope.missing") return EmptyState({ title: t("feed.notGranted", "Feed access not granted"), message: t("feed.notGrantedHelp", "Allow it in Settings > Apps > Inbox."), symbol: "lock" })
-        return EmptyState({ title: t("feed.error", "Could not load the feed"), message: err.message, symbol: "exclamationmark.triangle" })
+      const err = view.error()
+      if (err && view.items().length === 0) {
+        if (err.code === "operation.unsupported") return EmptyState({ title: t("feed.unavailable"), message: t("feed.unavailableHelp"), symbol: "tray" })
+        if (err.code === "scope.missing") return EmptyState({ title: t("feed.notGranted"), message: t("feed.notGrantedHelp"), symbol: "lock" })
+        return EmptyState({ title: t("feed.error"), message: err.message, symbol: "exclamationmark.triangle" })
       }
-      if (items().length > 0) return null
-      if (!loaded()) return Text(t("loading", "Loading…")).font("caption").color("tertiary").paddingHorizontal(14).paddingVertical(6)
+      if (view.items().length > 0) return null
+      if (!view.loaded()) return Text(t("loading")).font("caption").color("tertiary").paddingHorizontal(14).paddingVertical(6)
       const f = filters()
-      if (f.source !== "all" || f.unseenOnly || f.needsResponseOnly || f.showSnoozed) return EmptyState({ title: t("empty.filtered", "Nothing matches these filters"), symbol: "line.3.horizontal.decrease.circle" })
-      return EmptyState({ title: t("empty.title", "Nothing needs you"), message: t("empty.message", "Agents, apps and integrations are all clear."), symbol: "checkmark.circle" })
+      if (f.showDone) return EmptyState({ title: t("done.empty"), symbol: "checkmark.circle" })
+      if (f.source !== "all" || f.unreadOnly || f.needsResponseOnly) return EmptyState({ title: t("empty.filtered"), symbol: "line.3.horizontal.decrease.circle" })
+      return EmptyState({ title: t("empty.title"), message: t("empty.message"), symbol: "checkmark.circle" })
     }
   ])
 }
 
-/** "3 snoozed" toggles the snoozed view. */
-export function SnoozedFooter(): CmuxView {
+/** "Show Done" / "Back to Inbox" at the foot of the list. */
+export function DoneFooter(): CmuxView {
   return Group([
     () => {
-      const n = counts()?.snoozed ?? 0
-      const showing = filters().showSnoozed
-      if (n === 0 && !showing) return null
-      const title = showing ? t("snoozed.hide", "Hide Snoozed") : t("snoozed.count", "{n} snoozed", { n })
-      return HStack([Icon(showing ? "chevron.left" : "moon.zzz").font("caption").color("tertiary"), Text(title).font("caption").color("secondary"), Spacer()])
+      const showing = filters().showDone
+      return HStack([Icon(showing ? "chevron.left" : "archivebox").font("caption").color("tertiary"), Text(showing ? t("done.hide") : t("done.show")).font("caption").color("secondary"), Spacer()])
         .paddingHorizontal(14)
         .paddingVertical(4)
         .cursor("pointer")
-        .onTap(() => setFilters({ showSnoozed: !showing }))
+        .onTap(() => setFilters({ showDone: !showing }))
     }
   ])
 }
 
-const hasUnseen = computed(() => (counts()?.unseen ?? 0) > 0)
+/**
+ * The badge: open requests in the warning tone while any wait, else unread
+ * items. The owner's counts have no "unread notices" figure (README, gaps).
+ */
+export const badgeOf = (c: { open_requests: number; unread: number } | null) =>
+  !c ? null : c.open_requests > 0 ? { n: c.open_requests, tone: "warning" } : c.unread > 0 ? { n: c.unread, tone: "secondary" } : null
 
-/** The unseen count; warning tone while something needs a response. */
-export function UnseenBadge(): CmuxView {
-  return Group([() => (hasUnseen() ? Badge(() => counts()?.unseen ?? 0, () => ((counts()?.needsResponse ?? 0) > 0 ? "warning" : "secondary")) : null)])
+export function CountBadge(): CmuxView {
+  const badge = computed(() => badgeOf(counts()))
+  const shown = computed(() => badge() !== null)
+  return Group([() => (shown() ? Badge(() => badge()?.n ?? 0, () => badge()?.tone ?? "secondary") : null)])
 }
-
-export const markAll = () => markAllSeen()

@@ -1,192 +1,216 @@
-// Invented, neutral feed items shared by the tests and the preview harness.
-// `bun first-party-apps/inbox/test/fixtures.ts --write` regenerates
-// preview/*.json from the mock owner, with timestamps relative to now (ages
-// read naturally in screenshots).
+// Invented, neutral feed items in the owner's wire shape, shared by the tests
+// and the preview harness. `bun first-party-apps/inbox/test/fixtures.ts --write`
+// regenerates preview/*.json from the mock owner, with times relative to now
+// (ages read naturally in screenshots).
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import type { FeedAction, FeedItem } from "../src/feed.ts"
+import type { FeedItem, GroupBy } from "../src/feed.ts"
 import { MockFeed } from "./mock-feed.ts"
 
 const MIN = 60_000
-const iso = (now: number, minutes: number) => new Date(now - minutes * MIN).toISOString()
 
-const open: FeedAction = { id: "open", title: "Open", kind: "open" }
-const done: FeedAction = { id: "done", title: "Done", kind: "done" }
-const snooze: FeedAction = { id: "snooze", title: "Snooze", kind: "snooze" }
+/** `fi_` + 20 characters, like the owner's ids. */
+export const fid = (name: string) => `fi_${name.padEnd(20, "0").slice(0, 20)}`
 
-const agentClaude = { kind: "agent" as const, id: "agent_1", name: "Claude" }
-const agentCodex = { kind: "agent" as const, id: "agent_2", name: "Codex" }
-const github = { kind: "integration" as const, id: "github", name: "GitHub" }
-const api = { workspace: "workspace_1", workspaceName: "api-server" }
-const web = { workspace: "workspace_2", workspaceName: "web-dashboard" }
+const agent = (label: string, n: number) => ({ kind: "agent" as const, scope: `inst:install_mac/agent:agent_${n}`, label, install: "install_mac", agent: `agent_${n}` })
+const claude = agent("Claude", 1)
+const codex = agent("Codex", 2)
+const github = { kind: "integration" as const, scope: "conn_github", label: "GitHub" }
+const backup = { kind: "automation" as const, scope: "run_backup", label: "nightly-backup" }
+const deploy = { kind: "automation" as const, scope: "run_deploy", label: "preview-deploy" }
+const disk = { kind: "app" as const, scope: "app:example/disk-monitor", label: "Disk Monitor" }
 
 export function feedItems(now: number): FeedItem[] {
-  let n = 0
-  const item = (minutes: number, over: Partial<FeedItem> & Pick<FeedItem, "kind" | "title" | "source">): FeedItem => ({
-    id: `feed_${String(++n).padStart(2, "0")}`,
-    urgency: "normal",
-    needsResponse: false,
-    subject: {},
-    status: "open",
-    snoozedUntil: null,
-    seenAt: null,
-    createdAt: iso(now, minutes),
-    updatedAt: iso(now, minutes),
-    revision: "1",
-    expiresAt: null,
-    actions: [open, done, snooze],
-    ...over
-  })
-  return [
-    item(2, {
-      kind: "request",
-      requestKind: "choice",
+  let order = 0
+  const item = (name: string, minutes: number, over: Partial<FeedItem> & Pick<FeedItem, "type" | "kind" | "title" | "poster">): FeedItem => {
+    const at = now - minutes * MIN
+    return {
+      id: fid(name),
+      home: "cloud",
+      body: "",
+      priority: "normal",
+      dedupe_key: null,
+      thread: null,
+      context: {},
+      attachments: [],
+      actions: [],
+      open: null,
+      state: "open",
+      answer: null,
+      cancel: null,
+      needs_mac: false,
+      expires_at: now + 24 * 60 * MIN,
+      read_at: null,
+      seen_at: null,
+      archived_at: null,
+      snoozed_until: null,
+      count: 1,
+      order: 0,
+      revision: 1,
+      created_at: at,
+      updated_at: at,
+      closed_at: null,
+      ...over
+    }
+  }
+  const items = [
+    item("retrychoice", 2, {
+      type: "request",
+      kind: "choice",
       title: "Which retry strategy should the webhook sender use?",
       body: "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
-      urgency: "high",
-      needsResponse: true,
-      source: agentClaude,
-      subject: { ...api, terminal: "terminal_1", tab: "tab_1", agent: "agent_1" },
-      thread: "agent_1:turn_14",
-      response: {
-        type: "choice",
-        options: [
-          { value: "exponential", label: "Exponential backoff" },
-          { value: "fixed", label: "Fixed 30 s delay" },
-          { value: "queue", label: "Move failures to a retry queue" }
+      priority: "high",
+      poster: claude,
+      thread: "session_14",
+      context: { workspace: "workspace_1", tab: "tab_1", terminal: "terminal_1" },
+      open: { action: "tab.focus", args: { tab: "tab_1" } },
+      prompt: {
+        questions: [
+          {
+            id: "strategy",
+            question: "Which retry strategy?",
+            multi: false,
+            allow_other: false,
+            options: [
+              { id: "exponential", label: "Exponential backoff" },
+              { id: "fixed", label: "Fixed 30 s delay" },
+              { id: "queue", label: "Move failures to a retry queue" }
+            ]
+          }
         ]
-      },
-      open: { action: "tab.show", args: { tab: "tab_1" } }
+      }
     }),
-    item(5, {
-      kind: "request",
-      requestKind: "approve",
+    item("npminstall", 5, {
+      type: "request",
+      kind: "approve",
       title: "Run npm install --save chart-kit?",
-      body: "npm install --save chart-kit",
-      needsResponse: true,
-      source: agentCodex,
-      subject: { ...web, terminal: "terminal_2", tab: "tab_2", agent: "agent_2" },
-      thread: "agent_2:turn_3",
-      response: { type: "approve" },
-      open: { action: "tab.show", args: { tab: "tab_2" } }
+      priority: "high",
+      poster: codex,
+      thread: "session_3",
+      context: { workspace: "workspace_2", tab: "tab_2", terminal: "terminal_2" },
+      open: { action: "tab.focus", args: { tab: "tab_2" } },
+      prompt: { action: { type: "command", summary: "Install a charting package", command: "npm install --save chart-kit", cwd: "~/web-dashboard" }, scopes: ["once", "session"] }
     }),
-    item(9, {
-      kind: "request",
-      requestKind: "sign-in",
+    item("signin", 9, {
+      type: "request",
+      kind: "sign-in",
       title: "Sign in to the staging dashboard",
-      body: "The agent needs a signed-in session to check the deploy logs.",
-      needsResponse: true,
-      source: agentClaude,
-      subject: { ...api, browser: "browser_1", agent: "agent_1" },
-      thread: "agent_1:turn_14",
-      response: { type: "external" },
-      // Proposed action: show the agent's browser tab duplicated to the right.
-      open: { action: "browser.duplicateRight", args: { browser: "browser_1" } }
+      priority: "high",
+      poster: claude,
+      needs_mac: true,
+      thread: "session_14",
+      context: { workspace: "workspace_1", browser_tab: "browser_1" },
+      open: { action: "browser.duplicateRight", args: { browser_tab: "browser_1" } },
+      prompt: { origin: "https://staging.example.com", url: "https://staging.example.com/login", browser_tab: "browser_1", reason: "Read the deploy logs" }
     }),
-    item(20, {
-      kind: "request",
-      requestKind: "input",
+    item("volumename", 20, {
+      type: "request",
+      kind: "input",
       title: "Name for the backup volume?",
-      needsResponse: true,
-      source: { kind: "run", id: "run_7", name: "nightly-backup" },
-      response: { type: "text", placeholder: "volume name" },
-      actions: [done, snooze]
+      priority: "high",
+      poster: backup,
+      prompt: { schema: { type: "object", properties: { volume: { type: "string", title: "Volume name" } }, required: ["volume"] } }
     }),
-    item(40, {
-      kind: "request",
-      requestKind: "review",
+    item("dropdbs", 25, {
+      type: "request",
+      kind: "confirm",
+      title: "Delete 4 stale preview databases?",
+      poster: deploy,
+      context: { workspace: "workspace_2" },
+      prompt: { statement: "They belong to closed pull requests and have no traffic for 14 days.", confirm_label: "Delete", destructive: true }
+    }),
+    item("refunds", 40, {
+      type: "request",
+      kind: "review",
       title: "Add idempotency keys to refunds",
       body: "example-org/payments #412 · requested by river",
-      needsResponse: true,
-      source: github,
-      subject: { url: "https://github.com/example-org/payments/pull/412" },
-      thread: "github:example-org/payments#412",
-      open: { action: "openBrowser", args: { url: "https://github.com/example-org/payments/pull/412" } }
+      poster: github,
+      thread: "pr:example-org/payments#412",
+      context: { url: "https://github.com/example-org/payments/pull/412" },
+      open: { action: "url.open", args: { url: "https://github.com/example-org/payments/pull/412" } },
+      prompt: { subject: "pr", ref: "https://github.com/example-org/payments/pull/412" }
     }),
-    item(70, {
-      kind: "notify",
+    item("checksfail", 70, {
+      type: "notice",
+      kind: "notice",
       title: "Checks failing: Retry webhook delivery with backoff",
       body: "example-org/api-server #88 · 2 failed: unit tests, integration",
-      urgency: "high",
-      source: github,
-      subject: { url: "https://github.com/example-org/api-server/pull/88" },
-      thread: "github:example-org/api-server#88",
-      open: { action: "openBrowser", args: { url: "https://github.com/example-org/api-server/pull/88" } },
-      actions: [open, done, snooze, { id: "rerun", title: "Re-run Failed Checks", kind: "custom", target: { action: "openBrowser", args: { url: "https://github.com/example-org/api-server/pull/88/checks" } } }]
+      priority: "high",
+      poster: github,
+      thread: "pr:example-org/api-server#88",
+      context: { url: "https://github.com/example-org/api-server/pull/88" },
+      open: { action: "url.open", args: { url: "https://github.com/example-org/api-server/pull/88" } },
+      actions: [{ id: "checks", label: "View Checks" }]
     }),
-    item(14, {
-      kind: "notify",
+    item("darkmode", 14, {
+      type: "notice",
+      kind: "notice",
       title: "Finished: dark mode toggle",
       body: "Added the toggle to settings and updated 3 tests.",
-      source: agentCodex,
-      subject: { ...web, terminal: "terminal_2", tab: "tab_2", agent: "agent_2" },
-      open: { action: "tab.show", args: { tab: "tab_2" } }
+      poster: codex,
+      thread: "session_3",
+      context: { workspace: "workspace_2", tab: "tab_2", terminal: "terminal_2" },
+      open: { action: "tab.focus", args: { tab: "tab_2" } }
     }),
-    item(3, {
-      kind: "watch",
-      title: "Deploying web-dashboard preview",
-      body: "Step 3 of 5: building assets",
-      source: { kind: "run", id: "run_8", name: "preview-deploy" },
-      subject: web
-    }),
-    item(180, {
-      kind: "notify",
-      title: "Disk space low",
-      body: "Less than 5 GB free on the build volume",
-      source: { kind: "app", id: "cmux/disk-monitor", name: "Disk Monitor" },
-      seenAt: iso(now, 100)
-    }),
-    item(300, {
-      kind: "notify",
+    item("previewup", 3, {
+      type: "notice",
+      kind: "notice",
       title: "Preview deployed",
-      source: { kind: "run", id: "run_6", name: "preview-deploy" },
-      subject: web,
-      status: "snoozed",
-      snoozedUntil: new Date(now + 3 * 60 * MIN).toISOString()
-    })
+      body: "web-dashboard, 3 pages changed",
+      priority: "low",
+      poster: deploy,
+      context: { workspace: "workspace_2" },
+      count: 2
+    }),
+    item("diskspace", 180, { type: "notice", kind: "notice", title: "Disk space low", body: "Less than 5 GB free on the build volume", poster: disk, read_at: now - 100 * MIN }),
+    item("releasenotes", 300, { type: "notice", kind: "notice", title: "Release notes draft ready", poster: claude, snoozed_until: now + 3 * 60 * MIN }),
+    item("backupdone", 600, { type: "notice", kind: "notice", title: "Nightly backup finished", poster: backup, read_at: now - 500 * MIN, archived_at: now - 400 * MIN })
   ]
+  // The owner's order is the post order: older items first.
+  for (const i of [...items].sort((a, b) => a.created_at - b.created_at)) i.order = ++order
+  return items
 }
 
-/** A preview-harness fixture answered by the mock owner (static: the harness does not re-filter). */
-export function previewFixture(now: number, options: { groupBy?: "source" | "workspace" | "thread"; empty?: boolean; unavailable?: boolean } = {}) {
+export const WORKSPACES = [
+  { id: "workspace_1", session_id: "session_1", name: "api-server", index: 0, focused: true },
+  { id: "workspace_2", session_id: "session_1", name: "web-dashboard", index: 1, focused: false }
+]
+
+/** A preview-harness fixture answered by the mock owner (static: the harness does not filter). */
+export function previewFixture(now: number, options: { groupBy?: GroupBy; empty?: boolean; unavailable?: boolean; done?: boolean } = {}) {
   const owner = new MockFeed(options.empty ? [] : feedItems(now), () => now)
-  const list = owner.list({ filter: { status: ["open"] }, groupBy: options.groupBy, limit: 100 })
+  const list = owner.list(options.done ? { state: "all", archived: true, order: "recent", limit: 100 } : { state: "open", order: "urgent", ...(options.groupBy ? { group_by: options.groupBy } : {}), limit: 100 })
   const unsupported = { $error: { code: "operation.unsupported", message: "feed.list is not supported by this host yet" } }
-  const mutation = { revision: "2" }
   const ops: Record<string, unknown> = options.unavailable
     ? { "feed.list": unsupported, "feed.counts": unsupported }
     : {
         "feed.list": list,
         "feed.counts": owner.counts(),
-        "feed.get": list.items[0] ?? null,
-        "feed.mark": mutation,
-        "feed.snooze": mutation,
-        "feed.respond": mutation
+        "feed.read": { items: [] },
+        "feed.archive": { items: [] },
+        "feed.snooze": { items: [] },
+        "feed.answer": { item: list.items[0] ?? null },
+        "feed.cancel": { item: list.items[0] ?? null }
       }
-  Object.assign(ops, { "action.run": null, "app.storage.get": null, "app.storage.set": {} })
-  const op = (scope: string, cls: string) => ({ scope, class: cls })
-  return {
-    grant: ["feed:read", "feed:write", "actions:run"],
-    scopes: {
-      "feed.list": op("feed:read", "read"),
-      "feed.get": op("feed:read", "read"),
-      "feed.counts": op("feed:read", "read"),
-      "feed.mark": op("feed:write", "mutation"),
-      "feed.snooze": op("feed:write", "mutation"),
-      "feed.respond": op("feed:write", "mutation")
-    },
-    ops
-  }
+  Object.assign(ops, { "action.run": null, "workspace.list": WORKSPACES, "app.storage.get": null, "app.storage.set": {} })
+  // The preview engine's bundled scope table predates the feed ops: name their scopes (generated/scopes.json).
+  const scope = (name: string, cls: string) => ({ scope: name, class: cls })
+  const scopes = Object.fromEntries([
+    ...["feed.list", "feed.get", "feed.counts"].map((op) => [op, scope("feed:read", "read")]),
+    ...["feed.read", "feed.archive", "feed.unarchive", "feed.snooze", "feed.answer", "feed.cancel"].map((op) => [op, scope("feed:write", "mutation")])
+  ])
+  return { grant: ["feed:read", "feed:write", "actions:run", "workspace:read"], scopes, ops }
 }
 
 if (import.meta.main && process.argv.includes("--write")) {
   const dir = join(import.meta.dir, "../preview")
   const now = Date.now()
   const write = (name: string, value: unknown) => writeFileSync(join(dir, `${name}.json`), `${JSON.stringify(value, null, 2)}\n`)
-  write("grouped", previewFixture(now, { groupBy: "source" }))
+  write("grouped", previewFixture(now, { groupBy: "poster" }))
   write("grouped-workspace", previewFixture(now, { groupBy: "workspace" }))
   write("focus", previewFixture(now))
   write("card", previewFixture(now))
+  write("done", previewFixture(now, { done: true }))
   write("empty", previewFixture(now, { empty: true }))
   write("unavailable", previewFixture(now, { unavailable: true }))
   console.log(`wrote ${dir}`)
