@@ -42,6 +42,13 @@ final class CloudOptimisticInputRelay: @unchecked Sendable {
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let pendingLimit = 4_096
 
+    /// Number of inputs waiting for a router. Diagnostics and tests only.
+    var pendingCount: Int {
+        state.withLock { state in
+            state.pending.count + remoteQueueCountLocked(state) + (state.remoteInFlight ? 1 : 0)
+        }
+    }
+
     /// Callable from Ghostty's I/O thread, like the router it fronts.
     func send(_ input: TerminalManualInput) {
         let router = state.withLock { state -> (@Sendable (TerminalManualInput) -> Void)? in
