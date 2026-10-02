@@ -1000,7 +1000,18 @@ describe("acpmux composer", () => {
   test("shows only the pickers that have choices, and Stop only while a turn runs", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
-    const snapshot = (isWorking: boolean) => ({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connected", isWorking, queue: [], canLoadOlder: false, catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }], summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } } });
+    const snapshot = (isWorking: boolean) => ({
+      type: "snapshot",
+      protocolVersion: 1,
+      rows: [],
+      sessions: [],
+      connection: "connected",
+      isWorking,
+      queue: [],
+      canLoadOlder: false,
+      catalog: [{ id: "codex", models: [{ id: "gpt", name: "GPT" }] }],
+      summary: { harness: "codex", model: "gpt", modes: { availableModes: [], currentModeId: null } },
+    });
     const composer = () => dom.window.document.querySelector(".acpmux-composer")!;
     const buttons = () => Array.from(composer().querySelectorAll("button"), (button) => button.textContent);
     try {
