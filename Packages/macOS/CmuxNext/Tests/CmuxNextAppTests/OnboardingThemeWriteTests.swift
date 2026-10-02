@@ -47,12 +47,16 @@ import Testing
     @Test func skippingRightAfterTryingADensityPutsItBack() async throws {
         let (onboarding, url, directory) = try await onboarding(#"{"appearance": {"theme": "Catppuccin Mocha"}}"#)
         defer { try? FileManager.default.removeItem(at: directory) }
-        // With no density in the file the app uses compact.
-        let original = Density.compact
-        onboarding.applyAppearance(themeName: "Catppuccin Mocha", density: .comfortable)
+        // Try the density the app is not showing now, then go back to the
+        // one it shows (the snapshot's view, `DesignSettings.shared`, which
+        // other suites also set).
+        let original = DesignSettings.shared.density
+        let tried: Density = original == .compact ? .comfortable : .compact
+        onboarding.applyAppearance(themeName: "Catppuccin Mocha", density: tried)
         onboarding.applyAppearance(themeName: "Catppuccin Mocha", density: original)
         await onboarding.flush()
         let root = try document(url)
+        // With no density in the file the app uses compact (`SettingsApplier`).
         let written = root.value(at: ["appearance", "density"])?.stringValue.flatMap(Density.init(rawValue:)) ?? .compact
         #expect(written == original)
         #expect(root.value(at: ["appearance", "theme"]) == "Catppuccin Mocha")
