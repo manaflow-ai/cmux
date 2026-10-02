@@ -2039,7 +2039,6 @@
         },
         "app": {
           "confirmQuit": "cmux가 종료 전에 확인을 요청하는 시점을 제어합니다. DEV 빌드는 이 설정과 관계없이 항상 즉시 종료됩니다. 기존 app.warnBeforeQuit도 boolean 대체값으로 계속 허용됩니다.",
-          "whatsNew": "업데이트 후 cmux가 새로운 기능을 보여 주는 방식입니다. off는 아무것도 표시하지 않고, quiet는 요약을 열 때까지 사이드바 도움말 버튼에 점을 표시하며, sheet는 새 버전을 처음 실행한 후 요약을 한 번 엽니다. 도움말 > cmux의 새로운 기능에서 언제든지 열 수 있습니다.",
           "windowTitleTemplate": "선택적 NSWindow 제목 템플릿입니다. 비워 두면 현재 디렉터리 대체 동작을 포함해 cmux의 기존 기본 제목 동작을 유지합니다. 지원되는 자리표시자: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
