@@ -528,3 +528,20 @@ between two existing org members creates their relationship only when both send 
 - R3. Naming clash: the backend's `ContactDO` (an email or phone address) versus the product
   word "Contacts" (relationships). Proposal: rename the address owner to `AddressDO` and
   participants `addr_<26>` before either lands in production.
+
+## 17. Open engine and flow questions (from building home-core)
+
+- Q1. The invite secret never enters a reducer, event or outbox (only its hash does), so
+  ContactDO cannot build the link from `contact.deliver`. Proposal: the Worker generates the
+  secret, stores it in ContactDO (`contact.stash_secret {invite, secret}`, system, deleted after
+  the send) before `invite.create`, and ContactDO renders the copy when the `contact.deliver`
+  item arrives.
+- Q2. After a contact accepts a one-to-one invite, the conversation id is the contact-based
+  `conv_dm_` id, not `dmConversationId(inviter, user)`. Proposal: `dm.open` first looks up the
+  caller's inbox `dm_peer` index (UserDO) and uses the hash only when no DM exists.
+- Q3. `reduce` does not receive the idempotency key, so the Domain enforces `client_msg_id`
+  uniqueness through the `msgkey` table instead of `client_msg_id == key`. Proposal: add
+  `idempotency_key` to `ReduceContext`.
+- Q4. Invite token hashes appear in `invite.create` event params and `inv` rows that participants
+  can read. A hash cannot accept (accept hashes the presented secret), but the engine could keep
+  them out of events with a per-op event redaction hook.
