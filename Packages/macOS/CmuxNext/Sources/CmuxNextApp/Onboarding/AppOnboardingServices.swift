@@ -53,7 +53,10 @@ final class AppOnboardingServices: OnboardingServices {
                     try? await settings.file.remove(TerminalThemeSetting.path)
                 }
             }
-            if density != DesignSettings.shared.density { try? await settings.setDensity(density) }
+            // Compact applies when the file has no density (`SettingsApplier`).
+            let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
+                .stringValue.flatMap(Density.init(rawValue:)) ?? .compact
+            if density != currentDensity { try? await settings.setDensity(density) }
         }
     }
 
