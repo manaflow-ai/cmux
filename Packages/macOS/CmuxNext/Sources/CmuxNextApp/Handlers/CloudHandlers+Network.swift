@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextCloud
 
 extension CloudHandlers {

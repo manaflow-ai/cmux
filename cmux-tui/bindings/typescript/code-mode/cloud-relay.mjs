@@ -3,15 +3,21 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 const VM = new Set(["vm.list", "vm.get", "vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.list", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.exec", "vm.fs.list", "vm.fs.read", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "vm.fs.stat"]);
+const PUBLICATION = new Set(["vm.domain.list", "vm.domain.verify", "vm.publication.list", "vm.publication.create", "vm.publication.update", "vm.publication.delete", "vm.publication.verify"]);
 const CLOUD = new Set(["network.list", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.list", "firewall.get", "firewall.create", "firewall.delete"]);
 const FS = new Set(["vm.fs.list", "vm.fs.read", "vm.fs.stat", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove"]);
 const MUTATIONS = new Set(["vm.create", "vm.update", "vm.start", "vm.resume", "vm.pause", "vm.resize", "vm.delete", "vm.snapshot.create", "vm.snapshot.restore", "vm.snapshot.delete", "vm.fs.write", "vm.fs.mkdir", "vm.fs.remove", "tunnel.attach", "tunnel.detach", "tunnel.rotate-key", "firewall.create", "firewall.delete"]);
 const VM_ID = /^[A-Za-z0-9._:-]{1,256}$/;
+const ROUTE_SEGMENT = /^[A-Za-z0-9._*:-]{1,256}$/;
 const MAX_FRAME = 4 * 1024 * 1024;
 
 function vmId(params, operation) {
   if (typeof params.vm_id !== "string" || !VM_ID.test(params.vm_id)) throw new Error(`${operation} requires vm_id`);
   return params.vm_id;
+}
+function routeSegment(params, field, operation) {
+  if (typeof params[field] !== "string" || !ROUTE_SEGMENT.test(params[field])) throw new Error(`${operation} requires a valid ${field}`);
+  return params[field];
 }
 function guestPath(params, operation) {
   if (typeof params.path !== "string" || !params.path.startsWith("/") || params.path.includes("\0") || params.path.split("/").includes("..") || Buffer.byteLength(params.path) > 4096) throw new Error(`${operation} requires an absolute guest path without '..'`);
@@ -23,9 +29,9 @@ function bodyWithout(params, ...names) { const body = { ...params }; for (const 
  * Host-owned Cloud broker. The bearer is read only here and is never passed to
  * code mode or bwrap. Routes are a fixed operation map, never caller URLs.
  */
-export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, catalog = {}, fixture = undefined } = {}) {
+export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, catalog = {}, allowedOperations = undefined, fixture = undefined } = {}) {
   if (!fixture && (!apiUrl || !bearerToken)) throw new Error("Cloud relay requires host credentials");
-  const catalogOps = new Set(Object.keys(catalog.operations ?? {}));
+  const catalogOps = new Set(allowedOperations ?? Object.keys(catalog.operations ?? {}));
   async function request(operation, params, idempotencyKey) {
     if (!catalogOps.has(operation)) throw new Error(`Cloud operation is not in the catalog: ${operation}`);
     if (fixture && Object.hasOwn(fixture, operation)) return structuredClone(fixture[operation]);
@@ -55,16 +61,29 @@ export function createCloudBroker({ apiUrl, bearerToken, fetchImpl = fetch, cata
           else { method = "DELETE"; path = `/api/vm/${encodeURIComponent(id)}/snapshots/${encodeURIComponent(String(params.snapshot_id ?? ""))}`; }
         }
       }
+    } else if (PUBLICATION.has(operation)) {
+      if (operation === "vm.domain.list") { method = "GET"; path = "/api/vm/domains"; }
+      else if (operation === "vm.domain.verify") { method = "POST"; path = `/api/vm/domains/${encodeURIComponent(routeSegment(params, "name", operation))}/verify`; payload = {}; }
+      else if (operation === "vm.publication.list") { method = "GET"; path = "/api/vm/publications"; }
+      else if (operation === "vm.publication.create") { method = "POST"; path = "/api/vm/publications"; payload = { ...params }; }
+      else {
+        const id = routeSegment(params, "id", operation);
+        path = `/api/vm/publications/${encodeURIComponent(id)}`;
+        if (operation === "vm.publication.verify") { method = "POST"; path += "/verify"; payload = {}; }
+        else if (operation === "vm.publication.update") { method = "PATCH"; payload = bodyWithout(params, "id"); }
+        else if (operation === "vm.publication.delete") { method = "DELETE"; }
+        else { method = "POST"; payload = bodyWithout(params, "id"); }
+      }
     } else if (catalogOps.has(operation)) {
       const descriptor = catalog.operations[operation];
       const isMutation = descriptor.class === "mutation";
       method = isMutation ? "POST" : "POST";
       path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     } else {
       // Network policy operations are owner-routed through the Cloud API catalog.
       const isMutation = MUTATIONS.has(operation); method = "POST"; path = isMutation ? "/v1/ops" : "/v1/read";
-      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "code_mode" } : { op: operation, params };
+      payload = isMutation ? { op: operation, params, idempotency_key: idempotencyKey ?? randomUUID(), origin: "script" } : { op: operation, params };
     }
     const response = await fetchImpl(`${apiUrl.replace(/\/$/, "")}${path}${query}`, {
       method,

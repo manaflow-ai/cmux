@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9'
+IR_SHA256 = '4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c'
 
 
 @dataclass(frozen=True)
@@ -915,6 +915,17 @@ COMMANDS = {
         ('frontend',),
         None,
         {
+        },
+    ),
+    'get-frontend-browser-history': CommandMetadata(
+        'get-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -2177,6 +2188,18 @@ COMMANDS = {
             'palette': CommandFieldMetadata(9, None),
             'selection_bg': CommandFieldMetadata(9, None),
             'selection_fg': CommandFieldMetadata(9, None),
+        },
+    ),
+    'set-frontend-browser-history': CommandMetadata(
+        'set-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'history': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(
