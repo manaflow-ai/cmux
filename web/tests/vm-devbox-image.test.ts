@@ -328,6 +328,7 @@ describe("devbox image template", () => {
       "src=$1",
       "dst=$2",
       "head -c 1024 \"$src\" > \"$dst\"",
+      ": > \"$CMUX_CP_STARTED\"",
       "sleep 0.2",
       "tail -c +1025 \"$src\" >> \"$dst\"",
     ].join("\n") + "\n");
@@ -342,6 +343,8 @@ describe("devbox image template", () => {
     try {
       const result = await runChild("bash", ["--noprofile", "--norc", "-ic", [
         `. '${rc}' & __cmux_writer=$!`,
+        `while [ ! -f '${path.join(directory, "cp-started")}' ] && kill -0 "$__cmux_writer" 2>/dev/null; do :; done`,
+        `test -f '${path.join(directory, "cp-started")}'`,
         `while kill -0 "$__cmux_writer" 2>/dev/null; do`,
         `  if [ -f '${destination}' ]; then`,
         `    __cmux_size=$(wc -c < '${destination}')`,
@@ -356,6 +359,7 @@ describe("devbox image template", () => {
           HOME: path.join(directory, "home"),
           TERM: "xterm-256color",
           PATH: `${fakeBin}:${process.env.PATH}`,
+          CMUX_CP_STARTED: path.join(directory, "cp-started"),
         },
       });
       expect(result.status).toBe(0);
