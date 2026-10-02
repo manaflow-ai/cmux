@@ -22,7 +22,7 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string } };
+type Reply = { id: number; result?: any; error?: { message?: string; code?: unknown; data?: { code?: unknown } } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -354,7 +354,13 @@ export class AcpmuxDirectClient {
       const request = this.pending.get(message.id);
       if (!request) return;
       this.pending.delete(message.id);
-      if (message.error) request.reject(new Error(message.error.message ?? "acpmux request failed"));
+      // The failure's code (`validation.invalid`, ...) rides along for callers that tell failures apart.
+      if (message.error)
+        request.reject(
+          Object.assign(new Error(message.error.message ?? "acpmux request failed"), {
+            code: message.error.data?.code ?? message.error.code,
+          }),
+        );
       else request.resolve(message.result);
       return;
     }
@@ -466,9 +472,9 @@ export class AcpmuxDirectClient {
     );
   }
 
-  /// Files under the selected session's folder whose path matches `query`, best first (fileSearch.ts).
-  filesSearch(query: string, limit: number): Promise<unknown> {
-    return this.request("git.files.search", { sessionId: this.selectedSessionId, query, limit });
+  /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
+  fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
+    return this.request("file.search", { ...(path ? { path } : {}), query, limit });
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {

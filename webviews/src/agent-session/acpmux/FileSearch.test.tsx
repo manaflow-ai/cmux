@@ -155,8 +155,15 @@ test("only the newest query's answer lands, and a failed search says so", async 
   expect(results().length).toBe(1);
   await act(async () => typeInto(field(), "retr"));
   await settle();
-  await act(async () => pending[2]!.reject(new Error("not a git repository")));
+  await act(async () => pending[2]!.reject(new Error("socket closed")));
   expect(note()).toBe("Couldn't search files");
+  // The service's failure for a folder outside a repository says so.
+  await act(async () => typeInto(field(), "ret"));
+  await settle();
+  await act(async () =>
+    pending[3]!.reject(Object.assign(new Error("~/notes is not in a git repository"), { code: "validation.invalid" })),
+  );
+  expect(note()).toBe("This folder isn't in a git repository");
 });
 
 test("an input method's Enter and Escape stay with it; Enter mid-search picks the row on screen; Tab closes", async () => {
@@ -285,17 +292,21 @@ test("a picked path with a space is quoted, so the agent reads the whole mention
   expect(doc.querySelector("textarea")!.value).toBe('@"docs/My \\"big\\" Notes.md" ');
 });
 
-test("the mock daemon answers git.files.search for the session's own folder", async () => {
+test("the mock daemon answers file.search for a folder, empty for no query, and fails outside a repository", async () => {
   const socket = new MockAcpmuxSocket();
   const answer = (
     socket as unknown as { answer(method: string, params: Record<string, unknown>): Promise<unknown> }
   ).answer.bind(socket);
-  const { sessions } = (await answer("_acpmux/watch", {})) as { sessions: { sessionId: string; cwd?: string }[] };
-  const billing = sessions.find((session) => session.cwd === "~/code/billing-service")!;
-  expect(await answer("git.files.search", { sessionId: billing.sessionId, query: "hook", limit: 10 })).toEqual({
+  expect(await answer("file.search", { path: "~/code/billing-service", query: "hook", limit: 10 })).toEqual({
     root: "~/code/billing-service",
     results: [{ path: "stripe/webhooks.go", matches: [10, 11, 12, 13] }],
     truncated: false,
   });
+  expect(await answer("file.search", { path: "~/code/billing-service", query: "" })).toEqual({
+    root: "~/code/billing-service",
+    results: [],
+  });
+  const outside = await answer("file.search", { path: "~/Downloads", query: "x" }).catch((error: unknown) => error);
+  expect(outside).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
   socket.close();
 });

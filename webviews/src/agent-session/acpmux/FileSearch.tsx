@@ -1,5 +1,13 @@
 import React, { useEffect, useId, useRef, useState } from "react";
-import { matchRuns, readFileSearch, type FileMatch, type FileSearchSource, type Run } from "./fileSearchModel";
+import {
+  failureCode,
+  matchRuns,
+  OUTSIDE_REPOSITORY,
+  readFileSearch,
+  type FileMatch,
+  type FileSearchSource,
+  type Run,
+} from "./fileSearchModel";
 
 /// Palette copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const FILE_SEARCH_LABELS = {
@@ -8,6 +16,7 @@ export const FILE_SEARCH_LABELS = {
   searching: "Searching…",
   none: "No matching files",
   failed: "Couldn't search files",
+  outside: "This folder isn't in a git repository",
   more: "Showing the first {count}; type more to narrow it",
 };
 
@@ -18,7 +27,7 @@ type State =
   | { kind: "idle" }
   | { kind: "searching"; results: FileMatch[] }
   | { kind: "done"; results: FileMatch[]; truncated: boolean }
-  | { kind: "failed" };
+  | { kind: "failed"; outside?: boolean };
 
 /// Codex's "Search files" palette (codex-atlas-clone reference command-menu-files-shortcut):
 /// a field over the transcript that lists the session's files matching what is typed, best
@@ -82,8 +91,9 @@ export function FileSearch({
           );
           setActive(0);
         },
-        () => {
-          if (ask === generation.current) setState({ kind: "failed" });
+        (error: unknown) => {
+          if (ask === generation.current)
+            setState({ kind: "failed", outside: failureCode(error) === OUTSIDE_REPOSITORY });
         },
       );
     }, debounceMs);
@@ -120,7 +130,9 @@ export function FileSearch({
     state.kind === "idle"
       ? FILE_SEARCH_LABELS.hint
       : state.kind === "failed"
-        ? FILE_SEARCH_LABELS.failed
+        ? state.outside
+          ? FILE_SEARCH_LABELS.outside
+          : FILE_SEARCH_LABELS.failed
         : state.kind === "searching" && results.length === 0
           ? FILE_SEARCH_LABELS.searching
           : state.kind === "done" && results.length === 0

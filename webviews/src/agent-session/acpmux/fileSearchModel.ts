@@ -1,6 +1,7 @@
-// `git.files.search`, answered by the session host's git and file-search service (spec S8):
-// files under the session's folder whose path matches a query, best first. The pane only
-// renders what comes back; ranking is the service's.
+// `file.search {path, query, limit}`, answered by the session host's shared git and
+// file-search service in the cmux binary (spec S8): files under the session's folder whose
+// path matches a query, best first. The pane only renders what comes back; ranking is the
+// service's. A folder outside a repository fails with `validation.invalid`.
 
 /// One match: a path relative to the result's root, '/'-separated, and the indexes into it of
 /// the characters the query matched, for highlighting.
@@ -9,8 +10,17 @@ export type FileSearchResult = { root: string; results: FileMatch[]; truncated?:
 
 export type FileSearchSource = (query: string) => Promise<unknown>;
 
-/// How many results the palette asks for.
+/// How many results the palette asks for (the service's default; it allows up to 200).
 export const FILE_SEARCH_LIMIT = 50;
+
+/// The failure code for a folder the service can't search: not in a repository.
+export const OUTSIDE_REPOSITORY = "validation.invalid";
+
+/// The failure's code, when the reply carried one.
+export function failureCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
+}
 
 /// A reply in the shape above, or undefined for anything else; malformed entries are dropped.
 export function readFileSearch(value: unknown): FileSearchResult | undefined {

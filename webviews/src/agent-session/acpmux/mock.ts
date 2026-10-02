@@ -225,7 +225,12 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error) => this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message } }),
+      (error: Error & { code?: string }) =>
+        this.deliver({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: { code: -32000, message: error.message, ...(error.code ? { data: { code: error.code } } : {}) },
+        }),
     );
   }
 
@@ -294,9 +299,11 @@ export class MockAcpmuxSocket {
         this.queue = turn.catch(() => undefined);
         return turn;
       }
-      case "git.files.search":
+      case "file.search":
         return mockFileSearch(
-          this.sessions.find((entry) => entry.sessionId === target)?.cwd,
+          typeof params.path === "string"
+            ? params.path
+            : this.sessions.find((entry) => entry.sessionId === target)?.cwd,
           params.query,
           params.limit,
         );

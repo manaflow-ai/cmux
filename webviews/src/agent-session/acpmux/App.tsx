@@ -94,10 +94,6 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   );
 }
 
-/// Search files reads the session's files from whoever runs the session: the acpmux client
-/// (or the mock daemon), else the native host.
-const searchFiles: FileSearchSource = (query) => callNative("git.files.search", { query, limit: FILE_SEARCH_LIMIT });
-
 /// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(
   function MessageRow({ row }: RowProps) {
@@ -647,6 +643,13 @@ function AcpmuxPane() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // A new chat centers its composer under the hero, as Codex's home does.
   const freshChat = isNewChat(snapshot);
+  // Search files reads the session's folder through whoever runs the session: the acpmux
+  // client (or the mock daemon), else the native host.
+  const fileRoot = snapshot.summary?.cwd;
+  const searchFiles = useCallback<FileSearchSource>(
+    (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
+    [fileRoot],
+  );
   // Codex's turn shape: work folds under "Worked for" until opened.
   const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
@@ -880,8 +883,12 @@ function AcpmuxPane() {
           "chat.select": async ({ sessionId }) => persistSession(await client.select(String(sessionId))),
           "chat.new": async ({ harness }) => persistSession(await client.create(harness ? String(harness) : undefined)),
           "chat.history": () => client.loadOlder(),
-          "git.files.search": ({ query, limit }) =>
-            client.filesSearch(String(query ?? ""), typeof limit === "number" ? limit : FILE_SEARCH_LIMIT),
+          "file.search": ({ path, query, limit }) =>
+            client.fileSearch(
+              typeof path === "string" ? path : undefined,
+              String(query ?? ""),
+              typeof limit === "number" ? limit : FILE_SEARCH_LIMIT,
+            ),
         };
         client.snapshot();
       } catch (error) {

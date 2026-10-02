@@ -1,7 +1,7 @@
-// The mock daemon's file search: what `git.files.search` answers for the seeded projects.
+// The mock daemon's file search: what `file.search` answers for the seeded projects.
 // Each project has a small tree; the query matches as a fuzzy subsequence of the path, and a
 // match in the file's name ranks above one spread through its folders, as a quick-open does.
-import type { FileMatch, FileSearchResult } from "./fileSearchModel";
+import { OUTSIDE_REPOSITORY, type FileMatch, type FileSearchResult } from "./fileSearchModel";
 
 const trees: Record<string, string[]> = {
   "~/code/cmux": [
@@ -57,6 +57,8 @@ function fuzzy(path: string, query: string): { matches: number[]; score: number 
 
 export function mockFileSearch(cwd: string | undefined, query: unknown, limit: unknown): FileSearchResult {
   const root = cwd ?? "~";
+  // As the service: a folder outside a repository fails, naming the path.
+  if (!trees[root]) throw Object.assign(new Error(`${root} is not in a git repository`), { code: OUTSIDE_REPOSITORY });
   const text = typeof query === "string" ? query.trim() : "";
   if (!text) return { root, results: [] };
   const max = Math.min(typeof limit === "number" && limit > 0 ? limit : 50, 200);
