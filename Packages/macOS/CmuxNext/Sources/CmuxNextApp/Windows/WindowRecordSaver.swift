@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDaemon
+import CmuxNextWakeups
 
 /// Pending window record saves: at most one write in flight and one
 /// requested after it, so saves are bounded and land in order.
@@ -15,26 +16,39 @@ struct WindowRecordSaves {
     var drain: Task<Void, Never>?
 }
 
-/// Window records in the daemon's `personal` projection (state-ownership.md 3):
-/// each holds the window's selected tab per pane and its focused pane, and
-/// is written on every selection or focus change, coalesced within one
-/// main-actor turn. Geometry still settles for 500 ms first, so a window
-/// drag does not write per frame.
-extension WindowManager {
+/// Writes the window records in the daemon's `personal` projection
+/// (state-ownership.md 3): each holds the window's selected tab per pane and
+/// its focused pane, and is written on every selection or focus change,
+/// coalesced within one main-actor turn. Geometry still settles for 500 ms
+/// first, so a window drag does not write per frame. Owned by
+/// `WindowManager` (`recordSaver`).
+@MainActor
+final class WindowRecordSaver {
+    unowned let manager: WindowManager
+    /// Debounced save of window geometry (architecture.md 1: 500 ms).
+    let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
+    /// Coalesced saves of the window records.
+    var saves = WindowRecordSaves()
+    private var services: AppServices { manager.services }
+
+    init(manager: WindowManager) {
+        self.manager = manager
+    }
+
     /// A selection, focus, membership or sidebar change: save on the next turn.
     func stateDidChange(_ state: WindowState) {
-        guard restored, !isTerminating else { return }
+        guard manager.restored, !manager.isTerminating else { return }
         requestSave()
     }
 
     /// A frame change: save once it has settled for 500 ms.
     func geometryDidChange(_ state: WindowState) {
-        guard restored, !isTerminating else { return }
+        guard manager.restored, !manager.isTerminating else { return }
         geometryTimer.schedule(after: .milliseconds(500)) { @MainActor [weak self] in self?.requestSave() }
     }
 
     func scheduleSave() {
-        guard let any = states.values.first else { return }
+        guard let any = manager.states.values.first else { return }
         stateDidChange(any)
     }
 
@@ -71,7 +85,7 @@ extension WindowManager {
         guard !saves.inFlight else { return }
         saves.inFlight = true
         // wakeup-allow: each iteration writes one requested save; ends when none is pending
-        while saves.requested, !isTerminating {
+        while saves.requested, !manager.isTerminating {
             saves.requested = false
             let tickets = saves.tickets
             saves.tickets = []
@@ -88,12 +102,12 @@ extension WindowManager {
     @discardableResult
     func saveNow() async -> (any Error)? {
         guard let windowState = services.daemon.windowState else { return DaemonError.notConnected }
-        captureGeometry()
+        manager.captureGeometry()
         let records = currentRecords()
         // Keys on every machine, plus those whose machine has not loaded yet
         // (they must survive until it reconnects).
         let live = Set(services.machines.allWorkspaces.compactMap(\.0.key))
-            .union(records.flatMap(\.workspaceKeys).filter { !isDead($0.rawValue) })
+            .union(records.flatMap(\.workspaceKeys).filter { !manager.isDead($0.rawValue) })
         do {
             try await windowState.update { document in
                 document.windows = records
@@ -108,9 +122,10 @@ extension WindowManager {
 
     func currentRecords() -> [WindowRecord] {
         let ordered = NSApp.orderedWindows
-        let value = registry.value
+        let value = manager.registry.value
+        let states = manager.states
         return value.windows.compactMap { window in
-            let controller = controller(for: window.id)
+            let controller = manager.controller(for: window.id)
             let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
                 ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
             var record = value.record(window.id, state: states[window.id], order: order,
@@ -123,7 +138,7 @@ extension WindowManager {
 
     /// Remembered tab per pane across the window's workspaces.
     private func selectedTabs(window: WindowRegistry.Window) -> [String: String] {
-        guard let state = states[window.id] else { return [:] }
+        guard let state = manager.states[window.id] else { return [:] }
         var selected: [String: String] = [:]
         for id in window.workspaceIDs {
             for pane in services.workspace(id: id)?.screens.flatMap(\.panes) ?? [] {

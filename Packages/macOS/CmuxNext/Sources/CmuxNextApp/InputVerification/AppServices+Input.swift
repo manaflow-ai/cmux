@@ -69,7 +69,7 @@ extension AppServices {
         controller.focus.settledObserver = { [weak self, weak controller] state in
             self?.notifications.focusDidSettle(state)
             if let controller {
-                self?.windows.focusDidSettle(controller.state, pane: state.pane)
+                self?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
                 self?.locationTrail.focusDidSettle(state, in: controller)
             }
         }

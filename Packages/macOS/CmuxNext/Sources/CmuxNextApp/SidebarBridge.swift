@@ -79,7 +79,7 @@ final class SidebarBridge {
                 guard let self else { return }
                 state.sidebarWidth = Double(width)
                 state.sidebarHidden = presentation == .hidden
-                self.services.windows.stateDidChange(state)
+                self.services.windows.recordSaver.stateDidChange(state)
             }
         }
         selectionObservation = Task { [weak self] in

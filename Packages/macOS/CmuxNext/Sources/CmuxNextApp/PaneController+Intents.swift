@@ -79,7 +79,7 @@ extension PaneController {
         state.selection.select(id.rawValue, in: paneKey)
         stripModel.selectedID = id
         services.presentation.setNeedsShowSelected(self)
-        services.windows.stateDidChange(state)
+        services.windows.recordSaver.stateDidChange(state)
     }
 
     /// Selects the neighbor `offset` tabs away, wrapping.

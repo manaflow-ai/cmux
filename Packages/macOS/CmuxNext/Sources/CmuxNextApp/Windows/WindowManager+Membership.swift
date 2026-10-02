@@ -53,7 +53,7 @@ extension WindowManager {
         // closed): its browser data goes.
         endIncognitoSessionIfUnused()
         recordIncognitoWorkspaces()
-        scheduleSave()
+        recordSaver.scheduleSave()
     }
 
     /// Makes each window's selection a workspace it lists in its current
@@ -109,7 +109,7 @@ extension WindowManager {
         if let workspaceID { enterProfile(of: workspaceID, in: state) }
         if let workspaceID, let machine = services.machines.daemon(forWorkspace: workspaceID)?.machineID { state.machineID = machine }
         state.workspaceID = workspaceID
-        stateDidChange(state)
+        recordSaver.stateDidChange(state)
     }
 
     // MARK: Entry points
@@ -300,7 +300,7 @@ extension WindowManager {
                 placements[id] = home
             }
         }
-        placements.merge(ephemeralPlacements(live: live, placements: placements)) { claimed, _ in claimed }
+        placements.merge(EphemeralWorkspaces.placements(self, live: live, placements: placements)) { claimed, _ in claimed }
         // While an ephemeral workspace is being created here, a new
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window.
