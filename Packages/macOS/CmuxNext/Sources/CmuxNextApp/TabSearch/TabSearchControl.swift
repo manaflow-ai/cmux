@@ -48,7 +48,7 @@ enum TabSearchControl {
     nonisolated static func json(_ match: TabSearchMatch) -> JSONValue {
         let entry = match.row.entry
         var object: [String: JSONValue] = [
-            "id": .string(entry.id), "state": .string(entry.isClosed ? "closed" : "open"), "kind": .string(entry.kind.rawValue),
+            "id": .string(entry.id), "state": .string(entry.isClosed ? "closed" : "open"), "kind": .string(entry.kind == .remoteTerminal ? "remote_terminal" : entry.kind.rawValue),
             "title": .string(match.row.title), "current": .bool(entry.isCurrent), "available": .bool(entry.isAvailable),
             "score": .number(Double(match.score)),
         ]

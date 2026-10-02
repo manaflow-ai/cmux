@@ -94,11 +94,42 @@ import Testing
         #expect(model.sections.last?.section.id == "tabSearch.closed")
     }
 
-    @Test func selectionAfterRemovingPrefersTheNextRow() {
-        #expect(PaletteModel.selection(afterRemoving: "b", from: ["a", "b", "c"]) == "c")
-        #expect(PaletteModel.selection(afterRemoving: "c", from: ["a", "b", "c"]) == "b")
-        #expect(PaletteModel.selection(afterRemoving: "a", from: ["a"]) == nil)
-        #expect(PaletteModel.selection(afterRemoving: "z", from: ["a"]) == nil)
+    @Test func selectionAfterRemovingStaysInTheSection() {
+        let rows = [(id: "a", section: "open"), (id: "b", section: "open"), (id: "c", section: "closed"), (id: "d", section: "closed")]
+        #expect(PaletteModel.selection(afterRemoving: "a", from: rows) == "b")
+        // The last open row: the previous open row, never a closed one.
+        #expect(PaletteModel.selection(afterRemoving: "b", from: rows) == "a")
+        #expect(PaletteModel.selection(afterRemoving: "d", from: rows) == "c")
+        #expect(PaletteModel.selection(afterRemoving: "a", from: [(id: "a", section: "open")]) == nil)
+        #expect(PaletteModel.selection(afterRemoving: "z", from: rows) == nil)
+    }
+
+    @Test func thePageOwnsCmdWEvenWithoutARow() {
+        let model = open(MockTabSearchSource(entries: [], now: now))
+        #expect(model.rows.isEmpty)
+        #expect(model.currentPageOwnsCloseKey)
+        // Consumed: it must never reach the main menu's Close Tab.
+        #expect(model.handle(.closeItem))
+    }
+
+    @Test func cmdWWithTheActionsMenuOpenClosesTheMenuAndTheRow() {
+        let source = MockTabSearchSource(now: now)
+        let model = open(source)
+        model.handle(.toggleActions)
+        #expect(model.actionsMenu != nil)
+        #expect(model.handle(.closeItem))
+        #expect(model.actionsMenu == nil)
+        #expect(source.closed == ["tab_2"])
+    }
+
+    @Test func cmdWDuringASearchWaitsForItsResults() async {
+        let source = MockTabSearchSource(now: now)
+        let model = open(source)
+        model.query = "localhost"
+        #expect(model.handle(.closeItem))
+        await model.settle()
+        // Ran on the query's top match, not on the row selected before.
+        #expect(source.closed == ["tab_4"])
     }
 
     @Test func cmdWIsTheCloseChord() throws {
@@ -108,6 +139,6 @@ import Testing
         #expect(PaletteKeyMap.isCloseItem(event))
         let registry = ActionRegistry.standard()
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: false, queryIsEmpty: true, registry: registry) == .closeItem)
-        #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: true, registry: registry) == nil)
+        #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: true, registry: registry) == .closeItem)
     }
 }

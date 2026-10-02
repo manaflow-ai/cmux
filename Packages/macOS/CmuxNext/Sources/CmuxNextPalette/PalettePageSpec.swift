@@ -11,6 +11,10 @@ public struct PalettePageSpec {
     public var showsRecent: Bool
     /// The query the page opens with (an action run with a `query`).
     public var initialQuery: String
+    /// Cmd-W belongs to the page's rows: it never reaches the main menu
+    /// (Close Tab on the tab behind the palette), also with no row or the
+    /// Actions menu open.
+    public var ownsCloseKey: Bool
     /// Sections keep their `order` for a typed query too, instead of
     /// following their best match (Search Tabs keeps closed tabs below
     /// open ones).
@@ -33,6 +37,7 @@ public struct PalettePageSpec {
         providers: [any PaletteProvider],
         showsRecent: Bool = false,
         initialQuery: String = "",
+        ownsCloseKey: Bool = false,
         keepsSectionOrder: Bool = false,
         emptyQuerySelection: Int = 0,
         onHighlight: (@MainActor (PaletteItem?) -> Void)? = nil,
@@ -45,6 +50,7 @@ public struct PalettePageSpec {
         self.providers = providers
         self.showsRecent = showsRecent
         self.initialQuery = initialQuery
+        self.ownsCloseKey = ownsCloseKey
         self.keepsSectionOrder = keepsSectionOrder
         self.emptyQuerySelection = emptyQuerySelection
         self.onHighlight = onHighlight

@@ -219,7 +219,7 @@ public final class PaletteModel {
 
     /// Runs a row's close command without closing the palette. Returns
     /// false when it refused (its reason becomes the row's notice).
-    func performClose(_ command: PaletteCommand) -> Bool {
+    func performClose(_ command: PaletteCommand, rowID: String) -> Bool {
         let handler: @MainActor () -> Void
         switch command.effect.resolved() {
         case .perform(let run), .performKeepingOpen(let run): handler = run
@@ -229,9 +229,22 @@ public final class PaletteModel {
             if performer == nil { handler() }
             return true
         }
-        notice = PaletteNotice(rowID: selectedRowID ?? rows.first?.id ?? "", text: reason)
+        notice = PaletteNotice(rowID: rowID, text: reason)
         publish(sections, resetSelection: false)
         return false
+    }
+
+    /// Whether the shown page takes Cmd-W for its rows
+    /// (`PalettePageSpec.ownsCloseKey`).
+    public var currentPageOwnsCloseKey: Bool {
+        guard let current, case .list(let page) = current.kind else { return false }
+        return page.ownsCloseKey
+    }
+
+    /// The id of the shown page (`PalettePageSpec.id`); nil on a text page.
+    public var currentPageID: String? {
+        guard let current, case .list(let page) = current.kind else { return nil }
+        return page.id
     }
 
     /// Runs `handler`; a refusal becomes the notice on `rowID` (the page's

@@ -25,9 +25,12 @@ the user has, with recently closed tabs below.
   Return reopens the tab where it was.
 - Cmd-W closes the selected row's tab through Close Tab (same confirmations
   and refusals), or removes a closed row from the closed-items log. The
-  palette stays open, the row leaves the list, and the next row (else the
+  palette stays open and the next row of the same section (else the
   previous one) is selected. A refusal keeps the row and shows why on it.
-  The footer shows the row's close command with its keys.
+  The page owns Cmd-W: with no row, or with the Actions menu open, it never
+  reaches the main menu's Close Tab. Pressed during a search, it waits for
+  that search's results, like Return. The footer shows the row's close
+  command with its keys.
 - A focused Simulator keeps Cmd-Shift-A (its Toggle Appearance); Focus
   TextBox moved from Cmd-Shift-A to Cmd-Opt-A (Attach File stays
   Cmd-Opt-Shift-A).
@@ -37,8 +40,11 @@ the user has, with recently closed tabs below.
 No new state. Rows are a value snapshot of the App's mirror (every
 machine's daemon store), the location trail (recency) and the closed-items
 log. Every change goes to its owner through the existing path: Close Tab,
-Reopen (HistoryRestorer), the closed-items log. Rows closed with Cmd-W are
-hidden in that palette page only (page view state) until it closes.
+Reopen (HistoryRestorer), the closed-items log. After Cmd-W the page
+re-reads its rows: a tab leaves when the strip's visible state drops it
+(a shown tab at once, a hidden tab on the daemon's echo). While the page is
+shown, an Observation of the mirror's structure (which tabs are where)
+re-reads it on every change and stops itself when the page goes.
 
 ## Surfaces
 
@@ -85,8 +91,10 @@ Debug Settings > Palette and Panels > "Search Tabs layout"
   mirror has no foreground process name. A daemon field
   (`foreground_process` per terminal) would make "process" match `vim`,
   `htop` and so on in every shell.
-- A tab closed with Cmd-W shows under Recently Closed the next time the page
-  opens (the page does not observe the closed-items log).
+- The closed-items log is not observable: a tab just closed appears under
+  Recently Closed at the next structure change or the next open.
+- `tabs.search` ranks with the `recent` layout whatever the Debug Settings
+  prototype is, so scripts get stable results.
 - Favicons in rows (the palette row draws SF Symbols only).
 - `cmux-settings validate` and the shared cmux.json schema list only the
   shipping app's shortcut ids, so it reports `tab.search` as unknown; the

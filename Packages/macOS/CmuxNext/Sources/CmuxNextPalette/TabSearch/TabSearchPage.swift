@@ -25,25 +25,25 @@ public protocol TabSearchSource: AnyObject {
 /// one from the list, and keeps the page open.
 public enum TabSearchPage {
     public static let id = "tabSearch"
+    static let closeCommandID = "tabSearch.close"
 
     /// `style` nil uses the Debug Settings prototype (`recent` in Release).
     public static func make(source: any TabSearchSource, style: TabSearchStyle? = nil,
                             query: String = "", now: @escaping @MainActor () -> Date = Date.init) -> PalettePageSpec {
         let style = style ?? PaletteTunables.tabSearchStyle.value
-        let rows = TabSearchPlan.rows(source.tabSearchEntries(), style: style, now: now())
-        let listed = TabSearchRowsProvider(id: "tabSearch.listed", showsItemsForEmptyQuery: true) { [weak source] in
-            guard let source else { return [] }
-            return TabSearchPlan.rows(source.tabSearchEntries(), style: style, now: now()).filter(\.isVisibleWhenQueryEmpty)
+        // One snapshot per load: the first provider takes it, the second
+        // reuses it, so both sections come from the same moment.
+        let snapshot = TabSearchSnapshot(source: source, style: style, now: now)
+        let rows = snapshot.fresh()
+        let listed = TabSearchRowsProvider(id: "tabSearch.listed", showsItemsForEmptyQuery: true, source: source) {
+            snapshot.fresh().filter(\.isVisibleWhenQueryEmpty)
         }
-        let older = TabSearchRowsProvider(id: "tabSearch.older", showsItemsForEmptyQuery: false) { [weak source] in
-            guard let source else { return [] }
-            return TabSearchPlan.rows(source.tabSearchEntries(), style: style, now: now()).filter { !$0.isVisibleWhenQueryEmpty }
+        let older = TabSearchRowsProvider(id: "tabSearch.older", showsItemsForEmptyQuery: false, source: source) {
+            snapshot.last.filter { !$0.isVisibleWhenQueryEmpty }
         }
-        listed.source = source
-        older.source = source
         return PalettePageSpec(
             id: id, title: PaletteStrings.tabSearchTitle, placeholder: PaletteStrings.tabSearchPlaceholder,
-            symbol: "magnifyingglass", providers: [listed, older], initialQuery: query, keepsSectionOrder: true,
+            symbol: "magnifyingglass", providers: [listed, older], initialQuery: query, ownsCloseKey: true, keepsSectionOrder: true,
             emptyQuerySelection: TabSearchPlan.emptyQuerySelection(rows.filter(\.isVisibleWhenQueryEmpty)))
     }
 
@@ -56,12 +56,12 @@ public enum TabSearchPage {
         if entry.isClosed {
             primary = PaletteCommand(id: "reopen", title: PaletteStrings.tabSearchReopen, symbol: "arrow.uturn.backward",
                                      effect: .perform { [weak source] in source?.reopenClosedTab(id: id) })
-            close = PaletteCommand(id: "close", title: PaletteStrings.tabSearchForget, symbol: "minus.circle", isDestructive: true,
+            close = PaletteCommand(id: closeCommandID, title: PaletteStrings.tabSearchForget, symbol: "minus.circle", isDestructive: true,
                                    effect: .performKeepingOpen { [weak source] in source?.forgetClosedTab(id: id) })
         } else {
             primary = PaletteCommand(id: "focus", title: PaletteStrings.switchToTab, symbol: "return",
                                      effect: .perform { [weak source] in source?.focusTab(id: id) })
-            close = PaletteCommand(id: "close", title: PaletteStrings.closeTab, symbol: "xmark", isDestructive: true,
+            close = PaletteCommand(id: closeCommandID, title: PaletteStrings.closeTab, symbol: "xmark", isDestructive: true,
                                    effect: .performKeepingOpen { [weak source] in source?.closeTab(id: id) })
         }
         var item = PaletteItem(
@@ -74,26 +74,4 @@ public enum TabSearchPage {
         item.frecencyKey = nil
         return item
     }
-}
-
-/// A provider over Search Tabs rows, rebuilt on every load so Cmd-W and
-/// keep-open commands see the source's current state.
-final class TabSearchRowsProvider: PaletteProvider {
-    let id: String
-    let showsItemsForEmptyQuery: Bool
-    weak var source: (any TabSearchSource)?
-    private let rows: @MainActor () -> [TabSearchRow]
-
-    init(id: String, showsItemsForEmptyQuery: Bool, rows: @escaping @MainActor () -> [TabSearchRow]) {
-        self.id = id
-        self.showsItemsForEmptyQuery = showsItemsForEmptyQuery
-        self.rows = rows
-    }
-
-    var immediateItems: [PaletteItem]? {
-        guard let source else { return [] }
-        return rows().map { TabSearchPage.item($0, source: source) }
-    }
-
-    func items() async -> [PaletteItem] { immediateItems ?? [] }
 }

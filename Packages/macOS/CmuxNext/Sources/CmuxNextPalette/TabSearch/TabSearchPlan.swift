@@ -46,11 +46,15 @@ public nonisolated enum TabSearchPlan {
     public static let recencyStep = 2
 
     public static func rows(_ entries: [TabSearchEntry], style: TabSearchStyle, now: Date) -> [TabSearchRow] {
-        let open = entries.filter { !$0.isClosed }
-        let closed = entries.filter(\.isClosed).sorted(by: newestFirst).prefix(closedSearchable)
+        // Ids are unique per kind of row; a repeat (two machines reusing an
+        // id) keeps its first entry rather than listing a row twice.
+        var seenOpen = Set<String>()
+        var seenClosed = Set<String>()
+        let open = entries.filter { !$0.isClosed && seenOpen.insert($0.id).inserted }
+        let closed = entries.filter { $0.isClosed && seenClosed.insert($0.id).inserted }.sorted(by: newestFirst).prefix(closedSearchable)
         var rows: [TabSearchRow] = []
         let byRecency = open.sorted(by: mostRecentFirst)
-        let rankOf = Dictionary(uniqueKeysWithValues: byRecency.enumerated().map { ($1.id, $0) })
+        let rankOf = Dictionary(byRecency.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
         let openSection = TabSearchSection(id: "tabSearch.open", title: PaletteStrings.tabSearchOpenSection, order: 0)
         switch style {
         case .recent, .compact:

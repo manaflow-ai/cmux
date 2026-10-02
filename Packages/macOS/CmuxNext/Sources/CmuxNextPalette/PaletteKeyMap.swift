@@ -29,7 +29,7 @@ public struct PaletteKeyMap {
         default: break
         }
         if flags == .command, key == "k" { return .toggleActions }
-        if !actionsMenuOpen, isCloseItem(event) { return .closeItem }
+        if isCloseItem(event) { return .closeItem }
         if actionsMenuOpen, flags.isSubset(of: [.shift]), let characters = event.characters, !characters.isEmpty,
            characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) {
             return .actionsFilterAppend(characters)

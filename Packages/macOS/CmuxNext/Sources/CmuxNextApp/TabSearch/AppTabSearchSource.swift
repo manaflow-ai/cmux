@@ -25,7 +25,9 @@ final class AppTabSearchSource: TabSearchSource {
     }
 
     func closeTab(id: String) {
-        services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id)))
+        guard services.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: id))) else {
+            return services.registry.refuse(TabSearchAppStrings.tabGone)
+        }
     }
 
     func reopenClosedTab(id: String) {
@@ -62,7 +64,10 @@ final class AppTabSearchSource: TabSearchSource {
             let window = windows.count > 1 ? windowIndex[workspace.id].map { TabSearchAppStrings.window($0 + 1) } : nil
             for screen in workspace.screens {
                 for pane in screen.panes {
-                    for tab in pane.tabs {
+                    // The strip's visible state: a tab whose close is in
+                    // flight is already gone from its pane.
+                    let closing = services.paneController(for: pane)?.pendingClosed ?? []
+                    for tab in pane.tabs where !closing.contains(tab.id) {
                         entries.append(TabSearchEntry(
                             id: tab.id, kind: kind(tab.kind), title: tab.displayTitle, url: tab.url, cwd: tab.cwd,
                             process: tab.agent?.agent, workspaceID: workspace.id, workspaceTitle: workspace.displayName,
