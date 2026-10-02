@@ -9,8 +9,9 @@ public nonisolated struct SettingChoice: Sendable, Hashable {
 }
 
 public nonisolated struct SettingNumber: Sendable, Hashable {
-    /// `fraction` is a proportion (0.5) shown as a percentage.
-    public enum Unit: Sendable, Hashable { case points, seconds, minutes, count, fraction }
+    /// `fraction` is a proportion (0.5) shown as a percentage. `count` and
+    /// `days` are whole numbers edited with a stepper.
+    public enum Unit: Sendable, Hashable { case points, seconds, minutes, days, count, fraction }
 
     public let range: ClosedRange<Double>
     public let step: Double

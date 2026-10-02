@@ -89,6 +89,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
+    /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
+    public var commandRetentionDays: Int = CommandRetentionSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     public var diagnostics: [SettingsDiagnostic]
@@ -155,6 +157,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        snapshot.commandRetentionDays = CommandRetentionSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {
