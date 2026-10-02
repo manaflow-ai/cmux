@@ -1949,6 +1949,34 @@ class RootRunners(unittest.TestCase):
             GUI_MINI,
         )
 
+    def test_ui_owned_runner_queues_on_gui_when_all_minis_are_busy(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 0, ROOT_MINI: 0, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
+    def test_ui_owned_runner_does_not_use_root_when_gui_capacity_is_zero(self):
+        self.assertEqual(
+            e2e_pool.ui_owned_runner(
+                LARGE,
+                test_filter="cmuxUITests/DogfoodScenarioUITests",
+                owned="1",
+                owned_ui="1",
+                order="",
+                owned_slots=json.dumps({MINI: 4, ROOT_MINI: 2, GUI_MINI: 0}),
+                pr_xcode_app=PR_XCODE,
+            ),
+            GUI_MINI,
+        )
+
 
 MERGE_BASE = "0123456789ab" + "c" * 28
 KEY = MERGE_BASE[:12]
