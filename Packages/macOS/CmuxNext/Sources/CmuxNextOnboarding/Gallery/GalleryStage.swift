@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// The center of the gallery: one variant live at real size, two side by
 /// side at a smaller scale (Compare), or the whole flow running in place.
 final class GalleryStage: NSView {
-    static let compareScale: CGFloat = 0.72
+    static let compareScale: CGFloat = 0.64
     private var shown: [NSView] = []
     private var flowModel: OnboardingModel?
 

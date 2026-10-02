@@ -12,11 +12,24 @@ extension DaemonStore {
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
+        let followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        workspaceListMayHaveChanged()
+        // Waiters see the visible state, so they run once the overlay is back.
+        flushAppliedWaiters()
+        return followup
+    }
+
+    /// Applies one event to the confirmed records (the overlay is lifted)
+    /// and settles what its transaction echo confirms. Whether the echo
+    /// needs a resync is decided per event: the echo's own delta applied
+    /// exactly holds the intent's result even when another event of the
+    /// batch needs a resync.
+    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?) -> Followup {
         let followup = applyState(event)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
+            settleIntentOnEcho(transaction, needsResync: followup == .resync, sequence: sequence)
         }
-        workspaceListMayHaveChanged()
         return followup
     }
 
@@ -37,24 +50,30 @@ extension DaemonStore {
             // Whole batch applied: settle the transactions it confirmed.
             flushAppliedWaiters()
         }
-        var followup = Followup.none
-        for envelope in batch {
-            if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
-                if apply(envelope.event) == .resync { followup = .resync }
-            } else if let transaction = envelope.event.clientTransactionID {
-                // Superseded by the snapshot, but its echo still settles the patch.
-                confirm(transaction)
+        return withOverlayLifted {
+            var followup = Followup.none
+            for envelope in batch {
+                if envelope.sequence > snapshotBarrier || isLifecycle(envelope.event) {
+                    if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
+                } else if let transaction = envelope.event.clientTransactionID {
+                    // Superseded by the snapshot (which holds its result),
+                    // but its echo still settles the patch and the intent.
+                    confirm(transaction)
+                    settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
+                }
             }
+            // A batch that needs a resync is reflected only once the snapshot
+            // lands (`resync` advances to its barrier).
+            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            return followup
         }
-        // A batch that needs a resync is reflected only once the snapshot
-        // lands (`resync` advances to its barrier).
-        if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
-        return followup
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
+        // Intents first, so waiters see the visible state without them.
+        settleDueIntents()
         runAppliedWaiters(nil)
     }
 
@@ -183,7 +202,14 @@ extension DaemonStore {
             // tab-drag-v1 reports a move as the moved tab's tab-changed
             // naming its new pane (another pane, screen or a new workspace).
             guard let target = panesByHandle[delta.pane] else { return .resync }
-            if relocate(tab, to: target, index: delta.index) { structureChanged() } else { target.recomputeSpans() }
+            if relocate(tab, to: target, index: delta.index) {
+                structureChanged()
+            } else if let index = delta.index {
+                // A move inside the pane: the delta names the tab's index.
+                target.moveTab(surface: tab.surface, to: index)
+            } else {
+                target.recomputeSpans()
+            }
             return .none
 
         case .treeChanged, .layoutChanged, .overflow:

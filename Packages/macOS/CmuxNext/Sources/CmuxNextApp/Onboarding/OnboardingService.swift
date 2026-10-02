@@ -50,11 +50,13 @@ final class OnboardingService {
         // task-owner: one-shot theme file load for the samples
         Task { [weak self] in
             let themes = await picks.loadThemeChoices()
+            let ownTheme = await Task.detached { GhosttyOwnTheme.isSet() }.value
             guard let self, gallery == nil else { return }
             let accounts: () -> NSView? = { [weak self] in self.map { AppOnboardingServices(owner: $0).makeAccountsStepView() } ?? nil }
             let gallery = OnboardingGalleryController(store: galleryStore, makeServices: { store in
                 let sample = MockOnboardingServices.gallerySample(themes: themes, accountsView: accounts())
                 sample.ghosttyTheme = ThemeStore.shared.input
+                sample.ghosttyHasOwnTheme = ownTheme
                 for step in OnboardingModel.Step.allCases { sample.variantIDs[step] = store.pick(for: step) }
                 return sample
             }, previewAppearance: { [weak self] dark in self?.services.terminalTheme.preview(dark: dark) })

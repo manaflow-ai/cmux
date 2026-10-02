@@ -54,7 +54,8 @@ public nonisolated struct ScrollEdges: OptionSet, Hashable, Sendable {
 /// (macOS 26 scroll-edge pockets replace them). It updates from the clip
 /// view's bounds and frame notifications and the document's frame
 /// notifications (no polling); an edge's band fades in or out with the
-/// Motion `hover` token, and snaps under Reduce Motion.
+/// Motion `hover` token (a short crossfade under Reduce Motion, per the
+/// Motion policy).
 public final class ScrollEdgeFadeView: NSView {
     public let scrollView: NSScrollView
     public private(set) var edges: ScrollEdges = []
@@ -157,7 +158,7 @@ public final class ScrollEdgeFadeView: NSView {
         guard next != edges else { return }
         edges = next
         // The band's opacity fades; geometry above never animates.
-        Motion.transaction(animated && !Motion.reduceMotion ? .hover : nil) { fadeMask.colors = Self.colors(for: next) }
+        Motion.transaction(animated ? .hover : nil) { fadeMask.colors = Self.colors(for: next) }
     }
 
     private func observeDocument(_ document: NSView?) {

@@ -120,6 +120,8 @@ enum WorkspaceStructureHandlers {
         }
         let rest = Array(pane.tabs.dropFirst())
         let services = context.services
+        // Read before the await: whether this run may change the view.
+        let allowed = services.viewChangeAllowed
         services.registry.track(Task {
             guard let key = await TabMoves.toNewWorkspace(first, services: services) else { return "move-tab-to-new-workspace failed (see the app log)" }
             guard let workspace, let state = services.windows.registry.value.owner(of: workspace.id).flatMap({ services.windows.states[$0] })
@@ -127,10 +129,11 @@ enum WorkspaceStructureHandlers {
             // Once the daemon reports it: below the pane's workspace, the
             // other tabs follow in order, and the window shows it (tmux
             // break-pane selects the new window).
-            services.windows.claim(workspaceID: key.rawValue, in: state)
+            services.windows.claim(workspaceID: key.rawValue, in: state, select: allowed)
             services.windows.place(newWorkspace: key.rawValue, in: state.id, at: .below(workspace.id)) { id, _ in
                 if let created = services.workspace(id: id) { moveTabs(rest, into: created, context) {} }
-                services.windows.show(workspaceID: id, in: state)
+                // A run this client's user did not start files it away.
+                if allowed { services.windows.show(workspaceID: id, in: state) }
             }
             return nil
         })
