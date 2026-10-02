@@ -111,16 +111,26 @@ public struct DaemonLauncher: Sendable {
         let stateDirectory = tag.map { tagStateDirectory(tag: $0) }
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session))
-        let cache = LoginEnvironmentCache.shared
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
-        let fixedOverrides = overrides
-        return DaemonLauncher(configuration: configuration, environment: {
+        return DaemonLauncher(configuration: configuration, environment: appEnvironment(
+            cache: .shared, base: processEnvironment, overrides: overrides))
+    }
+
+    /// The app launcher's `server ensure` environment: the login
+    /// environment `cache` has now (`LoginEnvironmentCache.immediate()`),
+    /// filtered, plus the app's identity keys and `overrides`.
+    static func appEnvironment(
+        cache: LoginEnvironmentCache,
+        base: [String: String],
+        overrides: [String: String]
+    ) -> @Sendable () async -> [String: String] {
+        {
             DaemonLaunchTimings.shared.mark("daemon.login_env_start")
-            let login = await cache.value()
+            let login = await cache.immediate()
             DaemonLaunchTimings.shared.mark("daemon.login_env_end")
-            return LoginEnvironment.shared.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
-        })
+            return LoginEnvironment.shared.daemonEnvironment(login: login, base: base, overrides: overrides)
+        }
     }
 
     // MARK: - Resolution
@@ -244,7 +254,7 @@ public struct DaemonLauncher: Sendable {
     /// top of `main`; the capture runs off the main thread.
     public static func prewarmLoginEnvironment() {
         // task-owner: one-shot fill of the process-lifetime login-env cache; ends with the capture's own timeout.
-        Task.detached(priority: .userInitiated) { _ = await LoginEnvironmentCache.shared.value() }
+        Task.detached(priority: .userInitiated) { await LoginEnvironmentCache.shared.start() }
     }
 
     static func parseEnsure(_ result: ProcessResult) throws -> EnsureResult {
@@ -311,18 +321,4 @@ final class RememberedSocket: Sendable {
     private let path: Mutex<String?>
     init(_ path: String?) { self.path = Mutex(path) }
     func take() -> String? { path.withLock { $0.take() } }
-}
-
-/// Captures the login env once per app launch; concurrent callers share it.
-actor LoginEnvironmentCache {
-    static let shared = LoginEnvironmentCache()
-
-    private var task: Task<[String: String]?, Never>?
-
-    func value() async -> [String: String]? {
-        if let task { return await task.value }
-        let task = Task { await LoginEnvironment.shared.capture() }
-        self.task = task
-        return await task.value
-    }
 }
