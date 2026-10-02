@@ -165,7 +165,7 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
 
   function register(page) {
     if (tabOf.has(page)) return tabOf.get(page);
-    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), heldKeys: new Map(), heldButtons: new Map() };
+    const tab = { targetId: hexId(), page, frameIds: new WeakMap(), frames: new Map(), clipboard: [], clipboardCommand: null, openerTargetId: undefined, openDialogs: 0, title: "", loadState: "commit", creator: null, handled: new Map(), heldKeys: new Map(), heldButtons: new Map() };
     tabs.set(tab.targetId, tab);
     tabOf.set(page, tab);
     frameId(tab, page.mainFrame());
@@ -187,6 +187,13 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
         return;
       }
       const dialogId = `d${nextId++}`;
+      // As in the app: a dialog during Copy, Cut or Paste is dismissed at
+      // once, so it cannot hold the command, and reported.
+      if (tab.clipboardCommand) {
+        d.dismiss().catch(() => {});
+        emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue(), dismissedDuring: tab.clipboardCommand });
+        return;
+      }
       dialogs.set(dialogId, d);
       tab.openDialogs++;
       emit("dialog.opened", { targetId, dialogId, type: d.type(), message: d.message(), defaultValue: d.defaultValue() });
@@ -344,41 +351,53 @@ export async function createDevBrowser({ headless = true, viewport = { width: 12
   const MODIFIER_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
 
   // Meta+C, Meta+X and Meta+V use the tab's virtual clipboard, as the app
-  // driver does; the system pasteboard is never touched.
+  // driver does; the system pasteboard is never touched. The app runs
+  // WebKit's own Copy, Cut and Paste, so the page gets copy, cut and paste
+  // events with clipboardData. Playwright WebKit's own commands use the
+  // system clipboard, so this dispatches the events (not trusted) in the
+  // focused frame and does what WebKit does unless the page cancels them.
   async function clipboardShortcut(tab, key) {
     const page = tab.page;
-    if (key === "v") {
-      // The app runs WebKit's Paste against the tab's clipboard, so the page
-      // gets a paste event with clipboardData. Playwright WebKit's own paste
-      // reads the system clipboard, so this double dispatches the event (not
-      // trusted) in the focused frame and inserts the text unless cancelled.
-      const item = tab.clipboard.find((i) => i.type === "text/plain");
-      const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
-      const entries = tab.clipboard.filter((i) => /^[\w.+-]+\/[\w.+-]+$/.test(i.type)).map((i) => [i.type, Buffer.from(i.base64, "base64").toString("utf8")]);
-      let frame = page.mainFrame();
-      for (const f of page.frames()) {
-        if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
+    let frame = page.mainFrame();
+    for (const f of page.frames()) {
+      if (await f.evaluate(() => document.hasFocus() && !(document.activeElement instanceof HTMLIFrameElement)).catch(() => false)) frame = f;
+    }
+    const type = { c: "copy", x: "cut", v: "paste" }[key];
+    tab.clipboardCommand = type;
+    try {
+      if (type === "paste") {
+        const item = tab.clipboard.find((i) => i.type === "text/plain");
+        const text = item ? Buffer.from(item.base64, "base64").toString("utf8") : "";
+        const entries = tab.clipboard.filter((i) => /^[\w.+-]+\/[\w.+-]+$/.test(i.type)).map((i) => [i.type, Buffer.from(i.base64, "base64").toString("utf8")]);
+        const cancelled = await frame.evaluate((entries) => {
+          const data = new DataTransfer();
+          for (const [type, value] of entries) data.setData(type, value);
+          let el = document.activeElement || document.body;
+          while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+          return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
+        }, entries);
+        if (!cancelled && text) await page.keyboard.insertText(text);
+        return;
       }
-      const cancelled = await frame.evaluate((entries) => {
-        const data = new DataTransfer();
-        for (const [type, value] of entries) data.setData(type, value);
+      // WebKit fires copy and cut only when something is selected.
+      const result = await frame.evaluate((type) => {
         let el = document.activeElement || document.body;
         while (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-        return !el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
-      }, entries);
-      if (!cancelled && text) await page.keyboard.insertText(text);
-      return;
+        const field = (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null;
+        const selection = field ? el.value.slice(el.selectionStart, el.selectionEnd) : String(getSelection() || "");
+        if (!selection) return { selection, items: null };
+        const data = new DataTransfer();
+        const cancelled = !el.dispatchEvent(new ClipboardEvent(type, { clipboardData: data, bubbles: true, cancelable: true, composed: true }));
+        return { selection, items: cancelled ? [...data.types].map((t) => [t, data.getData(t)]) : null };
+      }, type);
+      tab.clipboard = result.items
+        ? result.items.map(([t, value]) => ({ type: t, base64: Buffer.from(value).toString("base64") }))
+        : [{ type: "text/plain", base64: Buffer.from(result.selection).toString("base64") }];
+      // The app sends Cocoa's delete: action; execCommand is its page-side twin.
+      if (type === "cut" && !result.items && result.selection) await frame.evaluate(() => document.execCommand("delete"));
+    } finally {
+      tab.clipboardCommand = null;
     }
-    const selection = await page.evaluate(() => {
-      const el = document.activeElement;
-      if (el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) && el.selectionStart !== null) {
-        return el.value.slice(el.selectionStart, el.selectionEnd);
-      }
-      return String(getSelection() || "");
-    });
-    tab.clipboard = [{ type: "text/plain", base64: Buffer.from(selection).toString("base64") }];
-    // The app sends Cocoa's delete: action; execCommand is its page-side twin.
-    if (key === "x" && selection) await page.evaluate(() => document.execCommand("delete"));
   }
 
   async function keyEvent(tab, { type, key, code, text, modifiers = [] }) {

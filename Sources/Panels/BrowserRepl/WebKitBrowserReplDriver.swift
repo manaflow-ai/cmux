@@ -1559,10 +1559,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     }
 
     /// Runs the Cocoa editing action behind a Command shortcut. Clipboard
-    /// actions use the tab's virtual clipboard, never the system pasteboard:
+    /// actions use the tab's virtual clipboard, not the system pasteboard:
     /// WebKit's own Copy, Cut and Paste run against a private pasteboard that
     /// holds the tab's clipboard, so the page gets trusted `copy`, `cut` and
     /// `paste` events with `clipboardData`, as a person's shortcut gives it.
+    /// The private pasteboard stands in for at most 5 s
+    /// (`BrowserReplPasteboardRedirect` has what a page that runs longer can
+    /// still do).
     @MainActor
     private func performEditingCommand(_ command: String, panel: BrowserPanel, webView: CmuxWebView) async throws {
         let attachment = attachment(panel)
@@ -1582,7 +1585,22 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 pasteboard.clearContents()
             }
             let name = isPaste ? "Paste" : (command == "copy:" ? "Copy" : "Cut")
-            switch await BrowserReplPasteboardRedirect.perform(name, in: webView, pasteboard: pasteboard) {
+            // Until WebKit reports the command done, a JavaScript dialog from
+            // the page is answered at once instead of held for the session,
+            // so it cannot keep the command open.
+            attachment.clipboardCommandsInFlight.append(name.lowercased())
+            let outcome = await BrowserReplPasteboardRedirect.perform(name, in: webView, pasteboard: pasteboard) { [weak attachment] in
+                attachment?.clipboardCommandFinished(name.lowercased())
+            }
+            // The tab's clipboard takes only what this command wrote: the
+            // pasteboard was reachable only during the command's own window,
+            // which no other REPL command shares, and it is emptied and
+            // released here in every case.
+            defer {
+                pasteboard.clearContents()
+                pasteboard.releaseGlobally()
+            }
+            switch outcome {
             case .completed:
                 if !isPaste {
                     let items = BrowserReplClipboardItems.read(pasteboard)
@@ -1591,17 +1609,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                         ? [["type": "text/plain", "base64": ""]]
                         : items
                 }
-                pasteboard.releaseGlobally()
             case .timedOut:
-                // The redirect keeps the pasteboard until WebKit finishes,
-                // so the command never reaches the system clipboard, and
-                // releases it then.
-                throw Self.error("timeout", "\(name) did not finish within 5 s; WebKit may still finish it, against the tab's clipboard, never the system clipboard")
+                throw Self.error(
+                    "timeout",
+                    isPaste
+                        ? "Paste did not finish within 5 s; the page's paste handler may still be running, and anything it reads now is empty"
+                        : "\(name) did not finish within 5 s and the tab's clipboard is unchanged; if the page's \(name.lowercased()) handler finishes later, WebKit writes its result to the system clipboard"
+                )
             case .busy:
-                pasteboard.releaseGlobally()
                 throw Self.error("timeout", "\(name) did not start: an earlier Copy, Cut or Paste has not finished")
             case .unavailable:
-                pasteboard.releaseGlobally()
                 try await performClipboardCommandWithoutWebKit(command, attachment: attachment, webView: webView)
             }
         case "bold", "italic", "underline":

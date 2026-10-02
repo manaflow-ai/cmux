@@ -154,7 +154,10 @@ dialog or chooser stays open and shows in the snapshot. While a JavaScript
 dialog is open the page cannot run script, so page calls fail with a message
 that says so. A tab you did not open (`tabs.use()` of the user's tab) is the
 user's: its dialogs, file choosers, downloads and permission prompts go to
-the user unless you have a listener for that event on the page.
+the user unless you have a listener for that event on the page. A dialog
+that opens during Meta+C, Meta+X or Meta+V is dismissed at once, so it
+cannot hold the clipboard command; listeners still get it, and the next
+snapshot prints `dialog dismissed: ...` once.
 
     page.dialog()        // { type, message, defaultValue, accept(text?), dismiss() } or null
     page.fileChooser()   // { multiple, setFiles(paths), cancel() } or null

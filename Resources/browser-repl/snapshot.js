@@ -1001,7 +1001,8 @@
   }
 
   async function blockingLines(page) {
-    const lines = [];
+    // Dialogs cmux dismissed during Copy, Cut or Paste, reported once.
+    const lines = page._dismissedDialogs.splice(0).map((d) => `dialog dismissed: ${d.type()} ${q(d.message())} (it opened during a ${d._p.dismissedDuring})`);
     const dialog = page._pendingDialog();
     if (dialog) {
       let line = `dialog: ${dialog.type()} ${q(dialog.message())}`;

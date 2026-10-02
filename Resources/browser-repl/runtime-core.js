@@ -1958,7 +1958,8 @@
     constructor(page, payload) {
       this._page = page;
       this._p = payload;
-      this._handled = false;
+      // A dialog that opened during Copy, Cut or Paste arrives answered.
+      this._handled = !!payload.dismissedDuring;
     }
     type() {
       return this._p.type;
@@ -1973,6 +1974,8 @@
       return this._page;
     }
     async _respond(accept, promptText) {
+      // cmux already answered it; a listener's answer has nothing to do.
+      if (this._p.dismissedDuring) return;
       if (this._handled) throw new Error("Cannot accept dialog which is already handled!");
       // Validate before answering: a rejected answer must leave the dialog
       // open and known, or the page stays blocked with no dialog to answer.
@@ -2201,6 +2204,7 @@
       this._refMax = new Map();
       this._heldDialog = null;
       this._listenedDialog = null;
+      this._dismissedDialogs = [];
       this._heldChooser = null;
       this._dialogWatchers = new Set();
       this._consoleHistory = [];
@@ -2510,9 +2514,18 @@
     }
     // With a "dialog" listener the listener answers, as in Playwright.
     // Without one the dialog stays open, shows in the snapshot and is answered
-    // through page.dialog(); nothing is dismissed silently.
+    // through page.dialog(); nothing is dismissed silently. A dialog that
+    // opened during Copy, Cut or Paste was already dismissed so it could not
+    // hold the command: listeners still get it, and the next snapshot
+    // reports it once.
     _onDialog(p) {
       const dialog = new Dialog(this, p);
+      if (p.dismissedDuring) {
+        this._dismissedDialogs.push(dialog);
+        if (this._dismissedDialogs.length > 20) this._dismissedDialogs.shift();
+        this.emit("dialog", dialog);
+        return;
+      }
       if (this.listenerCount("dialog")) {
         this._listenedDialog = dialog;
         this.emit("dialog", dialog);

@@ -653,6 +653,19 @@ final class BrowserReplTabAttachment {
     ) -> Bool {
         guard routesToSessions(.dialog) else { return false }
         let id = makeID("d")
+        if let command = clipboardCommandsInFlight.last {
+            // Held, the dialog would keep WebKit's Copy, Cut or Paste open.
+            // Answer it as a dialog nobody handles is answered, and report it.
+            respond(false, nil)
+            emit("dialog.opened", [
+                "dialogId": id,
+                "type": type,
+                "message": message,
+                "defaultValue": defaultValue ?? "",
+                "dismissedDuring": command,
+            ])
+            return true
+        }
         dialogs[id] = respond
         emit("dialog.opened", [
             "dialogId": id,
@@ -661,6 +674,18 @@ final class BrowserReplTabAttachment {
             "defaultValue": defaultValue ?? "",
         ])
         return true
+    }
+
+    /// Copy, Cut and Paste commands (`copy`, `cut`, `paste`) WebKit is running
+    /// in this tab, until WebKit reports each done. A JavaScript dialog that
+    /// opens meanwhile is dismissed at once and reported with
+    /// `dismissedDuring`, never held.
+    var clipboardCommandsInFlight: [String] = []
+
+    func clipboardCommandFinished(_ command: String) {
+        if let index = clipboardCommandsInFlight.firstIndex(of: command) {
+            clipboardCommandsInFlight.remove(at: index)
+        }
     }
 
     /// Whether a JavaScript dialog is waiting for `dialog.respond`; page

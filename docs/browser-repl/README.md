@@ -27,8 +27,10 @@ reference ([parity-report.md](parity-report.md)).
 4. **Nothing silent.** In a tab the session opened, dialogs and file choosers
    without a handler stay open and show in the snapshot until the agent
    answers them (a user's tab keeps its own UI, see
-   [Sessions and tabs](#sessions-and-tabs)). Ambiguous input failures are
-   reported and never replayed.
+   [Sessions and tabs](#sessions-and-tabs)). The one exception, a dialog
+   that opens during Meta+C, Meta+X or Meta+V, is dismissed so it cannot
+   hold the clipboard command, and the next snapshot says so. Ambiguous
+   input failures are reported and never replayed.
 5. **Less to remember.** Top-level `const`/`let` persist across calls, the last
    expression's value prints automatically, and printing a snapshot picks the
    diff or the full tree by size.
@@ -58,7 +60,7 @@ reference ([parity-report.md](parity-report.md)).
 | `page.dialog()` | The open JavaScript dialog or `null`: `{ type, message, defaultValue, accept(text?), dismiss() }`. | Reference B `getJsDialog()` |
 | `page.fileChooser()` | The open file chooser or `null`: `{ multiple, setFiles(files), cancel() }`. | Reference B chooser flow |
 | `page.consoleMessages({ level, filter, limit })`, `page.errors()` | Console history and uncaught errors since the tab opened. | Reference B `dev.logs()` |
-| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut`. The system clipboard is not touched, and other code (the terminal) keeps the system clipboard while a shortcut runs; one that WebKit does not finish within 5 s throws a timeout and still never reaches the system clipboard. | Reference B `clipboard` |
+| `page.clipboard` | `readText()`, `writeText(text)`, `read()`, `write(items)` on a per-tab clipboard. Meta+V fires a trusted `paste` event whose `clipboardData` holds it; Meta+C and Meta+X fill it from a trusted `copy`/`cut` with whatever the page's handler sets. A JavaScript dialog the page opens meanwhile is dismissed and reported in the next snapshot. Neither touches the system clipboard, which other code (the terminal) keeps. A shortcut WebKit does not finish within 5 s throws a timeout and leaves the tab's clipboard unchanged; if the page finishes it later, its paste reads nothing, but its copy or cut lands on the system clipboard. | Reference B `clipboard` |
 | `page.elementAt(x, y)` | `{ ref, role, name, box }` for the topmost element at a viewport point. | Reference B `elementInfo()` |
 | `page.keep()` | Keep this tab open after a one-shot run. | Reference B `markDeliverable()` |
 | `page.exportContent(options)` | Write the page as Markdown, a Google Docs/Sheets/Slides tab in an export format (`{ format }`), or a YouTube watch page's captions (`{ transcript: true }`) to a file; returns the path. | Reference B `content.export*` |
@@ -214,7 +216,9 @@ Rules, and how they improve on the references:
   agent sees why the page is blocked. A file chooser line carries its input's
   ref. A JavaScript dialog line has none, because no element owns the dialog
   and a ref must work as a selector; it names `page.dialog()` instead, and the
-  tree is replaced by a note while the dialog blocks the page.
+  tree is replaced by a note while the dialog blocks the page. A dialog cmux
+  dismissed during Meta+C, Meta+X or Meta+V prints once, as
+  `dialog dismissed: alert "…" (it opened during a copy)`.
 - **Options**: `interactive` (interactive nodes, their named ancestors, and
   the page outline: headings and landmarks, which carry no new refs; its
   diff also carries text that an action added or changed, such as

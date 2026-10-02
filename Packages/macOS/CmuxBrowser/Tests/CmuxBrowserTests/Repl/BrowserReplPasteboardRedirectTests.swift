@@ -96,6 +96,35 @@ struct BrowserReplPasteboardRedirectTests {
             #expect(thirdOutcome == .completed)
             #expect(secondStarted)
         }
+
+        @Test func whenFinishedRunsOnceWhenWebKitFinishesOrAtOnceWhenTheCommandDoesNotStart() async throws {
+            #expect(BrowserReplPasteboardRedirect.install())
+            let tab = NSPasteboard.withUniqueName()
+            let other = NSPasteboard.withUniqueName()
+            defer {
+                tab.releaseGlobally()
+                other.releaseGlobally()
+            }
+            var finished = 0
+            var finish: (@MainActor () -> Void)?
+            let outcome = await BrowserReplPasteboardRedirect.run(on: tab, timeout: .milliseconds(50), whenFinished: { finished += 1 }) { done in
+                finish = done
+            }
+            #expect(outcome == .timedOut)
+            #expect(finished == 0, "a timeout is not WebKit finishing the command")
+
+            var busyFinished = 0
+            let busy = await BrowserReplPasteboardRedirect.run(on: other, timeout: .milliseconds(50), whenFinished: { busyFinished += 1 }) { done in
+                done()
+            }
+            #expect(busy == .busy)
+            #expect(busyFinished == 1)
+
+            try #require(finish != nil)
+            finish?()
+            finish?()
+            #expect(finished == 1)
+        }
     }
 
     /// WebKit's real commands, end to end: its pasteboard reads and writes
@@ -150,6 +179,28 @@ struct BrowserReplPasteboardRedirectTests {
             let trustedEvent = event == "true:tab text"
             #expect(pastedTabText, "WebKit's paste did not read the tab's pasteboard")
             #expect(trustedEvent, "the page did not get a trusted paste event with the tab's data")
+            #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
+        }
+
+        /// WebKit's late-read refusal compares change counts; a Paste whose
+        /// tab pasteboard is not below the system's could pass it.
+        @Test func aPasteWhoseLateReadsWebKitCouldAllowDoesNotStart() async throws {
+            let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+            let tab = NSPasteboard.withUniqueName()
+            defer { tab.releaseGlobally() }
+            tab.clearContents()
+            tab.setString("tab text", forType: .string)
+            var finished = false
+            let outcome = await BrowserReplPasteboardRedirect.perform(
+                "Paste",
+                in: webView,
+                pasteboard: tab,
+                timeout: .seconds(1),
+                systemChangeCount: tab.changeCount,
+                whenWebKitFinishes: { finished = true }
+            )
+            #expect(outcome == .unavailable)
+            #expect(finished)
             #expect(BrowserReplPasteboardRedirect.redirectTarget(forLookupOf: general, fromWebKit: true) == nil)
         }
 
