@@ -2,7 +2,7 @@ import Foundation
 
 /// What the role step learned about the user, kept in the onboarding state
 /// file. Later steps tailor their suggestions to it.
-public struct OnboardingProfile: Codable, Equatable, Sendable {
+public nonisolated struct OnboardingProfile: Codable, Equatable, Sendable {
     /// The picked role; nil when the user described their work instead.
     public var role: OnboardingRole?
     /// "Describe something else", trimmed; nil when empty.

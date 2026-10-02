@@ -46,10 +46,21 @@ final class OnboardingService {
     func saveProfile(_ answer: OnboardingProfile) {
         profile = answer
         let state = state
+        write("onboarding profile") { try state.saveProfile(answer) }
+    }
+
+    /// The last state file write; each write waits for it, so a profile
+    /// save can't land after `markDone` and undo it.
+    private var lastWrite: Task<Void, Never>?
+
+    /// Runs one small state file write off the main thread, after the one before.
+    private func write(_ label: String, _ work: @escaping @Sendable () throws -> Void) {
+        let previous = lastWrite
         let logger = logger
-        // task-owner: one small file write, off the main thread
-        Task.detached {
-            do { try state.saveProfile(answer) } catch { logger.error("onboarding profile: \(String(describing: error), privacy: .public)") }
+        // task-owner: one small file write, chained after the previous one
+        lastWrite = Task.detached {
+            await previous?.value
+            do { try work() } catch { logger.error("\(label, privacy: .public): \(String(describing: error), privacy: .public)") }
         }
     }
 
@@ -119,13 +130,8 @@ final class OnboardingService {
 
     func markDone(completed: Bool) {
         let state = state
-        let logger = logger
-        // The answer goes along, so this write can't drop a profile write still in flight.
         let profile = profile
-        // task-owner: one small file write, off the main thread
-        Task.detached {
-            do { try state.markDone(completed: completed, profile: profile) } catch { logger.error("onboarding state: \(String(describing: error), privacy: .public)") }
-        }
+        write("onboarding state") { try state.markDone(completed: completed, profile: profile) }
     }
 
     /// Imported history and bookmarks go into each browser profile's

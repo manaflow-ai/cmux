@@ -53,7 +53,8 @@ import Testing
 
     @Test func everyRoleHasItsOwnLabel() {
         let labels = OnboardingRole.allCases.map(OnboardingStrings.roleName)
-        #expect(!labels.contains(where: \.isEmpty))
+        let blank = labels.filter { $0.isEmpty }
+        #expect(blank.isEmpty)
         #expect(Set(labels).count == labels.count)
     }
 }

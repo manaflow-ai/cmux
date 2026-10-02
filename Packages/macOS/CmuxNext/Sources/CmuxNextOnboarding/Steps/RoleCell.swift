@@ -30,9 +30,10 @@ final class RoleCell: ThemedView {
 
     var isOn: Bool { radio.state == .on }
 
+    /// Also called after the radio's own click already turned it on, so it
+    /// always refreshes the fill.
     func setOn(_ on: Bool) {
-        guard isOn != on else { return }
-        radio.state = on ? .on : .off
+        if isOn != on { radio.state = on ? .on : .off }
         refresh()
     }
 
