@@ -2,6 +2,10 @@ import CmuxAuthRuntime
 import Foundation
 
 extension VMClient {
+    public func listPage() async throws -> VMListPage {
+        try await listPage(allowWhenCloudDisabled: false, expectedTeamScope: nil)
+    }
+
     public func listPage(
         allowWhenCloudDisabled: Bool = false,
         expectedTeamScope: AuthenticatedTeamScope? = nil

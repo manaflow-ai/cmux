@@ -64,8 +64,12 @@ public struct SettingsWindowRoot: View {
     /// again, so its rows only exist once this matches.
     @State var shownPaneSection: SettingsSectionID?
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
-    @State var cloudFeatureFlagRevision = 0
+    @State private var cloudFeatureFlagRevision = 0
     @State private var searchText: String = ""
+
+    var cloudSectionIdentity: String {
+        "cloud-machines-section-\(cloudFeatureFlagRevision)"
+    }
     /// Loaded when the window opens so the App pane renders its agent
     /// sound matrix at full height on every visit.
     @State var soundAgentCache = NotificationSoundAgentCache()

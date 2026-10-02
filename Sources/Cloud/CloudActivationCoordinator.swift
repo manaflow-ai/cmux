@@ -39,9 +39,9 @@ final class CloudActivationCoordinator {
     private let isAvailable: @MainActor () -> Bool
     private let prepare: @MainActor () async throws -> Void
     private let cleanup: @MainActor () async -> Void
-    private var activationTask: Task<Void, Never>?
+    @ObservationIgnored var activationTask: Task<Void, Never>?
     private var activationID: UUID?
-    private var cleanupTask: Task<Void, Never>?
+    @ObservationIgnored var cleanupTask: Task<Void, Never>?
     private var cleanupID: UUID?
     private var observations: [NSObjectProtocol] = []
     @ObservationIgnored private var stateContinuations: [UUID: AsyncStream<State>.Continuation] = [:]
@@ -157,11 +157,11 @@ final class CloudActivationCoordinator {
                 self.state = .enabled
             } catch is CancellationError {
                 // User cancellation clears activationID first, so settle()
-                // ignores it. A cancellation that reaches this branch came
-                // from an auth/session fence inside preparation.
+                // ignores it. A cancellation from preparation is a transient
+                // service interruption unless the Cloud capability disappeared.
                 await self.settle(
                     id: id,
-                    state: self.isAvailable() ? .failed(.signInRequired) : .unavailable
+                    state: self.isAvailable() ? .failed(.serviceUnavailable) : .unavailable
                 )
             } catch let error as VMClientError {
                 await self.settle(
@@ -227,14 +227,6 @@ final class CloudActivationCoordinator {
             enable()
             return
         }
-    }
-
-    /// Waits for the current activation attempt to settle. The sidebar does
-    /// not need this, but composition and behavior tests can await the same
-    /// task without polling or sleeping.
-    func waitForActivation() async {
-        await activationTask?.value
-        await cleanupTask?.value
     }
 
     private func settle(id: UUID, state: State) async {

@@ -121,6 +121,9 @@ public actor CloudWireGuardHub {
     /// Retained after completion: one automatic sequence per Cloud activation, not per fleet poll.
     private var preparationTask: Task<Void, Never>?
     private var pinnedByExternalClient = false
+    /// The authenticated account/team that produced the running enrollment.
+    /// Activation refreshes preserve the carrier when this scope is unchanged.
+    private var activeTeamScope: AuthenticatedTeamScope?
     /// Bumped on every intentional stop so a stale exit callback cannot restart a hub
     /// that was stopped on purpose.
     private var generation: UInt64 = 0
@@ -232,7 +235,7 @@ public actor CloudWireGuardHub {
         expectedTeamScope: AuthenticatedTeamScope? = nil
     ) async throws -> Ready {
         try Task.checkCancellation()
-        if allowWhenCloudDisabled {
+        if allowWhenCloudDisabled, activeTeamScope != expectedTeamScope {
             // Activation is the account-fenced handoff from a disabled local
             // marker. Drop any stale carrier before enrolling with the scope
             // captured by this attempt; a running hub cannot be assumed to
@@ -288,6 +291,7 @@ public actor CloudWireGuardHub {
         leases.removeAll()
         prewarmLease = nil
         pinnedByExternalClient = false
+        activeTeamScope = nil
         if case .starting(_, let task) = state { task.cancel() }
         state = .stopped
         processID = nil
@@ -493,6 +497,7 @@ public actor CloudWireGuardHub {
             pendingStartupExit = nil
             throw HubError.exitedDuringStart(status: process.exitStatus ?? -1, output: process.outputTail)
         }
+        activeTeamScope = expectedTeamScope
         lastError = nil
         return Ready(socketPath: socketPath, routes: enrollment.routes)
     }

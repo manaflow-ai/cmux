@@ -19,34 +19,32 @@ struct CloudMachinesEnablementView: View {
     private static let actionMaxWidth: CGFloat = 240
 
     var body: some View {
-        GeometryReader { proxy in
-            ScrollView {
-                VStack(spacing: 18) {
-                    hero
-                    VStack(spacing: 6) {
-                        Text(title)
-                            .cmuxFont(size: 15, weight: .semibold)
-                            .multilineTextAlignment(.center)
-                            .accessibilityAddTraits(.isHeader)
-                        Text(subtitle)
-                            .cmuxFont(size: 12)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    if showsBenefits {
-                        CloudMachinesEnablementBenefits()
-                    }
-                    VStack(spacing: 8) {
-                        actionContent
-                    }
-                    .frame(maxWidth: Self.actionMaxWidth)
+        ScrollView {
+            VStack(spacing: 18) {
+                hero
+                VStack(spacing: 6) {
+                    Text(title)
+                        .cmuxFont(size: 15, weight: .semibold)
+                        .multilineTextAlignment(.center)
+                        .accessibilityAddTraits(.isHeader)
+                    Text(subtitle)
+                        .cmuxFont(size: 12)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .frame(maxWidth: Self.contentMaxWidth)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 28)
-                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
+                .fixedSize(horizontal: false, vertical: true)
+                if showsBenefits {
+                    CloudMachinesEnablementBenefits()
+                }
+                VStack(spacing: 8) {
+                    actionContent
+                }
+                .frame(maxWidth: Self.actionMaxWidth)
             }
+            .frame(maxWidth: Self.contentMaxWidth)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 28)
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: chromeBackgroundColor))

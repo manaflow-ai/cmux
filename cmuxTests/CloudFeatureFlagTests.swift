@@ -210,7 +210,8 @@ struct CloudFeatureFlagTests {
         _ = await iterator.next()
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         release?.resume()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .enabled)
         #expect(prepareCalls == 1)
         #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
@@ -238,13 +239,15 @@ struct CloudFeatureFlagTests {
         )
 
         coordinator.enable()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .failed(.serviceUnavailable))
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         #expect(cleanupCalls == 1)
 
         coordinator.retry()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .enabled)
         #expect(prepareCalls == 2)
     }
@@ -273,7 +276,8 @@ struct CloudFeatureFlagTests {
         _ = await iterator.next()
         coordinator.cancel()
         release?.resume()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .cancelled)
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         #expect(prepareCalls == 1)

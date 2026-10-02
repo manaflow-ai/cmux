@@ -62,7 +62,8 @@ struct CloudActivationCoordinatorTests {
         _ = await iterator.next()
         available = false
         release?.resume()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .unavailable)
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
     }
@@ -82,9 +83,30 @@ struct CloudActivationCoordinatorTests {
         )
 
         coordinator.enable()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .failed(.serviceUnavailable))
         coordinator.reconcile()
+        #expect(coordinator.state == .failed(.serviceUnavailable))
+        #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
+    }
+
+    @Test("Preparation cancellation reports a service failure")
+    func preparationCancellationReportsServiceFailure() async throws {
+        let suite = "cmux.cloud.activation.cancellationFailure.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let coordinator = CloudActivationCoordinator(
+            defaults: defaults,
+            notificationCenter: NotificationCenter(),
+            isAvailable: { true },
+            prepare: { throw CancellationError() }
+        )
+
+        coordinator.enable()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
+
         #expect(coordinator.state == .failed(.serviceUnavailable))
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
     }
@@ -133,7 +155,8 @@ struct CloudActivationCoordinatorTests {
         _ = await secondIterator.next()
         #expect(prepareCalls == 2)
         secondRelease?.resume()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .enabled)
         #expect(defaults.bool(forKey: CloudActivationCoordinator.activationKey))
     }
@@ -189,7 +212,8 @@ struct CloudActivationCoordinatorTests {
         var startedIterator = started.stream.makeAsyncIterator()
         _ = await startedIterator.next()
         release?.resume()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(await updates.next() == .enabled)
     }
 
@@ -209,7 +233,8 @@ struct CloudActivationCoordinatorTests {
         )
 
         coordinator.disable()
-        await coordinator.waitForActivation()
+        await coordinator.activationTask?.value
+        await coordinator.cleanupTask?.value
         #expect(coordinator.state == .disabled)
         #expect(!defaults.bool(forKey: CloudActivationCoordinator.activationKey))
         #expect(cleanupCalls == 1)
