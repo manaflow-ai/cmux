@@ -73,6 +73,22 @@ import Testing
 
 @MainActor
 @Suite struct ApplierTests {
+    /// The per-kind new-tab chords (#16620) are the user's from the start:
+    /// cmux.json rebinds or unbinds each one like any other action.
+    @Test func eachKindsNewTabChordIsTheUsers() throws {
+        let registry = ActionRegistry.standard()
+        let applier = SettingsApplier(design: DesignSettings(), registry: registry)
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.command, .shift]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == Shortcut("t", modifiers: [.control, .shift, .command]))
+        let root = try JSONC.parse("""
+        {"shortcuts": {"bindings": {"palette.newAgentChat": "ctrl+cmd+i", "newSurface": null, "openBrowser": "ctrl+cmd+b"}}}
+        """)
+        _ = applier.apply(CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities, validMetrics: SettingsApplier.validMetrics))
+        #expect(registry.effectiveShortcut(for: "palette.newAgentChat") == Shortcut("i", modifiers: [.control, .command]))
+        #expect(registry.effectiveShortcut(for: "newSurface") == nil)
+        #expect(registry.effectiveShortcut(for: "openBrowser") == Shortcut("b", modifiers: [.control, .command]))
+    }
+
     @Test func appliesAndRevertsFileSettings() throws {
         let design = DesignSettings()
         let registry = ActionRegistry.standard()
