@@ -8,7 +8,10 @@ import CmuxConversationMacUI
 let arguments = CommandLine.arguments
 let endpoint = URL(string: arguments.count > 1 ? arguments[1] : "ws://127.0.0.1:4870/ws?conversation=group")!
 let app = NSApplication.shared
-app.setActivationPolicy(.regular)
+// Driven runs (a control FIFO) never activate: they must not take focus
+// from whatever the person at the Mac is doing.
+let driven = arguments.count > 3
+app.setActivationPolicy(driven ? .prohibited : .regular)
 if arguments.count > 2 {
     app.appearance = NSAppearance(named: arguments[2] == "light" ? .aqua : .darkAqua)
 }
