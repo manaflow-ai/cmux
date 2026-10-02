@@ -58,6 +58,12 @@ public struct CmuxCLIArgumentParser: Sendable {
     public init() {}
 
     /// Returns the auth subcommand when its fixed-arity arguments are valid.
+    ///
+    /// Other subcommands and variable-arity team operations remain available
+    /// for the command dispatcher to validate.
+    /// - Parameter authArgs: Arguments following `auth`, including its subcommand.
+    /// - Returns: The lowercase subcommand, `status` when absent, or `nil`
+    ///   when a fixed-arity operation has trailing arguments.
     public func parseAuthSubcommand(_ authArgs: [String]) -> String? {
         let subcommand = authArgs.first?.lowercased() ?? "status"
         switch subcommand {
