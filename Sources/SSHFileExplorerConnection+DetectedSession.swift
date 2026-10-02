@@ -36,21 +36,26 @@ struct SSHFileExplorerConnection: Equatable, Sendable {
 
 extension SSHFileExplorerProvider {
     nonisolated var remoteIdentity: String {
-        [
-            "ssh:\(connection.destination)",
-            connection.port.map(String.init) ?? "",
-            connection.identityFile ?? "",
-            connection.configFile ?? "",
-            connection.useIPv4 ? "4" : "",
-            connection.useIPv6 ? "6" : "",
-            connection.forwardAgent ? "A" : "",
-            connection.compressionEnabled ? "C" : "",
-            connection.sshOptions.joined(separator: "\u{1f}")
-        ].joined(separator: "|")
+        "ssh:" + connection.identityComponents.joined(separator: "|")
     }
 }
 
 extension SSHFileExplorerConnection {
+    /// Components that identify the remote SSH transport and its options.
+    var identityComponents: [String] {
+        [
+            destination,
+            port.map(String.init) ?? "",
+            identityFile ?? "",
+            configFile ?? "",
+            useIPv4 ? "4" : "",
+            useIPv6 ? "6" : "",
+            forwardAgent ? "A" : "",
+            compressionEnabled ? "C" : "",
+            sshOptions.joined(separator: "\u{1f}")
+        ]
+    }
+
     /// Creates the Files transport identity from an interactive SSH process.
     ///
     /// The parsed command-line options stay attached to the connection so

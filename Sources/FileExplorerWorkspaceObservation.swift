@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// One cancellable observation of the current workspace's Files authority.
@@ -17,13 +16,15 @@ final class FileExplorerWorkspaceObservation {
     private var catalogObserver: NSObjectProtocol?
     private var directoryObserver: NSObjectProtocol?
     private var focusObserver: NSObjectProtocol?
-    private var workspaceCancellables: Set<AnyCancellable> = []
+    private var titleObserver: NSObjectProtocol?
+    private var shellActivityObserver: NSObjectProtocol?
+    private var remotePresentationObserver: NSObjectProtocol?
     private var bindingChangesTask: Task<Void, Never>?
     private var sshObservationTask: Task<Void, Never>?
     private var sshMonitorUpdateTask: Task<Void, Never>?
     private var detectionContext: DetectionContext?
     private var detectedSSHSession: DetectedSSHSession?
-    private var lastPanelTitles: [UUID: String] = [:]
+    private var lastSelectedStableTitle: String?
 
     private struct DetectionContext: Equatable {
         let workspaceId: UUID
@@ -41,7 +42,6 @@ final class FileExplorerWorkspaceObservation {
         self.resolver = resolver
         self.sshSessionMonitor = sshSessionMonitor
         self.apply = apply
-        self.lastPanelTitles = workspace.panelTitles
 
         sshObservationTask = Task { @MainActor [weak self, weak workspace] in
             let updates = await sshSessionMonitor.updates()
@@ -74,6 +74,38 @@ final class FileExplorerWorkspaceObservation {
                 self.refresh(force: true)
             }
         }
+        titleObserver = NotificationCenter.default.addObserver(
+            forName: .ghosttyDidSetTitle,
+            object: nil,
+            queue: .main
+        ) { [weak self, weak workspace] notification in
+            MainActor.assumeIsolated {
+                guard let self, let workspace,
+                      let change = GhosttyTitleChange(notification: notification),
+                      change.tabId == workspace.id,
+                      change.surfaceId == workspace.focusedPanelId,
+                      self.lastSelectedStableTitle != change.stableTitle else { return }
+                self.lastSelectedStableTitle = change.stableTitle
+                self.refresh(force: true)
+            }
+        }
+        shellActivityObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceShellActivityDidChange,
+            object: workspace,
+            queue: .main
+        ) { [weak self, weak workspace] _ in
+            MainActor.assumeIsolated {
+                guard let self, let workspace else { return }
+                self.refresh(force: true)
+            }
+        }
+        remotePresentationObserver = NotificationCenter.default.addObserver(
+            forName: .workspaceRemoteConnectionPresentationDidChange,
+            object: workspace,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh() }
+        }
         catalogObserver = NotificationCenter.default.addObserver(
             forName: SurfaceCatalog.didChangeNotification,
             object: nil,
@@ -88,48 +120,6 @@ final class FileExplorerWorkspaceObservation {
             }
         }
 
-        workspace.$panelTitles
-            .sink { [weak self, weak workspace] titles in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                let panelId = workspace.focusedPanelId
-                let selectedTitleChanged = panelId.map {
-                    self.lastPanelTitles[$0] != titles[$0]
-                } ?? false
-                self.lastPanelTitles = titles
-                self.refresh(force: selectedTitleChanged)
-            }
-            .store(in: &workspaceCancellables)
-        workspace.$panelDirectories
-            .sink { [weak self, weak workspace] _ in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                self.refresh()
-            }
-            .store(in: &workspaceCancellables)
-        workspace.$remoteConfiguration
-            .sink { [weak self, weak workspace] _ in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                self.refresh()
-            }
-            .store(in: &workspaceCancellables)
-        workspace.$remoteConnectionState
-            .sink { [weak self, weak workspace] _ in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                self.refresh()
-            }
-            .store(in: &workspaceCancellables)
-        workspace.$remoteConnectionDetail
-            .sink { [weak self, weak workspace] _ in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                self.refresh()
-            }
-            .store(in: &workspaceCancellables)
-        workspace.$remoteDaemonStatus
-            .sink { [weak self, weak workspace] _ in
-                guard let self, let workspace, self.workspace === workspace else { return }
-                self.refresh()
-            }
-            .store(in: &workspaceCancellables)
-
         bindingChangesTask = Task { @MainActor [weak self, weak workspace] in
             guard let workspace else { return }
             for await _ in workspace.cloudBindingState.changes() {
@@ -142,11 +132,9 @@ final class FileExplorerWorkspaceObservation {
     func refresh(force: Bool = false) {
         guard let workspace else { return }
         updateSSHDetection(for: workspace, force: force)
-        let remoteCwd = detectedSSHSession.flatMap { _ in
-            workspace.focusedPanelId
-                .flatMap { workspace.panelTitles[$0] }
-                .flatMap(TerminalSSHSessionDetector.remoteWorkingDirectory(fromTitle:))
-        }
+        let remoteCwd = detectedSSHSession == nil
+            ? nil
+            : workspace.fileExplorerSelectedTerminalContext?.remoteWorkingDirectory
         let root = resolver.resolve(
             workspace,
             detectedSSHSession: detectedSSHSession,
@@ -174,24 +162,29 @@ final class FileExplorerWorkspaceObservation {
             NotificationCenter.default.removeObserver(focusObserver)
             self.focusObserver = nil
         }
+        if let titleObserver {
+            NotificationCenter.default.removeObserver(titleObserver)
+            self.titleObserver = nil
+        }
+        if let shellActivityObserver {
+            NotificationCenter.default.removeObserver(shellActivityObserver)
+            self.shellActivityObserver = nil
+        }
+        if let remotePresentationObserver {
+            NotificationCenter.default.removeObserver(remotePresentationObserver)
+            self.remotePresentationObserver = nil
+        }
         if let catalogObserver {
             NotificationCenter.default.removeObserver(catalogObserver)
             self.catalogObserver = nil
         }
-        workspaceCancellables.removeAll()
         detectionContext = nil
         detectedSSHSession = nil
         workspace = nil
     }
 
     private func updateSSHDetection(for workspace: Workspace, force: Bool) {
-        guard !workspace.usesRemoteDirectoryProvenance,
-              let panelId = workspace.focusedPanelId,
-              let terminalPanel = workspace.terminalPanel(for: panelId),
-              workspace.hasCurrentRuntimeReportedTTY(panelId: panelId, terminal: terminalPanel),
-              let ttyName = workspace.surfaceTTYNames[panelId]
-                .map({ TerminalSSHSessionDetector.normalizeTTYName($0) }),
-              !ttyName.isEmpty else {
+        guard let selectedContext = workspace.fileExplorerSelectedTerminalContext else {
             guard detectionContext != nil || detectedSSHSession != nil else { return }
             detectionContext = nil
             detectedSSHSession = nil
@@ -207,10 +200,17 @@ final class FileExplorerWorkspaceObservation {
             return
         }
 
-        let nextContext = DetectionContext(workspaceId: workspace.id, panelId: panelId, ttyName: ttyName)
-        guard force || detectionContext != nextContext else { return }
+        let nextContext = DetectionContext(
+            workspaceId: selectedContext.workspaceId,
+            panelId: selectedContext.panelId,
+            ttyName: selectedContext.ttyName
+        )
+        let contextChanged = detectionContext != nextContext
+        guard force || contextChanged else { return }
         detectionContext = nextContext
-        detectedSSHSession = nil
+        if contextChanged {
+            detectedSSHSession = nil
+        }
         sshMonitorUpdateTask?.cancel()
         sshMonitorUpdateTask = Task { [sshSessionMonitor] in
             await sshSessionMonitor.update(
@@ -228,8 +228,9 @@ final class FileExplorerWorkspaceObservation {
         for workspace: Workspace
     ) {
         guard let snapshot else {
+            guard detectionContext == nil else { return }
             detectedSSHSession = nil
-            refresh(force: true)
+            refresh()
             return
         }
         guard snapshot.workspaceId == workspace.id,
@@ -240,7 +241,7 @@ final class FileExplorerWorkspaceObservation {
                   ttyName: snapshot.ttyName
               ) else { return }
         detectedSSHSession = snapshot.session
-        refresh(force: true)
+        refresh()
     }
 
     deinit {
@@ -249,6 +250,9 @@ final class FileExplorerWorkspaceObservation {
         sshMonitorUpdateTask?.cancel()
         if let directoryObserver { NotificationCenter.default.removeObserver(directoryObserver) }
         if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
+        if let titleObserver { NotificationCenter.default.removeObserver(titleObserver) }
+        if let shellActivityObserver { NotificationCenter.default.removeObserver(shellActivityObserver) }
+        if let remotePresentationObserver { NotificationCenter.default.removeObserver(remotePresentationObserver) }
         if let catalogObserver { NotificationCenter.default.removeObserver(catalogObserver) }
     }
 }

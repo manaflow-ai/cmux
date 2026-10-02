@@ -160,6 +160,7 @@ extension FileExplorerStore {
         let resolutionKey = [
             workspaceId.uuidString,
             providerKey,
+            requestedRootPath ?? "",
         ].joined(separator: "\u{1e}")
 
         guard remoteHomeResolutionKey != resolutionKey else { return }
@@ -244,17 +245,7 @@ extension FileExplorerStore {
     }
 
     private static func remoteProviderKey(connection: SSHFileExplorerConnection) -> String {
-        [
-            connection.destination,
-            connection.port.map(String.init) ?? "",
-            connection.identityFile ?? "",
-            connection.configFile ?? "",
-            connection.useIPv4 ? "4" : "",
-            connection.useIPv6 ? "6" : "",
-            connection.forwardAgent ? "A" : "",
-            connection.compressionEnabled ? "C" : "",
-            connection.sshOptions.joined(separator: "\u{1f}")
-        ].joined(separator: "\u{1e}")
+        connection.identityComponents.joined(separator: "\u{1e}")
     }
 
 }
