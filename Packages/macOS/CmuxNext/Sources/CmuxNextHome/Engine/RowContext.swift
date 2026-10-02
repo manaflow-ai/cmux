@@ -21,6 +21,7 @@ struct RowStrings {
     var delivered: String
     var today: String
     var yesterday: String
+    var workStatus: (HomeWorkStatus) -> String = { $0.rawValue }
     private let time: DateFormatter
     private let day: DateFormatter
     private let dayYear: DateFormatter
@@ -47,9 +48,15 @@ struct RowStrings {
     }
 
     static func localized() -> RowStrings {
-        RowStrings(retracted: HomeStrings.retracted, sending: HomeStrings.sending, notDelivered: HomeStrings.notDelivered,
-                   read: HomeStrings.read, delivered: HomeStrings.delivered, today: HomeStrings.today,
-                   yesterday: HomeStrings.yesterday)
+        var strings = RowStrings(retracted: HomeStrings.retracted, sending: HomeStrings.sending,
+                                 notDelivered: HomeStrings.notDelivered, read: HomeStrings.read,
+                                 delivered: HomeStrings.delivered, today: HomeStrings.today,
+                                 yesterday: HomeStrings.yesterday)
+        let labels = Dictionary(uniqueKeysWithValues: [HomeWorkStatus.running, .done, .failed, .waiting].map {
+            ($0, HomeStrings.workStatus($0))
+        })
+        strings.workStatus = { labels[$0] ?? $0.rawValue }
+        return strings
     }
 
     func timeString(_ date: Date) -> String { time.string(from: date) }

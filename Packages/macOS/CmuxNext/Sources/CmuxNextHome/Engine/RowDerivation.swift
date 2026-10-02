@@ -83,7 +83,10 @@ enum RowDerivation {
             case .text(let text, let mentions):
                 .bubble(outgoing: outgoing, text: text, mentions: mentions, tail: tail, reactions: reactions, failed: failed)
             case .work(let session, let status, let preview):
-                .work(outgoing: outgoing, session: session, status: status, preview: preview, tail: tail)
+                .work(outgoing: outgoing, session: session, status: status, statusText: c.strings.workStatus(status),
+                      preview: preview, tail: tail)
+            case .fallback(let text):
+                .fallback(outgoing: outgoing, text: text, tail: tail)
             }
             var row = TranscriptRow(key: "\(key)#\(partIndex)", kind: kind, messageKey: key,
                                     gapBefore: partIndex == 0 ? gap : g.groupGap, height: size.height,

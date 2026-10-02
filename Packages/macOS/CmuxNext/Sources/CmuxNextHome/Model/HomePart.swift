@@ -23,12 +23,16 @@ public nonisolated enum HomePart: Hashable, Sendable {
     case text(String, mentions: [HomeMention] = [])
     /// An agent session's work: the session name, its status and a one-line preview.
     case work(session: String, status: HomeWorkStatus, preview: String?)
+    /// A part this renderer does not draw (attachment, link, poll): a one-line
+    /// description shown in a muted bubble (MessagesLab MODEL.md fallback row).
+    case fallback(String)
 
     /// Plain text for previews and copy.
     public var plainText: String {
         switch self {
         case .text(let text, _): text
         case .work(let session, _, let preview): preview.map { "\(session): \($0)" } ?? session
+        case .fallback(let text): text
         }
     }
 }

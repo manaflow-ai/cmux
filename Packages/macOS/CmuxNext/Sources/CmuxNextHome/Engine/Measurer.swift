@@ -93,6 +93,8 @@ nonisolated final class Measurer: Sendable {
                                           maxWidth: g.maxTextWidth)
             let height = t.height + 2 * g.insetY
             return CGSize(width: max(height, min(g.maxBubbleWidth, t.width + 2 * g.insetX)), height: height)
+        case .fallback(let text):
+            return measure(.text(text), geometry: g)
         case .work:
             return CGSize(width: g.workCardWidth, height: g.workCardHeight)
         }
@@ -100,7 +102,11 @@ nonisolated final class Measurer: Sendable {
 
     /// A size from character counts; replaced by the measurement before the row is seen.
     static func estimate(_ part: HomePart, geometry g: TranscriptGeometry) -> CGSize {
-        guard case .text(let text, _) = part else { return measure(part, geometry: g) }
+        let text: String
+        switch part {
+        case .text(let value, _), .fallback(let value): text = value
+        case .work: return measure(part, geometry: g)
+        }
         let charWidth = g.fontSize * 0.52
         var lines = 0
         var widest: CGFloat = 0
