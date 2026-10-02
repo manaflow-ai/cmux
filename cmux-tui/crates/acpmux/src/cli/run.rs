@@ -681,7 +681,9 @@ pub(crate) async fn run_client(cmd: Command, json_out: bool, suppress_reads: boo
                         .to_owned();
                     let local = match &dest {
                         Some(d) => d.join(&file),
-                        None => crate::config::home().join("bundles").join(format!("{peer}-{file}")),
+                        None => {
+                            crate::config::home().join("bundles").join(format!("{peer}-{file}"))
+                        }
                     };
                     std::fs::create_dir_all(local.parent().unwrap())?;
                     let status = std::process::Command::new("scp")

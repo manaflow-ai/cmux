@@ -26,12 +26,22 @@ pub enum Direction {
 /// Something the agent sent that acpmux must act on.
 #[derive(Debug)]
 pub enum Inbound {
-    Request { id: Id, method: String, params: Option<Value> },
-    Notification { method: String, params: Option<Value> },
+    Request {
+        id: Id,
+        method: String,
+        params: Option<Value>,
+    },
+    Notification {
+        method: String,
+        params: Option<Value>,
+    },
     Stderr(String),
     /// The agent process with this pid exited. The pid tells a late exit of
     /// a replaced process apart from the current one.
-    Exited { pid: Option<u32>, code: Option<i32> },
+    Exited {
+        pid: Option<u32>,
+        code: Option<i32>,
+    },
 }
 
 pub type Tap = Arc<dyn Fn(Direction, &Message) + Send + Sync>;

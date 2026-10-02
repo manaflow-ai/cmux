@@ -169,7 +169,8 @@ mod tests {
 
     #[test]
     fn a_top_level_choice_wins_too() {
-        let line = r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"harness":"codex"}}"#;
+        let line =
+            r#"{"jsonrpc":"2.0","id":1,"method":"session/new","params":{"harness":"codex"}}"#;
         let out: Value = serde_json::from_str(&apply_defaults(line, &claude())).unwrap();
         assert_eq!(out["params"]["_meta"]["acpmux"], json!({"policy":"approve-edits"}));
         assert_eq!(out["params"]["harness"], "codex");

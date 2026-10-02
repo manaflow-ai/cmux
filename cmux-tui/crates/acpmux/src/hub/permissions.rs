@@ -130,8 +130,7 @@ impl Hub {
         // the client. Writes go through the permission policy like any edit
         // tool; reads are refused only by deny-all or a deny rule.
         if m == "fs/write_text_file" {
-            let result =
-                self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch).await;
+            let result = self.handle_fs_write(&session, params.unwrap_or(Value::Null), epoch).await;
             let _ = child.respond(id, result).await;
             return;
         }

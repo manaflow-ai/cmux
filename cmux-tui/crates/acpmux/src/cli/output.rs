@@ -787,12 +787,8 @@ mod prompt_tests {
 
     #[test]
     fn duplicate_reply_comes_from_its_own_turn() {
-        let chunk = |seq: u64, text: &str| {
-            json!({"seq": seq, "dir": "in", "kind": "session/update", "msg": {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}})
-        };
-        let mux = |seq: u64, kind: &str, turn: &str| {
-            json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": turn}})
-        };
+        let chunk = |seq: u64, text: &str| json!({"seq": seq, "dir": "in", "kind": "session/update", "msg": {"method": "session/update", "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}}}});
+        let mux = |seq: u64, kind: &str, turn: &str| json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": turn}});
         let events = vec![
             mux(1, "turn_started", "t1"),
             chunk(2, "one"),
