@@ -72,7 +72,36 @@ struct WindowBlurRadiusTests {
     @Test(arguments: [(0.85, -1), (1.0, -2), (1.0, 0), (1.0, 20)])
     func glassAndOpaqueNeverApplyABlur(opacity: Double, blur: Int) {
         let (_, window, room, log) = makeWindow(Self.mocha(opacity: opacity, blur: blur))
+        #expect(!log.radii.isEmpty, "the radius is set to 0, not left as it was")
         #expect(log.radii.allSatisfy { $0 == 0 })
+        window.close()
+        withExtendedLifetime(room) {}
+    }
+
+    /// Glass or opaque, then frosted: the window takes the frosted radius.
+    @Test(arguments: [(0.85, -1, "regular glass"), (0.85, -2, "clear glass"), (1.0, 0, "opaque")])
+    func enteringFrostedAppliesItsRadius(opacity: Double, blur: Int, name: String) {
+        let (root, window, room, log) = makeWindow(Self.mocha(opacity: opacity, blur: blur))
+        #expect(root.backdrop.material != .frosted, "\(name)")
+        #expect(log.radii.last == 0, "\(name)")
+        room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: Self.mocha(opacity: 0.85, blur: 20), animated: false)
+        root.themeDidChange()
+        #expect(root.backdrop.material == .frosted)
+        #expect(log.radii.last == 20, "\(name) to frosted keeps the old radius")
+        window.close()
+        withExtendedLifetime(room) {}
+    }
+
+    /// A frosted theme whose radius changes moves the window to the new
+    /// radius, not the old one.
+    @Test(arguments: [(20, 8), (8, 20), (20, 1)])
+    func changingTheFrostedRadiusMovesTheWindow(from: Int, to: Int) {
+        let (root, window, room, log) = makeWindow(Self.mocha(opacity: 0.85, blur: from))
+        #expect(log.radii.last == from)
+        room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: Self.mocha(opacity: 0.85, blur: to), animated: false)
+        root.themeDidChange()
+        #expect(root.backdrop.material == .frosted)
+        #expect(log.radii.last == to)
         window.close()
         withExtendedLifetime(room) {}
     }
