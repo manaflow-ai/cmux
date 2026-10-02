@@ -14553,7 +14553,7 @@ mod tests {
     };
     use ghostty_vt::{Callbacks, RenderState, Terminal};
     use std::sync::mpsc::TryRecvError;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
 
@@ -14572,6 +14572,25 @@ mod tests {
         let mut oversized_line = oversized_payload;
         oversized_line.push('\n');
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tcp_peer_closed_probe_reports_disconnect_without_consuming_input() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        assert!(!tcp_peer_closed(&server));
+
+        client.shutdown(Shutdown::Both).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if tcp_peer_closed(&server) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        panic!("TCP peer disconnect was not observed");
     }
 
     struct TestSocketDir(PathBuf);
