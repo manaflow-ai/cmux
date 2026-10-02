@@ -543,6 +543,7 @@ class WorkflowTests(unittest.TestCase):
             with self.subTest(job=name):
                 self.assertNotIn("write", str((job.get("permissions") or {}).get("actions")))
         job = document["jobs"]["ui-tests"]
+        self.assertIn("vars.CI_UI_TESTS_ENABLED == '1'", job["if"])
         self.assertEqual(job["permissions"], {"contents": "read", "actions": "read"})
         steps = job["steps"]
         self.assertEqual(steps[0]["if"], "github.event.pull_request.head.repo.full_name != github.repository")
@@ -562,6 +563,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(set(on["workflow_dispatch"]["inputs"]), {"run_id", "run_attempt"})
         self.assertEqual(document["permissions"], {})
         job = document["jobs"]["dispatch"]
+        self.assertIn("vars.CI_UI_TESTS_ENABLED == '1'", job["if"])
         self.assertEqual(job["name"], ui.DISPATCH_JOB_NAME)
         self.assertEqual(job["permissions"]["actions"], "write")
         steps = job["steps"]

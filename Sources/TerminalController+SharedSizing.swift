@@ -1,5 +1,6 @@
 import AppKit
 import Bonsplit
+import CmuxCloud
 import CmuxTerminal
 import CmuxTerminalSharing
 import CmuxTerminalSizing
@@ -24,9 +25,13 @@ extension TerminalController {
         return TerminalSharingIdentity(
             userID: user?.id,
             displayName: user?.displayName,
-            deviceName: Self.localComputerName
+            deviceName: Self.localComputerName,
+            deviceID: Self.localSizingDeviceID
         )
     }
+
+    /// This Mac's sizing `device_id`, derived once from its host identity.
+    static let localSizingDeviceID = TerminalSharingIdentity.sizingDeviceID(installID: MobileHostIdentity.deviceID())
 
     // MARK: - Engine resolution
 
@@ -105,6 +110,7 @@ extension TerminalController {
                 displayName: identity.displayName,
                 deviceKind: report.deviceKind,
                 deviceName: report.deviceName,
+                deviceID: report.deviceID,
                 viewport: TerminalGridSize(cols: report.columns, rows: report.rows)
             )
         }
@@ -189,8 +195,11 @@ extension TerminalController {
         guard var host = localSizingHostsBySurfaceID[surfaceID],
               let viewport = localSizingControllersBySurfaceID[surfaceID]?.naturalViewport() else { return }
         let previous = host.state
-        guard host.updateMacViewport(viewport) else { return }
+        // Store even when nothing published: a detached Mac view remembers
+        // its pane grid for the reattach.
+        let changed = host.updateMacViewport(viewport)
         localSizingHostsBySurfaceID[surfaceID] = host
+        guard changed else { return }
         applyLocalSizing(surfaceID: surfaceID, previous: previous, reason: "mac.viewport")
     }
 
@@ -251,6 +260,8 @@ extension TerminalController {
         let snapshot = terminalSharing.snapshot(for: surfaceID)
         if snapshot == nil { terminalSizePanelPresenter.close(surfaceID: surfaceID) }
         if let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID) {
+            // A detached view stops sending keyboard input until it reattaches.
+            surface.sharingViewDetached = snapshot?.detachment != nil
             surface.hostedView.setTerminalSharingSnapshot(
                 snapshot,
                 surface: surface,
@@ -318,7 +329,12 @@ extension TerminalController {
             return
         }
         terminalSharing.publish(
-            TerminalSharingSnapshot(state: host.state, selfParticipantID: host.macParticipantID, isCloud: false),
+            TerminalSharingSnapshot(
+                state: host.state,
+                selfParticipantID: host.macParticipantID,
+                detachment: host.macDetachment,
+                isCloud: false
+            ),
             surfaceID: surfaceID
         )
         emitMobileSizeState(surfaceID: surfaceID, state: host.state) { clientIDs in
@@ -447,9 +463,14 @@ extension TerminalController {
         return true
     }
 
+    /// Disconnects a phone, a viewing Mac, or (when another participant asks)
+    /// this Mac pane's own view. The pane's view detach keeps the PTY and
+    /// every other viewer; the pane shows the Detached card until Reattach.
     func localSizingDisconnect(surfaceID: UUID, participantID: String, by actor: TerminalDetachActor?) -> Bool {
         let prefix = LocalTerminalSizingHost.phoneParticipantID(clientID: "")
-        guard var host = localSizingHostsBySurfaceID[surfaceID], participantID.hasPrefix(prefix) else { return false }
+        guard var host = localSizingHostsBySurfaceID[surfaceID] else { return false }
+        let isMacView = participantID == host.macParticipantID
+        guard isMacView || participantID.hasPrefix(prefix) else { return false }
         let detachment = TerminalSharingDetachment(
             reason: .disconnectedBy(actor ?? localSizingIdentity().detachActor),
             at: Date()
@@ -457,6 +478,10 @@ extension TerminalController {
         let previous = host.state
         guard host.disconnect(participantID, detachment: detachment) else { return false }
         localSizingHostsBySurfaceID[surfaceID] = host
+        if isMacView {
+            applyLocalSizing(surfaceID: surfaceID, previous: previous, immediate: true, reason: "terminal.participant.disconnect.mac")
+            return true
+        }
         let clientID = String(participantID.dropFirst(prefix.count))
         emitMobileDetached(surfaceID: surfaceID, clientID: clientID, detachment: detachment)
         // Drop the phone's report so it no longer pins anything; the host
@@ -468,6 +493,19 @@ extension TerminalController {
 
     func localSizingNoteSelfActivity(surfaceID: UUID) {
         noteLocalTerminalSizingActivity(surfaceID: surfaceID)
+    }
+
+    /// Reattaches this Mac pane's view after someone disconnected it.
+    func localSizingReattachMac(surfaceID: UUID, asViewer: Bool) -> Bool {
+        guard var host = localSizingHostsBySurfaceID[surfaceID] else { return false }
+        if let viewport = localSizingControllersBySurfaceID[surfaceID]?.naturalViewport() {
+            host.updateMacViewport(viewport)
+        }
+        let previous = host.state
+        guard host.reattach(host.macParticipantID, asViewer: asViewer) else { return false }
+        localSizingHostsBySurfaceID[surfaceID] = host
+        applyLocalSizing(surfaceID: surfaceID, previous: previous, immediate: true, reason: "terminal.participant.reattach.mac")
+        return true
     }
 
     // MARK: - Cloud relay registration
