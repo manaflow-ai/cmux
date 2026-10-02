@@ -1441,7 +1441,7 @@ elif [[ -x "$PWD/scripts/cmux-next/build-acpmux.sh" && -f "$PWD/scripts/cmux-nex
   if acpmux_cached="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path 2>/dev/null)"; then
     export CMUX_NEXT_ACPMUX_BIN="$acpmux_cached"
     echo "==> cmux-next: bundling cached acpmux from $CMUX_NEXT_ACPMUX_BIN"
-  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" ]]; then
+  elif [[ "${GITHUB_ACTIONS:-false}" == "true" || "${CI:-}" == "true" || -n "${CMUX_FLEET_BUILD_TAG:-}" ]]; then
     "$PWD/scripts/cmux-next/build-acpmux.sh"
     export CMUX_NEXT_ACPMUX_BIN="$("$PWD/scripts/cmux-next/build-acpmux.sh" --cached-only --print-path)"
     echo "==> cmux-next: bundling fleet-built acpmux from $CMUX_NEXT_ACPMUX_BIN"

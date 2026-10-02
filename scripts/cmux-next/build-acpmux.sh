@@ -104,7 +104,7 @@ if [[ "$cached_only" -eq 1 ]]; then
 fi
 
 if [[ "$source_mode" == pinned ]]; then
-  [[ -n "${CI:-}${GITHUB_ACTIONS:-}" ]] || {
+  [[ -n "${CI:-}${GITHUB_ACTIONS:-}${CMUX_FLEET_BUILD_TAG:-}" ]] || {
     echo "error: acpmux is not cached; build it on CI/fleet and set CMUX_NEXT_ACPMUX_BIN (or run this script there)" >&2
     exit 1
   }
