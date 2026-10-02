@@ -30,6 +30,7 @@ export interface SessionSummary {
   lastSeq?: number;
   turnCount?: number;
   preview: string | null;
+  lastPrompt?: string | null;
   tags: Record<string, string>;
 }
 
