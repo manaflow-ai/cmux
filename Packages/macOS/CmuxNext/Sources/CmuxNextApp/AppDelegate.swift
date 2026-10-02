@@ -142,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.tabBarButtons.start(settings: settings)
+        services.globalHotKeys.start()
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
         services.startHibernation(settings: settings)
@@ -225,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.ssh.stop()
         control.stop()
         services?.tabBarButtons.stop()
+        services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
         services?.daemon.shutdownConnection()

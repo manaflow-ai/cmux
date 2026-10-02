@@ -69,6 +69,10 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// control socket refuses it whatever origin the caller claims, so no
     /// script or agent can start it (Import Passwords from CSV).
     public var isPersonOnly: Bool = false
+    /// Registered system-wide (a Carbon hot key) with its effective
+    /// shortcut, so it runs while another app is frontmost. The App's
+    /// `GlobalHotKeyService` owns registration and follows rebinds.
+    public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
 

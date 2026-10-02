@@ -93,6 +93,8 @@ final class AppServices {
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
     private(set) var tabBarButtons: TabBarButtonsController!
+    /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
+    private(set) lazy var globalHotKeys = GlobalHotKeyService(registry: registry)
     let terminalDelegate = TerminalHostDelegate()
     /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
     let notifications = NotificationCenterService()
