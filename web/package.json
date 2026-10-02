@@ -16,6 +16,7 @@
     "testflight:backfill-legacy-ownership": "bun scripts/stripe/backfill-pro-testflight-legacy-ownership.ts",
     "stripe:backfill-subscriptions": "bun scripts/stripe/backfill-subscriptions-from-stripe.ts",
     "billing:backfill-founders-lockout": "bun scripts/backfill-founders-lockout.ts",
+    "hexclave:backfill-mirror": "bun scripts/hexclave/backfill-mirror.ts",
     "cloud-vm:env:audit": "bun scripts/cloud-vm/audit-vercel-env.mjs",
     "cloud-vm:migrate": "bun scripts/cloud-vm/migrate-planetscale.mjs",
     "cloud-vm:cleanup-iroh": "bun scripts/cloud-vm/cleanup-iroh-challenges.ts",
@@ -107,6 +108,7 @@
     "turndown-plugin-gfm": "^1.0.2",
     "unique-names-generator": "4.7.1",
     "ws": "^8.20.0",
+    "yup": "1.7.1",
     "zod": "^4.3.6"
   },
   "devDependencies": {

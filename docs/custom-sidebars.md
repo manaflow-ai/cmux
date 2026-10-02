@@ -35,7 +35,7 @@ cmux sidebar open agents-board
 
 `cmux sidebar try` creates a temporary preview file and prints the command to open and remove it. `cmux sidebar new` accepts kebab-case names and will not replace an existing file unless you add `--force`. The template list includes the intended placement for each file: left sidebar, right panel, or both. The six bundled source files and manifest are mirrored from `Examples/CustomSidebars/`. The remaining examples stay there as authoring references, so you can copy or adapt them into your dotfiles.
 
-Preview cards ship with the app bundle. Regenerate them after changing the curated set with `python3 scripts/generate-sidebar-template-previews.py`.
+Preview cards ship with the app bundle.
 
 ### Curated gallery
 
@@ -183,7 +183,8 @@ Rules of the runtime:
   instead of trailing padding where accessories float over the content)
   `.marquee(delaySeconds?)` (text only: after the hover holds `delay` seconds,
   default 0.5, an overflowing title scrolls out and back; layout never
-  changes) `.onTap(fn)`. Any of them (except
+  changes) `.cursor("pointer")` (show a pointing-hand cursor while the view is
+  hovered) `.onTap(fn)`. Any of them (except
   handlers) accepts a function for a live binding. Colors are the same tokens
   as Swift sidebars (`accent`, `secondary`, `red`, `#RRGGBB[AA]`).
 - `ForEach({ items, key }, (item, key) => row)` reconciles by key: the row
