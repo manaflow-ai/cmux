@@ -23,7 +23,7 @@ def _violation(rule, path, text):
 
 
 class ConventionsDiffGate(unittest.TestCase):
-    def build(self, base_findings, head_findings):
+    def build(self, base_findings, head_findings, base_files=None, head_files=None):
         """A repo whose stub linter reports one set at base and another at HEAD."""
         tmp = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
@@ -42,18 +42,29 @@ class ConventionsDiffGate(unittest.TestCase):
         git("init", "-q")
         git("config", "user.email", "t@example.com")
         git("config", "user.name", "t")
+        def write_files(files):
+            for name, text in (files or {}).items():
+                path = tmp / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if text is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    path.write_text(text)
+
         write_stub(base_findings)
+        write_files(base_files)
         git("add", "-A")
         git("commit", "-qm", "base")
         base = subprocess.run(["git", "-C", str(tmp), "rev-parse", "HEAD"],
                               capture_output=True, text=True, check=True).stdout.strip()
         write_stub(head_findings)
+        write_files(head_files)
         git("add", "-A")
         git("commit", "-qm", "head", "--allow-empty")
         return tmp, base
 
-    def run_gate(self, base_findings, head_findings):
-        tmp, base = self.build(base_findings, head_findings)
+    def run_gate(self, base_findings, head_findings, base_files=None, head_files=None):
+        tmp, base = self.build(base_findings, head_findings, base_files, head_files)
         return subprocess.run([str(tmp / "scripts/ci/lint-ios-conventions-diff.sh"), base],
                               capture_output=True, text=True, cwd=str(tmp))
 
@@ -100,6 +111,32 @@ class ConventionsDiffGate(unittest.TestCase):
         result = subprocess.run([str(GATE)], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage", result.stderr)
+
+    RATCHET = "scripts/lint-namespace-types-ratchet.txt"
+
+    def test_an_entry_added_to_the_ratchet_fails(self):
+        """A ratchet entry hides its type on both sides, so growth needs its own check."""
+        result = self.run_gate([], [], {self.RATCHET: "# header\nA.swift:A\n"},
+                               {self.RATCHET: "# header\nA.swift:A\nB.swift:B\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("GREW", result.stdout)
+        self.assertIn("B.swift:B", result.stdout)
+
+    def test_the_ratchet_may_shrink(self):
+        result = self.run_gate([], [], {self.RATCHET: "A.swift:A\nB.swift:B\n"},
+                               {self.RATCHET: "A.swift:A\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("GREW", result.stdout)
+
+    def test_seeding_the_ratchet_is_not_growth(self):
+        result = self.run_gate([], [], None, {self.RATCHET: "A.swift:A\n"})
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_an_entry_added_to_the_namespace_baseline_fails(self):
+        baseline = "scripts/lint-namespace-types-baseline.txt"
+        result = self.run_gate([], [], {baseline: "A.swift:A\n"}, {baseline: "A.swift:A\nC.swift:C\n"})
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("C.swift:C", result.stdout)
 
 
 if __name__ == "__main__":
