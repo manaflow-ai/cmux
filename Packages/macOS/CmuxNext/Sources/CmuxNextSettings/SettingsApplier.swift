@@ -50,6 +50,7 @@ public final class SettingsApplier {
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.statusIndicator != snapshot.statusIndicator { design.statusIndicator = snapshot.statusIndicator }
+        if design.statusBehavior != snapshot.statusBehavior { design.statusBehavior = snapshot.statusBehavior }
         if design.titlebar != snapshot.titlebar { design.titlebar = snapshot.titlebar }
         if design.rail != snapshot.rail { design.rail = snapshot.rail }
         if design.borders != snapshot.borders { design.borders = snapshot.borders }

@@ -235,6 +235,7 @@ export class OwnerEngine<S, P = unknown> {
     } else {
       const r = this.domain.reduce(this.state, frame.op, frame.params as P, {
         principal,
+        origin,
         now: at,
         tx,
         newId: idFactory(tx)
@@ -289,7 +290,10 @@ export class OwnerEngine<S, P = unknown> {
           )
         }
       }
-      if (!this.options.mutants?.noLedger) {
+      // A retryable reject (rate limit, full) is not decided: like an authorization failure it is not
+      // recorded, so a retry with the same key is evaluated again instead of replaying the reject.
+      const retryableReject = !decision.ok && decision.frame.retryable
+      if (!this.options.mutants?.noLedger && !retryableReject) {
         this.sql.exec(
           `INSERT INTO own_ledger (identity, idempotency_key, tx, op, params_hash, ok, reply, sequence, revision, actor, origin, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -318,6 +322,8 @@ export class OwnerEngine<S, P = unknown> {
 
   /** Snapshot for one identity; `pending` narrows `decided` to the keys the client still holds. */
   snapshot(identity: string, pending?: ReadonlyArray<string>): SnapshotFrame<S> {
+    // No pending intents: no decided keys to report, so skip the ledger query.
+    if (pending && pending.length === 0) return { t: "snapshot", stream: this.stream, seq: this.seq, state: this.state, decided: [] }
     const rows = this.sql.exec<{ idempotency_key: string; ok: number; sequence: number }>(
       `SELECT idempotency_key, ok, sequence FROM own_ledger WHERE identity = ? ORDER BY created_at`,
       identity

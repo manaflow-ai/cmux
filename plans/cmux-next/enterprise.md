@@ -104,7 +104,7 @@ Lawrence: "make sure we support MDM the way most enterprises do it, like if they
 | Step | Content | Tests |
 | --- | --- | --- |
 | M1 | Status file written by the config layer after each applied load (atomic write, only on change), conflicts per E2 | Swift: content, no token value, conflict detection, write only on change; landed in PR 16783 (71a826d67d3) |
-| M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer + workerd |
+| M2 | `team.device.report_status` (install) and `team.device.compliance` (admins) in TeamDO | reducer tests; landed with the follow-up push |
 | M3 | Per-vendor guides `docs/mdm/vendors.md` (Jamf Pro, Kandji/Iru, Intune, Workspace ONE, Mosyle, Addigy, Fleet, SimpleMDM, generic), DDM legacy-profile declaration example, osquery/Fleet query examples | in PR 16783; vendor menu paths and the DDM declaration shape UNVERIFIED against live consoles |
 | M4 | `cmux mdm status --json` in the Rust CLI (reads the status file) | testbox |
 | M5 | Rust config crate reader (`core-foundation`) and `/etc/cmux/policy.json` with the shared precedence vectors | testbox |
@@ -133,3 +133,9 @@ Source: worker review of 6aa4a6e1170, PR 16783 and PR 16774. Failing test commit
 | LOW stale team policy read | `setTeamPolicy` ignores an older version of the same team | PR 16783 |
 | LOW CFPreferencesAppSynchronize without a deadline; settings.get reads the user file | open | |
 | LOW one install in several teams; allowed_domains adds little while acceptance exists | open, by design until DomainDO | |
+
+## Follow-ups after PR 16774 merged (7dbf31f1324)
+
+- Lock precedence (coordinator decision, consistent with E2): an SSO- or MDM-managed ConnectionDO lock always wins over TeamPolicy. `integration.policy.apply_managed {source: team_policy}` is a no-op under such a lock; TeamDO copies nothing from it, settles the version without retrying and returns `integration_managed_by` in `team.policy.get`. Tested with a lock committed through ConnectionDO's own system op (nothing writes these locks yet).
+- Snapshot cost: hidden events are coalesced into one filtered snapshot per subscriber per batch (250 ms one-shot timer, one view per identity); `OwnerEngine.snapshot` skips the ledger query for an empty pending list.
+- M2 device compliance landed in the same push.

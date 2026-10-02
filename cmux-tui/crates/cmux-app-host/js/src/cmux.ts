@@ -31,7 +31,12 @@ export class CmuxError extends Error {
 export interface CallOptions {
   idempotencyKey?: string
   expectedRevision?: string
+  /** A user-gesture token from cmux.gesture(); lets the owner accept a focus-changing op once. */
+  gesture?: string
 }
+
+/** Ops the host always provides, whatever the catalog lists. */
+const HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request"])
 
 export interface CallResult<T = unknown> {
   value: T
@@ -51,6 +56,11 @@ export const state = {
   app: { id: "", version: "" },
   apiVersion: "0.0.0",
   allowedOps: null as Set<string> | null,
+  knownOps: null as Set<string> | null,
+  /** The gesture token of the user event whose handler is running synchronously, else null. */
+  gesture: null as string | null,
+  locale: "en",
+  strings: {} as Record<string, string>,
   settings: signal<Record<string, unknown>>({})
 }
 
@@ -74,9 +84,14 @@ const safeJSON = (v: unknown) => {
 
 /** Calls one catalog op; resolves with `{value, revision, transaction, replayed}`. */
 export function callRaw<T = unknown>(name: string, params: unknown = {}, options: CallOptions = {}): Promise<CallResult<T>> {
-  if (state.allowedOps && !state.allowedOps.has(name)) {
+  if (state.knownOps && !state.knownOps.has(name) && !HOST_OPS.has(name)) {
+    return Promise.reject(new CmuxError("operation.unsupported", `${name} is not an operation of this cmux version`, { op: name }))
+  }
+  if (state.allowedOps && !state.allowedOps.has(name) && !HOST_OPS.has(name)) {
     return Promise.reject(new CmuxError("scope.missing", `this app cannot call ${name}`, { op: name }))
   }
+  // Calls made synchronously inside a user handler carry its gesture; later calls only when passed explicitly.
+  if (state.gesture && options.gesture === undefined) options = { ...options, gesture: state.gesture }
   const cbId = state.nextCallback++
   return new Promise<CallResult<T>>((resolve, reject) => {
     state.pending.set(cbId, { resolve: resolve as (v: CallResult) => void, reject })
@@ -256,7 +271,20 @@ const builtins: Record<string, unknown> = {
     get apiVersion() {
       return state.apiVersion
     },
-    settings: () => state.settings[0]()
+    get locale() {
+      return state.locale
+    },
+    settings: Object.assign(() => state.settings[0](), {
+      set: (values: Record<string, unknown>) => call("app.settings.set", { values })
+    })
+  },
+  /** The current user-gesture token (only inside a user event handler, before its first await). */
+  gesture: () => state.gesture,
+  /** The app's string for `key` in the user's locale (strings/<lang>.json), else `fallback`; `{name}` placeholders. */
+  t: (key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>) => {
+    const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key
+    const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {}
+    return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k: string) => (k in values ? String(values[k]) : m))
   }
 }
 

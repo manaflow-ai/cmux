@@ -72,9 +72,49 @@ fn stamp(
         .collect()
 }
 
+/// Fill omitted generated ids (`task_…`, `cmt_…`, `asess_…`, …) from the
+/// actor and idempotency key: deterministic, so a retry with the same key
+/// names the same entity and replays instead of conflicting.
+fn derive_ids(op: &str, params: &mut Value, actor: &Principal, key: &str) {
+    let Some(entry) = catalog::find(op) else { return };
+    let Some(object) = params.as_object_mut() else { return };
+    for param in entry.params {
+        if let catalog::Ty::Id { prefix, generate: true } = param.ty
+            && !object.contains_key(param.name)
+        {
+            object.insert(
+                param.name.to_owned(),
+                json!(format!("{prefix}{}", stable_hash(&[actor.id(), key, param.name]))),
+            );
+        }
+    }
+}
+
+/// FNV-1a 64 over the parts, as 16 lowercase hex digits.
+fn stable_hash(parts: &[&str]) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for part in parts {
+        for byte in part.bytes().chain(std::iter::once(0x1f)) {
+            hash ^= u64::from(byte);
+            hash = hash.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
+}
+
 impl Engine {
     pub fn open(dir: &Path, team: &str, key_prefix: &str, clock: Clock) -> Result<Self, OpenError> {
-        let (store, recovered) = Store::open(dir, team, key_prefix)?;
+        Self::open_with(dir, team, key_prefix, clock, crate::store::Limits::default())
+    }
+
+    pub fn open_with(
+        dir: &Path,
+        team: &str,
+        key_prefix: &str,
+        clock: Clock,
+        limits: crate::store::Limits,
+    ) -> Result<Self, OpenError> {
+        let (store, recovered) = Store::open_with(dir, team, key_prefix, limits)?;
         let floor = recovered.first().map_or(store.state().seq, |(record, _)| record.seq - 1);
         let mut engine = Self { store, ring: VecDeque::new(), floor, clock };
         for (record, kinds) in recovered {
@@ -154,7 +194,9 @@ impl Engine {
                 Vec::new(),
             );
         };
-        let wire = json!({"op": request.op, "params": request.params});
+        let mut params = if request.params.is_null() { json!({}) } else { request.params.clone() };
+        derive_ids(&request.op, &mut params, actor, &key);
+        let wire = json!({"op": request.op, "params": params});
         let op: Op = match serde_json::from_value(wire) {
             Ok(op) => op,
             Err(e) => {

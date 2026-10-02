@@ -96,6 +96,155 @@ export type CronSpec = {
 /** A device (hardware) that groups installs. */
 export type DeviceId = string
 
+export type DeviceStatus = {
+  readonly install: InstallId
+  readonly user: string
+  readonly policy_version: number
+  readonly app_version: string
+  readonly mdm_keys: ReadonlyArray<string>
+  readonly conflicts: ReadonlyArray<string>
+  readonly reported_at: number
+}
+
+export type EnrollmentToken = {
+  readonly id: EnrollmentTokenId
+  readonly label: string
+  readonly allowed_domains: ReadonlyArray<string> | null
+  readonly expires_at: number | null
+  readonly created_by: string
+  readonly created_at: number
+  readonly revoked_at: number | null
+  readonly uses: number
+}
+
+/** base64url(SHA-256(token)) without padding. */
+export type EnrollmentTokenHash = string
+
+export type EnrollmentTokenId = string
+
+export type FeedAction = {
+  readonly id: string
+  readonly label: string
+  readonly style?: "default" | "primary" | "destructive"
+  readonly answer?: unknown
+}
+
+/** A file attached to a feed item or an answer. */
+export type FeedAttachment = {
+  readonly id: string
+  readonly name: string
+  readonly mime: string
+  readonly size: number
+  readonly sha256: string
+  readonly ref: string
+}
+
+export type FeedCancelReason = "poster" | "declined" | "answered_elsewhere" | "superseded" | "poster_gone"
+
+/** What the item is about; clients open it and use it for the visibility rule. */
+export type FeedContext = {
+  readonly host?: string
+  readonly workspace?: string
+  readonly tab?: string
+  readonly terminal?: string
+  readonly browser_tab?: string
+  readonly acp_session?: string
+  readonly task?: string
+  readonly url?: string
+}
+
+export type FeedFilter = {
+  readonly poster_kind?: FeedPosterKind
+  readonly thread?: string
+  readonly workspace?: string
+  readonly kind?: FeedKind
+}
+
+/** One notice or request in a user's feed. */
+export type FeedItem = {
+  readonly id: FeedItemId
+  readonly home: string
+  readonly type: "notice" | "request"
+  readonly kind: FeedKind
+  readonly title: string
+  readonly body: string
+  readonly prompt?: unknown
+  readonly answer_schema?: unknown
+  readonly priority: FeedPriority
+  readonly dedupe_key: string | null
+  readonly thread: string | null
+  readonly context: FeedContext
+  readonly attachments: ReadonlyArray<FeedAttachment>
+  readonly actions: ReadonlyArray<FeedAction>
+  readonly open: FeedOpen | null
+  readonly poster: FeedPoster
+  readonly state: FeedState
+  readonly answer: {
+    readonly value: unknown
+    readonly by: string
+    readonly device: string | null
+    readonly at: number
+  } | null
+  readonly cancel: {
+    readonly reason: FeedCancelReason
+    readonly by: string
+    readonly at: number
+    readonly note: string | null
+  } | null
+  readonly needs_mac: boolean
+  readonly expires_at: number
+  readonly read_at: number | null
+  readonly seen_at: number | null
+  readonly archived_at: number | null
+  readonly snoozed_until: number | null
+  readonly push_due_at: number | null
+  readonly pushed_at: number | null
+  readonly count: number
+  readonly order: number
+  readonly revision: number
+  readonly created_at: number
+  readonly updated_at: number
+  readonly closed_at: number | null
+}
+
+/** A feed item; stable when its home moves from a local owner to the cloud. */
+export type FeedItemId = string
+
+/** notice, a built-in request kind, or a custom kind x-<publisher>.<name>. */
+export type FeedKind = string
+
+export type FeedOpen = {
+  readonly action: "tab.focus" | "workspace.focus" | "browser.open" | "browser.duplicateRight" | "url.open" | "task.open" | "acp.session.open" | "app.open"
+  readonly args: Readonly<Record<string, never>>
+}
+
+export type FeedPoster = {
+  readonly kind: FeedPosterKind
+  readonly scope: string
+  readonly label: string
+  readonly install?: string
+  readonly agent?: string
+  readonly harness?: string
+}
+
+export type FeedPosterKind = "agent" | "harness" | "app" | "server" | "vm" | "automation" | "integration" | "system" | "user"
+
+/** Per-user push rules, synced by the feed owner. */
+export type FeedPrefs = {
+  readonly push_enabled: boolean
+  readonly push_delay: {
+    readonly urgent: number | null
+    readonly high: number | null
+    readonly normal: number | null
+    readonly low: number | null
+  }
+  readonly push_skip_when_mac_active: boolean
+}
+
+export type FeedPriority = "low" | "normal" | "high" | "urgent"
+
+export type FeedState = "open" | "answered" | "cancelled" | "expired"
+
 export type Grant = {
   readonly id: GrantId
   readonly grantee: string
@@ -142,9 +291,30 @@ export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack"
 
+export type ManagedDevice = {
+  readonly install: InstallId
+  readonly user: string
+  readonly via: "token" | "accept"
+  readonly token: EnrollmentTokenId | null
+  readonly at: number
+}
+
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
 
 export type Platform = "macos" | "ios" | "linux" | "windows" | "web"
+
+export type PolicyChange = {
+  readonly key: PolicyKey
+  readonly value: {
+    readonly value: unknown
+    readonly mode: PolicyMode
+  } | null
+}
+
+/** A team policy key (spec/enterprise.md 4.2). */
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+
+export type PolicyMode = "enforced" | "default"
 
 /** ES256 (P-256) public key of an install. */
 export type PublicJwk = {
@@ -215,7 +385,7 @@ export type TeamIntegrationPolicy = {
     readonly require_org_admin: boolean
     readonly repo_allowlist: ReadonlyArray<RepoPattern> | null
   }
-  readonly source: "default" | "admin" | "sso" | "mdm"
+  readonly source: "default" | "admin" | "sso" | "mdm" | "team_policy"
   readonly locked: boolean
   readonly updated_at: number | null
   readonly updated_by: string | null
@@ -225,6 +395,135 @@ export type TeamMember = {
   readonly user: UserId
   readonly role: "owner" | "admin" | "member"
   readonly display_name: string
+}
+
+export type TeamPolicy = {
+  readonly version: number
+  readonly values: TeamPolicyValues
+  readonly updated_at: number | null
+  readonly updated_by: string | null
+}
+
+/** Set keys of a team policy; an absent key means the product default and the user's choice. */
+export type TeamPolicyValues = {
+  readonly "github.repoScope"?: {
+    readonly value: "linking_user_repos" | "installation"
+    readonly mode: PolicyMode
+  }
+  readonly "github.requireOrgAdmin"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "github.repoAllowList"?: {
+    readonly value: "none" | ReadonlyArray<RepoPattern>
+    readonly mode: PolicyMode
+  }
+  readonly "integrations.allowedProviders"?: {
+    readonly value: "all" | ReadonlyArray<IntegrationProvider>
+    readonly mode: PolicyMode
+  }
+  readonly "mcp.server"?: {
+    readonly value: "user_choice" | "disabled"
+    readonly mode: PolicyMode
+  }
+  readonly "mcp.remoteTransport"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "apps.install"?: {
+    readonly value: "any" | "allow_list" | "disabled"
+    readonly mode: PolicyMode
+  }
+  readonly "apps.allowedTiers"?: {
+    readonly value: ReadonlyArray<"first-party" | "verified" | "community" | "unverified">
+    readonly mode: PolicyMode
+  }
+  readonly "apps.allowList"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "apps.forcedInstalls"?: {
+    readonly value: ReadonlyArray<string>
+    readonly mode: PolicyMode
+  }
+  readonly "computerUse.allowed"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "browserAutomation.rawCdp"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "cloud.sandboxes"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "telemetry.level"?: {
+    readonly value: "full" | "crash_only" | "off"
+    readonly mode: PolicyMode
+  }
+  readonly "updates.channel"?: {
+    readonly value: "stable" | "nightly"
+    readonly mode: PolicyMode
+  }
+  readonly "updates.minimumVersion"?: {
+    readonly value: string
+    readonly mode: PolicyMode
+  }
+  readonly "retention.cuaEventsDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.cuaFramesDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.transcriptDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "retention.auditDays"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "sso.enforce"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.enforceForOwners"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.allowGuests"?: {
+    readonly value: boolean
+    readonly mode: PolicyMode
+  }
+  readonly "sso.sessionMaxAgeHours"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "sso.idleTimeoutHours"?: {
+    readonly value: number
+    readonly mode: PolicyMode
+  }
+  readonly "agents.allowedClasses"?: {
+    readonly value: ReadonlyArray<"mux" | "agent" | "run">
+    readonly mode: PolicyMode
+  }
+  readonly "device.settings"?: {
+    readonly value: Readonly<Record<string, never>>
+    readonly mode: PolicyMode
+  }
+}
+
+export type TeamPolicyVersion = {
+  readonly version: number
+  readonly values: TeamPolicyValues
+  readonly changed: ReadonlyArray<PolicyKey>
+  readonly actor: string | null
+  readonly at: number
+  readonly reason: string | null
+  readonly rollback_of: number | null
 }
 
 export type Trigger = {
@@ -375,6 +674,209 @@ export interface CloudOps {
       readonly path: string
       readonly secret: string
       readonly scheme: string
+    }
+  }
+  /** Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
+  readonly "feed.adopt": {
+    readonly params: {
+      readonly item: FeedItem
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Answer an open request (the user only, origin user). The first answer wins; a closed item is refused with feed.closed. */
+  readonly "feed.answer": {
+    readonly params: {
+      readonly item: FeedItemId
+      readonly answer: unknown
+      readonly device?: string
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Archive items (done) by ids or a filter. Open requests cannot be archived: answer or decline them (a filter skips them). */
+  readonly "feed.archive": {
+    readonly params: {
+      readonly items?: ReadonlyArray<FeedItemId>
+      readonly filter?: FeedFilter
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Cancel an open item: its poster withdraws it, an adapter reports it answered elsewhere, or the user declines it. */
+  readonly "feed.cancel": {
+    readonly params: {
+      readonly item: FeedItemId
+      readonly reason?: FeedCancelReason
+      readonly note?: string
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** Badge counts: open requests, unread active items, open requests by priority. */
+  readonly "feed.counts": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly open_requests: number
+      readonly unread: number
+      readonly by_priority: Readonly<Record<string, number>>
+      readonly by_poster_kind: Readonly<Record<string, number>>
+      readonly revision: string
+    }
+  }
+  /** Read one feed item (its answer once it is answered). An agent reads only the items it posted. */
+  readonly "feed.get": {
+    readonly params: {
+      readonly item: FeedItemId
+    }
+    readonly result: {
+      readonly item: FeedItem
+    }
+  }
+  /** The built-in request kinds with JSON Schemas of their prompt and answer; custom kinds x-<publisher>.<name> carry their own answer_schema. */
+  readonly "feed.kinds": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly kinds: ReadonlyArray<{
+        readonly kind: string
+        readonly priority: FeedPriority
+        readonly needs_mac: boolean
+        readonly docs: string
+        readonly prompt_schema: unknown
+        readonly answer_schema: unknown
+      }>
+    }
+  }
+  /** List feed items in the owner's order (one order for every client), optionally grouped. An agent sees only the items it posted. */
+  readonly "feed.list": {
+    readonly params: {
+      readonly state?: "open" | "closed" | "all"
+      readonly type?: "notice" | "request"
+      readonly kind?: FeedKind
+      readonly unread?: boolean
+      readonly archived?: boolean
+      readonly thread?: string
+      readonly needs_response?: boolean
+      readonly poster_kind?: FeedPosterKind
+      readonly workspace?: string
+      readonly query?: string
+      readonly order?: "urgent" | "recent"
+      readonly group_by?: "thread" | "poster" | "workspace"
+      readonly after?: FeedItemId
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<FeedItem>
+      readonly groups?: ReadonlyArray<{
+        readonly key: string
+        readonly label: string
+        readonly items: ReadonlyArray<FeedItemId>
+      }>
+      readonly next: FeedItemId | null
+      readonly revision: string
+    }
+  }
+  /** Post a notice or a request to the user's feed. A request waits for one answer from the user (use feed.watch or --wait). */
+  readonly "feed.post": {
+    readonly params: {
+      readonly type: "notice" | "request"
+      readonly kind: FeedKind
+      readonly title: string
+      readonly body?: string
+      readonly prompt?: unknown
+      readonly answer_schema?: unknown
+      readonly priority?: FeedPriority
+      readonly dedupe_key?: string
+      readonly thread?: string
+      readonly context?: FeedContext
+      readonly attachments?: ReadonlyArray<FeedAttachment>
+      readonly actions?: ReadonlyArray<FeedAction>
+      readonly open?: FeedOpen
+      readonly expires_in_ms?: number
+      readonly poster?: {
+        readonly kind?: FeedPosterKind
+        readonly label?: string
+        readonly agent?: string
+        readonly harness?: string
+      }
+    }
+    readonly result: {
+      readonly item: FeedItem
+      readonly deduped: boolean
+    }
+  }
+  /** Change the user's synced push rules. */
+  readonly "feed.prefs.set": {
+    readonly params: {
+      readonly push_enabled?: boolean
+      readonly push_delay?: {
+        readonly urgent?: number | null
+        readonly high?: number | null
+        readonly normal?: number | null
+        readonly low?: number | null
+      }
+      readonly push_skip_when_mac_active?: boolean
+    }
+    readonly result: {
+      readonly prefs: FeedPrefs
+    }
+  }
+  /** Mark items read (the user opened or acknowledged them): by ids, by a filter, or `all` unread items. */
+  readonly "feed.read": {
+    readonly params: {
+      readonly items?: ReadonlyArray<FeedItemId>
+      readonly all?: boolean
+      readonly filter?: FeedFilter
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Report items the user saw in view (a client's visibility rule); seen items do not push. */
+  readonly "feed.seen": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Hide items until a time (at most one year ahead); they come back unread. Open requests cannot be snoozed. */
+  readonly "feed.snooze": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+      readonly until: number
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
+    }
+  }
+  /** Move archived items back to the active list. */
+  readonly "feed.unarchive": {
+    readonly params: {
+      readonly items: ReadonlyArray<FeedItemId>
+    }
+    readonly result: {
+      readonly items: ReadonlyArray<{
+        readonly id: FeedItemId
+        readonly revision: number
+      }>
     }
   }
   /** Comment on a GitHub issue or pull request as the cmux GitHub App installation. */
@@ -531,6 +1033,61 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
+  readonly "team.device.compliance": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly policy_version: number
+      readonly devices: ReadonlyArray<{
+        readonly device: ManagedDevice
+        readonly status: DeviceStatus | null
+        readonly compliant: boolean
+        readonly reasons: ReadonlyArray<string>
+      }>
+      readonly revision: string
+    }
+  }
+  /** Make this team the calling install's managing team: with an MDM enrollment token's hash, or without one as the user's explicit acceptance. */
+  readonly "team.device.enroll": {
+    readonly params: {
+      readonly token_hash?: EnrollmentTokenHash
+    }
+    readonly result: ManagedDevice
+  }
+  /** The device-scoped policy for the calling install: values only when this team manages it (decision E3). */
+  readonly "team.device.policy": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly managed: boolean
+      readonly team_name: string
+      readonly version: number
+      readonly defaults: Readonly<Record<string, never>>
+      readonly enforced: Readonly<Record<string, never>>
+      readonly features: Readonly<Record<string, never>>
+      readonly revision: string
+    }
+  }
+  /** Stop managing an install: team admins for any install; the install's user only for an install they accepted (not one enrolled by an MDM token). Agents never. */
+  readonly "team.device.release": {
+    readonly params: {
+      readonly install: InstallId
+    }
+    readonly result: {
+      readonly install: InstallId
+    }
+  }
+  /** Report what this install applied (policy version, MDM key names, conflicts). Send when it changes; the latest report replaces the previous one. */
+  readonly "team.device.report_status": {
+    readonly params: {
+      readonly policy_version: number
+      readonly app_version: string
+      readonly mdm_keys: ReadonlyArray<string>
+      readonly conflicts: ReadonlyArray<string>
+    }
+    readonly result: DeviceStatus
+  }
   /** Read a team's directory: members and enrolled hosts (U2). */
   readonly "team.directory": {
     readonly params: {
@@ -542,6 +1099,74 @@ export interface CloudOps {
       readonly hosts: ReadonlyArray<Host>
       readonly revision: string
     }
+  }
+  /** Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once. */
+  readonly "team.enrollment_token.create": {
+    readonly params: {
+      readonly label: string
+      readonly token_hash: EnrollmentTokenHash
+      readonly allowed_domains?: ReadonlyArray<string>
+      readonly expires_at?: number
+    }
+    readonly result: EnrollmentToken
+  }
+  /** List enrollment tokens and managed devices (owners and admins). */
+  readonly "team.enrollment_token.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly tokens: ReadonlyArray<EnrollmentToken>
+      readonly devices: ReadonlyArray<ManagedDevice>
+      readonly revision: string
+    }
+  }
+  /** Revoke an enrollment token. Devices already enrolled stay managed. */
+  readonly "team.enrollment_token.revoke": {
+    readonly params: {
+      readonly token: EnrollmentTokenId
+    }
+    readonly result: EnrollmentToken
+  }
+  /** Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
+  readonly "team.policy.get": {
+    readonly params: {
+      readonly version?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly policy: TeamPolicy
+      readonly integration_managed_by: "sso" | "mdm" | null
+      readonly revision: string
+    }
+  }
+  /** List the last 20 team policy versions, newest first, with actor, reason and changed keys (owners and admins). */
+  readonly "team.policy.history": {
+    readonly params: {
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly team: TeamId
+      readonly versions: ReadonlyArray<TeamPolicyVersion>
+      readonly revision: string
+    }
+  }
+  /** Apply a retained past version's values as a new version (owners and admins). */
+  readonly "team.policy.rollback": {
+    readonly params: {
+      readonly version: number
+      readonly expected_version: number
+      readonly reason?: string
+    }
+    readonly result: TeamPolicy
+  }
+  /** Set or clear team policy keys as one new version (owners and admins). expected_version is the compare-and-swap; a stale version fails with revision.conflict. */
+  readonly "team.policy.update": {
+    readonly params: {
+      readonly changes: ReadonlyArray<PolicyChange>
+      readonly expected_version: number
+      readonly reason?: string
+    }
+    readonly result: TeamPolicy
   }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
@@ -564,6 +1189,20 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "feed.adopt": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.answer": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.archive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.cancel": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.counts": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.get": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.kinds": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.list": { class: "read", owner: "cloud:FeedDO", risk: "read" },
+  "feed.post": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.prefs.set": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.read": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
@@ -580,7 +1219,19 @@ export const cloudOpMeta = {
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.device.release": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "team.device.report_status": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.directory": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.enrollment_token.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.enrollment_token.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.policy.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 

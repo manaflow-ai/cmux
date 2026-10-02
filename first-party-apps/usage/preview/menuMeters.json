@@ -1,0 +1,189 @@
+{
+  "grant": [
+    "usage:read",
+    "usage:write",
+    "notification:write",
+    "coderouter:read",
+    "mcp:expose",
+    "actions:run"
+  ],
+  "scopes": {
+    "usage.get": {
+      "scope": "usage:read",
+      "class": "read"
+    },
+    "usage.refresh": {
+      "scope": "usage:write",
+      "class": "mutation"
+    },
+    "coderouter.usage.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "app.settings.set": {
+      "scope": "settings:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "usage.get": {
+      "revision": "7",
+      "accounts": [
+        {
+          "id": "usage_account_1",
+          "provider": "claude-code",
+          "provider_title": "Claude Code",
+          "kind": "plan",
+          "label": "Personal",
+          "plan": "Max 20x",
+          "source": "oauth",
+          "fetched_at_ms": "1790936941500",
+          "stale": false,
+          "error": null,
+          "windows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "scope": null,
+              "used_percent": 62,
+              "window_seconds": 18000,
+              "resets_at_ms": "1790944861500"
+            },
+            {
+              "id": "weekly",
+              "kind": "weekly",
+              "scope": null,
+              "used_percent": 41,
+              "window_seconds": 604800,
+              "resets_at_ms": "1791210661500"
+            },
+            {
+              "id": "weekly:opus",
+              "kind": "weekly",
+              "scope": "Opus",
+              "used_percent": 83,
+              "window_seconds": 604800,
+              "resets_at_ms": "1791210661500"
+            }
+          ]
+        },
+        {
+          "id": "usage_account_2",
+          "provider": "codex",
+          "provider_title": "Codex",
+          "kind": "plan",
+          "label": "Work",
+          "plan": "Plus",
+          "source": "oauth",
+          "fetched_at_ms": "1790936941500",
+          "stale": false,
+          "error": null,
+          "windows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "scope": null,
+              "used_percent": 18,
+              "window_seconds": 18000,
+              "resets_at_ms": "1790951581500"
+            },
+            {
+              "id": "weekly",
+              "kind": "weekly",
+              "scope": null,
+              "used_percent": 87,
+              "window_seconds": 604800,
+              "resets_at_ms": "1791045061500"
+            }
+          ]
+        },
+        {
+          "id": "usage_account_3",
+          "provider": "anthropic-api",
+          "provider_title": "Anthropic API",
+          "kind": "api",
+          "label": "Team key",
+          "plan": null,
+          "source": "admin-api",
+          "fetched_at_ms": "1790936941500",
+          "stale": false,
+          "error": null,
+          "windows": [
+            {
+              "id": "budget",
+              "kind": "budget",
+              "used": 42.5,
+              "limit": 100,
+              "unit": "usd",
+              "window_seconds": 2592000,
+              "resets_at_ms": "1791984661500"
+            }
+          ]
+        }
+      ]
+    },
+    "coderouter.usage.get": {
+      "pools": [
+        {
+          "id": "pool_team",
+          "name": "team",
+          "accounts": [
+            {
+              "id": "seat_a",
+              "provider": "claude-code",
+              "label": "Seat A",
+              "plan": "Max 20x",
+              "fetched_at_ms": "1790936881500",
+              "windows": [
+                {
+                  "id": "session",
+                  "kind": "session",
+                  "scope": null,
+                  "used_percent": 34,
+                  "window_seconds": 18000,
+                  "resets_at_ms": "1790942161500"
+                },
+                {
+                  "id": "weekly",
+                  "kind": "weekly",
+                  "scope": null,
+                  "used_percent": 55,
+                  "window_seconds": 604800,
+                  "resets_at_ms": "1791376261500"
+                }
+              ]
+            },
+            {
+              "id": "seat_b",
+              "provider": "codex",
+              "label": "Seat B",
+              "plan": "Pro",
+              "fetched_at_ms": "1790936881500",
+              "windows": [
+                {
+                  "id": "session",
+                  "kind": "session",
+                  "scope": null,
+                  "used_percent": 71,
+                  "window_seconds": 18000,
+                  "resets_at_ms": "1790950261500"
+                },
+                {
+                  "id": "weekly",
+                  "kind": "weekly",
+                  "scope": null,
+                  "used_percent": 24,
+                  "window_seconds": 604800,
+                  "resets_at_ms": "1791455461500"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "notification.create": {
+      "id": "notification_1"
+    }
+  }
+}

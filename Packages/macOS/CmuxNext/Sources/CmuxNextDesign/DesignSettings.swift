@@ -57,6 +57,8 @@ public final class DesignSettings {
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()
+    /// `status.*`: inferred command busy and run notifications.
+    public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default

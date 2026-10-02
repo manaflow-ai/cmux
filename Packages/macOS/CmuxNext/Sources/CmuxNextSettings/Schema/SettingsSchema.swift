@@ -307,6 +307,25 @@ public nonisolated enum SettingsSchema {
                 title: SettingsText.text("settings.statusIndicator.color", "Color"),
                 kind: .color, default: nil, defaultLabel: SettingsText.text("settings.default.theme", "Theme")
             ),
+            SettingDescriptor(
+                path + ["honorStatusStyle"], section: .appearance, group: group,
+                title: SettingsText.text("settings.statusIndicator.honorStatusStyle", "Let Statuses Choose Their Style"),
+                help: SettingsText.text("settings.statusIndicator.honorStatusStyle.help",
+                                        "A status that asks for a style (cmux status set --style) uses it."),
+                kind: .toggle, default: .bool(true)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusy"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusy", "Show Running Commands"),
+                help: SettingsText.text("settings.status.inferCommandBusy.help", "A shell command that runs a while shows as busy."),
+                kind: .toggle, default: .bool(StatusBehaviorSettings().inferCommandBusy)
+            ),
+            SettingDescriptor(
+                StatusIndicatorConfigParser.behaviorPath + ["inferCommandBusyAfter"], section: .appearance, group: group,
+                title: SettingsText.text("settings.status.inferCommandBusyAfter", "Show After"),
+                kind: .number(SettingNumber(StatusBehaviorSettings.inferAfterRange, step: 1, unit: .seconds)),
+                default: .number(StatusBehaviorSettings().inferCommandBusyAfter)
+            ),
         ]
     }
 

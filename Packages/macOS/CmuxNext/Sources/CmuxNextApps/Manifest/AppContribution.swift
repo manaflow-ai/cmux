@@ -12,6 +12,8 @@ public nonisolated struct AppContribution: Sendable, Hashable, Identifiable {
         case agent = "agents"
         case mcpServer = "mcpServers"
         case automation = "automations"
+        case automationTrigger = "automationTriggers"
+        case paletteScope = "paletteScopes"
     }
 
     public var kind: Kind

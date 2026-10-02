@@ -7,7 +7,7 @@ public import Foundation
 /// the focused column across layout and window changes, the restore of the
 /// previous offset when a just-opened column closes, and trackpad and wheel
 /// snapping that never fights the automatic reveal. Pure: no AppKit.
-extension ColumnScrollState {
+nonisolated extension ColumnScrollState {
     @discardableResult
     public mutating func reduce(_ event: ColumnScrollEvent) -> ColumnScrollEffects {
         var effects = ColumnScrollEffects()

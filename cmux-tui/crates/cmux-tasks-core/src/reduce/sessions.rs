@@ -9,13 +9,13 @@ use crate::ids::{AgentClass, AgentRef, Principal, is_valid_id, prefix};
 use crate::model::{AgentFlow, AgentSession, Attention, Category, SessionLinks, SessionStatus};
 use crate::op::{SessionAttach, SessionClaim, SessionUpdate, TaskDelegate};
 
-/// Allowed session status transitions.
+/// Status transitions an agent may report with `task.session.update`.
+/// Starting a session goes only through claim (compare-and-swap) and
+/// attach; cancel has its own op.
 fn transition_allowed(from: SessionStatus, to: SessionStatus) -> bool {
     use SessionStatus::*;
     match (from, to) {
-        (a, b) if a == b => true,
-        (Pending, Claimed | Working) => true,
-        (Claimed, Working) => true,
+        (Working | AwaitingInput, b) if from == b => true,
         (Working, AwaitingInput) | (AwaitingInput, Working) => true,
         (Working | AwaitingInput, Done | Failed) => true,
         (Pending | Claimed | Working | AwaitingInput, Canceled) => true,
@@ -168,10 +168,13 @@ impl Tx<'_> {
                 session.status
             )));
         }
-        if let (Some(claimed), Some(host)) = (&session.claimed_by, &p.host)
-            && claimed != host
+        // A claimed session attaches only from the host that claimed it.
+        if let Some(claimed) = &session.claimed_by
+            && p.host.as_ref() != Some(claimed)
         {
-            return Err(conflict(format!("session is claimed by {claimed}")));
+            return Err(conflict(format!(
+                "session is claimed by {claimed}; attach from that host"
+            )));
         }
         let s = self.state.sessions.get_mut(&p.session).expect("validated session");
         s.links.acp_session = Some(p.acp_session.clone());
@@ -300,7 +303,14 @@ impl Tx<'_> {
             SessionStatus::AwaitingInput => Some(Some(Attention::NeedsInput)),
             SessionStatus::Failed => Some(Some(Attention::Failed)),
             SessionStatus::Done => Some(Some(Attention::Review)),
-            SessionStatus::Working => Some(None),
+            // Back to work clears only what no other session still needs.
+            SessionStatus::Working => {
+                let others_need_input = self
+                    .state
+                    .active_sessions(&task.id)
+                    .any(|s| s.id != session.id && s.status == SessionStatus::AwaitingInput);
+                (!others_need_input).then_some(None)
+            }
             SessionStatus::Canceled => {
                 let others = self.state.active_sessions(&task.id).any(|s| s.id != session.id);
                 let ours = matches!(task.attention, Some(Attention::NeedsInput));
@@ -349,7 +359,7 @@ impl Tx<'_> {
                 && to == Category::Started
                 && current == Category::Started);
         if forward && to.rank() >= current.rank() && task.status != target {
-            self.set_status(&task.id, &target, true);
+            self.set_status(&task.id, &target, super::tasks::StatusMove::Flow);
         }
     }
 }

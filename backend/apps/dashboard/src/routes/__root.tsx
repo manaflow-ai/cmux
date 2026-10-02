@@ -62,6 +62,9 @@ function Layout() {
         <Link to="/integrations" activeProps={{ className: "active" }}>
           Integrations
         </Link>
+        <Link to="/policy" activeProps={{ className: "active" }}>
+          Policy
+        </Link>
         <span style={{ flex: 1 }} />
         {signedIn ? (
           <button onClick={() => void signOut().then(() => setSignedIn(false))}>Sign out</button>

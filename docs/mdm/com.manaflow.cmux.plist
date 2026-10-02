@@ -514,6 +514,44 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A status that asks for a style (cmux status set --style) uses it.</string>
+			<key>pfm_name</key>
+			<string>appearance.statusIndicator.honorStatusStyle</string>
+			<key>pfm_title</key>
+			<string>Let Statuses Choose Their Style</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A shell command that runs a while shows as busy.</string>
+			<key>pfm_name</key>
+			<string>status.inferCommandBusy</string>
+			<key>pfm_title</key>
+			<string>Show Running Commands</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>3</integer>
+			<key>pfm_name</key>
+			<string>status.inferCommandBusyAfter</string>
+			<key>pfm_range_max</key>
+			<real>600</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Show After</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>quiet</string>
 			<key>pfm_description</key>
 			<string>How the sections above and below the workspace list draw.</string>
@@ -833,6 +871,32 @@
 			<string>Quiet After Typing</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>10</integer>
+			<key>pfm_description</key>
+			<string>cmux status run notifies when the command took at least this long.</string>
+			<key>pfm_name</key>
+			<string>status.runNotifyMinimumSeconds</string>
+			<key>pfm_range_max</key>
+			<real>3600</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Notify When a Run Takes</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_name</key>
+			<string>status.runNotifyWhenVisible</string>
+			<key>pfm_title</key>
+			<string>Notify Even When the Terminal Is Visible</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

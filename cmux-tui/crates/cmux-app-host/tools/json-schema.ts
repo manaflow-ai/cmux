@@ -73,6 +73,12 @@ export class SchemaValidator {
       return
     }
     if (Array.isArray(s.allOf)) for (const sub of s.allOf) this.check(sub as Schema, v, path, errors)
+    if (s.if !== undefined) {
+      const probe: SchemaError[] = []
+      this.check(s.if as Schema, v, path, probe)
+      if (probe.length === 0 && s.then !== undefined) this.check(s.then as Schema, v, path, errors)
+      if (probe.length > 0 && s.else !== undefined) this.check(s.else as Schema, v, path, errors)
+    }
     if (Array.isArray(s.oneOf)) {
       const passing = s.oneOf.filter((sub) => {
         const e: SchemaError[] = []

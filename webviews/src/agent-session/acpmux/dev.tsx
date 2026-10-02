@@ -7,4 +7,5 @@ import "./conversation/conversation.css";
 import "./changes/changes.css";
 import "./composerControls.css";
 import "./searchChats.css";
+import "./markdownField.css";
 import "./main";

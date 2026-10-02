@@ -1,0 +1,50 @@
+{
+  "grant": [
+    "feed:read",
+    "feed:write",
+    "actions:run"
+  ],
+  "scopes": {
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.mark": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.respond": {
+      "scope": "feed:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "feed.list": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
+      }
+    },
+    "feed.counts": {
+      "$error": {
+        "code": "operation.unsupported",
+        "message": "feed.list is not supported by this host yet"
+      }
+    },
+    "action.run": null,
+    "app.storage.get": null,
+    "app.storage.set": {}
+  }
+}

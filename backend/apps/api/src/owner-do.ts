@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers"
-import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
+import { LEDGER_RETENTION_MS, OwnerEngine, type Domain, type EventFrame, type OpFrame, type OwnerFrame, type Principal, type Reject, type SqlStore } from "@cmux/ownership"
 import type { Env } from "./env.ts"
 import { drainOutbox } from "./projection.ts"
+import { SnapshotBatcher } from "./snapshot-batcher.ts"
 
 /** DO SQLite as the engine's synchronous store. Output gates hold every outgoing message until writes are durable. */
 const doSql = (storage: DurableObjectStorage): SqlStore => ({
@@ -21,6 +22,8 @@ export interface SubmitResult {
 export type ReadResult = { readonly ok: true; readonly value: unknown; readonly revision: string } | ({ readonly ok: false } & Reject)
 
 const MAX_BACKOFF_MS = 5 * 60_000
+/** How long hidden events coalesce before the filtered resync snapshot. */
+const RESYNC_BATCH_MS = 250
 const PRUNE_SLACK_MS = 60 * 60_000
 
 /** A closing socket must not stop delivery to the others (events are committed already). */
@@ -52,6 +55,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     this.store = doSql(ctx.storage)
     void ctx.blockConcurrencyWhile(async () => {
       this.store.exec(`CREATE TABLE IF NOT EXISTS do_entity (id INTEGER PRIMARY KEY CHECK (id = 1), entity TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0)`)
+      this.store.exec(`CREATE TABLE IF NOT EXISTS do_wake (id INTEGER PRIMARY KEY CHECK (id = 1), attempts INTEGER NOT NULL)`)
       const row = this.store.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`)[0]
       if (row) this.open(row.entity)
     })
@@ -81,11 +85,53 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
 
   private broadcast(frame: OwnerFrame) {
     const text = JSON.stringify(frame)
+    const state = this.engine?.currentState
     for (const ws of this.ctx.getWebSockets()) {
       const a = ws.deserializeAttachment() as Attachment | null
-      if (a?.subscribed) safeSend(ws, text)
+      if (!a?.subscribed) continue
+      // A hidden event would leave the subscriber's mirror stale until its next
+      // visible event (clients repair only on a seq gap): send it a filtered snapshot instead.
+      if (frame.t === "event" && state !== undefined && this.engine && !this.mayReceive(state, frame, a.principal)) {
+        this.resyncs.mark(ws, a.principal.identity)
+        continue
+      }
+      // A visible event after hidden ones: send the pending snapshot first (no seq gap round trip).
+      if (this.resyncs.has(ws)) this.resyncs.flushOne(ws)
+      safeSend(ws, text)
     }
   }
+
+  /**
+   * Hidden events become one filtered snapshot per socket per batch, sent
+   * after a short one-shot delay (not a poll), with one view per identity.
+   */
+  private readonly resyncs = new SnapshotBatcher<WebSocket>({
+    schedule: (flush) => void setTimeout(flush, RESYNC_BATCH_MS),
+    viewFor: (_identity, ws) => {
+      const principal = (ws.deserializeAttachment() as Attachment | null)?.principal
+      return this.engine && principal ? this.snapshotFor(this.engine, principal, []) : ""
+    },
+    send: (ws, text) => {
+      const a = ws.deserializeAttachment() as Attachment | null
+      if (text && a?.subscribed) safeSend(ws, text)
+    }
+  })
+
+  /** What a subscriber may see of the state in snapshots (default: all of it). */
+  protected subscriberView(state: S, _principal: Principal): unknown {
+    return state
+  }
+
+  /** Whether a subscriber receives a committed event (default: yes). */
+  protected mayReceive(_state: S, _event: EventFrame, _principal: Principal): boolean {
+    return true
+  }
+
+  private snapshotFor(engine: OwnerEngine<S>, principal: Principal, pending: ReadonlyArray<string>): string {
+    const snap = engine.snapshot(principal.identity, pending)
+    return JSON.stringify({ ...snap, state: this.subscriberView(snap.state as S, principal) })
+  }
+
 
   /** Closes every socket whose principal matches (revocation). */
   protected closeSockets(match: (p: Principal) => boolean, reason: string) {
@@ -109,6 +155,14 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
    */
   protected nextWakeAt(_state: S, _now: number): number | null {
     return null
+  }
+
+  /**
+   * A frame type the base does not know (for example FeedDO's `presence.set`).
+   * Return true when handled. Never commits state: ops go through `op` frames.
+   */
+  protected onFrame(_ws: WebSocket, _frame: { readonly t?: string } & Record<string, unknown>): boolean {
+    return false
   }
 
   /** Subclasses prune their own side tables older than `before` (same replay window). */
@@ -224,12 +278,13 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         // Resume by replaying the gap when the client holds no unconfirmed intents and the gap is
         // small; otherwise a snapshot, which carries the decided keys that settle those intents.
         const gap = after !== undefined && after <= engine.currentSeq && engine.currentSeq - after <= 1000 && pending.length === 0
-        if (gap) for (const e of engine.eventsAfter(after)) safeSend(ws, JSON.stringify(e))
-        else safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, pending)))
+        if (gap) {
+          for (const e of engine.eventsAfter(after)) if (this.mayReceive(engine.currentState, e, a.principal)) safeSend(ws, JSON.stringify(e))
+        } else safeSend(ws, this.snapshotFor(engine, a.principal, pending))
         return
       }
       case "snapshot.request":
-        safeSend(ws, JSON.stringify(engine.snapshot(a.principal.identity, frame.pending ?? [])))
+        safeSend(ws, this.snapshotFor(engine, a.principal, frame.pending ?? []))
         return
       case "unsubscribe":
         a.subscribed = false
@@ -243,6 +298,7 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
         return
       }
       default:
+        if (this.onFrame(ws, frame as { t?: string } & Record<string, unknown>)) return
         safeSend(ws, JSON.stringify({ t: "error", code: "validation.invalid", message: `unknown frame ${frame.t}` }))
     }
   }
@@ -279,14 +335,21 @@ export abstract class OwnerDO<S> extends DurableObject<Env> {
     // Bounded prune; if more remain, the oldest is still past the window and the alarm comes back at once.
     this.engine.pruneLedger(Date.now() - LEDGER_RETENTION_MS)
     this.onPrune(Date.now() - LEDGER_RETENTION_MS)
+    // A failing wake backs off like the drain; otherwise its past-due work would refire the alarm at once, forever.
+    let wakeRetryAt: number | null = null
     try {
       await this.onWake(Date.now())
+      this.store.exec(`DELETE FROM do_wake`)
     } catch (e) {
-      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, error: String(e) }))
+      const attempts = (this.store.exec<{ attempts: number }>(`SELECT attempts FROM do_wake WHERE id = 1`)[0]?.attempts ?? 0) + 1
+      this.store.exec(`INSERT INTO do_wake (id, attempts) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET attempts = excluded.attempts`, attempts)
+      wakeRetryAt = Date.now() + Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempts)
+      console.error(JSON.stringify({ msg: "owner wake failed", stream: this.engine.stream, attempts, error: String(e) }))
     }
     // Ops committed during the wake may have added outbox rows (their afterCommit saw the running alarm).
     if (outboxAt === null && this.engine.outboxPending(1).length > 0) outboxAt = Date.now()
-    const wake = this.wakeAt(Date.now())
+    const due = this.wakeAt(Date.now())
+    const wake = wakeRetryAt !== null && due !== null ? Math.max(due, wakeRetryAt) : due
     const at = outboxAt === null ? wake : wake === null ? outboxAt : Math.min(outboxAt, wake)
     if (at !== null) await this.ctx.storage.setAlarm(at)
   }

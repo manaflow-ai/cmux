@@ -121,3 +121,63 @@ fn cli_works_in_process_without_a_server() {
     let task = engine.state().tasks.values().next().unwrap();
     assert_eq!(task.status, "st_todo");
 }
+
+/// Review finding (MEDIUM): retrying a create with the printed idempotency
+/// key failed, because the CLI minted a new task id each run.
+#[test]
+fn cli_retry_with_the_same_key_reuses_the_create() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path().to_str().unwrap().to_owned();
+    let run = || {
+        cmux_tasks::cli::run(
+            &[
+                "task",
+                "create",
+                "--title",
+                "Once",
+                "--idempotency-key",
+                "retry-1",
+                "--data",
+                data.as_str(),
+            ]
+            .map(str::to_owned),
+        )
+    };
+    assert_eq!(run(), std::process::ExitCode::SUCCESS);
+    assert_eq!(run(), std::process::ExitCode::SUCCESS, "a retry with the same key is a replay");
+    let engine = Engine::open(dir.path(), "local", "CMX", system_clock()).unwrap();
+    assert_eq!(engine.state().tasks.len(), 1);
+}
+
+/// MCP and code mode may omit generated ids: the owner derives them from
+/// the idempotency key, so a retry still converges.
+#[test]
+fn owner_derives_omitted_ids_from_the_key() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut engine = Engine::open(dir.path(), "local", "CMX", system_clock()).unwrap();
+    let me = Principal::user("usr_a");
+    let request = || cmux_tasks::protocol::Request {
+        id: 1,
+        op: "task.create".to_owned(),
+        params: json!({"title": "no id"}),
+        key: Some("k".to_owned()),
+        origin: None,
+    };
+    let first = engine.handle(&me, request()).unwrap().reply.unwrap();
+    let again = engine.handle(&me, request()).unwrap().reply.unwrap();
+    assert_eq!(first["result"]["id"], again["result"]["id"]);
+    assert_eq!(again["replay"], true);
+}
+
+/// Review finding (MEDIUM): without a hello, the server used its own
+/// environment, so a server started in an agent shell stamped every
+/// person's change as the agent's.
+#[test]
+fn a_connection_without_hello_acts_as_the_local_person() {
+    let env = |name: &str| match name {
+        "USER" => Some("lawrence".to_owned()),
+        "CMUX_AGENT_PRINCIPAL" => Some("agt_claude-lawrence".to_owned()),
+        _ => None,
+    };
+    assert_eq!(cmux_tasks::owner::person_from(env), Principal::user("usr_lawrence"));
+}

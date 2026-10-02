@@ -95,6 +95,7 @@ final class PaletteContentView: NSView {
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
+        footer.onClose = { model.handle(.closeItem) }
         actionsMenuView.onRun = { model.runActionsMenuCommand(at: $0) }
     }
 
@@ -145,7 +146,8 @@ final class PaletteContentView: NSView {
             pageTitle: model.pageTitle,
             pageSymbol: model.pageSymbol,
             primaryTitle: model.primaryTitle,
-            actionsEnabled: model.selectedItem?.isEnabled == true
+            actionsEnabled: model.selectedItem?.isEnabled == true,
+            closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil }
         )
         if pageToken != appliedPage {
             appliedPage = pageToken

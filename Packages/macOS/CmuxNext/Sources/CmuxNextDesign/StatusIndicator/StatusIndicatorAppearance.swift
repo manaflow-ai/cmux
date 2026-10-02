@@ -74,6 +74,7 @@ public final class StatusIndicatorAppearance {
     private let clients = NSHashTable<AnyObject>.weakObjects()
     private var observation: Task<Void, Never>?
     private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
     init() {
         config = StatusIndicatorConfig.current
@@ -82,6 +83,13 @@ public final class StatusIndicatorAppearance {
         let center = NSWorkspace.shared.notificationCenter
         reduceMotionObserver = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
                                                   object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
+        }
+        // The override (tests) is a plain static: re-read synchronously when it
+        // changes, or an appearance created before the override keeps the
+        // system setting's loops (a runner with Reduce Motion on shows no spinner).
+        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
+            forName: Motion.reduceMotionDidChange, object: nil, queue: nil) { [weak self] _ in
             MainActor.assumeIsolated { self?.apply(StatusIndicatorConfig.current) }
         }
     }

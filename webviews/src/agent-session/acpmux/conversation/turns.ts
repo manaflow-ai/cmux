@@ -3,6 +3,10 @@
 // A pure pass over the client's rows (direct.ts keeps them in event order), so the
 // virtualized transcript still lays out one row per entry. After codex-atlas-clone's
 // derive.ts (`deriveTurn`, `formatDuration`).
+//
+// Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
+// acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
+// a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxRow } from "../model";
 import { timestampTurns } from "./timestamps";
 import { t } from "../i18n";
