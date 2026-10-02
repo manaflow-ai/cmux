@@ -14,7 +14,7 @@ final class CEFDevToolsDivider: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard let devTools else { return }
-        Borders.color(NSColor.separatorColor).setFill()
+        Borders().color(NSColor.separatorColor).setFill()
         let line = devTools.layout.dock.isSide
             ? NSRect(x: bounds.midX - CEFDevToolsLayout.lineThickness / 2, y: 0, width: CEFDevToolsLayout.lineThickness, height: bounds.height)
             : NSRect(x: 0, y: bounds.midY - CEFDevToolsLayout.lineThickness / 2, width: bounds.width, height: CEFDevToolsLayout.lineThickness)

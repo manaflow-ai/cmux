@@ -71,7 +71,7 @@ extension PaneHandlers {
         ring.frame = host.bounds.insetBy(dx: 2, dy: 2)
         ring.cornerRadius = 8
         let color = view.performWithTheme { Palette.focusRing }
-        if Borders.drawsLines {
+        if Borders().drawsLines {
             ring.borderWidth = 3
             ring.borderColor = color.cgColor
         } else {

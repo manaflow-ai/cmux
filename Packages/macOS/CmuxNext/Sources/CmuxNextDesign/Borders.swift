@@ -39,15 +39,26 @@ public nonisolated struct BorderPolicy: Sendable, Equatable {
 
 /// The live border switch: a Debug Settings override, else cmux.json.
 @MainActor
-public enum Borders {
+public struct Borders {
     public nonisolated static let tunable = Tunable<BorderMode>.choice(
         "appearance.borders", .shape, "Borders",
         help: "None removes every border, hairline and separator (overrides appearance.borders in cmux.json).",
         default: .default, code: "Borders.tunable")
 
-    public static var mode: BorderMode { tunable.override ?? DesignSettings.shared.borders }
-    public static var policy: BorderPolicy { BorderPolicy(mode: mode) }
-    public static var drawsLines: Bool { policy.drawsLines }
-    public static func width(_ width: CGFloat) -> CGFloat { policy.width(width) }
-    public static func color(_ color: NSColor) -> NSColor { policy.color(color) }
+    /// The settings whose `borders` value applies when no Debug Settings
+    /// override is set.
+    public let settings: DesignSettings
+
+    /// The switch over `settings`.
+    ///
+    /// - Parameter settings: The design settings to read `borders` from.
+    public init(settings: DesignSettings = .shared) {
+        self.settings = settings
+    }
+
+    public var mode: BorderMode { Self.tunable.override ?? settings.borders }
+    public var policy: BorderPolicy { BorderPolicy(mode: mode) }
+    public var drawsLines: Bool { policy.drawsLines }
+    public func width(_ width: CGFloat) -> CGFloat { policy.width(width) }
+    public func color(_ color: NSColor) -> NSColor { policy.color(color) }
 }

@@ -53,9 +53,9 @@ public struct Palette {
     public static var focusRing: NSColor { color(\.focusRing, dynamic: PaletteDynamic.focusRing) }
     /// Hairline separators.
     /// Clear under `appearance.borders` none (`Borders`).
-    public static var separator: NSColor { Borders.color(color(\.separator, dynamic: PaletteDynamic.separator)) }
+    public static var separator: NSColor { Borders().color(color(\.separator, dynamic: PaletteDynamic.separator)) }
     /// The subtle hairline around each pane (`layout.paneBorder`).
-    public static var paneBorder: NSColor { Borders.color(color(\.paneBorder, dynamic: PaletteDynamic.paneBorder)) }
+    public static var paneBorder: NSColor { Borders().color(color(\.paneBorder, dynamic: PaletteDynamic.paneBorder)) }
     /// Tint applied to glass so it takes the theme's cast.
     public static var glassTint: NSColor { color(\.glassTint, dynamic: PaletteDynamic.glassTint) }
     /// Drop shadow color (opaque; the layer's shadowOpacity sets strength).

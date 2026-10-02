@@ -16,7 +16,7 @@ enum SettingsStyle {
     static var selection: Color { color(tokens.selectionFill) }
     static var hover: Color { color(tokens.hoverFill) }
     /// Clear under `appearance.borders` none (`Borders`).
-    static var separator: Color { Borders.drawsLines ? color(tokens.separator) : .clear }
+    static var separator: Color { Borders().drawsLines ? color(tokens.separator) : .clear }
     static var danger: Color { color(tokens.danger) }
     static var attention: Color { color(tokens.attention) }
     /// Control tint (switches, sliders): the theme's focus color, never blue.

@@ -19,7 +19,7 @@ public struct HairlineDivider: View {
         // One point, as `Divider()`, so replacing it moves nothing.
         let pixel: CGFloat = 1
         Rectangle()
-            .fill(Borders.drawsLines ? color : .clear)
+            .fill(Borders().drawsLines ? color : .clear)
             .frame(width: axis == .vertical ? pixel : nil, height: axis == .horizontal ? pixel : nil)
     }
 }

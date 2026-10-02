@@ -26,8 +26,8 @@ enum AgentPaneTheme {
             // through the terminal.
             "inputBackground": css(tokens.hoverFill),
             // appearance.borders none: every border in the page is transparent.
-            "border": Borders.drawsLines ? css(tokens.separator) : "transparent",
-            "borderStrong": Borders.drawsLines ? css(tokens.paneBorder) : "transparent",
+            "border": Borders().drawsLines ? css(tokens.separator) : "transparent",
+            "borderStrong": Borders().drawsLines ? css(tokens.paneBorder) : "transparent",
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

@@ -24,11 +24,11 @@ import Testing
         let saved = DesignSettings.shared.borders
         defer { DesignSettings.shared.borders = saved }
         DesignSettings.shared.borders = .none
-        #expect(!Borders.drawsLines)
-        #expect(Borders.width(2) == 0)
+        #expect(!Borders().drawsLines)
+        #expect(Borders().width(2) == 0)
         #expect(Metrics.paneBorder == .none, "the pane border follows the switch")
         #expect(Palette.separator.alphaComponent == 0)
         DesignSettings.shared.borders = .default
-        #expect(Borders.drawsLines)
+        #expect(Borders().drawsLines)
     }
 }

@@ -77,7 +77,7 @@ extension LayoutStyle {
         style.panePadding = Metrics.panePadding
         style.paneCornerRadius = Metrics.paneCornerRadius
         style.showsPaneBorder = Metrics.paneBorder == .subtle
-        style.drawsLines = Borders.drawsLines
+        style.drawsLines = Borders().drawsLines
         style.focusRing = DesignSettings.shared.focusRing
         style.attention = DesignSettings.shared.attention
         if !style.drawsLines {

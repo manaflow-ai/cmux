@@ -35,7 +35,7 @@ extension TabCell {
         } else {
             // A ring; with appearance.borders none a faint fill instead
             // (still unlike the solid unread dot).
-            dot.backgroundColor = Borders.drawsLines ? nil : Palette.textTertiary.withAlphaComponent(0.45).cgColor
+            dot.backgroundColor = Borders().drawsLines ? nil : Palette.textTertiary.withAlphaComponent(0.45).cgColor
             dot.borderWidth = Metrics.lineWidth(1)
             dot.borderColor = Palette.textTertiary.cgColor
         }

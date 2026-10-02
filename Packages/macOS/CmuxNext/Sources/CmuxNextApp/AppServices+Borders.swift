@@ -8,8 +8,8 @@ extension AppServices {
     func observeBorders() {
         borderObservation?.cancel()
         borderObservation = Task {
-            var last = Borders.mode
-            for await mode in Observations({ Borders.mode }) where mode != last {
+            var last = Borders().mode
+            for await mode in Observations({ Borders().mode }) where mode != last {
                 last = mode
                 ThemeStore.shared.repaintAll()
             }
