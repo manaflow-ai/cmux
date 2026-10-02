@@ -264,7 +264,8 @@ switch (descriptor titles are built once at launch).
   it. Done: one emoji draws as text, any other value is an SF Symbol name
   (`WorkspaceIcon.parse`). Images need a store blob: proposal `icon` = `image:sha256-<hex>` naming
   a personal blob put through a new `icon_image.put {media_type, data (base64, at most 256 KiB)}`
-  state op, so the image syncs with the workspace; waits for #16174.
+  state op, so the image syncs with the workspace. Accepted (Lawrence, 2026-10-02); built after
+  #16174 merges, reviewed by the state-module owner.
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`
