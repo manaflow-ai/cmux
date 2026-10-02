@@ -14,8 +14,3 @@ public nonisolated enum SidebarRowState: Hashable, Sendable {
     /// connecting with no saved rows): a static tonal bar, never interactive.
     case placeholder
 }
-
-nonisolated extension SidebarSection {
-    /// True while any row is saved or a placeholder, not live daemon data.
-    public var hasProvisionalRows: Bool { workspaces.contains { $0.rowState != .live } }
-}

@@ -150,8 +150,9 @@ public final class SidebarModel {
 
     // MARK: Selection (UI-local)
 
-    /// A placeholder row (a machine still connecting) is never selected.
-    private func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+    /// A placeholder row (a machine still connecting) is never selected,
+    /// renamed, dragged or shown.
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
 
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
@@ -191,6 +192,7 @@ public final class SidebarModel {
         let current = activeWorkspaceID.flatMap { visibleOrder.firstIndex(of: $0) }
         let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
         let id = visibleOrder[next]
+        guard !isPlaceholder(id) else { return }
         if extending {
             selection.insert(id)
             activeWorkspaceID = id

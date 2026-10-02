@@ -34,10 +34,12 @@ struct LaunchSnapshotWindow {
 
     /// No window records (an older snapshot, or none saved yet): the tree
     /// still says which workspaces exist, so the launch window lists them
-    /// all until the restore assigns windows.
+    /// all until the restore assigns windows. Never after a crash that left
+    /// incognito workspaces (the ledger lists them): they must not appear
+    /// in a normal window, and the restore discards them.
     private func showEveryWorkspace(_ store: DaemonStore) -> Bool {
         let workspaces = store.workspaces.map(\.id)
-        guard !workspaces.isEmpty else { return false }
+        guard !workspaces.isEmpty, !manager.incognitoLedger.hasLeftovers else { return false }
         let id = UUID().uuidString.lowercased()
         manager.launchWindowID = id
         manager.registry.provisional[id] = workspaces

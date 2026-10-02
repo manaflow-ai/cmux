@@ -9,7 +9,8 @@ import CmuxNextSidebar
 /// arrives) keep their place. A section that stopped loading spends its
 /// saved rows, so they never come back later.
 struct SidebarSeed {
-    /// Placeholder rows in a loading section with nothing saved.
+    /// Placeholder rows in a loading section with nothing saved, only while
+    /// the app launches (never on a later Cloud reconnect).
     static let placeholderCount = 3
 
     private(set) var sections: [SidebarSection]
@@ -32,7 +33,7 @@ struct SidebarSeed {
             var filled = section
             if let saved = sections.first(where: { $0.id == section.id }) {
                 filled.nodes = saved.nodes
-            } else if let machine = section.machine {
+            } else if launching, let machine = section.machine {
                 filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace)
             }
             result.append(filled)

@@ -29,6 +29,10 @@ final class IncognitoWorkspaceLedger {
         var workspaces: [String]
     }
 
+    /// True when the last run left incognito workspaces: the file exists
+    /// only while it lists some (an existence check, no read).
+    var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
+
     /// The ids the last run left (read off the main thread).
     func load() async -> [String] {
         let url = url
