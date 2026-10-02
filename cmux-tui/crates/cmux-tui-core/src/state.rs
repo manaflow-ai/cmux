@@ -13,6 +13,8 @@
 pub(crate) mod closed_history;
 pub(crate) mod closed_history_store;
 pub(crate) mod commit;
+pub(crate) mod kept_tab_store;
+pub(crate) mod kept_tabs;
 pub(crate) mod personal;
 pub(crate) mod personal_state_store;
 mod prelude;

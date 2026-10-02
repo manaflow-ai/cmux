@@ -135,6 +135,9 @@ fn tab_extra(connection: &Connection, tab_id: &str) -> anyhow::Result<Map<String
     if let Some(owner) = owner {
         fields.insert("owner".into(), json!(owner));
     }
+    // A keep-layout record (`end-terminals-keep-layout-v1`): restart a shell
+    // in `cwd`. Null for every other tab.
+    fields.insert("relaunch".into(), super::kept_tab_store::relaunch_value(connection, tab_id)?);
     Ok(fields)
 }
 

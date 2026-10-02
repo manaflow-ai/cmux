@@ -1145,6 +1145,51 @@ fn frontend_browser_owner_is_set_by_the_app_and_shown_on_the_tab() {
     );
 }
 
+/// Keep-layout records commit on the state path: the tab snapshot's
+/// `extra.relaunch` and the `session.events` restatement agree (invariant
+/// 4), and forgetting a record restates the tab with `relaunch: null`.
+#[test]
+fn kept_tabs_restate_relaunch_on_the_snapshot_and_the_event_stream() {
+    let mux = Mux::new_for_test("state-kept-tabs", SurfaceOptions::default());
+    let tabs = terminal_tabs(&mux, 2);
+    let kept = tab_id(&mux, tabs[0]);
+    let other = tab_id(&mux, tabs[1]);
+    let relaunch = |tab: &str| {
+        snapshot(&mux)["tabs"].as_array().unwrap().iter().find(|value| value["id"] == tab).unwrap()
+            ["extra"]["relaunch"]
+            .clone()
+    };
+    assert_eq!(relaunch(&kept), Value::Null);
+
+    let before = revision(&mux);
+    mux.commit_kept_tabs(&[(kept.clone(), Some("/tmp/project".into()))]).unwrap();
+    assert!(revision(&mux) > before, "a keep-layout record advances the resource revision");
+    assert_eq!(relaunch(&kept), json!({"cwd": "/tmp/project"}));
+    assert_eq!(relaunch(&other), Value::Null);
+    let restated = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
+        .collect::<Vec<_>>();
+    assert_eq!(restated.len(), 1, "{restated:?}");
+    assert_eq!(restated[0]["id"], kept.as_str());
+    assert_eq!(restated[0]["value"]["extra"]["relaunch"], json!({"cwd": "/tmp/project"}));
+
+    let before = revision(&mux);
+    mux.forget_kept_tabs(std::slice::from_ref(&kept)).unwrap();
+    assert_eq!(relaunch(&kept), Value::Null);
+    let restated = changes_after(&mux, before)
+        .into_iter()
+        .filter(|change| change["kind"] == "upsert" && change["resource"] == "tab")
+        .collect::<Vec<_>>();
+    assert_eq!(restated.len(), 1);
+    assert_eq!(restated[0]["value"]["extra"]["relaunch"], Value::Null);
+    // Forgetting a tab with no record commits nothing.
+    let before = revision(&mux);
+    mux.forget_kept_tabs(std::slice::from_ref(&other)).unwrap();
+    assert!(changes_after(&mux, before).iter().all(|change| change["resource"] != "tab"));
+    mux.shutdown();
+}
+
 #[test]
 fn workspace_status_progress_and_bounded_log() {
     let mux = Mux::new_for_test("state-status", SurfaceOptions::default());

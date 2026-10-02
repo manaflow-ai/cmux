@@ -433,16 +433,14 @@ impl Mux {
             rows.extend(tab_ids.into_iter().map(|tab_id| (tab_id, cwd.clone())));
             kept.insert(terminal_id);
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
-        registry.put_kept_tabs(&rows)?;
-        self.reload_presentation(&registry)?;
+        self.commit_kept_tabs(&rows)?;
         Ok(kept)
     }
 
     /// Removes the keep-layout records of the tabs of `terminal_ids`.
     fn forget_kept_tabs_of(&self, terminal_ids: &[String]) -> anyhow::Result<()> {
-        let mut registry = self.workspace_registry.lock().unwrap();
         let tab_ids = {
+            let registry = self.workspace_registry.lock().unwrap();
             let state = self.state.lock().unwrap();
             let mut tab_ids = Vec::new();
             for terminal_id in terminal_ids {
@@ -452,8 +450,7 @@ impl Mux {
             }
             tab_ids
         };
-        registry.forget_kept_tabs(&tab_ids)?;
-        self.reload_presentation(&registry)
+        self.forget_kept_tabs(&tab_ids)
     }
 
     /// Public ids of the tabs that show `public_id`.

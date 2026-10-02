@@ -1070,7 +1070,7 @@ impl WorkspaceRegistry {
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
         let screens = super::screen_store::read_screen_state(&self.connection)?;
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
-        let kept_tabs = super::kept_tab_store::read_kept_tabs(&self.connection)?;
+        let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
         Ok(PresentationSnapshot {
             groups,
             workspaces,
