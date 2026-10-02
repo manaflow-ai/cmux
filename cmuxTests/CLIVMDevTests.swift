@@ -430,6 +430,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let command = try XCTUnwrap(plan["command"] as? String)
         XCTAssertTrue(command.contains("$HOME/.cache/cmux/setup/"), command)
         XCTAssertTrue(command.contains("bun install"), command)
+        XCTAssertTrue(command.contains("bun test"), command)
         XCTAssertTrue(command.contains("bun run dev"), command)
         let recipe = try XCTUnwrap(plan["recipe"] as? [String: Any])
         XCTAssertEqual(recipe["source"] as? String, ".cmux/cloud.json")
@@ -506,6 +507,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let emptyCommand = try XCTUnwrap(emptyPlan["command"] as? String)
         let emptyRun = runGeneratedVMDevCommand(emptyCommand, cwd: empty.project, home: empty.home)
         XCTAssertEqual(emptyRun.status, 0, "\(emptyRun.stdout)\n\(emptyRun.stderr)")
+    }
+
+    func testVMDevChecksGateReadyMarkerAndRetryAfterFailure() throws {
+        try requireVMDevSetupLockTool()
+        let fixture = try vmDevFixture("checks-retry", files: [
+            ".cmux/cloud.json": #"{"setup":["echo setup >> \"$COUNT\""],"checks":["if [ ! -f \"$CHECK_FLAG\" ]; then : > \"$CHECK_FLAG\"; false; else echo checked >> \"$COUNT\"; fi"]}"#,
+            "package.json": #"{"scripts":{"dev":"true"}}"#,
+            "package-lock.json": "lock-v1",
+        ])
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let count = fixture.root.appendingPathComponent("count")
+        let checkFlag = fixture.root.appendingPathComponent("check-failed-once")
+        let plan = try vmDevDryRunPlan("checks-retry", project: fixture.project, home: fixture.home, extra: ["--command", ":"])
+        let command = try XCTUnwrap(plan["command"] as? String)
+        let failed = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "CHECK_FLAG": checkFlag.path])
+        XCTAssertNotEqual(failed.status, 0, "a failed check must prevent the ready marker")
+        let retried = runGeneratedVMDevCommand(command, cwd: fixture.project, home: fixture.home, extraEnvironment: ["COUNT": count.path, "CHECK_FLAG": checkFlag.path])
+        XCTAssertEqual(retried.status, 0, "stdout=\(retried.stdout) stderr=\(retried.stderr)")
+        XCTAssertEqual(try String(contentsOf: count), "setup\nsetup\nchecked\n")
     }
 
     func testVMDevSetupConcurrentInvocationsRunOnce() throws {

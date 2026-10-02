@@ -106,6 +106,9 @@ extension CMUXCLI {
         for command in setup {
             digestInput.append(Data(command.utf8)); digestInput.append(0)
         }
+        for check in checks {
+            digestInput.append(Data("check\0".utf8)); digestInput.append(Data(check.utf8)); digestInput.append(0)
+        }
         for name in lockfiles {
             let lock = directory.appendingPathComponent(name)
             guard let bytes = try? Data(contentsOf: lock) else { continue }
@@ -129,6 +132,11 @@ extension CMUXCLI {
             .map { "(\($0))" }
             .joined(separator: " && ")
         let run = setup.isEmpty ? ":" : setup
+        let checksRun = recipe.checks
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { "(\($0))" }
+            .joined(separator: " && ")
+        let verify = checksRun.isEmpty ? ":" : checksRun
         // `flock` is provided by util-linux in every devbox image. Holding the
         // descriptor for the whole check/install/marker transaction means a
         // killed owner cannot leave a stale directory that blocks future runs;
@@ -141,7 +149,7 @@ extension CMUXCLI {
         // the descriptor we intended. The body is single-quoted for `/bin/sh
         // -c`; escape any recipe quotes without changing their meaning inside
         // the nested shell.
-        let body = "if [ -f \"\(marker)\" ]; then :; else \(run) && : > \"\(marker)\"; fi"
+        let body = "if [ -f \"\(marker)\" ]; then :; else \(run) && \(verify) && : > \"\(marker)\"; fi"
         let quotedBody = "'" + body.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
         return "mkdir -p \"\(root)\" && flock \"\(lock)\" /bin/sh -c \(quotedBody)"
     }

@@ -67,9 +67,10 @@ Setup must be automatic on first contact and deterministic after.
   what the file says is what happens, on every machine, for every teammate.
   The current slice accepts `setup` and `checks`; setup commands are wrapped in
   a marker under `$HOME/.cache/cmux/setup/<remote-scope-sha256>`, so every warm
-  machine runs the setup once per lockfile revision. The marker contains no
-  credentials or command output. Checks are carried in the recipe for the next
-  verification step and are surfaced in `vm dev --json`.
+  machine runs the setup once per lockfile and recipe revision. Every `checks`
+  command runs after setup and before the marker is written; a failed check leaves
+  the recipe retryable. The marker contains no credentials or command output.
+  Checks are also surfaced in `vm dev --json`.
 - **Secrets** (`env`) are *named*, never valued, in the repo. Values come from
   `cmux vm env set <machine> DATABASE_URL=…` — shipped today as a machine-local
   file (`~/.config/cmux/env` in the work user's home, 0600, on the persistent volume, sourced by every
