@@ -93,11 +93,17 @@ public struct CodePuppyAgentRegistration: Equatable, Sendable {
         lifecycleEvents = [
             HookEvent(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
             HookEvent(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
+            HookEvent(agentEvent: "PreToolUse", cmuxSubcommand: "tool-start"),
+            HookEvent(agentEvent: "PostToolUse", cmuxSubcommand: "tool-end"),
             HookEvent(agentEvent: "Stop", cmuxSubcommand: "stop"),
+            // The native bridge classifies even the default foreground
+            // "code-puppy" agent by name as SubagentStop (July 1c4d7af0).
+            HookEvent(agentEvent: "SubagentStop", cmuxSubcommand: "stop"),
             HookEvent(agentEvent: "Notification", cmuxSubcommand: "notification"),
             HookEvent(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
         ]
-        feedEvents = ["PreToolUse", "PostToolUse"]
+        // Generic tool actions publish Feed telemetry as well as status.
+        feedEvents = []
         resumeOption = "--resume"
         resumeCommand = "{{executable}} --resume {{sessionId}}"
         sessionDirectory = "~/.code_puppy/autosaves"

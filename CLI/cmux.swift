@@ -36655,6 +36655,43 @@ export default {
         }
 
         switch action {
+        case .toolStart, .toolEnd:
+            // Status-only progress: do not submit another prompt, create a
+            // restore binding, or settle a turn for each tool call.
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
+                reportTargetResolutionFailure()
+                emitJournal(.stateChanged, workspaceId: nil, surfaceId: nil, unattributedReason: "target-unresolved")
+                didSendFeedTelemetry = true
+                break
+            }
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            let pid = preferredAgentHookEventPID(agentName: def.name, mappedPID: mapped?.pid, inferredPID: inferredPID)
+            let nested = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: liveAgentPID(pid),
+                nestedPromptEvent: (mapped?.activePromptDepth ?? 0) > 1,
+                env: env
+            )
+            // Ordered delivery normally prevents this; fail closed for a
+            // delayed tool callback after a settled turn or a newer owner.
+            guard mapped?.agentLifecycle != .idle,
+                  !hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) else { break }
+            emitJournal(
+                .stateChanged, workspaceId: workspaceId, surfaceId: surfaceId,
+                isSubagent: nested, declaredPhase: .running
+            )
+            guard !nested else { break }
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+            let rawToolName = firstString(in: input.object ?? [:], keys: ["tool_name", "toolName"])
+            let toolName = rawToolName.map { String(normalizedSingleLine($0).prefix(120)) }
+            let statusValue = ["tool-start", "pre-tool-use"].contains(subcommand) ? (normalizedHookValue(toolName) ?? runningStatus) : runningStatus
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(socketQuote(statusValue)) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+
         case .titleUpdate:
             didSendFeedTelemetry = true
             let collapsedTitle = input.title?
@@ -37579,6 +37616,23 @@ export default {
                 )
                 return summary.status == .error ? summary : nil
             }()
+            // Callback integrations retain explicit outcomes; native engines
+            // may discard them. Consume the same canonical fields for any agent.
+            let explicitStopFailure: AgentHookNotificationSummary? = {
+                guard let payload = input.rawObject,
+                      payload["success"] as? Bool == false else { return nil }
+                // Explicit failure wins over words like "permission" in an
+                // exception message; prose classification is not an outcome.
+                return AgentHookNotificationSummary(
+                    subtitle: String(localized: "agent.generic.notification.subtitle.error", defaultValue: "Error"),
+                    body: truncate(normalizedSingleLine(
+                        firstString(in: payload, keys: ["error", "error_message"])
+                            ?? String(localized: "agent.generic.notification.body.taskReportedError", defaultValue: "The task reported an error")
+                    ), maxLength: 180),
+                    status: .error, isFallback: false, notifyCategory: .other
+                )
+            }()
+            let genericStopFailure = explicitStopFailure ?? antigravityFailure
             let rawCwd = hookCwd ?? mapped?.cwd
             let launchCommand = agentLaunchCommandFromEnvironment(env, fallbackPID: pid, fallbackKind: def.name, cwd: rawCwd)
             let cwd = preferredAgentHookResumeWorkingDirectory(kind: def.name, current: launchCommand, currentCwd: hookCwd, mapped: mapped)
@@ -37603,10 +37657,10 @@ export default {
                 localized: "agent.codex.completion.subtitle.completed",
                 defaultValue: "Completed"
             )
-            if let antigravityFailure {
-                subtitle = antigravityFailure.subtitle
+            if let genericStopFailure {
+                subtitle = genericStopFailure.subtitle
             }
-            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
+            if codexFailure == nil, genericStopFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -37616,7 +37670,7 @@ export default {
                 )
             }
             let body = codexFailure?.body
-                ?? antigravityFailure?.body
+                ?? genericStopFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String(
@@ -37633,7 +37687,7 @@ export default {
                 inputTurnID: input.turnId,
                 terminationReason: stopTerminationReason
             )
-            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || antigravityFailure != nil
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure != nil || genericStopFailure != nil
                 ? .error
                 : (sameTurnNeedsInput ? .needsInput : .idle)
             var lifecycleAfterStop: AgentHibernationLifecycleState = {
@@ -37824,7 +37878,7 @@ export default {
             // reducer's per-session fold handles stale sessions (a newer
             // running session outranks this one) and subagent tagging keeps
             // nested sessions off the pane badge — no emit-side guessing.
-            let stopHadFailure = codexFailure != nil || antigravityFailure != nil
+            let stopHadFailure = codexFailure != nil || genericStopFailure != nil
             emitJournal(
                 stopHadFailure ? .errorReported : (sameTurnNeedsInput ? .questionRequested : .turnCompleted),
                 workspaceId: workspaceId,
@@ -37987,7 +38041,7 @@ export default {
                             client: client
                         )
                     }
-                } else if antigravityFailure != nil {
+                } else if genericStopFailure != nil {
                     let statusValue = agentErrorStatusValue(for: def)
                     if def.name == "cursor" {
                         sendCursorCriticalCommand(
@@ -38893,7 +38947,10 @@ export default {
                 failureDetailsForFeed = failureDetails
             }
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        let toolResult = parsedInput.object?["tool_response"] ?? parsedInput.object?["tool_result"]
+        if ["tool-end", "post-tool-use"].contains(subcommand), let toolResult {
+            event["tool_input"] = Self.sanitizedPostToolUseFeedValue(toolResult)
+        } else if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = source == "cursor"
                 ? sanitizedCursorFeedToolInput(toolInput)
                 : toolInput
@@ -39455,8 +39512,8 @@ export default {
         switch sub {
         case "session-start", "active": return "SessionStart"
         case "prompt-submit": return "UserPromptSubmit"
-        case "pre-tool-use", "cron-create-guard": return "PreToolUse"
-        case "post-tool-use", "push-notification": return "PostToolUse"
+        case "pre-tool-use", "tool-start", "cron-create-guard": return "PreToolUse"
+        case "post-tool-use", "tool-end", "push-notification": return "PostToolUse"
         case "shell-exec": return "PreToolUse"
         case "shell-done": return "PostToolUse"
         case "shell-failed": return "PostToolUseFailure"

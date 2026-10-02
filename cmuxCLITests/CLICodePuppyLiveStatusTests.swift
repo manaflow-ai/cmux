@@ -65,7 +65,7 @@ struct CLICodePuppyLiveStatusTests {
         }
         if subcommand == "stop" {
             let body = status == "Code Puppy error" ? "tool exploded" : "Task completed"
-            #expect(commands.contains { $0.contains("notify_target") && $0.contains(body) })
+            #expect(commands.contains { $0.hasPrefix("agent_journal_append ") && $0.contains("notification") && $0.contains(body) })
         }
         let feedEvents = commands.compactMap { line -> [String: Any]? in
             guard let request = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
@@ -82,7 +82,11 @@ struct CLICodePuppyLiveStatusTests {
             #expect(current["activePromptDepth"] as? Int == 1)
             #expect(feedEvents.contains { $0["tool_name"] as? String == "read_file" })
             if subcommand == "tool-end" {
-                #expect(feedEvents.contains { $0["tool_input"] as? String == "file contents" })
+                #expect(feedEvents.contains {
+                    let summary = $0["tool_input"] as? [String: Any]
+                    return summary?["_cmux_sanitized"] as? Bool == true
+                        && summary?["_cmux_value"] as? String == "file contents"
+                })
             }
         }
     }
