@@ -50,6 +50,7 @@ export function ContinueMenu({
         <div
           ref={menu}
           role="menu"
+          tabIndex={-1}
           aria-label={label}
           onKeyDown={(e) => {
             const items = [...(menu.current?.querySelectorAll<HTMLElement>("button") ?? [])];

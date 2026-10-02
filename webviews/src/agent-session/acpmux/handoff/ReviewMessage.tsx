@@ -167,7 +167,7 @@ export function HandoffReviewMessage({
           ))}
         </details>
         {(validationError || state.error) && <p role="alert">{validationError || state.error}</p>}
-        {state.busy === "saving" && <p role="status">{s.saving}</p>}
+        {state.busy === "saving" && <output>{s.saving}</output>}
         <div className="acpmux-handoff-buttons">
           <button
             type="submit"

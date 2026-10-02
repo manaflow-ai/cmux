@@ -72,6 +72,6 @@ struct MiscActionBindingCoverageTests {
         #expect(descriptor.targets == [.pane])
         #expect(descriptor.surfacePlan.cli == .exempt(.guiOnly))
         #expect(descriptor.surfacePlan.contextMenu == .exempt(.guiOnly))
-        #expect(Self.boundServices().registry.isBound("agentPane.continueIn"))
+        #expect(ActionBindingCoverageTests.boundServices().registry.isBound("agentPane.continueIn"))
     }
 }

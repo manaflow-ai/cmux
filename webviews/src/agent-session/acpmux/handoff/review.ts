@@ -6,6 +6,13 @@ export type HandoffReviewInput = {
   approvedMemoryReferences: string[];
   revision?: number;
 };
+function hasControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
 export function reviewedContinuation(
   capsule: string,
   checkpointReference: string,
@@ -27,8 +34,8 @@ export function reviewedContinuation(
   if (new TextEncoder().encode(capsule).length > maxBytes)
     throw new Error(formatHandoff(strings.tooLarge, String(maxBytes)));
   if (!reference || !checkpointConfirmed) throw new Error(strings.saveCheckpoint);
-  if (reference.length > 2048 || /[\u0000-\u001f\u007f]/.test(reference)) throw new Error(strings.checkpointSingle);
-  if (references.length > 32 || references.some((value) => value.length > 2048 || /[\u0000-\u001f\u007f]/.test(value)))
+  if (reference.length > 2048 || hasControlCharacters(reference)) throw new Error(strings.checkpointSingle);
+  if (references.length > 32 || references.some((value) => value.length > 2048 || hasControlCharacters(value)))
     throw new Error(strings.memoryLimit);
   return { capsule, checkpoint: { reference, confirmed: true }, approvedMemoryReferences: references };
 }
