@@ -47,10 +47,10 @@ struct CloudWorkspaceSidebarPresentation {
     init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool) {
         let state = workspace.cloudBindingState
 
-        func machineName(for id: String) -> String? {
-            state.machineNames[id]
-                ?? state.machineNames[SurfaceMachineID.cloud(id).rawValue]
-                ?? SurfaceCatalog.shared.machineInfo(for: .cloud(id))?.name
+        func machineMetadata(for id: String) -> String? {
+            if let name = state.machineNames[id] { return name }
+            if let name = state.machineNames[SurfaceMachineID.cloud(id).rawValue] { return name }
+            return SurfaceCatalog.shared.machineInfo(for: .cloud(id))?.name
         }
 
         var cloudMachineIDs = Set(state.projectedResources.values.compactMap { $0.machine.cloudMachineID })
@@ -63,7 +63,7 @@ struct CloudWorkspaceSidebarPresentation {
         guard !machineIDs.isEmpty else { return nil }
         deviceLabel = Self.deviceLabel(workspace: workspace, machines: deviceMachines)
         let names = Dictionary(uniqueKeysWithValues: machineIDs.map { id in
-            let name = machineName(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
+            let name = machineMetadata(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? id
             return (id, name.isEmpty ? id : name)
         })
         // A restored Cloud terminal can publish its projection before the
@@ -75,8 +75,7 @@ struct CloudWorkspaceSidebarPresentation {
             resource.machine.cloudMachineID
         })
         guard projectedCloudMachineIDs.allSatisfy({ id in
-            guard let name = machineName(for: id)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                  !name.isEmpty else { return false }
+            guard machineMetadata(for: id) != nil else { return false }
             return true
         }) else { return nil }
         // Keep stable IDs in badge help/accessibility; width-dependent rows use
@@ -101,6 +100,7 @@ struct CloudWorkspaceSidebarPresentation {
             let resource = state.projectedResources[panelID]
             guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
+                ?? (panelID == workspace.focusedPanelId ? workspace.presentedCurrentDirectory : nil)
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
             entries.append((machineID, directory))
         }
