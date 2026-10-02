@@ -59,6 +59,8 @@ build_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
 cli_path="$app/Contents/Resources/bin/cmux"
 socket="/tmp/cmux-debug-$slug.sock"
 [[ -x "$cli_path" ]] || { echo "error: bundled CLI missing at $cli_path" >&2; exit 1; }
+[[ -x "${cli_path%/*}/cmux-code-mode-runner" ]] || { echo "error: bundled code-mode runner missing" >&2; exit 1; }
+[[ -x "${cli_path%/*}/cmux-code-mode-macos-profile" ]] || { echo "error: bundled macOS code-mode profile helper missing" >&2; exit 1; }
 
 work="$(mktemp -d /tmp/cmux-next-cli-smoke.XXXXXX)"
 app_pid=""

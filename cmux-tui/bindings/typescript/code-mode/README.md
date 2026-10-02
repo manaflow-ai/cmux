@@ -16,9 +16,11 @@ cmux run ./open-and-test.ts
 
 The script receives a typed `cmux` Node client and `cmuxArgs`. The runner
 allows only operations in the embedded cmux-tui catalog and keeps the sandbox
-without host network or home-directory access. The current sandbox is Linux
-only and requires `bwrap`; on macOS `cmux run` fails closed until its native
-sandbox profile is implemented. MCP-capable harnesses can use the matching
+without host network or home-directory access. Linux uses `bwrap`; macOS 26
+uses the deprecated system `sandbox-exec` Seatbelt profile and fails closed if
+that executable is unavailable. The macOS profile is generated per run and
+allows only the bundled SDK/script, temporary run directory, and cmux relay
+socket. MCP-capable harnesses can use the matching
 `cmux_docs` and `cmux_exec` tools.
 
 Cloud and CUA operations will appear here after their owner relays join the

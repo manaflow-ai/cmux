@@ -75,7 +75,7 @@ fi
 # Linux prototype sandbox: no host network, no host home, read-only runtime and
 # source, a tmpfs for transient writes, and one explicitly bound cmux socket.
 # The runner fails closed when this sandbox is unavailable.
-if command -v bwrap >/dev/null 2>&1; then
+if [ "$(uname -s)" = Linux ] && command -v bwrap >/dev/null 2>&1; then
   if [ -n "$cloud_relay_pid" ]; then
     bwrap \
       --die-with-parent --new-session --unshare-all --clearenv \
@@ -117,5 +117,41 @@ if command -v bwrap >/dev/null 2>&1; then
   exit "$status"
 fi
 
-echo 'cmux run: no supported locked-down sandbox (Linux bwrap) is available' >&2
+# macOS Seatbelt is deprecated, but remains the system sandbox available on
+# macOS 26. Keep this branch explicit and fail closed if Apple removes it.
+if [ "$(uname -s)" = Darwin ]; then
+  sandbox_exec=/usr/bin/sandbox-exec
+  [ -x "$sandbox_exec" ] || {
+    echo 'cmux run: macOS sandbox-exec is unavailable' >&2
+    exit 2
+  }
+  profile="$proxy_dir/cmux.sb"
+  profile_helper="$(dirname -- "$0")/cmux-code-mode-macos-profile"
+  [ -x "$profile_helper" ] || profile_helper="$root/scripts/cmux-next/cmux-code-mode-macos-profile"
+  [ -x "$profile_helper" ] || {
+    echo 'cmux run: macOS sandbox profile helper is unavailable' >&2
+    exit 2
+  }
+  "$profile_helper" \
+    "$profile" "$bun" "$sdk" "$script" "$proxy_socket" "$proxy_dir" \
+    "${cloud_relay_pid:+$cloud_socket}"
+  run_tmp="$proxy_dir/run-tmp"
+  mkdir -m 700 "$run_tmp"
+  env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+    HOME="$run_tmp" TMPDIR="$run_tmp" \
+    CMUX_TUI_SOCKET="$proxy_socket" CMUX_TUI_SESSION="$session" \
+    ${cloud_relay_pid:+CMUX_CLOUD_SOCKET="$cloud_socket"} \
+    "$sandbox_exec" -p "$profile" \
+    "$bun" "$sdk/code-mode/run.ts" "$script" "$@" &
+  sandbox_pid=$!
+  if wait "$sandbox_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  sandbox_pid=
+  exit "$status"
+fi
+
+echo 'cmux run: no supported locked-down sandbox is available' >&2
 exit 2
