@@ -57,6 +57,10 @@ public struct DaemonCapabilities: Sendable {
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
     public let terminalReap = "terminal-reap-v1"
+    /// `keep_layout` on `shutdown-daemon end_terminals`: every terminal ends
+    /// but placed ones keep their tabs, dead, so the next launch restarts a
+    /// shell in each with the same splits (Quit's End Sessions, Keep Layout).
+    public let endTerminalsKeepLayout = "end-terminals-keep-layout-v1"
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
     public let batchClose = "batch-close-v1"
@@ -122,7 +126,8 @@ public struct DaemonCapabilities: Sendable {
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns]
+        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
+         endTerminalsKeepLayout]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
