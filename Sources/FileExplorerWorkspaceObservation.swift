@@ -84,6 +84,11 @@ final class FileExplorerWorkspaceObservation {
                       let change = GhosttyTitleChange(notification: notification),
                       change.tabId == workspace.id,
                       change.surfaceId == workspace.focusedPanelId,
+                      let terminal = workspace.terminalPanel(for: change.surfaceId),
+                      change.matches(
+                          sourceSurface: terminal.surface,
+                          terminalLifecycleID: terminal.surface.terminalLifecycleId
+                      ),
                       self.lastSelectedStableTitle != change.stableTitle else { return }
                 self.lastSelectedStableTitle = change.stableTitle
                 self.refresh(force: true)
