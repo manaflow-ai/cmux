@@ -77,14 +77,14 @@ struct CLICodePuppyLiveStatusTests {
             return params["event"] as? [String: Any]
         }
         #expect(feedEvents.contains { $0["hook_event_name"] as? String == (event == "SubagentStop" ? "Stop" : event) })
-        if subcommand == "tool-start" || subcommand == "tool-end" {
+        if subcommand == "pre-tool-use" || subcommand == "post-tool-use" {
             let saved = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
             let sessions = try #require(saved["sessions"] as? [String: Any])
             let current = try #require(sessions[sessionID] as? [String: Any])
             // Tool activity is NOT another prompt: it must never increase prompt depth.
             #expect(current["activePromptDepth"] as? Int == 1)
             #expect(feedEvents.contains { $0["tool_name"] as? String == "read_file" })
-            if subcommand == "tool-end" {
+            if subcommand == "post-tool-use" {
                 #expect(feedEvents.contains {
                     let summary = $0["tool_input"] as? [String: Any]
                     return summary?["_cmux_sanitized"] as? Bool == true
