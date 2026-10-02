@@ -60,7 +60,7 @@ extension TerminalSurfaceView {
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
             // Output or a mouse scroll moved the viewport under the cursor box.
-            syncCopyModeCursor()
+            copyMode.syncCursor()
         case .startSearch(let needle):
             model.search = TerminalSearchState(needle: needle, total: nil, selected: nil)
         case .endSearch:

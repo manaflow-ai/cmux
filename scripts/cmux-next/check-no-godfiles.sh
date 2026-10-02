@@ -126,14 +126,14 @@ report="$(awk -F'\t' -v update="$update" '
     unit = ($1 == "swift-type") ? "type " $2 " spans" : $2 " has"
     if (!(key in base_lines)) {
       if (over) {
-        printf "FAIL\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline)\n", what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
+        printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns (limit %d lines, %s fns; not in baseline: split it)\n", $1, $2, what, unit, lines, fns, llim, (flim > 0 ? flim : "no")
       }
       next
     }
     seen[key] = 1
     bl = base_lines[key]; bf = base_fns[key]
     if (lines > bl || fns > bf) {
-      printf "FAIL\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (shrink it, never grow it)\n", what, unit, lines, fns, bl, bf
+      printf "FAIL\t%s\t%s\t%s: %s %d lines, %d fns; baseline allows %d lines, %d fns (+%d lines, +%d fns over; move new code to a new module or type)\n", $1, $2, what, unit, lines, fns, bl, bf, (lines > bl ? lines - bl : 0), (fns > bf ? fns - bf : 0)
       keep_lines[key] = bl; keep_fns[key] = bf
     } else if (!over) {
       printf "NOTE\t%s now meets the budget; run --update-baseline to drop it\n", $2
@@ -148,8 +148,18 @@ report="$(awk -F'\t' -v update="$update" '
   }
 ' "$baseline" "$measurements")"
 
+# Each failure names the commit that last changed the file, so an agent can
+# tell a failure it caused from one already on the branch.
 if grep -q '^FAIL' <<<"$report"; then
-  grep '^FAIL' <<<"$report" | cut -f2-
+  while IFS=$'\t' read -r _ kind key message; do
+    if [[ "$kind" == rust-file ]]; then
+      last="$(git -C "$repo" log -1 --format='%h %an: %s' -- "$key" 2>/dev/null || true)"
+      [[ -n "$(git -C "$repo" status --porcelain -- "$key" 2>/dev/null)" ]] && last="uncommitted changes in this checkout"
+      echo "$message [last change: ${last:-unknown}]"
+    else
+      echo "$message"
+    fi
+  done < <(grep '^FAIL' <<<"$report")
   status=1
 fi
 if (( update )); then
