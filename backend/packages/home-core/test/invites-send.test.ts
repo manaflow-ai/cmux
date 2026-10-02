@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import {
+  acceptUrlPattern,
   deliverInvite,
+  inviteLink,
   parseAllowlist,
   renderEmail,
   renderSms,
@@ -14,7 +16,7 @@ import {
   type SenderDeps
 } from "../src/invites/index.ts"
 
-const LINK = "https://cmux.com/i/g01JB8Q3Z5X7Y9K2M4N6P8R0T2V#0123456789ABCDEFGHJKMNPQRS"
+const LINK = inviteLink("staging", "conv_01JB8Q3Z5X7Y9K2M4N6P8R0T2V", "0123456789ABCDEFGHJKMNPQRS")
 const base: CopyInput = {
   variant: "A",
   locale: "en",
@@ -31,7 +33,7 @@ const base: CopyInput = {
 describe("copy", () => {
   it("variant A quotes the inviter's words", () => {
     const sms = renderSms(base)
-    expect(sms).toEqual({ channel: "sms", variant: "A", body: `Lawrence sent you a message on cmux: "want to try my agents?" Reply here: ${LINK}` })
+    expect(sms).toEqual({ channel: "sms", variant: "A", body: `Lawrence sent you a message on cmux: "want to try my agents?"\n${LINK}` })
     const email = renderEmail(base)
     expect(email.subject).toBe("Lawrence: want to try my agents?")
     expect(email.text).toContain(`"want to try my agents?"`)
@@ -54,13 +56,35 @@ describe("copy", () => {
   })
 
   it("adds the opt-out line to the first text only", () => {
-    expect(renderSms({ ...base, firstSmsToNumber: true }).body.endsWith("Reply STOP to opt out.")).toBe(true)
+    expect(renderSms({ ...base, firstSmsToNumber: true }).body).toBe(`Lawrence sent you a message on cmux: "want to try my agents?"\nReply STOP to opt out.\n${LINK}`)
     expect(renderSms(base).body).not.toContain("STOP")
   })
 
   it("hides group titles from untrusted inviters", () => {
     expect(renderSms({ ...base, variant: "B", kind: "group", title: "Launch", trustedInviter: false }).body).toContain(`"a group"`)
     expect(renderSms({ ...base, variant: "B", kind: "group", title: "Launch" }).body).toContain(`"Launch"`)
+  })
+
+  it("ends every text with the environment's absolute accept URL on its own line", () => {
+    for (const environment of ["staging", "production"] as const) {
+      const link = inviteLink(environment, "conv_dm_01JB8Q3Z5X7Y9K2M4N6P8R0T2V", "0123456789ABCDEFGHJKMNPQRS")
+      for (const locale of ["en", "ja"] as const)
+        for (const variant of ["A", "B", "C"] as const)
+          for (const kind of ["dm", "group"] as const)
+            for (const firstSmsToNumber of [true, false]) {
+              const body = renderSms({ ...base, link, locale, variant, kind, firstSmsToNumber, title: "Launch" }).body
+              const lines = body.split("\n")
+              const last = lines[lines.length - 1]!
+              expect(last).toMatch(acceptUrlPattern(environment))
+              expect(new URL(last).protocol).toBe("https:")
+              expect(lines.slice(0, -1).join("\n")).not.toContain("https://")
+            }
+      const email = renderEmail({ ...base, link })
+      expect(email.text.split("\n")).toContain(link)
+      expect(email.html).toContain(`href="${link}"`)
+    }
+    expect(() => renderSms({ ...base, link: "cmux.com/i/x" })).toThrow()
+    expect(() => renderSms({ ...base, link: "http://console-staging.cmux.dev/i/x" })).toThrow()
   })
 
   it("fills every placeholder in every variant, locale and kind", () => {

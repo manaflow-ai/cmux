@@ -1,9 +1,9 @@
 /**
  * Invite copy (home-messaging.md section 15, decision D-H8). Placeholders:
  * {name} inviter, {preview} the inviter's own words (variant A, trusted
- * inviters only), {title} group title, {link}. English is reviewed; Japanese
- * is a first translation that needs review. Keep SMS bodies short: a GSM SMS
- * segment is 160 characters and a link is about 75.
+ * inviters only), {title} group title. The renderer puts the link alone on
+ * the last line, where message apps detect it and show a preview card.
+ * English is reviewed; Japanese is a first translation that needs review.
  */
 export type Locale = "en" | "ja"
 export type Variant = "A" | "B" | "C"
@@ -35,24 +35,24 @@ export const STRINGS: Readonly<Record<Locale, LocaleStrings>> = {
   en: {
     variants: {
       A: {
-        smsDm: `{name} sent you a message on cmux: "{preview}" Reply here: {link}`,
-        smsGroup: `{name} sent you a message in "{title}" on cmux: "{preview}" Reply here: {link}`,
+        smsDm: `{name} sent you a message on cmux: "{preview}"`,
+        smsGroup: `{name} sent you a message in "{title}" on cmux: "{preview}"`,
         subjectDm: "{name}: {preview}",
         subjectGroup: "{name} in {title}: {preview}",
         leadDm: "{name} sent you a message on cmux.",
         leadGroup: `{name} sent you a message in "{title}" on cmux.`
       },
       B: {
-        smsDm: "{name} invited you to chat on cmux, the app where their AI agents report in. Join: {link}",
-        smsGroup: `{name} added you to "{title}" on cmux, the app where their AI agents report in. Join: {link}`,
+        smsDm: "{name} invited you to chat on cmux, the app where their AI agents report in.",
+        smsGroup: `{name} added you to "{title}" on cmux, the app where their AI agents report in.`,
         subjectDm: "{name} invited you to chat on cmux",
         subjectGroup: "{name} added you to {title} on cmux",
         leadDm: "{name} invited you to chat on cmux.",
         leadGroup: `{name} added you to "{title}" on cmux.`
       },
       C: {
-        smsDm: "{name} wants to talk with you on cmux. {link}",
-        smsGroup: `{name} wants you in "{title}" on cmux. {link}`,
+        smsDm: "{name} wants to talk with you on cmux.",
+        smsGroup: `{name} wants you in "{title}" on cmux.`,
         subjectDm: "{name} wants you on cmux",
         subjectGroup: "{name} wants you in {title}",
         leadDm: "{name} wants to talk with you on cmux.",
@@ -73,24 +73,24 @@ export const STRINGS: Readonly<Record<Locale, LocaleStrings>> = {
   ja: {
     variants: {
       A: {
-        smsDm: "{name}さんからcmuxでメッセージが届いています:「{preview}」返信はこちら: {link}",
-        smsGroup: "{name}さんから「{title}」でメッセージが届いています:「{preview}」返信はこちら: {link}",
+        smsDm: "{name}さんからcmuxでメッセージが届いています:「{preview}」",
+        smsGroup: "{name}さんから「{title}」でメッセージが届いています:「{preview}」",
         subjectDm: "{name}さん: {preview}",
         subjectGroup: "{name}さん（{title}）: {preview}",
         leadDm: "{name}さんからcmuxでメッセージが届いています。",
         leadGroup: "{name}さんから「{title}」でメッセージが届いています。"
       },
       B: {
-        smsDm: "{name}さんがcmuxでのチャットに招待しています。AIエージェントが報告を届けるアプリです。参加: {link}",
-        smsGroup: "{name}さんがcmuxの「{title}」にあなたを追加しました。AIエージェントが報告を届けるアプリです。参加: {link}",
+        smsDm: "{name}さんがcmuxでのチャットに招待しています。AIエージェントが報告を届けるアプリです。",
+        smsGroup: "{name}さんがcmuxの「{title}」にあなたを追加しました。AIエージェントが報告を届けるアプリです。",
         subjectDm: "{name}さんからcmuxのチャットへの招待",
         subjectGroup: "{name}さんがcmuxの{title}にあなたを追加しました",
         leadDm: "{name}さんがcmuxでのチャットに招待しています。",
         leadGroup: "{name}さんがcmuxの「{title}」にあなたを追加しました。"
       },
       C: {
-        smsDm: "{name}さんがcmuxで話したいそうです。{link}",
-        smsGroup: "{name}さんが「{title}」に招待しています。{link}",
+        smsDm: "{name}さんがcmuxで話したいそうです。",
+        smsGroup: "{name}さんが「{title}」に招待しています。",
         subjectDm: "{name}さんがcmuxに招待しています",
         subjectGroup: "{name}さんが{title}に招待しています",
         leadDm: "{name}さんがcmuxで話したいそうです。",

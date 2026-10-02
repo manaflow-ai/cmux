@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest"
 import {
+  acceptUrlPattern,
   contactId,
+  inviteOrigin,
   hashInviteSecret,
   inviteLink,
   maskAddress,
@@ -68,12 +70,22 @@ describe("invite secrets and links", () => {
 
   it("round-trips links with the secret in the fragment", () => {
     const secret = newInviteSecret(bytes)
-    const link = inviteLink("https://cmux.com/", conversation, secret)
-    expect(link).toBe(`https://cmux.com/i/g01JB8Q3Z5X7Y9K2M4N6P8R0T2V#${secret}`)
-    expect(link.length).toBeLessThanOrEqual(80)
+    const link = inviteLink("staging", conversation, secret)
+    expect(link).toBe(`https://console-staging.cmux.dev/i/g01JB8Q3Z5X7Y9K2M4N6P8R0T2V#${secret}`)
+    expect(link).toMatch(acceptUrlPattern("staging"))
+    expect(link.length).toBeLessThanOrEqual(100)
     expect(parseInviteLink(link)).toEqual({ conversation, secret })
-    const dm = inviteLink("https://cmux.com", "conv_dm_01JB8Q3Z5X7Y9K2M4N6P8R0T2V", secret)
+    expect(inviteLink("production", conversation, secret).startsWith("https://console.cmux.dev/i/g")).toBe(true)
+    const dm = inviteLink("staging", "conv_dm_01JB8Q3Z5X7Y9K2M4N6P8R0T2V", secret)
     expect(parseInviteLink(dm)?.conversation).toBe("conv_dm_01JB8Q3Z5X7Y9K2M4N6P8R0T2V")
+  })
+
+  it("fails closed without a known environment or a bare https origin", () => {
+    const secret = newInviteSecret(bytes)
+    for (const env of [undefined, "", "development", "preview", "local", "prod"]) expect(() => inviteLink(env, conversation, secret)).toThrow(/no invite accept origin/)
+    expect(inviteLink("development", conversation, secret, "https://dev.example.com")).toMatch(acceptUrlPattern("development", "https://dev.example.com"))
+    for (const bad of ["http://dev.example.com", "https://dev.example.com/x", "https://dev.example.com/?a=1", "dev.example.com"]) expect(() => inviteOrigin("development", bad)).toThrow()
+    expect(() => inviteLink("staging", conversation, "short")).toThrow()
   })
 
   it("refuses malformed links", () => {

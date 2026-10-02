@@ -73,12 +73,23 @@ const resolve = (input: CopyInput, previewMax: number): Resolved => {
   return { variant, values: { name, preview, title, link: input.link } }
 }
 
+/**
+ * The link is alone on the last line with nothing glued to it, so message apps
+ * detect it and show a preview card; the opt-out line goes before it.
+ */
 export const renderSms = (input: CopyInput): RenderedSms => {
   const s = STRINGS[input.locale]
   const { variant, values } = resolve(input, 90)
   const v = s.variants[variant]
-  const body = fill(input.kind === "dm" ? v.smsDm : v.smsGroup, values)
-  return { channel: "sms", variant, body: input.firstSmsToNumber ? `${body} ${s.smsOptOut}` : body }
+  const sentence = fill(input.kind === "dm" ? v.smsDm : v.smsGroup, values)
+  const lines = [sentence, ...(input.firstSmsToNumber ? [s.smsOptOut] : []), checkedLink(input.link)]
+  return { channel: "sms", variant, body: lines.join("\n") }
+}
+
+/** Only an absolute https URL with no whitespace may be the link line. */
+const checkedLink = (link: string): string => {
+  if (!/^https:\/\/[^\s]+$/.test(link)) throw new Error("invite link must be an absolute https URL")
+  return link
 }
 
 export const renderEmail = (input: CopyInput): RenderedEmail => {
@@ -92,7 +103,7 @@ export const renderEmail = (input: CopyInput): RenderedEmail => {
   const email = input.inviterEmail ? cleanUserText(input.inviterEmail, 254, "") : ""
   const why = email ? fill(s.whyWithEmail, { name: values.name!, email }) : fill(s.why, { name: values.name! })
   const quote = variant === "A" ? values.preview! : ""
-  const text = [lead, quote ? `\n"${quote}"` : "", `\n${s.button}: ${input.link}`, `\n${s.what}`, `\n--\n${why}`, `${s.unsubscribe}: ${input.unsubscribeLink}`, `${s.report}: ${input.reportLink}`]
+  const text = [lead, quote ? `\n"${quote}"` : "", `\n${s.button}:\n${checkedLink(input.link)}`, `\n${s.what}`, `\n--\n${why}`, `${s.unsubscribe}: ${input.unsubscribeLink}`, `${s.report}: ${input.reportLink}`]
     .filter(Boolean)
     .join("\n")
   const e = escapeHtml

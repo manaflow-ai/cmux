@@ -31,8 +31,39 @@ export const linkCode = (conversation: string): string => {
   throw new Error(`not a conversation id: ${conversation}`)
 }
 
-export const inviteLink = (origin: string, conversation: string, secret: string): string =>
-  `${origin.replace(/\/$/, "")}/i/${linkCode(conversation)}#${secret}`
+/**
+ * Where the accept page lives per environment. Fail closed: there is no
+ * default, and an environment without an entry (development, previews, local)
+ * needs an explicit https origin. Switch production to `https://cmux.com` once
+ * the cmux.com/i route ships (D-H1).
+ */
+export const ACCEPT_ORIGINS: Readonly<Record<string, string>> = {
+  production: "https://console.cmux.dev",
+  staging: "https://console-staging.cmux.dev"
+}
+
+export const inviteOrigin = (environment: string | undefined, override?: string): string => {
+  const origin = override ?? (environment ? ACCEPT_ORIGINS[environment] : undefined)
+  if (!origin) throw new Error(`no invite accept origin for environment ${JSON.stringify(environment ?? null)}`)
+  let url: URL
+  try {
+    url = new URL(origin)
+  } catch {
+    throw new Error("invite accept origin is not a URL")
+  }
+  if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || url.username) throw new Error("invite accept origin must be a bare https origin")
+  return url.origin
+}
+
+/** `<origin>/i/<g|d><26>#<secret>` for the environment (inviteOrigin rules). */
+export const inviteLink = (environment: string | undefined, conversation: string, secret: string, originOverride?: string): string => {
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(secret)) throw new Error("invite secret must be 26 base32 characters")
+  return `${inviteOrigin(environment, originOverride)}/i/${linkCode(conversation)}#${secret}`
+}
+
+/** Matches exactly one accept URL of the environment's origin. */
+export const acceptUrlPattern = (environment: string | undefined, originOverride?: string): RegExp =>
+  new RegExp(`^${inviteOrigin(environment, originOverride).replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")}/i/[dg][0-9A-HJKMNP-TV-Z]{26}#[0-9A-HJKMNP-TV-Z]{26}$`)
 
 export interface ParsedInvite {
   readonly conversation: string

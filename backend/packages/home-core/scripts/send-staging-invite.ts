@@ -4,7 +4,10 @@
  * the command line or in the output; only the entry number does.
  *
  *   HOME_INVITE_ALLOWLIST_FILE=<private file> RESEND_API_KEY=… SENDBLUE_API_KEY=… \
- *   SENDBLUE_API_SECRET=… SENDBLUE_FROM_NUMBER=… bun scripts/send-staging-invite.ts <entry> <A|B|C>
+ *   SENDBLUE_API_SECRET=… SENDBLUE_FROM_NUMBER=… bun scripts/send-staging-invite.ts <entry> <A|B|C> [render]
+ *
+ * With `render`, it prints the exact text (subject and body) and sends nothing:
+ * report that text before every send.
  *
  * The allow-list file holds `email <address>` / `phone <number>` lines and
  * lives outside the repository. Anything outside it is refused before the
@@ -14,7 +17,7 @@ import { randomBytes } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { deliverInvite, inviteLink, newInviteSecret, parseAllowlist, renderEmail, renderSms, type Variant } from "../src/invites/index.ts"
 
-const [entryArg, variantArg = "A"] = process.argv.slice(2)
+const [entryArg, variantArg = "A", mode] = process.argv.slice(2)
 const entry = Number(entryArg)
 const file = process.env.HOME_INVITE_ALLOWLIST_FILE
 if (!file || !Number.isInteger(entry) || entry < 1 || !["A", "B", "C"].includes(variantArg)) {
@@ -34,7 +37,7 @@ const need = (name: string) => {
 }
 
 const conversation = `conv_dm_${newInviteSecret(randomBytes(16))}`
-const link = inviteLink("https://cmux.com", conversation, newInviteSecret(randomBytes(16)))
+const link = inviteLink("staging", conversation, newInviteSecret(randomBytes(16)))
 const copy = {
   variant: variantArg as Variant,
   locale: "en" as const,
@@ -50,6 +53,10 @@ const copy = {
 const message = address.channel === "email" ? renderEmail(copy) : renderSms(copy)
 const staged =
   message.channel === "email" ? { ...message, subject: `[staging] ${message.subject}` } : { ...message, body: `[staging] ${message.body}` }
+if (mode === "render") {
+  console.log(JSON.stringify({ channel: staged.channel, entry, variant: staged.variant, ...(staged.channel === "email" ? { subject: staged.subject, text: staged.text } : { body: staged.body }) }, null, 2))
+  process.exit(0)
+}
 const inviteId = `inv_staging_${newInviteSecret(randomBytes(16))}`
 const result = await deliverInvite(
   {
