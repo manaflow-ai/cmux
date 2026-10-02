@@ -101,3 +101,39 @@ import Testing
         #expect(abs((changes.first?.ratio ?? 0) - 2.0 / 3.0) < 1e-9)
     }
 }
+
+@Suite @MainActor struct LayoutModelSplitSizingTests {
+    private func model(_ sizing: SplitSizing) -> LayoutModel {
+        let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "", layout: .columns([
+            LayoutColumn(id: "c", root: .split("x", axis: .vertical, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))),
+            LayoutColumn(id: "d", root: .leaf("e")),
+        ]))])
+        model.splitSizingOverride = sizing
+        return model
+    }
+
+    @Test func evenEqualizesTheColumnsChainAfterTheSplit() {
+        let model = model(.even)
+        var intents: [LayoutIntent] = []
+        model.intentHandler = { intents.append($0) }
+        let changes = model.splitSizingChanges(splitting: "b", axis: .vertical)
+        #expect(changes.map(\.split) == ["x"])
+        model.applySplitSizing(changes)
+        guard case let .setSplitRatio(split, ratio, _, .ended)? = intents.first else {
+            Issue.record("expected a ratio intent, got \(intents)")
+            return
+        }
+        #expect(split == "x" && abs(ratio - 1.0 / 3.0) < 1e-9)
+    }
+
+    @Test func halveLeavesOtherPanesAlone() {
+        #expect(model(.halve).splitSizingChanges(splitting: "b", axis: .vertical).isEmpty)
+    }
+
+    @Test func theDefaultIsEven() {
+        let model = LayoutModel()
+        model.followsDesignMetrics = false
+        #expect(model.splitSizing == .even)
+        #expect(model.newColumnWidthMode == .matchCurrent)
+    }
+}
