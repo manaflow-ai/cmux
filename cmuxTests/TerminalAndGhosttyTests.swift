@@ -3170,6 +3170,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         TmuxOverlayExperimentSettings.enabledKey,
         TmuxOverlayExperimentSettings.targetKey,
         NotificationPaneFlashSettings.enabledKey,
+        NotificationPaneFlashSettings.onTypingKey,
     ]
     private var originalFlashDefaults: [String: Any] = [:]
 
@@ -3185,6 +3186,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         defaults.set(false, forKey: TmuxOverlayExperimentSettings.enabledKey)
         defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
         defaults.set(true, forKey: NotificationPaneFlashSettings.enabledKey)
+        defaults.removeObject(forKey: NotificationPaneFlashSettings.onTypingKey)
     }
 
     override func tearDown() {
@@ -3411,6 +3413,9 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
             return
         }
 
+        // `notifications.paneFlashOnTyping` defaults to on (the legacy flash);
+        // this test covers the calmer opt-out where typing never flashes.
+        UserDefaults.standard.set(false, forKey: NotificationPaneFlashSettings.onTypingKey)
         AppFocusState.overrideIsFocused = true
         XCTAssertTrue(window.makeFirstResponder(surfaceView))
         // Let the runtime surface come up and the workspace's startup focus pass
@@ -3433,7 +3438,7 @@ final class TerminalNotificationDirectInteractionTests: XCTestCase {
         drainMainQueue()
 
         XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: terminalPanel.id))
-        // Typing into the pane is the acknowledgement; the pane doesn't flash.
+        // With Flash While Typing off, typing is the acknowledgement; no flash.
         XCTAssertEqual(GhosttySurfaceScrollView.flashCount(for: terminalPanel.id), 0)
     }
 
