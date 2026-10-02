@@ -217,6 +217,10 @@ struct CloudSidebarSurfaceRegressionTests {
             let presentation = CloudPortsStatusPresentation.make(info: info)
             #expect(presentation.action == action)
             #expect(presentation.title.lowercased().contains(phrase.lowercased()) || presentation.message.lowercased().contains(phrase.lowercased()))
+            if state == .loading {
+                #expect(presentation.title == "Discovering ports…")
+                #expect(presentation.message.isEmpty)
+            }
             if state != .loading && state != .unsupported && state != .empty(.noListeningService) {
                 #expect(presentation.message.contains("Cloud VPN"), "cmux forwarding truth must remain visible")
             }
