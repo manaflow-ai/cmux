@@ -29,7 +29,7 @@ extension TabStripView: TitlebarPressDeciding {
             ? clip.minX + min(tabRunTrailing(), clip.width)
             : contentView.convert(newTabButton.frame, to: self).maxX
         if runEnd > clip.minX { rects.append(CGRect(x: clip.minX, y: 0, width: runEnd - clip.minX, height: bounds.height)) }
-        if !locationField.isHidden { rects.append(contentView.convert(locationField.frame, to: self)) }
+        if let field = locationField.hitColumn(in: self) { rects.append(field) }
         if !buttonGroup.isHidden {
             let buttons = contentView.convert(buttonGroup.frame, to: self)
             rects.append(CGRect(x: buttons.minX, y: 0, width: buttons.width, height: bounds.height))

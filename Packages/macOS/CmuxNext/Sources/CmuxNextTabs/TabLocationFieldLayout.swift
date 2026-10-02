@@ -6,17 +6,23 @@ import CoreGraphics
 /// when shown) and the trailing buttons, leading-aligned after a small gap,
 /// as wide as the address needs up to that space. It never overlaps a tab or
 /// a trailing button: with less than `minimumWidth` free it hides instead
-/// of squeezing, and a long address truncates in the middle.
+/// of squeezing, and a long address is cut by `TabLocationText` (the rest
+/// first, then the host at its head). A titlebar strip keeps `dragReserve`
+/// of empty strip after the field.
 enum TabLocationFieldLayout {
     /// Narrowest free space the field still shows in.
     static let minimumWidth: CGFloat = 120
+    /// Empty strip a strip acting as the titlebar keeps after the field, so
+    /// the window can still be dragged from it.
+    static let dragReserve: CGFloat = 80
 
     /// The field's frame, or nil when it hides: no address to show, or less
-    /// than `minimumWidth` between `runEnd + gap` and `limit`.
+    /// than `minimumWidth` between `runEnd + gap` and `limit - reserve`
+    /// (`dragReserve` in a titlebar strip, else 0).
     static func frame(runEnd: CGFloat, limit: CGFloat, naturalWidth: CGFloat, gap: CGFloat,
-                      y: CGFloat, height: CGFloat) -> CGRect? {
+                      reserve: CGFloat = 0, y: CGFloat, height: CGFloat) -> CGRect? {
         let start = runEnd + gap
-        let available = limit - start
+        let available = limit - reserve - start
         guard naturalWidth > 0, available >= minimumWidth else { return nil }
         return CGRect(x: start, y: y, width: min(naturalWidth, available), height: height)
     }

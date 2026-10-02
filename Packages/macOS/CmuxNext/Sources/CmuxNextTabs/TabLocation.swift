@@ -17,10 +17,13 @@ public struct TabLocation: Hashable, Sendable {
     }
 
     /// The location of a page at `url`: http and https addresses with a
-    /// host, else nil.
+    /// plain ASCII host, else nil. A host with percent escapes or non-ASCII
+    /// characters (`%D0%B0pple.com`) gets no location, so the field never
+    /// shows a decoded look-alike; the omnibox still shows the page.
     public init?(page url: URL?) {
         guard let url, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
-              let host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
+              let host = url.host(percentEncoded: true), !host.isEmpty, !host.contains("%"),
+              host.unicodeScalars.allSatisfy(\.isASCII) else { return nil }
         self.init(url: url, isSecure: scheme == "https")
     }
 
@@ -36,7 +39,7 @@ public struct TabLocation: Hashable, Sendable {
     /// punycode (`xn--…`) form rather than as look-alike Unicode. User info
     /// (`user:pass@`) is never shown.
     public var displayHost: String {
-        var host = (url.host(percentEncoded: false) ?? "").lowercased()
+        var host = (url.host(percentEncoded: true) ?? "").lowercased()
         if host.contains(":"), !host.hasPrefix("[") { host = "[\(host)]" }
         let defaultPort = url.scheme?.lowercased() == "https" ? 443 : 80
         guard let port = url.port, port != defaultPort else { return host }
@@ -51,5 +54,16 @@ public struct TabLocation: Hashable, Sendable {
         if let query = components.percentEncodedQuery { rest += "?" + query }
         if let fragment = components.percentEncodedFragment { rest += "#" + fragment }
         return rest == "/" ? "" : rest
+    }
+
+    /// The full address without user info (`user:pass@`): the field's
+    /// tooltip and VoiceOver help.
+    public var displayURL: String {
+        if var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            components.user = nil
+            components.password = nil
+            if let stripped = components.url?.absoluteString { return stripped }
+        }
+        return "\(url.scheme?.lowercased() ?? "https")://\(displayHost)\(displayRest)"
     }
 }

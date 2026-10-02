@@ -51,6 +51,22 @@ import Testing
         #expect(try location("https://xn--bcher-kva.example/").displayHost == "xn--bcher-kva.example")
     }
 
+    /// The tooltip and VoiceOver help show the full address, never the
+    /// credentials in it.
+    @Test func theDisplayURLDropsUserInfo() throws {
+        let page = try location("https://user:secret@example.com/a?b=1#c")
+        #expect(page.displayURL == "https://example.com/a?b=1#c")
+        #expect(!page.displayURL.contains("user"))
+        #expect(try location("http://example.com/x").displayURL == "http://example.com/x")
+    }
+
+    /// A percent-escaped host would decode into a look-alike
+    /// (`%D0%B0` is Cyrillic а): such a page gets no location at all.
+    @Test func percentEscapedOrNonASCIIHostsHaveNoLocation() {
+        #expect(TabLocation(address: "https://%D0%B0pple.com/") == nil)
+        #expect(TabLocation(page: URL(string: "https://ex%61mple.com/")) == nil)
+    }
+
     @Test func internalPagesHaveNoLocation() {
         for address in ["about:blank", "chrome://newtab/", "cmux://settings", "file:///Users/me/a.html",
                         "data:text/plain,hi", "javascript:void(0)", "not a url", ""] {

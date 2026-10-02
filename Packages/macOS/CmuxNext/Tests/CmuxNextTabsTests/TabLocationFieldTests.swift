@@ -65,6 +65,22 @@ import Testing
         #expect(TabLocationFieldLayout.frame(runEnd: 0, limit: 600, naturalWidth: 0, gap: 8, y: 0, height: 28) == nil)
     }
 
+    /// A strip that is the window's titlebar keeps `dragReserve` of empty
+    /// strip after the field, so the window can still be dragged.
+    @Test func aTitlebarStripKeepsADragReserve() {
+        let reserve = TabLocationFieldLayout.dragReserve
+        #expect(reserve >= 80)
+        let capped = TabLocationFieldLayout.frame(runEnd: 100, limit: 500, naturalWidth: 900, gap: 8, reserve: reserve, y: 0, height: 28)
+        #expect(capped?.maxX == 500 - reserve)
+        let short = TabLocationFieldLayout.frame(runEnd: 100, limit: 500, naturalWidth: 100, gap: 8, reserve: reserve, y: 0, height: 28)
+        #expect(short?.width == 100, "a short address keeps its own width")
+        let minimum = TabLocationFieldLayout.minimumWidth
+        let limit = 100 + 8 + minimum + reserve
+        #expect(TabLocationFieldLayout.frame(runEnd: 100, limit: limit, naturalWidth: 900, gap: 8, reserve: reserve, y: 0, height: 28) != nil)
+        #expect(TabLocationFieldLayout.frame(runEnd: 100, limit: limit - 1, naturalWidth: 900, gap: 8, reserve: reserve, y: 0, height: 28) == nil,
+                "under the minimum after the reserve, the field hides")
+    }
+
     @Test func theRunEndIsTheLaterOfDrawnAndTarget() {
         #expect(TabLocationFieldLayout.runEnd(current: 120, target: 200) == 200, "a tab growing in pushes the field at once")
         #expect(TabLocationFieldLayout.runEnd(current: 200, target: 120) == 200, "a closing tab never slides under it")
@@ -81,6 +97,11 @@ import Testing
         #expect(h.fieldFrame.minX >= plus.maxX, "never over the tabs or +")
         #expect(h.fieldFrame.maxX <= h.strip.bounds.width - h.strip.metrics.stripHorizontalPadding)
         #expect(h.strip.titlebarHit(at: h.fieldCenter) == .strip, "the field never drags the window")
+        // The field's column is the full strip height: no dead band above or below the text.
+        let top = CGPoint(x: h.fieldFrame.midX, y: 0.5)
+        let bottom = CGPoint(x: h.fieldFrame.midX, y: h.strip.bounds.height - 0.5)
+        #expect(h.field.hit(top, from: h.strip) && h.field.hit(bottom, from: h.strip))
+        #expect(h.strip.titlebarHit(at: top) == .strip)
         #expect(h.strip.accessibilityChildren()?.contains { ($0 as AnyObject) === h.field } == true)
     }
 
@@ -153,5 +174,20 @@ import Testing
         #expect(h.field.accessibilityRole() == .button)
         #expect(h.field.accessibilityPerformPress())
         #expect(h.intents == [.focusLocation])
+    }
+
+    @Test func aHiddenFieldIgnoresVoiceOverPresses() {
+        let h = Harness(tabs: [TabItem(id: "a", title: "Terminal")])
+        defer { h.close() }
+        #expect(h.field.isHidden)
+        #expect(!h.field.accessibilityPerformPress())
+        #expect(h.intents.isEmpty)
+    }
+
+    @Test func helpAndTooltipTextNeverCarryCredentials() {
+        let h = Harness(tabs: [Self.browser("a", TabLocation(address: "https://me:pw@example.com/a"))])
+        defer { h.close() }
+        #expect(h.field.accessibilityHelp() == "https://example.com/a")
+        #expect(h.field.displayURL == "https://example.com/a")
     }
 }

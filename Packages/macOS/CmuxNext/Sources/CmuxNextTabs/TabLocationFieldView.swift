@@ -7,7 +7,7 @@ import CmuxNextDesign
 /// pointer), never animates and never shows load progress (the tab icon
 /// does). The host reads in primary text, the path, query and fragment are
 /// dimmed, and an http page gets a small "not secure" glyph; https gets
-/// none. A click asks the App to focus the address bar
+/// none. A long address is cut by `TabLocationText`. A click asks the App to focus the address bar
 /// (`TabStripIntent.focusLocation`).
 ///
 /// Mouse handling, like the + button's, is the strip's: it forwards presses
@@ -17,6 +17,7 @@ final class TabLocationFieldView: NSView {
     var location: TabLocation? {
         didSet {
             guard location != oldValue else { return }
+            displayURL = location?.displayURL ?? ""
             remeasure()
             updateAccessibility()
         }
@@ -35,11 +36,13 @@ final class TabLocationFieldView: NSView {
 
     /// Width the whole address needs: insets, glyph and text.
     private(set) var naturalWidth: CGFloat = 0
+    /// `location.displayURL`, cached for the tooltip and VoiceOver help.
+    private(set) var displayURL = ""
     /// The tooltip registered on the strip (it takes every mouse event, so
     /// tooltips live there). The strip clears `toolTipTag` when it drops all
     /// of its tooltips (`layoutButtonGroup`).
     var toolTipTag: NSView.ToolTipTag?
-    private var toolTipKey: (rect: CGRect, text: String)?
+    private var toolTipKey: (frame: CGRect, text: String)?
 
     private var horizontalInset: CGFloat { Metrics.space2 }
     private var glyphSpacing: CGFloat { Metrics.space1 }
@@ -72,22 +75,24 @@ final class TabLocationFieldView: NSView {
 
     /// Shows the field at `frame` (the content view's coordinates), or
     /// hides it for a nil frame, and keeps its tooltip on `host` current.
+    /// Runs on every strip frame; touches the view and the tooltip only
+    /// when the frame or the address changed.
     func place(_ frame: CGRect?, toolTipHost host: NSView) {
-        guard let frame, let location else {
+        guard let frame, location != nil else {
             if !isHidden { isHidden = true }
             isHovered = false
             dropToolTip(from: host)
             return
         }
-        if self.frame != frame { self.frame = frame }
-        if isHidden { isHidden = false }
-        let rect = host.convert(frame, from: superview)
-        let text = location.url.absoluteString
-        if toolTipTag == nil || toolTipKey?.rect != rect || toolTipKey?.text != text {
-            dropToolTip(from: host)
-            toolTipTag = host.addToolTip(rect, owner: text as NSString, userData: nil)
-            toolTipKey = (rect, text)
+        if self.frame != frame {
+            if self.frame.size != frame.size { needsDisplay = true }
+            self.frame = frame
         }
+        if isHidden { isHidden = false }
+        if toolTipTag != nil, toolTipKey?.frame == frame, toolTipKey?.text == displayURL { return }
+        dropToolTip(from: host)
+        toolTipTag = host.addToolTip(host.convert(frame, from: superview), owner: displayURL as NSString, userData: nil)
+        toolTipKey = (frame, displayURL)
     }
 
     private func dropToolTip(from host: NSView) {
@@ -98,9 +103,20 @@ final class TabLocationFieldView: NSView {
 
     // MARK: Pointer (forwarded by the strip)
 
-    /// Whether `point` (in `view`'s coordinates) is on the shown field.
+    /// The field's column in `view`'s coordinates: its x range over the
+    /// full height of its superview (the strip), like the trailing buttons,
+    /// so the gap above and below the text is neither dead nor titlebar.
+    /// Nil while hidden.
+    func hitColumn(in view: NSView) -> CGRect? {
+        guard !isHidden, let superview else { return nil }
+        let column = CGRect(x: frame.minX, y: superview.bounds.minY, width: frame.width, height: superview.bounds.height)
+        return view.convert(column, from: superview)
+    }
+
+    /// Whether `point` (in `view`'s coordinates) is on the shown field's
+    /// column (`hitColumn`).
     func hit(_ point: CGPoint, from view: NSView) -> Bool {
-        !isHidden && bounds.contains(convert(point, from: view))
+        hitColumn(in: view)?.contains(point) ?? false
     }
 
     /// Starts a press when `point` is on the field; returns whether it was.
@@ -155,20 +171,23 @@ final class TabLocationFieldView: NSView {
                 drawNotSecureGlyph(at: x, color: Palette.textTertiary)
                 x += glyphSize + glyphSpacing
             }
+            let width = max(0, bounds.width - x - horizontalInset)
+            let measureFont = self.font
+            let fitted = TabLocationText.fit(host: location.displayHost, rest: location.displayRest, width: width) {
+                ceil(($0 as NSString).size(withAttributes: [.font: measureFont]).width)
+            }
             let paragraph = NSMutableParagraphStyle()
-            paragraph.lineBreakMode = .byTruncatingMiddle
+            paragraph.lineBreakMode = .byClipping
             let text = NSMutableAttributedString(
-                string: location.displayHost,
+                string: fitted.host,
                 attributes: [.font: font, .foregroundColor: Palette.textPrimary, .paragraphStyle: paragraph]
             )
             text.append(NSAttributedString(
-                string: location.displayRest,
+                string: fitted.rest,
                 attributes: [.font: font, .foregroundColor: Palette.textTertiary, .paragraphStyle: paragraph]
             ))
             let lineHeight = ceil(font.ascender - font.descender + font.leading)
-            let rect = CGRect(x: x, y: ((bounds.height - lineHeight) / 2).rounded(),
-                              width: max(0, bounds.width - x - horizontalInset), height: lineHeight)
-            text.draw(in: rect)
+            text.draw(in: CGRect(x: x, y: ((bounds.height - lineHeight) / 2).rounded(), width: width, height: lineHeight))
         }
     }
 
@@ -196,10 +215,11 @@ final class TabLocationFieldView: NSView {
         var parts = [Strings.axLocation(location.displayHost)]
         if !location.isSecure { parts.append(Strings.axNotSecure) }
         setAccessibilityLabel(parts.joined(separator: ", "))
-        setAccessibilityHelp(location.url.absoluteString)
+        setAccessibilityHelp(location.displayURL)
     }
 
     override func accessibilityPerformPress() -> Bool {
+        guard !isHidden, location != nil else { return false }
         onPress?()
         return true
     }
