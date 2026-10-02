@@ -19,6 +19,8 @@ struct SidebarWorkspaceSnapshotBuilder {
         // neither of which is a Workspace @Published change that would otherwise
         // refresh the snapshot.
         let customColorHex: String?
+        // Clear Color availability can change without changing the rendered color.
+        var hasManualCustomColor = false
         // Host named after a colliding title (beta). Part of the key because it depends on the other
         // workspaces' titles, so a rename elsewhere must rebuild this row's cached snapshot.
         var hostTitleSuffix: String? = nil

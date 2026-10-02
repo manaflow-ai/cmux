@@ -74,7 +74,7 @@ final class RemoteHostColorRegistry {
     private var hostBySlot: [Int: String] = [:]
 
     init(slotCount: Int? = nil) {
-        self.slotCount = max(0, slotCount ?? Self.hostPalette.count)
+        self.slotCount = min(max(0, slotCount ?? Self.hostPalette.count), Self.hostPalette.count)
     }
 
     /// The palette slot for `destination`, assigning one on first sight (stable

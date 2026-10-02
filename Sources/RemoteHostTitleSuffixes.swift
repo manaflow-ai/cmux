@@ -57,9 +57,18 @@ struct RemoteHostTitleSuffixes {
 
     /// Whether a host is an IPv4 or IPv6 literal rather than a name.
     func isIPAddress(_ host: String) -> Bool {
-        if host.contains(":") { return true }
-        let labels = host.split(separator: ".", omittingEmptySubsequences: false)
-        return labels.count == 4 && labels.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+        let candidate: String
+        if host.hasPrefix("[") && host.hasSuffix("]") {
+            candidate = String(host.dropFirst().dropLast())
+        } else {
+            candidate = host
+        }
+        var ipv4 = in_addr()
+        if candidate.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
+            return true
+        }
+        var ipv6 = in6_addr()
+        return candidate.withCString({ inet_pton(AF_INET6, $0, &ipv6) }) == 1
     }
 
     /// The host part of a destination: everything after the last `@`, trimmed.

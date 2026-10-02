@@ -175,6 +175,7 @@ struct SidebarWorkspaceSnapshotFactory {
             settings: settings,
             showsAgentActivity: showsAgentActivity,
             customColorHex: workspace.customColor ?? originColorHex,
+            hasManualCustomColor: workspace.customColor != nil,
             hostTitleSuffix: hostTitleSuffix
         )
     }
@@ -183,6 +184,7 @@ struct SidebarWorkspaceSnapshotFactory {
         settings: SidebarTabItemSettingsSnapshot,
         showsAgentActivity: Bool,
         customColorHex: String?,
+        hasManualCustomColor: Bool = false,
         hostTitleSuffix: String? = nil
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
@@ -195,6 +197,7 @@ struct SidebarWorkspaceSnapshotFactory {
             compactStatusIcons: settings.compactStatusIcons,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
             customColorHex: customColorHex,
+            hasManualCustomColor: hasManualCustomColor,
             hostTitleSuffix: hostTitleSuffix
         )
     }

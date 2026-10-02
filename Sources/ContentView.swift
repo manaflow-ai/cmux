@@ -13022,6 +13022,7 @@ struct VerticalTabsSidebar: View, Equatable {
                         workspace.customColor
                             ?? originColorHex(for: workspace, mirrorDestinations: mirrorDestinations)
                     },
+                    hasManualCustomColor: workspaceById[workspaceId]?.customColor != nil,
                     hostTitleSuffix: hostTitleSuffixes[workspaceId]
                 )
             }
