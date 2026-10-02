@@ -60694,55 +60694,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Import bookmarks, history, and cookies from Safari, Chrome, Firefox, Brave, Edge, or Arc. Already-imported entries are deduped automatically."
+            "value": "Choose a browser to import bookmarks, history, and cookies. Already-imported entries are deduped automatically."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Safari、Chrome、Firefox、Brave、Edge、Arc からブックマーク、履歴、Cookie をインポートします。インポート済みの項目は自動的に重複排除されます。"
+            "value": "ブラウザを選んでブックマーク、履歴、Cookie をインポートします。インポート済みの項目は自動的に重複排除されます。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从 Safari、Chrome、Firefox、Brave、Edge 或 Arc 导入书签、历史记录和 Cookie。已导入的条目会自动去重。"
+            "value": "选择浏览器以导入书签、历史记录和 Cookie。已导入的条目会自动去重。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importieren Sie Lesezeichen, Verlauf und Cookies von Safari, Chrome, Firefox, Brave, Edge oder Arc. Bereits importierte Einträge werden automatisch dedupliziert."
+            "value": "Wählen Sie einen Browser aus, um Lesezeichen, Verlauf und Cookies zu importieren. Bereits importierte Einträge werden automatisch dedupliziert."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importez les favoris, l'historique et les cookies depuis Safari, Chrome, Firefox, Brave, Edge ou Arc. Les entrées déjà importées sont automatiquement dédoublées."
+            "value": "Choisissez un navigateur pour importer les favoris, l'historique et les cookies. Les entrées déjà importées sont automatiquement dédoublées."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "استورد الإشارات المرجعية والسجل وملفات تعريف الارتباط من Safari أو Chrome أو Firefox أو Brave أو Edge أو Arc. يتم إلغاء تكرار الإدخالات المستوردة بالفعل تلقائيًا."
+            "value": "اختر متصفحًا لاستيراد الإشارات المرجعية والسجل وملفات تعريف الارتباط. يتم إلغاء تكرار الإدخالات المستوردة بالفعل تلقائيًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Importa marcadores, historial y cookies desde Safari, Chrome, Firefox, Brave, Edge o Arc. Las entradas ya importadas se desduplican automáticamente."
+            "value": "Elige un navegador para importar marcadores, historial y cookies. Las entradas ya importadas se desduplican automáticamente."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從 Safari、Chrome、Firefox、Brave、Edge 或 Arc 匯入書籤、瀏覽紀錄和 Cookie。已匯入的項目會自動排除重複。"
+            "value": "選擇瀏覽器以匯入書籤、瀏覽紀錄和 Cookie。已匯入的項目會自動排除重複。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Safari, Chrome, Firefox, Brave, Edge 또는 Arc에서 북마크, 방문 기록, 쿠키를 가져옵니다. 이미 가져온 항목은 자동으로 중복 제거됩니다."
+            "value": "브라우저를 선택하여 북마크, 방문 기록, 쿠키를 가져옵니다. 이미 가져온 항목은 자동으로 중복 제거됩니다."
           }
         }
       }
