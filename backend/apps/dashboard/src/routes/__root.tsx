@@ -23,7 +23,18 @@ input, select { font: inherit; padding: 6px 8px; border:1px solid var(--line); b
 
 export const Route = createRootRoute({
   head: () => ({
-    meta: [{ charSet: "utf-8" }, { name: "viewport", content: "width=device-width, initial-scale=1" }, { title: "cmux Cloud (next)" }]
+    meta: [
+      { charSet: "utf-8" },
+      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { title: "cmux Cloud (next)" },
+      { property: "og:site_name", content: "cmux" },
+      { name: "theme-color", content: "#0b1020" }
+    ],
+    links: [
+      { rel: "icon", href: "/favicon.ico", sizes: "32x32" },
+      { rel: "icon", type: "image/png", href: "/icon.png" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" }
+    ]
   }),
   shellComponent: Shell,
   component: Layout
