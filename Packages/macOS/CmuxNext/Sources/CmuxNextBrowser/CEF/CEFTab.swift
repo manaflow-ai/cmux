@@ -67,6 +67,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// A title Chromium reported before the navigation committed. A Back or
+    /// Forward reports the entry's title first, and a page restored from
+    /// the back/forward cache never sets it again, so commit keeps it.
+    @ObservationIgnored var titleBeforeCommit: String?
     @ObservationIgnored var findContinuation: CheckedContinuation<BrowserFindResult, Never>?
     @ObservationIgnored var nextFindID: Int32 = 1
     @ObservationIgnored var faviconTask: Task<Void, Never>?

@@ -15,6 +15,7 @@ extension CEFTab {
             if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
+                titleBeforeCommit = nil
                 machine.apply(.started(id, url: nil))
             } else if !loading, state.isLoading, let navigation {
                 machine.apply(.finished(navigation))
@@ -26,6 +27,8 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
+            titleBeforeCommit = nil
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
@@ -43,6 +46,7 @@ extension CEFTab {
             machine.apply(.urlChanged(URL(string: url)))
         case .title(_, let title):
             machine.apply(.titleChanged(title.isEmpty ? nil : title))
+            if state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }
         case .favicon(_, let url):
             let faviconURL = URL(string: url)
             machine.apply(.faviconChanged(faviconURL))
