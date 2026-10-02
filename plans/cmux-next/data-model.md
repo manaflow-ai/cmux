@@ -326,7 +326,7 @@ into theirs once.
 | Level | Colors | Reason |
 | --- | --- | --- |
 | Room | every workspace and terminal without an override, and the window chrome (sidebar, titlebar, floating cards) while the shown workspace has none | a window shows one room and chrome is continuous with the terminal background; the recolor on a switch is the clearest cue of the current room |
-| Workspace | its content area (terminals, pane tab strips, pane chrome, the screen bar) and, while shown, the window chrome; its sidebar row shows its color | the sidebar background always equals the content background beside it (Lawrence, 2026-10-01): a seam between them read as a wrong color, not as a signal. The chrome crossfades on a switch between differently themed workspaces |
+| Workspace | its content area (terminals, pane tab strips, pane chrome, the screen bar) and, while shown, the window chrome; its sidebar row shows its color | the sidebar background always equals the content background beside it (Lawrence, 2026-10-01): a seam between them read as a wrong color, not as a signal. The chrome switches with the content in one frame |
 | Terminal | only its surface (`terminal-color-overrides-v1`) | a pane-level cue, such as ssh to prod |
 
 Precedence: terminal, workspace, room, Ghostty config. A theme is a Ghostty
