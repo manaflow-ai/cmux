@@ -167,6 +167,10 @@
     },
     "server": {
       "$ref": "#/$defs/server"
+    },
+    "x-cmux-devOnly": {
+      "type": "boolean",
+      "description": "Only in DEV and NIGHTLY builds (prototypes, debug tools)."
     }
   },
   "$defs": {
@@ -248,6 +252,10 @@
         },
         "symbol": {
           "$ref": "#/$defs/symbol"
+        },
+        "x-cmux-devOnly": {
+          "type": "boolean",
+          "description": "Only in DEV and NIGHTLY builds (prototypes, debug tools)."
         }
       }
     },

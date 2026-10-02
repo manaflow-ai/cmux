@@ -13,7 +13,7 @@ nonisolated struct AppManifestValidator {
     static let topLevelKeys: Set<String> = [
         "$schema", "manifestVersion", "id", "name", "version", "description", "publisher", "repository", "homepage",
         "license", "icon", "screenshots", "categories", "keywords", "engines", "main", "scopes", "optionalScopes",
-        "contributes", "activation", "files", "pricing", "server",
+        "contributes", "activation", "files", "pricing", "server", "x-cmux-devOnly",
     ]
 
     static func validate(_ document: AppJSON) -> [AppManifestIssue] {

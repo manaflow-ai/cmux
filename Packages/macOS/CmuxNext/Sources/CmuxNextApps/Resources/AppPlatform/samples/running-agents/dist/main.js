@@ -19,9 +19,10 @@
     renderAgents: () => renderAgents
   });
   async function focusTerminal(terminal) {
+    const gesture = cmux.gesture() ?? undefined;
     const t = await cmux.terminal.get({ terminal });
     if (t.tab_id)
-      await cmux.tab.focus({ tab: t.tab_id });
+      await cmux.tab.focus({ tab: t.tab_id }, { gesture });
   }
   var GROUPS = [
     { state: "blocked", title: "Waiting for you", symbol: "exclamationmark.bubble", tone: "warning" },

@@ -79,7 +79,7 @@ describe("lifecycle, settings, l10n", () => {
 describe("manifest", () => {
   test("x-cmux-devOnly is allowed on the app and on contributions", () => {
     const dir = mkdtempSync(join(tmpdir(), "cmux-app-dev-"))
-    writeFileSync(join(dir, "cmux-app.json"), JSON.stringify({ manifestVersion: 1, id: "local/dev", name: "D", version: "0.1.0", description: "d", engines: { cmux: "^1.0" }, "x-cmux-devOnly": true }))
+    writeFileSync(join(dir, "cmux-app.json"), JSON.stringify({ manifestVersion: 1, id: "local/dev", name: "D", version: "0.1.0", description: "d", engines: { cmux: "^1.0" }, "x-cmux-devOnly": true, contributes: { themes: [{ id: "t", title: "T", "x-cmux-devOnly": true }] } }))
     expect(validatePackage(dir).errors).toEqual([])
   })
 })

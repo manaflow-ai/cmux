@@ -22,9 +22,10 @@ describe("samples", () => {
     await host.settle()
     expect(texts(host, "m")).toEqual(expect.arrayContaining(["Waiting for you", "Working", "agent-a", "agent-b"]))
     const row = host.findNode("m", (n) => n.type === "Row" && n.props.title === "agent-b")!
-    host.dispatch("m", row, "tap")
+    host.dispatch("m", row, "tap", { gesture: "g7" })
     await host.settle()
-    expect(host.calls.find((c) => c.name === "tab.focus")!.params).toEqual({ tab: "tab_9" })
+    const focus = host.calls.find((c) => c.name === "tab.focus")!
+    expect([focus.params, focus.options.gesture]).toEqual([{ tab: "tab_9" }, "g7"])
   })
 
   test("agent-status summarizes", async () => {
