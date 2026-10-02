@@ -24,7 +24,25 @@ describe("mock transport", () => {
     // The turn edits files, so it has changes to review.
     const diffs = rows.flatMap((row) => row.items ?? []).flatMap((item) => item.tool?.diffs ?? []);
     expect(diffs.map((diff) => diff.path)).toEqual(["/mock/project/src/greeting.ts", "/mock/project/NOTES.md"]);
+    // The reply splits around its tool calls, and the summary counts all three.
+    expect(rows.map((row) => row.kind)).toEqual(["assistant", "user", "assistant", "activity", "assistant", "activity", "assistant", "turnSummary"]);
+    expect(rows.find((row) => row.kind === "turnSummary")?.toolCount).toBe(3);
     client.close();
+  });
+
+  test("closing the daemon stops a queued prompt too", async () => {
+    let steps = 0;
+    const waiting: (() => void)[] = [];
+    const socket = new MockAcpmuxSocket(() => { steps += 1; return new Promise<void>((resolve) => waiting.push(resolve)); });
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+    await tick();
+    const prompt = (id: number) => socket.send(JSON.stringify({ jsonrpc: "2.0", id, method: "session/prompt", params: { sessionId: mockHost.sessionId, prompt: [{ type: "text", text: `p${id}` }] } }));
+    prompt(1); prompt(2);
+    await tick();
+    expect(steps).toBe(1);
+    socket.close();
+    for (let round = 0; round < 5; round += 1) { while (waiting.length) waiting.shift()!(); await tick(); }
+    expect(steps).toBe(1);
   });
 
   const connectMock = async (snapshots: AcpmuxSnapshot[], delay: (ms: number) => Promise<void> = () => Promise.resolve()) => {
