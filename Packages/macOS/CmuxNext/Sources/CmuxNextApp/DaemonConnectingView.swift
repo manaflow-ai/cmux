@@ -29,6 +29,8 @@ final class DaemonConnectingView: NSView {
         markTimer = DemandTimer(owner: "launch.mark", clock: clock)
         statusTimer = DemandTimer(owner: "launch.status", clock: clock)
         super.init(frame: frame)
+        // Layer-backed, so the status line's fade sets its model alpha at once.
+        wantsLayer = true
         titleLabel.font = Typography.body
         titleLabel.alignment = .center
         detailLabel.font = Typography.caption
@@ -120,7 +122,7 @@ final class DaemonConnectingView: NSView {
     }
 
     var titleText: String { titleLabel.stringValue }
-    /// The status line shows (it keeps its space while hidden, so nothing
-    /// moves when it appears).
-    var isTitleShown: Bool { titleLabel.alphaValue > 0 }
+    /// The status line shows or is fading in (it keeps its space while
+    /// hidden, so nothing moves when it appears).
+    var isTitleShown: Bool { statusDue }
 }
