@@ -57,8 +57,10 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
   expect(projects).toEqual(["web", "app"]);
   const marks = [...container.querySelectorAll(".acpmux-session-mark")].map((node) => node.getAttribute("title"));
   expect(marks).toEqual(["Needs input", "Working", "New activity"]);
-  // Needs input is told from the unread dot by its glyph, not only its colour.
-  expect(container.querySelector(".acpmux-session-mark-input")?.textContent).toBe("?");
+  // Needs input and working are told apart from the unread dot by their glyphs, not only by colour.
+  expect(container.querySelector(".acpmux-session-mark-input svg")).not.toBeNull();
+  expect(container.querySelector(".acpmux-session-mark-running svg")).not.toBeNull();
+  expect(container.querySelector(".acpmux-session-mark-unread svg")).toBeNull();
   // The state is part of the row's accessible name.
   expect(container.querySelector(".acpmux-session-row")?.getAttribute("aria-label")).toBe(
     "Fix the checkout page, Needs input",
@@ -86,5 +88,28 @@ test("an empty list says so", async () => {
   const root = createRoot(container);
   await act(async () => root.render(createElement(SessionSidebar, { sessions: [], onSelect: () => undefined })));
   expect(container.textContent).toBe("No sessions yet");
+  await act(async () => root.unmount());
+});
+
+test("pinned sessions get their own section and projects on another machine name it", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const list: AcpmuxSessionEntry[] = [
+    { sessionId: "pin", displayTitle: "Set up 24/7 agent work", cwd: "/src/web", updatedAt: 9, pinned: true },
+    { sessionId: "web", displayTitle: "Fix the checkout page", cwd: "/src/web", updatedAt: 8 },
+    { sessionId: "cloud", displayTitle: "Tags with a TTL", cwd: "/home/u/acpmux", host: "cobalt-butte", updatedAt: 7 },
+  ];
+  await act(async () => root.render(createElement(SessionSidebar, { sessions: list, onSelect: () => {} })));
+  expect([...container.querySelectorAll(".acpmux-sidebar-section")].map((node) => node.textContent)).toEqual([
+    "Pinned",
+    "Projects",
+  ]);
+  expect(
+    [...container.querySelectorAll(".acpmux-sidebar-pinned .acpmux-session-row")].map((node) => node.textContent),
+  ).toEqual(["Set up 24/7 agent work"]);
+  expect([...container.querySelectorAll(".acpmux-sidebar-project")].map((node) => node.textContent)).toEqual([
+    "web",
+    "acpmuxcobalt-butte",
+  ]);
   await act(async () => root.unmount());
 });

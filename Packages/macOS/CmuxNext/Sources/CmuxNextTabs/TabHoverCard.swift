@@ -29,7 +29,13 @@ final class TabHoverCardController: HoverCardSource {
     /// Samples CPU and memory of the hovered tab while its card is pending
     /// or shown (first sample at hover start), never otherwise.
     let resources = ResourceCardSampler(source: nil)
-    var policy = HoverCardPolicy()
+    /// Timing; read fresh on each hover so Debug Settings changes apply at
+    /// once, unless a caller pinned one.
+    var policy: HoverCardPolicy {
+        get { pinnedPolicy ?? HoverCardPolicy() }
+        set { pinnedPolicy = newValue }
+    }
+    private var pinnedPolicy: HoverCardPolicy?
     var metrics = TabStripMetrics.standard
     /// The app's one coordinator; the App injects it, a demo strip uses its own.
     var coordinator: HoverCardCoordinator {

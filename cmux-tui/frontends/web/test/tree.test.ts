@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vite-plus/test";
 import type { Tree } from "cmux/raw";
 import { initialLocalSelectionState } from "../src/lib/localSelection";
 import {

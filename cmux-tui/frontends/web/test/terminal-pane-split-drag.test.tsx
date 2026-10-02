@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import type { ClientInfo, CmuxClient } from "cmux/raw";
 import { TerminalPane } from "../src/components/TerminalPane";
 import type { ScreenView } from "../src/lib/tree";
