@@ -55,6 +55,23 @@ test("host allowlist does not inherit catalog operations marked deny", async () 
   assert.deepEqual(await broker.request("vm.pause", { vm_id: "vm_fixture" }), { id: "vm_fixture", status: "paused" });
 });
 
+test("catalog mutations use the protocol's script origin", async () => {
+  const calls = [];
+  const broker = createCloudBroker({
+    catalog: relayCatalog,
+    apiUrl: "https://cloud.test",
+    bearerToken: "fixture-secret",
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, value: { tunnelId: "tunnel_fixture" } }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  await broker.request("tunnel.attach", { vm_id: "vm_fixture" }, "attach-key");
+  const payload = JSON.parse(calls[0].init.body);
+  assert.equal(payload.origin, "script");
+  assert.equal(payload.idempotency_key, "attach-key");
+});
+
 test("host relay serves typed requests over a Unix socket", async () => {
   const dir = mkdtempSync(join(tmpdir(), "cmux-cloud-relay-"));
   const socketPath = join(dir, "relay.sock");
