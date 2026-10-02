@@ -29,6 +29,34 @@ The execute prototype in the follow-up branch exposes the existing generated Typ
 
 A first runtime prototype should prefer the pinned workerd path already being evaluated by `automations-runtime.md`; use QuickJS only if the existing build and embedding path can keep the binary and policy surface smaller while preserving TypeScript support. Do not allow ambient `fs`, `net`, child processes or dynamic imports.
 
+## Catalog extension proposal: cloud and CUA
+
+The execute slice keeps one `cmux.protocol/2` socket and one typed resource
+catalog. Cloud and CUA must join that path through owner relays; adding names
+to the JSON catalog alone would make discovery disagree with the Rust enum,
+router, result validation and server dispatch.
+
+Cloud already has a separate generated catalog at
+`backend/catalog/cloud-operations.json` and a typed client under
+`backend/packages/protocol`. The cloud follow-up should add a host-owned
+broker that obtains credentials outside the sandbox, translates the merged
+catalog envelope to the cloud wire protocol, and returns typed results. The
+broker should first cover the cataloged cloud control-plane reads and
+mutations. Cloud VM lifecycle operations such as pause and resume need their
+own catalog entries and owner decision because the current `/api/vm` client is
+outside that catalog.
+
+CUA remains a later relay. The CUA host owns its authenticated socket and
+session credentials. The cmux-tui resource service should route typed `cua.*`
+operations to that owner before code mode exposes them. Candidate groups are
+session start/end and reads, timeline/frame reads, and the existing act/observe
+families. User-only stop, pause, resume and policy operations stay excluded
+from agent code mode unless the owner grants them explicitly.
+
+Until those relays land, `cmux run` and `cmux_exec` expose only the embedded
+cmux-tui catalog. A script must not open a second cloud or CUA socket, and the
+sandbox must not receive cloud bearer tokens or CUA launch credentials.
+
 ## Measurement
 
 Capture a live `tools/list` payload for every supported harness and count it with the same tokenizer used for the model under test. Compare:
