@@ -26,8 +26,6 @@ final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
-    @ObservationIgnored private var reconciling: Task<Void, Never>?
-    @ObservationIgnored private var queuedReconcile: Task<Void, Never>?
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
@@ -294,32 +292,6 @@ final class DaemonService {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             return .failed
         }
-    }
-
-    /// Fetches and applies a snapshot. Requests on the control connection
-    /// are answered in order, so the snapshot reflects every command sent
-    /// before it, including ones whose replies missed their deadline.
-    /// Concurrent callers share snapshots: a caller joins the snapshot
-    /// queued behind the one in flight (so it is ordered after the caller's
-    /// commands), and at most one is queued.
-    func reconcile() async {
-        if let queuedReconcile {
-            await queuedReconcile.value
-            return
-        }
-        let previous = reconciling
-        let task = Task { @MainActor [weak self] in
-            await previous?.value
-            guard let self else { return }
-            self.queuedReconcile = nil
-            if let connection = self.connection, let (tree, _) = try? await connection.snapshot() {
-                self.store.apply(snapshot: tree)
-            }
-        }
-        if previous != nil { queuedReconcile = task }
-        reconciling = task
-        await task.value
-        if reconciling == task { reconciling = nil }
     }
 
     /// Fire-and-forget variant for UI handlers.

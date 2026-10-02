@@ -5,7 +5,7 @@ import CmuxNextDaemon
 /// Workspace lifecycle, navigation, order, and bulk close (category
 /// `workspace`). Names, colors, and notifications are in
 /// `WorkspaceMetadataHandlers`; groups in `WorkspaceGroupHandlers`. Every
-/// mutation is a daemon command; order changes carry an optimistic patch.
+/// mutation is a daemon command; order changes are store intents.
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })

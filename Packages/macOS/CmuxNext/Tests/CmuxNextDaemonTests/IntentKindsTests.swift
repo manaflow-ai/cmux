@@ -20,8 +20,116 @@ import Testing
     /// snapshot" and the old name showed until the event arrived.
     @Test func anUnsettledRenameSurvivesASnapshotThatPredatesIt() async throws {
         let (store, tree) = try loaded()
-        try await store.perform(.renameTab(surface: 3, name: "renamed"), expectEcho: false) { _ in }
+        store.intend(.renameTab(surface: 3, name: "renamed"), transaction: "tx")
+        store.noteSettled("tx", at: 10)
         store.apply(snapshot: tree)
         #expect(store.tab(surface: 3)?.name == "renamed")
+    }
+
+    /// Four workspaces, two in group g1, so placement has a section to
+    /// work in: daemon order a(g1) b c(g1) d.
+    private func grouped() throws -> (DaemonStore, DaemonTree) {
+        var tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        let template = tree.workspaces[1]
+        tree.workspaces = ["a", "b", "c", "d"].enumerated().map { index, name in
+            var workspace = template
+            workspace.id = WorkspaceHandle(rawValue: UInt64(40 + index))
+            workspace.key = WorkspaceKey(rawValue: name)
+            workspace.resourceID = nil
+            workspace.name = name
+            workspace.group = name == "a" || name == "c" ? "g1" : nil
+            return workspace
+        }
+        tree.groups = [WorkspaceGroupSnapshot(id: "g1", name: "Group", index: 0)]
+        let store = DaemonStore()
+        store.apply(snapshot: tree)
+        return (store, tree)
+    }
+
+    private func order(_ store: DaemonStore) -> [String] { store.workspaces.map(\.name) }
+
+    /// A placement names a section index, so it is reapplied on top of
+    /// another client's reorder with the daemon's rule, not as a stale
+    /// absolute index.
+    @Test func aPlacementIsReappliedOnTopOfAnotherClientsReorder() throws {
+        let (store, tree) = try grouped()
+        // b into g1 at section index 1 (between a and c): a b c d.
+        store.intend(.placeWorkspace(key: "b", group: "g1", index: 1), transaction: "tx")
+        #expect(order(store) == ["a", "b", "c", "d"])
+        #expect(store.workspace(key: "b")?.group == "g1")
+        // Another client moves d to the front: confirmed d a b c.
+        var moved = tree.workspaces[3]
+        moved.group = nil
+        store.apply(.workspaceMoved(WorkspaceDelta(workspace: moved.id, index: 0, entity: moved, workspaceRevision: tree.workspaceRevision + 1)))
+        // Before c (the g1 member at index 1 without b): d a b c.
+        #expect(order(store) == ["d", "a", "b", "c"])
+        #expect(store.sidebarSections.map { $0.workspaces.map(\.name) } == [["d"], ["a", "b", "c"]])
+    }
+
+    @Test func aRejectedReorderRestoresTheOrderAndTellsTheWindows() throws {
+        let (store, _) = try grouped()
+        var lists = 0
+        store.onWorkspaceListChanged = { lists += 1 }
+        store.intend(.moveWorkspace(key: "a", index: 3), transaction: "tx")
+        #expect(order(store) == ["b", "c", "d", "a"])
+        #expect(lists == 1)
+        store.rejectIntent("tx")
+        #expect(order(store) == ["a", "b", "c", "d"])
+        #expect(lists == 2)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A collapse is reported only as `tree-changed`: the intent stays
+    /// visible through the resync and leaves once the snapshot holding it
+    /// is applied.
+    @Test func aCollapseStaysShownThroughItsResync() throws {
+        let (store, tree) = try grouped()
+        store.intend(.setWorkspaceGroupCollapsed("g1", collapsed: true), transaction: "tx")
+        #expect(store.group("g1")?.collapsed == true)
+        store.noteSettled("tx", at: 1)
+        #expect(store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .treeChanged(transaction: nil))]) == .resync)
+        #expect(store.group("g1")?.collapsed == true)
+        store.apply(snapshot: tree) // started before the command
+        #expect(store.group("g1")?.collapsed == true)
+        var collapsed = tree
+        collapsed.groups[0].collapsed = true
+        store.apply(snapshot: collapsed)
+        store.advanceAppliedSequence(to: 1)
+        #expect(!store.hasPendingIntents)
+        #expect(store.group("g1")?.collapsed == true)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    @Test func pinAndTabGroupCollapseShowAndRevert() throws {
+        var tree = try Fixture.response(DaemonTree.self, "list-workspaces.json")
+        tree.workspaces[0].screens[0].panes[0].tabGroups = [TabGroupSnapshot(id: "tg", name: "API", surfaces: [3, 13])]
+        let store = DaemonStore()
+        store.apply(snapshot: tree)
+        store.intend(.setTabPinned(surface: 13, pinned: true), transaction: "pin")
+        store.intend(.setTabGroupCollapsed("tg", collapsed: true), transaction: "fold")
+        #expect(store.tab(surface: 13)?.pinned == true)
+        #expect(store.tabGroup("tg")?.collapsed == true)
+        // A daemon event for the same tab applies under the lifted overlay.
+        store.apply(.titleChanged(surface: 13, title: "vim"))
+        #expect(store.tab(surface: 13)?.pinned == true)
+        store.rejectIntent("pin")
+        store.rejectIntent("fold")
+        #expect(store.tab(surface: 13)?.pinned == false)
+        #expect(store.tab(surface: 13)?.title == "vim")
+        #expect(store.tabGroup("tg")?.collapsed == false)
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// A write that bypasses the daemon apply and the overlay (here a name)
+    /// is reported in debug builds, now that names, pins, groups and
+    /// collapse are part of the checked mirror.
+    @Test func aDirectNameWriteIsAMirrorViolation() throws {
+        let (store, _) = try loaded()
+        store.intend(.renameTab(surface: 3, name: "mine"), transaction: "tx")
+        store.tab(surface: 13)?.setName("sneaky")
+        store.rejectIntent("tx")
+        #if DEBUG
+        #expect(store.mirrorViolations.count == 1)
+        #endif
     }
 }

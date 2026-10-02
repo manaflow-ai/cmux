@@ -5,6 +5,13 @@ import Foundation
 /// put back after.
 enum IntentUndo: Equatable {
     case moveTab(surface: SurfaceID, fromPane: PaneID, fromIndex: Int, toPane: PaneID)
+    case tabName(surface: SurfaceID, name: String?)
+    case tabPinned(surface: SurfaceID, pinned: Bool)
+    case workspaceName(key: WorkspaceKey, name: String)
+    /// The workspace's daemon-order index and group before the apply.
+    case workspacePlace(key: WorkspaceKey, index: Int, group: WorkspaceGroupID?)
+    case workspaceGroupCollapsed(WorkspaceGroupID, collapsed: Bool)
+    case tabGroupCollapsed(TabGroupID, collapsed: Bool)
 }
 
 struct PendingIntent {

@@ -29,7 +29,17 @@ extension DaemonStore {
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
         intentLog.setUndo(applyOverlay(intent), at: intentLog.entries.count - 1)
+        recomputeSidebarIfNeeded()
         recordMirror()
+        workspaceListMayHaveChanged()
+    }
+
+    /// The overlay moved a workspace or changed its group: one sidebar
+    /// flattening once the visible state is complete.
+    private func recomputeSidebarIfNeeded() {
+        guard sidebarNeedsRecompute else { return }
+        sidebarNeedsRecompute = false
+        recomputeSidebar()
     }
 
     /// The command for `transaction` replied: its effects are bounded by
@@ -93,8 +103,10 @@ extension DaemonStore {
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
+        recomputeSidebarIfNeeded()
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
+        workspaceListMayHaveChanged()
         // Observers see the visible state with the other intents on it.
         let settled = intentSettlements
         intentSettlements.removeAll()
@@ -128,8 +140,8 @@ extension DaemonStore {
     }
 
     /// Applies one intent to the records. Idempotent and conservation-safe:
-    /// a tab or target that is not in the mirror, or a tab already at its
-    /// place, changes nothing (returns nil).
+    /// a tab, workspace or group that is not in the mirror, or a value
+    /// already in place, changes nothing (returns nil).
     private func applyOverlay(_ intent: Intent) -> IntentUndo? {
         switch intent {
         case .moveTab(let surface, let toPane, let index):
@@ -140,6 +152,37 @@ extension DaemonStore {
             guard let tab = source.removeTab(surface: surface) else { return nil }
             target.insertTab(tab, at: final)
             return .moveTab(surface: surface, fromPane: source.handle, fromIndex: from, toPane: target.handle)
+        case .renameTab(let surface, let name):
+            guard let tab = tabsBySurface[surface], tab.name != name else { return nil }
+            let previous = tab.name
+            tab.setName(name)
+            return .tabName(surface: surface, name: previous)
+        case .setTabPinned(let surface, let pinned):
+            guard let tab = tabsBySurface[surface], tab.pinned != pinned else { return nil }
+            tab.setPinned(pinned)
+            return .tabPinned(surface: surface, pinned: !pinned)
+        case .renameWorkspace(let key, let name):
+            guard let workspace = workspacesByKey[key], workspace.name != name else { return nil }
+            let previous = workspace.name
+            workspace.setName(name)
+            return .workspaceName(key: key, name: previous)
+        case .moveWorkspace(let key, let index):
+            guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+            return place(at: from, index: min(max(index, 0), workspaces.count - 1), group: workspaces[from].group)
+        case .setWorkspaceGroup(let key, let group):
+            guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+            return place(at: from, index: from, group: group)
+        case .placeWorkspace(let key, let group, let index):
+            guard let from = workspaces.firstIndex(where: { $0.key == key }) else { return nil }
+            return place(at: from, index: sectionPlacement(from: from, group: group, index: index), group: group)
+        case .setWorkspaceGroupCollapsed(let id, let collapsed):
+            guard let group = group(id), group.collapsed != collapsed else { return nil }
+            group.setCollapsed(collapsed)
+            return .workspaceGroupCollapsed(id, collapsed: !collapsed)
+        case .setTabGroupCollapsed(let id, let collapsed):
+            guard let group = tabGroupsByID[id], group.collapsed != collapsed else { return nil }
+            group.setCollapsed(collapsed)
+            return .tabGroupCollapsed(id, collapsed: !collapsed)
         }
     }
 
@@ -151,6 +194,53 @@ extension DaemonStore {
                 return reportMirrorViolation("intent overlay undo found surface \(surface) missing from pane \(toPane)")
             }
             source.insertTab(tab, at: fromIndex)
+        case .tabName(let surface, let name):
+            tabsBySurface[surface]?.setName(name)
+        case .tabPinned(let surface, let pinned):
+            tabsBySurface[surface]?.setPinned(pinned)
+        case .workspaceName(let key, let name):
+            workspacesByKey[key]?.setName(name)
+        case .workspacePlace(let key, let index, let group):
+            guard let from = workspaces.firstIndex(where: { $0.key == key }) else {
+                return reportMirrorViolation("intent overlay undo found workspace \(key) missing")
+            }
+            _ = place(at: from, index: index, group: group)
+        case .workspaceGroupCollapsed(let id, let collapsed):
+            group(id)?.setCollapsed(collapsed)
+        case .tabGroupCollapsed(let id, let collapsed):
+            tabGroupsByID[id]?.setCollapsed(collapsed)
         }
+    }
+
+    /// Moves the workspace at `from` to daemon-order `index` in `group`;
+    /// returns the inverse, or nil when it was there already.
+    private func place(at from: Int, index: Int, group: WorkspaceGroupID?) -> IntentUndo? {
+        let model = workspaces[from]
+        guard index != from || model.group != group, let key = model.key else { return nil }
+        let undo = IntentUndo.workspacePlace(key: key, index: from, group: model.group)
+        model.setGroup(group)
+        if index != from {
+            workspaces.remove(at: from)
+            workspaces.insert(model, at: index)
+        }
+        sidebarNeedsRecompute = true
+        return undo
+    }
+
+    /// cmux-tui's `move-workspace-to-group` placement (presentation.rs
+    /// `move_workspace_to_group`) on the records: a section is the daemon
+    /// order filtered by group, so the workspace goes before the member now
+    /// at `index`, after the last member, or stays put in an empty section.
+    /// Kept here because the intent names a section index, which only this
+    /// rule turns into a daemon-order index on the current mirror.
+    private func sectionPlacement(from old: Int, group: WorkspaceGroupID?, index: Int) -> Int {
+        let remaining = workspaces.indices.filter { $0 != old }
+        let members = remaining.filter { workspaces[$0].group == group }
+        let position = { (target: Int) in remaining.firstIndex(of: target) ?? old }
+        var new = old
+        if let last = members.last {
+            new = index < members.count ? position(members[index]) : position(last) + 1
+        }
+        return min(new, workspaces.count - 1)
     }
 }
