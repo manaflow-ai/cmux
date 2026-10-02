@@ -26,7 +26,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // SIGTERM (dev tooling, `kill`) is "Quit, keep sessions" with no alert.
+        // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
+        // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
             guard let services = self?.services else { return NSApp.terminate(nil) }
             services.quit.terminateFromSignal()

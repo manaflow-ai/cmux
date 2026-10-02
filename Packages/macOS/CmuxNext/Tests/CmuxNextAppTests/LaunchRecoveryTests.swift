@@ -6,8 +6,9 @@ import Testing
 /// the run marker on disk.
 @MainActor
 @Suite struct LaunchRecoveryTests {
-    private func run(recovery: Bool = false, survived: Bool = false, signal: Int32? = nil) -> PreviousRun {
-        PreviousRun(pid: 42, launched: Date(timeIntervalSince1970: 1_000), recovery: recovery, survived: survived, signal: signal)
+    private func run(recovery: Bool = false, survived: Bool = false, signal: Int32? = nil, quitting: Bool? = nil) -> PreviousRun {
+        PreviousRun(pid: 42, launched: Date(timeIntervalSince1970: 1_000), recovery: recovery, survived: survived, signal: signal,
+                    quitting: quitting)
     }
 
     @Test func noMarkerIsAClean() {
@@ -32,6 +33,20 @@ import Testing
         #expect(decision == .restarted(run(signal: SIGSEGV)))
         #expect(decision.isRestart)
         #expect(!decision.skipsBrowserPages)
+    }
+
+    /// A requested quit had begun (Quit, SIGTERM) and the process was then
+    /// killed before it finished: dev tooling sends SIGKILL 2 s after
+    /// SIGTERM, and a quit with Chromium running takes longer.
+    @Test func aQuitThatBeganIsCleanEvenWhenKilled() {
+        #expect(LaunchRecovery.decide(previous: run(quitting: true)) == .clean)
+        #expect(LaunchRecovery.decide(previous: run(recovery: true, quitting: true)) == .clean)
+    }
+
+    /// A fault while quitting is still a crash.
+    @Test func aCrashDuringAQuitStillCounts() {
+        #expect(LaunchRecovery.decide(previous: run(signal: SIGSEGV, quitting: true)).isRestart)
+        #expect(LaunchRecovery.decide(previous: run(signal: SIGABRT, quitting: true)).isRestart)
     }
 
     @Test func anEndWithNoHandlerStillCounts() {
@@ -64,6 +79,31 @@ import Testing
         #expect(third.recovery.skipsBrowserPages)
         third.markCleanExit()
         #expect(AppRunMarker(directory: folder).recovery == .clean)
+    }
+
+    /// No clean exit after `markQuitting` (a SIGKILL during the quit): the
+    /// next launch is clean, and the one after that too.
+    @Test func aRunKilledWhileQuittingLeavesACleanLaunch() {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-run-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let first = AppRunMarker(directory: folder)
+        first.markQuitting()
+        let second = AppRunMarker(directory: folder)
+        #expect(second.recovery == .clean)
+        // The next run did not quit: a crash again.
+        #expect(AppRunMarker(directory: folder).recovery.isRestart)
+    }
+
+    /// Markers written before `quitting` existed still decode.
+    @Test func aMarkerWithoutTheQuitFieldIsRead() throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "cmux-run-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(#"{"pid":7,"launched":1000,"recovery":false,"survived":true}"#.utf8).write(to: folder.appending(path: "run.json"))
+        let previous = AppRunMarker.readPrevious(marker: folder.appending(path: "run.json"), signal: folder.appending(path: "run.signal"))
+        #expect(previous?.pid == 7)
+        #expect(previous?.quitting == nil)
+        #expect(LaunchRecovery.decide(previous: previous).isRestart)
     }
 
     @Test func aWrittenSignalIsRead() throws {
