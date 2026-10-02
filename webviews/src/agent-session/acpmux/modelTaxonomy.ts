@@ -1,4 +1,4 @@
-// The model picker variants' shared model layer: which provider and family each catalog model
+// The model picker's model layer: which provider and family each catalog model
 // belongs to, which model a provider or family lands on, and the order a level lists them in.
 // Pure functions over the current harness's catalog and the viewer's recents; no React.
 import type { Combo } from "./ComposerPickers";

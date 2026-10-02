@@ -1,30 +1,29 @@
 import React, { useEffect, useId, useRef } from "react";
 import { ChevronIcon, PICKER_LABELS } from "./ComposerPickers";
-import type { ModelPickerVariant } from "./modelPickerVariant";
+import type { PickerLayout } from "./modelPickerLayout";
 
-/// The model chip and the popover above it, shared by the picker variants. Focus stays on the
-/// chip while the popover is open, so typing, arrows, digits and Return reach `onKeyDown`;
-/// a press elsewhere, the window losing focus, or focus leaving the chip closes it.
+/// The model chip and the popover above it. Focus stays on the chip while the popover is open,
+/// so typing, arrows, digits and Return reach `onKeyDown`; a press elsewhere, the window losing
+/// focus, or focus leaving the chip closes it. The open menu's body names its highlighted row
+/// on the chip (aria-activedescendant) itself.
 export function ModelPickerShell({
-  variant,
+  layout,
   chip,
   open,
   onOpenChange,
   onKeyDown,
   onPointerMove,
-  activeId,
   trigger,
   menu,
   children,
 }: {
-  variant: Exclude<ModelPickerVariant, "current">;
+  /// Unset for the first frame of an opening, while ModelPicker measures the cascade's room.
+  layout?: PickerLayout;
   chip: string;
   open: boolean;
   onOpenChange(open: boolean): void;
   onKeyDown(event: React.KeyboardEvent): void;
   onPointerMove?(event: React.PointerEvent): void;
-  /// The highlighted row's id, for screen readers following the keys.
-  activeId?: string;
   trigger: React.RefObject<HTMLButtonElement | null>;
   menu?: React.RefObject<HTMLDivElement | null>;
   children: React.ReactNode;
@@ -62,7 +61,6 @@ export function ModelPickerShell({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open ? activeId : undefined}
         onKeyDown={(event) => {
           if (open) onKeyDown(event);
           else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
@@ -83,7 +81,7 @@ export function ModelPickerShell({
         <div
           ref={menu}
           id={menuId}
-          className={`acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${variant}`}
+          className={`acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-${layout ?? "cascade"}`}
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
           role="menu"
           aria-label={PICKER_LABELS.model}

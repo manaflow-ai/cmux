@@ -12,8 +12,8 @@ import "./modelPicker.css";
 import { seedDevRecents } from "./devRecents";
 
 // `?mock` runs the page in a plain browser against the in-page mock daemon (no cmux host), the
-// way the screenshot harness stubs the bridge; `?picker=cascade|columns|recents` picks the model
-// picker variant (modelPickerVariant.ts) and `?recents=demo` seeds a few recent models to show it.
+// way the screenshot harness stubs the bridge; `?recents=demo` seeds a few recent models so the
+// model picker opens with its recents and layers.
 const params = new URLSearchParams(location.search);
 if (params.has("mock") && !window.webkit?.messageHandlers?.agentSession)
   window.cmuxAcpmuxActions = { ready: async () => ({ protocolVersion: 1, transport: "mock" }) };

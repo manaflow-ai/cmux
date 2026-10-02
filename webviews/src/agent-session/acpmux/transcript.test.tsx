@@ -838,13 +838,17 @@ describe("acpmux host handshake", () => {
         },
       },
     };
-    // The picker lists its models while open; open it once it exists and read the menu.
+    // The picker lists its models while open: open it once it exists, type "m" to list every
+    // model (ids m1, m2), and read the matches.
     const models = () => {
-      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      const doc = dom.window.document;
+      const button = doc.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
       if (button && button.getAttribute("aria-expanded") !== "true") button.click();
-      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) =>
-        option.getAttribute("data-value"),
-      );
+      if (button && doc.querySelector(".acpmux-mp .acpmux-menu-search")?.textContent !== "m")
+        button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+      return [...doc.querySelectorAll('.acpmux-mp [data-key^="model:"]')]
+        .map((row) => row.getAttribute("data-key")!.slice("model:".length))
+        .sort();
     };
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)

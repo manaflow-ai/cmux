@@ -4,7 +4,7 @@ import { t } from "./i18n";
 
 /// The effort's stepped slider: a native range input (arrow keys, Home and End step it), drawn
 /// as a track with one stop per level the agent offers (a click on the track jumps to the
-/// nearest stop). The effort popover and the model picker variants both draw it.
+/// nearest stop). The effort popover and the model picker both draw it.
 export function EffortTrack({
   efforts,
   current,

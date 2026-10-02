@@ -14,7 +14,7 @@ import {
   runnableRecents,
   versionOf,
 } from "./modelTaxonomy";
-import { modelPickerVariant } from "./modelPickerVariant";
+import { pickerLayout, SUBMENU_ROOM } from "./modelPickerLayout";
 import { aimingAt, insideTriangle } from "./useHoverIntent";
 import { claudeModels, codexModels } from "./mockFixture";
 
@@ -140,25 +140,12 @@ describe("model taxonomy", () => {
     expect(aimingAt({ x: 150, y: 150 }, { x: 140, y: 155 }, { left: 0, right: 0, top: 0, bottom: 0 })).toBe(false);
   });
 
-  test("the picker variant comes from ?picker=, then storage, else the current picker", () => {
-    const globals = globalThis as Record<string, unknown>;
-    const saved = globals.localStorage;
-    try {
-      globals.localStorage = { getItem: () => "columns" };
-      expect(modelPickerVariant("?picker=cascade")).toBe("cascade");
-      expect(modelPickerVariant("")).toBe("columns");
-      expect(modelPickerVariant("?picker=bogus")).toBe("columns");
-      globals.localStorage = { getItem: () => "bogus" };
-      expect(modelPickerVariant("")).toBe("current");
-      globals.localStorage = {
-        getItem: () => {
-          throw new Error("blocked");
-        },
-      };
-      expect(modelPickerVariant("?picker=recents")).toBe("recents");
-      expect(modelPickerVariant("")).toBe("current");
-    } finally {
-      globals.localStorage = saved;
-    }
+  test("the cascade needs room for each side submenu left of the menu; less falls back to the drill", () => {
+    expect(pickerLayout(SUBMENU_ROOM, 1)).toBe("cascade");
+    expect(pickerLayout(SUBMENU_ROOM - 1, 1)).toBe("drill");
+    // Providers, then families: two submenus side by side.
+    expect(pickerLayout(SUBMENU_ROOM, 2)).toBe("drill");
+    expect(pickerLayout(2 * SUBMENU_ROOM, 2)).toBe("cascade");
+    expect(pickerLayout(0, 1)).toBe("drill");
   });
 });

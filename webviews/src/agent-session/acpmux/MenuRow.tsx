@@ -1,7 +1,7 @@
 import { CheckIcon, ChevronRightIcon } from "./ComposerPickers";
 import type { MenuNode } from "./useMenuTree";
 
-/// One row of a model picker variant. A press (not the click after it) picks, so focus stays
+/// One row of the model picker. A press (not the click after it) picks, so focus stays
 /// on the chip and the menu's keys keep working; entering the row hands it to hover intent.
 export function MenuRow({
   node,

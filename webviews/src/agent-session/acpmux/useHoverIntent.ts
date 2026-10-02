@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { HOVER_INTENT_MS } from "./modelPickerVariant";
+import { HOVER_INTENT_MS } from "./modelPickerLayout";
 
 export type Point = { x: number; y: number };
 type Rect = { left: number; right: number; top: number; bottom: number };

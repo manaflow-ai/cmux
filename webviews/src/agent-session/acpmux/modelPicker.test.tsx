@@ -25,8 +25,11 @@ afterAll(() => Object.assign(globals, saved));
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { ComposerPickers } = await import("./ComposerPickers");
-const { HOVER_INTENT_MS } = await import("./modelPickerVariant");
-type Variant = "cascade" | "columns" | "recents";
+const { HOVER_INTENT_MS } = await import("./modelPickerLayout");
+type Layout = "cascade" | "drill";
+/// Room left of the menu that the cascade fits in (Claude Code's families: one side submenu), and
+/// a narrow pane's.
+const ROOM: Record<Layout, number> = { cascade: 600, drill: 120 };
 
 const doc = dom.window.document;
 const effort = (currentValue: string) => ({
@@ -85,8 +88,8 @@ const RECENTS = [
 ];
 const OTHER_HARNESS_MODELS = ["GPT-6-Astra", "o3", "Qwen3 Coder"];
 
-for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
-  describe(`model picker variant: ${variant}`, () => {
+for (const layout of ["cascade", "drill"] as Layout[]) {
+  describe(`model picker: ${layout}`, () => {
     let root: ReturnType<typeof createRoot>;
     let calls: string[];
     const store = new Map<string, string>();
@@ -95,7 +98,7 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
         root.render(
           createElement(ComposerPickers, {
             snapshot: value,
-            variant,
+            measurePickerRoom: () => ROOM[layout],
             settleMs: 60_000,
             onModel: (id: string) => {
               calls.push(`model ${id}`);
@@ -136,8 +139,9 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
     const open = async () => {
       await act(async () => chip().click());
       expect(menu()).not.toBeNull();
-      // Recents-first keeps the layers behind "More models"; it drills in place.
-      if (variant === "recents") await press(row("More models")!);
+      expect(menu()!.classList.contains(`acpmux-mp-${layout}`)).toBe(true);
+      // The drill keeps the layers behind "More models"; it opens them in place.
+      if (layout === "drill") await press(row("More models")!);
     };
 
     beforeEach(() => {
@@ -161,20 +165,9 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
       expect(chip().getAttribute("aria-expanded")).toBe("true");
       const recentRows = rows().filter((candidate) => candidate.querySelector(".acpmux-menu-hint"));
       const recentText = recentRows.map((candidate) => candidate.textContent);
-      if (variant === "columns") {
-        // A strip along the bottom edge, the last thing in the popover.
-        const strip = menu()!.lastElementChild!;
-        expect(strip.className).toBe("acpmux-mp-strip");
-        expect(rows(strip).map((candidate) => candidate.textContent)).toEqual([
-          "1Sonnet 5Low",
-          "2Opus 5.5High",
-          "3Haiku 4.5Medium",
-        ]);
-      } else {
-        expect(recentText).toEqual(["3Haiku 4.5Medium", "2Opus 5.5High", "1Sonnet 5Low"]);
-        // They are the menu's last rows, the newest last.
-        expect(rows().slice(-3)).toEqual(recentRows);
-      }
+      expect(recentText).toEqual(["3Haiku 4.5Medium", "2Opus 5.5High", "1Sonnet 5Low"]);
+      // They are the menu's last rows, the newest last.
+      expect(rows().slice(-3)).toEqual(recentRows);
       // The current combo is checked.
       expect(
         recentRows.find((candidate) => candidate.textContent?.includes("Opus 5.5"))!.getAttribute("aria-checked"),
@@ -190,10 +183,7 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
       // Not at once: the pointer may be passing through.
       expect(labels().includes("Sonnet 4.6")).toBe(false);
       await wait(HOVER_INTENT_MS + 60);
-      const level =
-        variant === "columns"
-          ? menu()!.querySelector('[data-column="model"]')!
-          : menu()!.querySelector('[data-mp-sub="0"]')!;
+      const level = menu()!.querySelector('[data-mp-sub="0"]')!;
       expect(level).not.toBeNull();
       const shown = labels(level);
       // Best (the recent Sonnet 5) last, next to the row and the chip; the newest next.
@@ -236,9 +226,7 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
     test("typing filters this harness's models; Return picks the best match, Escape clears then closes", async () => {
       await render(snapshot());
       await act(async () => chip().click());
-      // Columns list the matches in place of the columns, over the recents strip.
-      const matches = () =>
-        labels(variant === "columns" ? menu()!.querySelector('[data-column="filter"]')! : undefined);
+      const matches = () => labels();
       await type("son");
       expect(doc.querySelector(".acpmux-mp .acpmux-menu-search")!.textContent).toBe("son");
       // Best match nearest the chip.
@@ -281,3 +269,61 @@ for (const variant of ["cascade", "columns", "recents"] as Variant[]) {
     });
   });
 }
+
+describe("model picker layout", () => {
+  test("each opening measures the room left of the menu: the cascade when its side submenus fit, else the drill", async () => {
+    const root = createRoot(doc.getElementById("root")!);
+    const store = new Map<string, string>([["cmux.acpmux.recentModels", JSON.stringify(RECENTS)]]);
+    globals.localStorage = {
+      getItem: (name: string) => store.get(name) ?? null,
+      setItem: (name: string, value: string) => store.set(name, value),
+    };
+    let room = 300;
+    const measured: string[] = [];
+    const render = (value: AcpmuxSnapshot) =>
+      act(async () =>
+        root.render(
+          createElement(ComposerPickers, {
+            snapshot: value,
+            settleMs: 60_000,
+            measurePickerRoom: (menu: HTMLElement) => {
+              // Measured on the menu's first frame, before any rows show.
+              measured.push(`${menu.className} rows ${menu.querySelectorAll(".acpmux-mp-row").length}`);
+              return room;
+            },
+            onModel: () => {},
+            onMode: () => {},
+            onEffort: () => {},
+          }),
+        ),
+      );
+    const chip = () => doc.querySelector<HTMLButtonElement>('[aria-label="Model"].acpmux-picker-button')!;
+    const shown = async () => {
+      await act(async () => chip().click());
+      const menu = doc.querySelector<HTMLElement>(".acpmux-mp")!;
+      const layout = menu.classList.contains("acpmux-mp-drill") ? "drill" : "cascade";
+      await act(async () => chip().click());
+      expect(doc.querySelector(".acpmux-mp")).toBeNull();
+      return layout;
+    };
+    try {
+      // Claude Code's models sit under families: one side submenu, which 300px holds.
+      await render(snapshot());
+      expect(await shown()).toBe("cascade");
+      expect(measured).toEqual(["acpmux-menu acpmux-menu-end acpmux-mp acpmux-mp-cascade rows 0"]);
+      // The pane narrows between openings.
+      room = 200;
+      expect(await shown()).toBe("drill");
+      // Codex's sit under providers, then families: two side submenus, which 300px doesn't hold.
+      room = 300;
+      const codex = snapshot();
+      codex.summary = { ...codex.summary!, harness: "codex", model: "gpt-6-astra" };
+      await render(codex);
+      expect(await shown()).toBe("drill");
+      room = 520;
+      expect(await shown()).toBe("cascade");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+});

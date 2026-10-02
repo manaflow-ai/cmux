@@ -7,7 +7,7 @@ export const rowId = (prefix: string, level: number, key: string) =>
   `${prefix}-${level}-${key.replace(/[^\w-]/g, (char) => `_${char.charCodeAt(0).toString(16)}`)}`;
 
 /// One level of a layered model menu, with the open row's submenu (or panel) drawn right after
-/// that row: CSS sets it beside the row (cascade) or under it (recents-first).
+/// that row: CSS sets it beside the row (cascade) or above it (the drill).
 export function MenuLevel({
   nodes,
   level,
@@ -19,7 +19,7 @@ export function MenuLevel({
   level: number;
   tree: MenuTree;
   idPrefix: string;
-  /// Draw an open row's submenu before it in the flow (recents-first), not after (cascade, beside).
+  /// Draw an open row's submenu before it in the flow (the drill), not after (cascade, beside).
   subAbove?: boolean;
 }) {
   const active = tree.activeKey(level);

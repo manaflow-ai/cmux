@@ -2,10 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker } from "./EffortPicker";
 import { t } from "./i18n";
-import { ModelPickerCascade } from "./ModelPickerCascade";
-import { ModelPickerColumns } from "./ModelPickerColumns";
-import { ModelPickerRecents } from "./ModelPickerRecents";
-import { modelPickerVariant, type ModelPickerVariant } from "./modelPickerVariant";
+import { ModelPicker } from "./ModelPicker";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const PICKER_LABELS = {
@@ -17,10 +14,6 @@ export const PICKER_LABELS = {
   planHint: "Plan reads and proposes without editing; Build makes the changes",
   /// `{percent}` is the share of the context window used.
   context: "{percent}% of context used",
-  recent: "Recent",
-  moreModels: "More models",
-  allModels: "All models",
-  searchModels: "Type to search models",
 };
 
 /// A model and effort the viewer used, kept per viewer so the menu can offer it as one click.
@@ -28,10 +21,6 @@ export type Combo = { harness: string; model: string; effort?: string; effortNam
 /// A combo counts as used once it has held this long: model and effort land in separate updates.
 export const RECENT_SETTLE_MS = 1500;
 const RECENTS_KEY = "cmux.acpmux.recentModels";
-/// The model menu offers this many recent combos.
-export const RECENT_ROWS = 4;
-/// A catalog this short lists every model without the recents and the "More models" fold.
-const SHORT_CATALOG = 4;
 
 /// The viewer's recent combos, newest first. Storage can be missing or blocked; then there are none.
 export function loadRecents(): Combo[] {
@@ -68,8 +57,6 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
   return next;
 }
 
-const comboId = (model: string, effort?: string) => `${model}\u0000${effort ?? ""}`;
-
 export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
 
 type Props = {
@@ -79,13 +66,11 @@ type Props = {
   onEffort(configId: string, value: string): void;
   /// How long a combo must hold before it counts as recent (tests shorten it).
   settleMs?: number;
-  /// Starts a new chat in another harness (the picker variants offer it).
+  /// Starts a new chat in another harness (the model picker offers it).
   onHarness?(harness: string): void;
-  /// Which model picker to draw; the DEV switch (modelPickerVariant.ts) when unset.
-  variant?: ModelPickerVariant;
+  /// The model picker's room for side submenus (tests pass a fixed one; see ModelPicker).
+  measurePickerRoom?(menu: HTMLElement): number;
 };
-
-const VARIANTS = { cascade: ModelPickerCascade, columns: ModelPickerColumns, recents: ModelPickerRecents };
 
 /// The composer bar's controls: the
 /// permission mode (in the warning color when it skips approvals) and a
@@ -99,10 +84,8 @@ export function ComposerPickers({
   onEffort,
   onHarness,
   settleMs = RECENT_SETTLE_MS,
-  variant: chosen,
+  measurePickerRoom,
 }: Props) {
-  const [stored] = useState(modelPickerVariant);
-  const variant = chosen ?? stored;
   const summary = snapshot.summary;
   const models: Choice[] = (snapshot.catalog.find((harness) => harness.id === summary?.harness)?.models ?? []).map(
     (model) => ({ id: model.id, name: model.name || model.id }),
@@ -187,32 +170,7 @@ export function ComposerPickers({
     )
       onEffort(effort.id, pickedEffort);
   };
-  const [more, setMore] = useState(false);
-  const [query, setQuery] = useState("");
-  const modelSections = modelMenu({
-    models,
-    efforts,
-    recents: recents.filter((combo) => combo.harness === harness),
-    current: current && comboId(current, currentEffort),
-    currentModel: model?.id,
-    more,
-    query,
-    onMore: () => {
-      setMore(true);
-      return "keep";
-    },
-    onCombo: (id) => {
-      const [pickedModel, pickedEffort] = id.split("\u0000");
-      if (pickedModel) land(pickedModel, pickedEffort || undefined);
-    },
-    // A plain model pick replaces any combo still waiting on its effort.
-    onModel: (id) => {
-      pending.current = undefined;
-      onModel(id);
-    },
-  });
   const usage = summary?.usage;
-  const VariantPicker = VARIANTS[variant === "current" ? "cascade" : variant];
 
   return (
     <div className="acpmux-chips">
@@ -246,28 +204,8 @@ export function ComposerPickers({
         </button>
       )}
       <span className="acpmux-chips-spacer" />
-      {models.length > 0 && variant === "current" && (
-        <Picker
-          label={PICKER_LABELS.model}
-          className="acpmux-model"
-          button={
-            <>
-              <span className="acpmux-model-name">{model?.name ?? summary?.model ?? PICKER_LABELS.model}</span>
-              <ChevronIcon />
-            </>
-          }
-          sections={modelSections}
-          search={more ? { query, placeholder: PICKER_LABELS.searchModels, onQuery: setQuery } : undefined}
-          onOpenChange={(open) => {
-            if (open) return;
-            setMore(false);
-            setQuery("");
-          }}
-          align="end"
-        />
-      )}
-      {models.length > 0 && variant !== "current" && (
-        <VariantPicker
+      {models.length > 0 && (
+        <ModelPicker
           catalog={snapshot.catalog}
           harness={harness}
           model={current}
@@ -281,6 +219,7 @@ export function ComposerPickers({
             if (effort) onEffort(effort.id, value);
           }}
           onHarness={onHarness}
+          measureRoom={measurePickerRoom}
         />
       )}
       {effort && efforts.length > 0 && (
@@ -300,65 +239,6 @@ export function ComposerPickers({
       {(models.length > 0 || efforts.length > 0 || usage) && <span className="acpmux-separator" aria-hidden="true" />}
     </div>
   );
-}
-
-const MORE = "\u0000more";
-
-/// The model menu: the viewer's recent model and effort combos as one-click rows,
-/// then the rest folded under "More models", which opens a searchable list. A
-/// short catalog, or one with no recents beyond the current combo, lists every model.
-export function modelMenu({
-  models,
-  efforts,
-  recents,
-  current,
-  currentModel,
-  more,
-  query,
-  onMore,
-  onCombo,
-  onModel,
-}: {
-  models: Choice[];
-  efforts: Choice[];
-  recents: Combo[];
-  current?: string;
-  currentModel?: string;
-  more: boolean;
-  query: string;
-  onMore(): "keep";
-  onCombo(id: string): void;
-  onModel(id: string): void;
-}): Section[] {
-  const all: Section = { choices: models, current: currentModel, onPick: onModel };
-  const name = (id: string) => models.find((choice) => choice.id === id)?.name;
-  const combos: Choice[] = recents
-    .filter((combo) => name(combo.model))
-    .slice(0, RECENT_ROWS)
-    .map((combo) => {
-      const effortName =
-        combo.effort &&
-        (combo.effortName ?? efforts.find((choice) => choice.id === combo.effort)?.name ?? combo.effort);
-      return {
-        id: comboId(combo.model, combo.effort),
-        name: effortName ? `${name(combo.model)} · ${effortName}` : name(combo.model)!,
-      };
-    });
-  if (models.length <= SHORT_CATALOG || combos.length < 2) return [all];
-  const recent: Section = { title: PICKER_LABELS.recent, choices: combos, current, onPick: onCombo };
-  if (!more)
-    return [
-      recent,
-      { choices: [{ id: MORE, name: PICKER_LABELS.moreModels, icon: <ChevronRightIcon /> }], onPick: onMore },
-    ];
-  // A query filters the recents and the full list alike.
-  const needle = query.trim().toLowerCase();
-  const matches = (choice: Choice) => !needle || `${choice.name} ${choice.id}`.toLowerCase().includes(needle);
-  const sections: Section[] = [
-    { ...recent, choices: combos.filter(matches) },
-    { ...all, title: PICKER_LABELS.allModels, choices: models.filter(matches) },
-  ];
-  return sections.filter((section) => section.choices.length > 0);
 }
 
 /// Plan modes (an id ending in "plan") read and propose without editing; the toggle sits apart from the permission chip.
@@ -409,9 +289,6 @@ export function unrestricted(modeId: string): boolean {
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
 export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
 
-/// Type-ahead search for a long menu: typed letters filter it while focus stays on the button.
-export type MenuSearch = { query: string; placeholder: string; onQuery(query: string): void };
-
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
 /// a group with a check on its current choice; arrows move, Enter, Space or a
@@ -424,8 +301,6 @@ export function Picker({
   align,
   warnUnrestricted = false,
   returnFocus = true,
-  search,
-  onOpenChange,
   heading,
 }: {
   label: string;
@@ -436,16 +311,10 @@ export function Picker({
   warnUnrestricted?: boolean;
   /// An action menu hands focus to whatever its pick focuses, not back to the button.
   returnFocus?: boolean;
-  search?: MenuSearch;
-  onOpenChange?(open: boolean): void;
   /// A question over the choices, as an approval menu asks it.
   heading?: string;
 }) {
   const [open, setOpen] = useState(false);
-  // Told after each open and close, from an effect so every way of closing reports it.
-  const openChange = useRef(onOpenChange);
-  openChange.current = onOpenChange;
-  useEffect(() => openChange.current?.(open), [open]);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -505,28 +374,13 @@ export function Picker({
     } else if (event.key === "Enter") {
       event.preventDefault();
       pick(selected);
-    } else if (search && event.key === "Backspace") {
-      event.preventDefault();
-      search.onQuery(search.query.slice(0, -1));
-      setActive(0);
-    } else if (
-      search &&
-      event.key.length === 1 &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      (event.key !== " " || search.query)
-    ) {
-      // While a query is typed, Space is part of it; Enter picks.
-      event.preventDefault();
-      search.onQuery(search.query + event.key);
-      setActive(0);
     }
     // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
     else if (event.key === " ") event.preventDefault();
     else if (event.key === "Tab") setOpen(false);
   };
   const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " " && !search?.query) {
+    if (open && event.key === " ") {
       event.preventDefault();
       pick(selected);
     }
@@ -561,13 +415,6 @@ export function Picker({
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
         <div className={`acpmux-menu acpmux-menu-${align}`}>
-          {/* The query sits beside the listbox, which may hold only options and groups. */}
-          {search && (
-            <div className={`acpmux-menu-search${search.query ? "" : " acpmux-menu-search-empty"}`} aria-live="polite">
-              <SearchIcon />
-              <span>{search.query || search.placeholder}</span>
-            </div>
-          )}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

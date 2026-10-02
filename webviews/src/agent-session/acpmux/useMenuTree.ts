@@ -28,8 +28,8 @@ export type MenuTree = ReturnType<typeof useMenuTree>;
 
 const opens = (node: MenuNode | undefined) => Boolean(node && (node.children?.length || node.panel));
 
-/// The open path and keyboard position of a layered menu, shared by the variants that draw
-/// submenus beside their row (cascade) or under it (recents-first). `path[i]` is the row open
+/// The open path and keyboard position of a layered menu, shared by the layouts that draw
+/// submenus beside their row (cascade) or above it (the drill). `path[i]` is the row open
 /// at level i; `level` is the level the arrows move in. `entry` is the row a submenu's
 /// keyboard focus lands on: "last" when submenus list their best row at the bottom.
 export function useMenuTree(
@@ -133,7 +133,7 @@ export function useMenuTree(
       intent.cancel();
       run(node);
     },
-    /// Arrows, Return, and Escape as a step back. Returns false for keys it leaves to the variant
+    /// Arrows, Return, and Escape as a step back. Returns false for keys it leaves to the layout
     /// (Escape at the top level, typing).
     keyDown(event: React.KeyboardEvent): boolean {
       const nodes = nodesAt(level);

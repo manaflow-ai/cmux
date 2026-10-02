@@ -1,5 +1,5 @@
-/* Model picker variants (DEV comparison, modelPickerVariant.ts): cascade, columns, recents-first.
-   They build on the composer menu (.acpmux-menu, .acpmux-menu-item, .acpmux-menu-active).
+/* The composer's model picker (ModelPicker.tsx): the cascade, or the in-place drill in a narrow
+   pane. Both build on the composer menu (.acpmux-menu, .acpmux-menu-item, .acpmux-menu-active).
    Theme tokens only; motion only for viewers who allow it. */
 .acpmux-mp {
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
@@ -55,7 +55,7 @@
   margin-top: 0;
 }
 
-/* A: cascade. Submenus open beside their row, to the chip's side of the pane (left), with
+/* Cascade. Submenus open beside their row, to the chip's side of the pane (left), with
    their bottom on the row so the best row sits next to the pointer. */
 .acpmux-mp-cascade {
   overflow: visible;
@@ -87,90 +87,19 @@
   padding: 12px;
 }
 
-/* B: columns. One wide popover; each column's best row sits at its bottom, over the
-   reasoning slider and the recents strip along the edge nearest the chip. */
-.acpmux-mp-columns {
-  width: min(600px, 100%);
-  max-width: 100%;
-  max-height: min(460px, 70vh);
-}
-.acpmux-mp-grid {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--acpmux-mp-gap);
-}
-.acpmux-mp-column {
-  flex: 1 1 0;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 2px;
-  border-radius: 10px;
-}
-.acpmux-mp-column + .acpmux-mp-column {
-  box-shadow: inset 0.5px 0 0 var(--acpmux-composer-edge);
-  padding-left: calc(2px + var(--acpmux-mp-gap));
-}
-.acpmux-mp-column-rows {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-}
-/* A provider's or family's default shows in the next column on hover; the row keeps its width for the name. */
-.acpmux-mp-column:is([data-column="provider"], [data-column="family"]) .acpmux-mp-detail {
-  display: none;
-}
-.acpmux-mp-column-focus > .acpmux-menu-header {
-  color: var(--agent-text);
-}
-.acpmux-mp-reasoning {
-  margin-top: 6px;
-  padding: 8px 8px 10px;
-  box-shadow: inset 0 0.5px 0 var(--acpmux-composer-edge);
-}
-.acpmux-mp-reasoning-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-.acpmux-mp-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  padding-top: 6px;
-  box-shadow: inset 0 0.5px 0 var(--acpmux-composer-edge);
-}
-.acpmux-mp-strip .acpmux-mp-row {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 100%;
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
-}
-.acpmux-mp-strip .acpmux-mp-row:hover {
-  background: var(--acpmux-menu-hover);
-}
-.acpmux-mp-strip .acpmux-mp-row:active {
-  background: var(--acpmux-mp-press);
-}
-.acpmux-mp-strip .acpmux-mp-detail {
-  max-width: none;
-}
-
-/* C: recents-first. "More models" drills in place under a breadcrumb; a hovered row's next
-   layer opens right above it, indented on a hairline, so the row stays under the pointer. */
-.acpmux-mp-recents {
+/* Drill, for a pane too narrow for the cascade: recents first. "More models" drills in place
+   under a breadcrumb; a hovered row's next layer opens right above it, indented on a hairline,
+   so the row stays under the pointer. */
+.acpmux-mp-drill {
   width: 300px;
   max-height: min(560px, 70vh);
 }
-.acpmux-mp-recents .acpmux-mp-sub {
+.acpmux-mp-drill .acpmux-mp-sub {
   margin: 4px 0 2px 14px;
   padding-left: 6px;
   box-shadow: inset 0.5px 0 0 var(--acpmux-composer-edge);
 }
-.acpmux-mp-recents .acpmux-mp-panel {
+.acpmux-mp-drill .acpmux-mp-panel {
   padding: 8px 8px 10px 12px;
 }
 .acpmux-mp-crumbs {
@@ -220,8 +149,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-mp-row,
-  .acpmux-mp-crumb,
-  .acpmux-mp-column > .acpmux-menu-header {
+  .acpmux-mp-crumb {
     transition:
       background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
       color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);

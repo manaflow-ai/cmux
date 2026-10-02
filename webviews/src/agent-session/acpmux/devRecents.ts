@@ -1,5 +1,5 @@
 // Dev page only (dev.tsx `?recents=demo`): recent model and effort combos across the mock
-// catalog's families, so the picker variants show their recents and layers on first open.
+// catalog's families, so the model picker shows its recents and layers on first open.
 import type { Combo } from "./ComposerPickers";
 
 const DEMO: Combo[] = [
@@ -17,6 +17,6 @@ export function seedDevRecents(): void {
   try {
     localStorage.setItem("cmux.acpmux.recentModels", JSON.stringify(DEMO));
   } catch {
-    // Blocked storage: the variants open without recents.
+    // Blocked storage: the picker opens without recents.
   }
 }

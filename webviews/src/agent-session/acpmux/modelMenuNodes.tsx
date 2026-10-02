@@ -1,6 +1,6 @@
-// What the model picker variants show, built from the current harness's catalog and the
-// viewer's recents: the shared derived data, the keys every variant handles the same way, and
-// the rows of the layered (cascade and recents-first) menus.
+// What the model picker shows, built from the current harness's catalog and the
+// viewer's recents: the shared derived data, the keys both layouts handle the same way, and
+// the rows of the layered (cascade and drill) menus.
 import type React from "react";
 import type { Combo } from "./ComposerPickers";
 import { EffortTrack } from "./EffortTrack";
@@ -24,7 +24,7 @@ import {
   type TaxModel,
   type TaxProvider,
 } from "./modelTaxonomy";
-import { LEVEL_ROWS, VARIANT_RECENTS, type ModelPickerProps } from "./modelPickerVariant";
+import { LEVEL_ROWS, RECENT_ROWS, type ModelPickerProps } from "./modelPickerLayout";
 import type { MenuNode } from "./useMenuTree";
 
 export type PickerData = ReturnType<typeof pickerData>;
@@ -36,7 +36,7 @@ export function pickerData(props: ModelPickerProps) {
   const taxonomy = buildTaxonomy(entry?.models ?? [], entry?.name ?? props.harness ?? "");
   const current: Current = { model: props.model, effort: props.effort };
   const recents = runnableRecents(props.recents, taxonomy, props.harness, Number.MAX_SAFE_INTEGER);
-  const numbered = recents.slice(0, VARIANT_RECENTS);
+  const numbered = recents.slice(0, RECENT_ROWS);
   const model = taxonomy.byId.get(props.model ?? "");
   const provider = taxonomy.providers.find((candidate) => candidate.name === model?.provider);
   const family = provider?.families.find((candidate) => candidate.name === model?.family);
@@ -75,7 +75,7 @@ export function pickerData(props: ModelPickerProps) {
   };
 }
 
-/// Type-to-filter keys shared by the variants: letters (and, once a query has begun, digits
+/// Type-to-filter keys shared by both layouts: letters (and, once a query has begun, digits
 /// and spaces) extend the query, Backspace trims it. Returns whether it took the key.
 export function typeKey(event: React.KeyboardEvent, query: string, setQuery: (query: string) => void): boolean {
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
