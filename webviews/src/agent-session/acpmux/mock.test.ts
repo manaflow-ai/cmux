@@ -9,6 +9,7 @@ describe("mock transport", () => {
     const actions = startMockHost((snapshot) => snapshots.push(snapshot), (run) => pending.push(run));
     expect(snapshots[0]?.connection).toBe("mock");
     expect(snapshots[0]?.rows.length).toBe(1);
+    expect(snapshots[0]?.commands?.map((command) => command.name)).toContain("compact");
 
     await actions["chat.send"]!({ text: "hello" });
     expect(snapshots.at(-1)?.isWorking).toBe(true);

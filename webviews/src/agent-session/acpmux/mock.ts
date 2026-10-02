@@ -8,6 +8,8 @@ import type { AcpmuxRow, AcpmuxSnapshot } from "./model";
 export type MockActions = Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
 
 const sessionId = "mock-session";
+/// What Claude lists at start, so the composer's `/` menu has something to show.
+const commands = [{ name: "compact", description: "Clear conversation history but keep a summary in context", hint: "optional custom summarization instructions" }, { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" }, { name: "pr-comments", description: "Get comments from a GitHub pull request" }, { name: "review", description: "Review a pull request" }];
 const catalog = [{ id: "claude", name: "Claude", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] }, { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] }];
 
 export function mockSnapshot(rows: AcpmuxRow[], isWorking = false): AcpmuxSnapshot {
@@ -23,6 +25,7 @@ export function mockSnapshot(rows: AcpmuxRow[], isWorking = false): AcpmuxSnapsh
     queue: [],
     catalog,
     canLoadOlder: false,
+    commands,
   };
 }
 
