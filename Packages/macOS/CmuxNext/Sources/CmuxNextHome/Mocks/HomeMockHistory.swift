@@ -1,14 +1,14 @@
 public import Foundation
 
 /// Confirmed history behind a mock source: seqs 1...count, read by page.
-public protocol HomeMockHistory: Sendable {
+public nonisolated protocol HomeMockHistory: Sendable {
     var count: Int { get }
     /// Messages with seq in `range` (1-based), ascending.
     func messages(in range: Range<Int>) async -> [HomeMessage]
 }
 
 /// An in-memory history (tests, the demo's small conversations).
-public struct HomeMemoryHistory: HomeMockHistory {
+public nonisolated struct HomeMemoryHistory: HomeMockHistory {
     public let all: [HomeMessage]
 
     public init(_ messages: [HomeMessage]) { all = messages }
