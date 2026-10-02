@@ -1,0 +1,6 @@
+- heading "Shadow DOM" [level=1]
+- region "Card":
+  - heading "Card title" [level=2]
+  - textbox "Shadow input"
+  - button "Shadow button"
+- paragraph: none

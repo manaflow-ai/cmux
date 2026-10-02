@@ -1,0 +1,20 @@
+- title: "Surface Fixture" [url=http://localhost:18765/surface.html?peer=http%3A%2F%2F127.0.0.1%3A18766]
+- heading "Surface" [level=1]
+- textbox "Search here" [ref=e1] [placeholder="Search here"]
+- button "Count 0" [ref=e2]
+- label:
+  - checkbox "Check me" [ref=e3]
+  - text: "Check me"
+- textbox "Text field" [ref=e4]: "start"
+- button "Late" [ref=e5]
+- button "Off" [ref=e6] [disabled]
+- generic "More" [ref=e8]
+- text: "Drag Drop zone"
+- iframe "Outer" [ref=e9]:
+  - text: "Outer"
+  - iframe "Inner" [ref=f1e1]:
+    - label:
+      - text: "Inner label"
+      - textbox "Inner label" [ref=f2e1] [placeholder="Inner-ph"]
+    - text: "Inner text"
+- text: "Far text"

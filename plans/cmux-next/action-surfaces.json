@@ -2342,10 +2342,9 @@
     {
       "cli" : "offered",
       "cli_name" : "tab new-webkit",
-      "context_menu" : "offered",
+      "context_menu" : "experimental",
       "context_menus" : [
-        "tab",
-        "newTab"
+
       ],
       "id" : "openBrowser.webkit",
       "mcp" : "offered",

@@ -1,0 +1,2119 @@
+Browser tab: 370922480, Title: "GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. · GitHub", URL: "http://127.0.0.1:18911/corpus/github.html".
+1 AXWebArea URL: 127.0.0.1:18911/cor…, GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. · GitHub
+	2 container
+		3 link Description: Skip to content, Value: github.com/manaflow…
+		4 heading Navigation Menu, Value: 2
+			5 text Navigation Menu
+		6 container
+			7 link Description: Homepage, Value: github.com/
+			8 container Global
+				9 content list
+					10 button (collapsed) Platform, Secondary Actions: Expand
+					11 button (collapsed) Solutions, Secondary Actions: Expand
+					12 button (collapsed) Resources, Secondary Actions: Expand
+					13 button (collapsed) Open Source, Secondary Actions: Expand
+					14 button (collapsed) Enterprise, Secondary Actions: Expand
+					15 link Description: Pricing, Value: github.com/pricing
+			16 pop up button (collapsed) Description: Search or jump to, type / to search, Secondary Actions: Expand
+			17 link Description: Sign in, Value: github.com/login
+			18 link Description: Sign up, Value: github.com/signup
+			19 pop up button Appearance settings
+	20 container js-repo-pjax-container
+		21 container repository-container-header
+			22 link Description: manaflow-ai, Value: github.com/manaflow…
+			23 text /
+			24 link Description: cmux, Value: github.com/manaflow…
+			25 text Public
+			26 content list
+				27 button Description: Sponsor manaflow-ai/cmux, ID: dialog-show-funding-links-modal-manaflow-ai-cmux
+				28 link Description: You must be signed in to change notification settings, Value: github.com/login, ID: repository-details-watch-button
+				29 link Description: Fork 2.4k, Value: github.com/login, ID: fork-button
+				30 link Description: You must be signed in to star a repository, Value: github.com/login
+			31 container Repository
+				32 content list
+					33 link Description: Code, Value: github.com/manaflow…, ID: code-tab
+					34 link Description: Issues 1.8k, Value: github.com/manaflow…, ID: issues-tab
+					35 link Description: Pull requests 1.6k, Value: github.com/manaflow…, ID: pull-requests-tab
+					36 link Description: Discussions, Value: github.com/manaflow…, ID: discussions-tab
+					37 link Description: Actions, Value: github.com/manaflow…, ID: actions-tab
+					38 link Description: Projects, Value: github.com/manaflow…, ID: projects-tab
+					39 link Description: Security and quality, Value: github.com/manaflow…, ID: security-and-quality-tab
+					40 link Description: Insights, Value: github.com/manaflow…, ID: insights-tab
+		41 container repo-content-pjax-container
+			42 container repos-split-pane-content
+				43 pop up button (collapsed) Description: main branch, ID: ref-picker-repos-header-ref-selector, Secondary Actions: Expand
+					44 text main
+				45 link Description: 9074 Branches, Value: github.com/manaflow…
+				46 link Description: 191 Tags, Value: github.com/manaflow…
+				47 combo box (collapsed, settable) Description: Go to file, Secondary Actions: Expand
+				48 pop up button (collapsed) Code, Secondary Actions: Expand
+				49 heading Latest commit, Value: 2
+					50 text Latest commit
+				51 container
+					52 image lawrencecchen
+					53 image claude
+				54 link Description: commits by lawrencecchen, Value: github.com/manaflow…
+				55 text and
+				56 link Description: commits by claude, Value: github.com/manaflow…
+				57 link Description: docs: add CodeRouter documentation in all locales (, Value: github.com/manaflow…
+				58 link Description: #15506, Value: github.com/manaflow…
+				59 link Description: ), Value: github.com/manaflow…
+				60 checkbox (collapsed) Open commit details, Value: 0, Secondary Actions: Expand
+				61 button pending
+				62 link Description: Commit 31014dc, Value: github.com/manaflow…
+				63 text  · 
+				64 container Sep 30, 2026, 3:14 AM UTC
+					65 text Sep 30, 2026
+				66 heading History, Value: 2
+					67 text History
+				68 link Description: 18,487 Commits, Value: github.com/manaflow…
+				69 heading Folders and files, Value: 2, ID: folders-and-files
+					70 text Folders and files
+				71 table Folders and files
+					72 row
+						73 cell
+							74 text Name
+						75 cell
+							76 text Last commit message
+						77 cell
+							78 text Last commit date
+					79 row folder-row-0
+						80 cell
+							81 link Description: .agents, (Directory), Value: github.com/manaflow…
+						82 cell
+							83 container
+								84 link Description: [codex] Add more cmux agent skills (, Value: github.com/manaflow…, Help: [codex] Add more cmux agent skills (#5614) * Add more cmux agent skills * Trim cmux CLAUDE skill index * Keep setup and local dev in CLAUDE * Expose repo skills to Claude and Codex * Keep core testing policies in CLAUDE * Keep pitfalls and release rules in CLAUDE
+								85 link Description: #5614, Value: github.com/manaflow…
+								86 link Description: ), Value: github.com/manaflow…, Help: [codex] Add more cmux agent skills (#5614) * Add more cmux agent skills * Trim cmux CLAUDE skill index * Keep setup and local dev in CLAUDE * Expose repo skills to Claude and Codex * Keep core testing policies in CLAUDE * Keep pitfalls and release rules in CLAUDE
+						87 cell
+							88 container Jun 9, 2026, 5:06 PM UTC
+								89 text Jun 9, 2026
+					90 row folder-row-1
+						91 cell
+							92 link Description: .asc, (Directory), Value: github.com/manaflow…
+						93 cell
+							94 container
+								95 link Description: Add iOS App Store production lane (, Value: github.com/manaflow…, Help: Add iOS App Store production lane (#7644) * Add iOS App Store release lane * Fix App Store workflow build output env * Harden App Store release lane dispatch * Fix App Store ASC workflow build-number args * Harden App Store workflow operations * Block App Store external purchase links * Requi
+								96 link Description: #7644, Value: github.com/manaflow…
+								97 link Description: ), Value: github.com/manaflow…, Help: Add iOS App Store production lane (#7644) * Add iOS App Store release lane * Fix App Store workflow build output env * Harden App Store release lane dispatch * Fix App Store ASC workflow build-number args * Harden App Store workflow operations * Block App Store external purchase links * Requi
+						98 cell
+							99 container Jul 9, 2026, 12:00 AM UTC
+								100 text Jul 9, 2026
+					101 row folder-row-2
+						102 cell
+							103 link Description: .claude, (Directory), Value: github.com/manaflow…
+						104 cell
+							105 container
+								106 link Description: Backfill Unreleased changelog and draft next release cards (, Value: github.com/manaflow…, Help: Backfill Unreleased changelog and draft next release cards (#14999) * Backfill Unreleased changelog and draft next release cards Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> * Apply review: fold follow-ups, drop flagged-off and unshipped items, mark Cloud beta Co-Authored-By: Claude O
+								107 link Description: #14999, Value: github.com/manaflow…
+								108 link Description: ), Value: github.com/manaflow…, Help: Backfill Unreleased changelog and draft next release cards (#14999) * Backfill Unreleased changelog and draft next release cards Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com> * Apply review: fold follow-ups, drop flagged-off and unshipped items, mark Cloud beta Co-Authored-By: Claude O
+						109 cell
+							110 container Sep 27, 2026, 2:45 PM UTC
+								111 text Sep 27, 2026
+					112 row folder-row-3
+						113 cell
+							114 link Description: .github, (Directory), Value: github.com/manaflow…
+						115 cell
+							116 link Description: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (, Value: github.com/manaflow…, Help: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (#15576) * ci: budget the diff viewer's eagerly evaluated JS `scripts/check-webviews-diff-budget.mjs` walks the committed webviews bundle from `main.mjs` and `chunks/diffSurface.mjs` through static imports, sums the bytes the d
+						117 cell
+							118 container Sep 30, 2026, 1:58 AM UTC
+								119 text Sep 30, 2026
+					120 row folder-row-4
+						121 cell
+							122 link Description: .greptile, (Directory), Value: github.com/manaflow…
+						123 cell
+							124 container
+								125 link Description: review: scope error privacy checks to end-user surfaces (, Help: review: scope error privacy checks to end-user surfaces (#13277), Value: github.com/manaflow…
+								126 link Description: #13277, Value: github.com/manaflow…
+								127 link Description: ), Help: review: scope error privacy checks to end-user surfaces (#13277), Value: github.com/manaflow…
+						128 cell
+							129 container Sep 20, 2026, 8:29 PM UTC
+								130 text Sep 20, 2026
+					131 row folder-row-5
+						132 cell
+							133 link Description: AppIcon.icon, (Directory), Value: github.com/manaflow…
+						134 cell
+							135 container
+								136 link Description: Regenerate app icons from Icon Composer (, Value: github.com/manaflow…, Help: Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f
+								137 link Description: #1005, Value: github.com/manaflow…
+								138 link Description: ), Value: github.com/manaflow…, Help: Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f
+						139 cell
+							140 container Mar 6, 2026, 12:30 PM UTC
+								141 text Mar 6, 2026
+					142 row folder-row-6
+						143 cell
+							144 link Description: Assets.xcassets, (Directory), Value: github.com/manaflow…
+						145 cell
+							146 container
+								147 link Description: feat(tui): adopt Herdr-style agent plugins and journal projections (, Value: github.com/manaflow…, Help: feat(tui): adopt Herdr-style agent plugins and journal projections (#13299) * feat(tui): adopt Herdr-style agent plugin architecture * perf(cloud): move VM guest setup into snapshot contract * docs: preserve Herdr handoff for startup work * test(cloud): assert snapshot guest contract * fix(clou
+								148 link Description: #…, Value: github.com/manaflow…
+						149 cell
+							150 container Sep 23, 2026, 12:09 PM UTC
+								151 text Sep 23, 2026
+					152 row folder-row-7
+						153 cell
+							154 link Description: CLI, (Directory), Value: github.com/manaflow…
+						155 cell
+							156 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						157 cell
+							158 container Sep 30, 2026, 3:03 AM UTC
+								159 text Sep 30, 2026
+					160 row folder-row-8
+						161 cell
+							162 link Description: Examples, (Directory), Value: github.com/manaflow…
+						163 cell
+							164 container
+								165 link Description: fix(examples): show custom description in Project Worktrees sidebar (, Value: github.com/manaflow…, Help: fix(examples): show custom description in Project Worktrees sidebar (#15256) * test: cover Project Worktrees subtitle preferring the description (#4889) Project Worktrees rows (pinned and grouped) should show a workspace's custom description and fall back to the branch only when the description is
+								166 link Description: #…, Value: github.com/manaflow…
+						167 cell
+							168 container Sep 29, 2026, 3:58 PM UTC
+								169 text Sep 29, 2026
+					170 row folder-row-9
+						171 cell
+							172 link Description: KeyboardPinningLab, (Directory), Value: github.com/manaflow…
+						173 cell
+							174 container
+								175 link Description: Keep the iOS terminal dock pinned during keyboard reversals (, Value: github.com/manaflow…, Help: Keep the iOS terminal dock pinned during keyboard reversals (#9836) * Add standalone iOS keyboard pinning lab * Test rapid iOS keyboard dock reversals * Unify iOS keyboard dock presentation * Fix CLI compile break from classify() tuple access https://github.com/manaflow-ai/cmux/pull/9804 landed
+								176 link Description: #9836, Value: github.com/manaflow…
+								177 link Description: ), Value: github.com/manaflow…, Help: Keep the iOS terminal dock pinned during keyboard reversals (#9836) * Add standalone iOS keyboard pinning lab * Test rapid iOS keyboard dock reversals * Unify iOS keyboard dock presentation * Fix CLI compile break from classify() tuple access https://github.com/manaflow-ai/cmux/pull/9804 landed
+						178 cell
+							179 container Aug 9, 2026, 2:47 AM UTC
+								180 text Aug 9, 2026
+					181 row folder-row-10
+						182 cell
+							183 link Description: Native, (Directory), Value: github.com/manaflow…
+						184 cell
+							185 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						186 cell
+							187 container Sep 30, 2026, 3:03 AM UTC
+								188 text Sep 30, 2026
+					189 row folder-row-11
+						190 cell
+							191 link Description: Packages, (Directory), Value: github.com/manaflow…
+						192 cell
+							193 container
+								194 link Description: Merge pull request, Value: github.com/manaflow…, Help: Merge pull request #15789 from manaflow-ai/feat-ios-browser-update-warning iOS: hide browser update hint while reconnecting
+								195 link Description: #15789, Value: github.com/manaflow…
+								196 link Description: from manaflow-ai/feat-ios-browser-update-wa…, Value: github.com/manaflow…, Help: Merge pull request #15789 from manaflow-ai/feat-ios-browser-update-warning iOS: hide browser update hint while reconnecting
+						197 cell
+							198 container Sep 30, 2026, 3:11 AM UTC
+								199 text Sep 30, 2026
+					200 row folder-row-12
+						201 cell
+							202 link Description: Prototypes/SettingsShellLab, (Directory), Help: This path skips through empty directories, Value: github.com/manaflow…
+						203 cell
+							204 container
+								205 link Description: Add settings sidebar shell (, Value: github.com/manaflow…, Help: Add settings sidebar shell (#3244) * Add settings sidebar shell * Add settings shell prototype app * Migrate settings to native shell layout * Align settings shell with prototype * Remove settings titlebar debug hooks * Use SwiftUI scene for settings window * Improve settings search results
+								206 link Description: #3244, Value: github.com/manaflow…
+								207 link Description: ), Value: github.com/manaflow…, Help: Add settings sidebar shell (#3244) * Add settings sidebar shell * Add settings shell prototype app * Migrate settings to native shell layout * Align settings shell with prototype * Remove settings titlebar debug hooks * Use SwiftUI scene for settings window * Improve settings search results
+						208 cell
+							209 container Apr 29, 2026, 6:52 AM UTC
+								210 text Apr 29, 2026
+					211 row folder-row-13
+						212 cell
+							213 link Description: Resources, (Directory), Value: github.com/manaflow…
+						214 cell
+							215 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						216 cell
+							217 container Sep 30, 2026, 3:03 AM UTC
+								218 text Sep 30, 2026
+					219 row folder-row-14
+						220 cell
+							221 link Description: Sources, (Directory), Value: github.com/manaflow…
+						222 cell
+							223 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						224 cell
+							225 container Sep 30, 2026, 3:03 AM UTC
+								226 text Sep 30, 2026
+					227 row folder-row-15
+						228 cell
+							229 link Description: TunnelExtension, (Directory), Value: github.com/manaflow…
+						230 cell
+							231 container
+								232 link Description: Fix Cloud VPN cancellation ordering and stale tunnel device selection (, Value: github.com/manaflow…, Help: Fix Cloud VPN cancellation ordering and stale tunnel device selection (#12886) * test(cloud): reproduce duplicate VPN starts * fix(cloud): coalesce duplicate VPN starts * fix(cloud): actorize VPN start callback gate * fix(cloud): tighten provider start concurrency * fix(cloud): avoid tunnel sta
+								233 link Description: …, Value: github.com/manaflow…
+						234 cell
+							235 container Sep 18, 2026, 1:22 AM UTC
+								236 text Sep 18, 2026
+					237 row folder-row-16
+						238 cell
+							239 link Description: agent-chat, (Directory), Value: github.com/manaflow…
+						240 cell
+							241 container
+								242 link Description: Keep the mail broker from orphaning a reply to an unknown parent (, Value: github.com/manaflow…, Help: Keep the mail broker from orphaning a reply to an unknown parent (#15330) * Cover two ways append() disagrees with its own contract Both assertions fail on this commit. append() accepts a reply whose parent it has never seen. normalizeEnvelope falls back to the message's own id for the thread, so
+								243 link Description: #15330, Value: github.com/manaflow…
+						244 cell
+							245 container Sep 28, 2026, 11:52 AM UTC
+								246 text Sep 28, 2026
+					247 row folder-row-17
+						248 cell
+							249 link Description: cmux-browser, (Directory), Value: github.com/manaflow…
+						250 cell
+							251 container
+								252 link Description: cmux-browser: stop requiring GPL for web/package.json (, Value: github.com/manaflow…, Help: cmux-browser: stop requiring GPL for web/package.json (#15231) https://github.com/manaflow-ai/cmux/pull/15206 relicensed web/ under BUSL-1.1, so the Browser license policy's GPL check on web/package.json fails every run that routes the browser host tests. Co-authored-by: Claude Opus 5.5 (1M contex
+								253 link Description: #15231, Value: github.com/manaflow…
+								254 link Description: ), Value: github.com/manaflow…, Help: cmux-browser: stop requiring GPL for web/package.json (#15231) https://github.com/manaflow-ai/cmux/pull/15206 relicensed web/ under BUSL-1.1, so the Browser license policy's GPL check on web/package.json fails every run that routes the browser host tests. Co-authored-by: Claude Opus 5.5 (1M contex
+						255 cell
+							256 container Sep 28, 2026, 8:32 AM UTC
+								257 text Sep 28, 2026
+					258 row folder-row-18
+						259 cell
+							260 link Description: cmux-tui, (Directory), Value: github.com/manaflow…
+						261 cell
+							262 link Description: Consolidate SSH security, shim hardening, and restored terminal repla…, Value: github.com/manaflow…, Help: Consolidate SSH security, shim hardening, and restored terminal replay fixes (#15116) * test: cover durable Claude shim storage * fix: keep per-pane Claude shims outside TMPDIR * test: harden durable Claude shim coverage * fix: make event reconnect policy instantiable * cmux ssh: test that the
+						263 cell
+							264 container Sep 29, 2026, 9:31 AM UTC
+								265 text Sep 29, 2026
+					266 row folder-row-19
+						267 cell
+							268 link Description: cmux.xcodeproj, (Directory), Value: github.com/manaflow…
+						269 cell
+							270 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						271 cell
+							272 container Sep 30, 2026, 3:03 AM UTC
+								273 text Sep 30, 2026
+					274 row folder-row-20
+						275 cell
+							276 link Description: cmux.xcworkspace, (Directory), Value: github.com/manaflow…
+						277 cell
+							278 container
+								279 link Description: iOS: On iPhone browser for paired Macs (, Value: github.com/manaflow…, Help: iOS: On iPhone browser for paired Macs (#14301) * Mac: serve the iOS browser tunnel over irx lanes Adds tcp_connect and listening_ports lanes to irx. IrxTunnelHost, one per admitted phone connection, applies a default-deny destination policy (this Mac's loopback; other hosts only with the new mobi
+								280 link Description: #14301, Value: github.com/manaflow…
+								281 link Description: ), Value: github.com/manaflow…, Help: iOS: On iPhone browser for paired Macs (#14301) * Mac: serve the iOS browser tunnel over irx lanes Adds tcp_connect and listening_ports lanes to irx. IrxTunnelHost, one per admitted phone connection, applies a default-deny destination policy (this Mac's loopback; other hosts only with the new mobi
+						282 cell
+							283 container Sep 29, 2026, 2:26 AM UTC
+								284 text Sep 29, 2026
+					285 row folder-row-21
+						286 cell
+							287 link Description: cmuxCLITestSupport, (Directory), Value: github.com/manaflow…
+						288 cell
+							289 link Description: Add resize-window CLI and socket command, plus a scrollback resize gu…, Value: github.com/manaflow…, Help: Add resize-window CLI and socket command, plus a scrollback resize guard script (#9826) cmux resize-window --window <handle> [--width] [--height] resizes a window with its top-left corner fixed; scripts/scrollback-resize-guard.sh checks that repeated window drags do not duplicate scrollback lines.
+						290 cell
+							291 container Sep 26, 2026, 3:18 PM UTC
+								292 text Sep 26, 2026
+					293 row folder-row-22
+						294 cell
+							295 link Description: cmuxCLITests, (Directory), Value: github.com/manaflow…
+						296 cell
+							297 link Description: Show Claude sessions that stop on an API error instead of leaving the…, Value: github.com/manaflow…, Help: Show Claude sessions that stop on an API error instead of leaving them Running (#15232) * Show Claude sessions that stop on an API error instead of leaving them Running Claude Code fires StopFailure instead of Stop when a turn dies on an API error (usage limit, dropped connection, overload, auth).
+						298 cell
+							299 container Sep 28, 2026, 2:28 PM UTC
+								300 text Sep 28, 2026
+					301 row folder-row-23
+						302 cell
+							303 link Description: cmuxTests, (Directory), Value: github.com/manaflow…
+						304 cell
+							305 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						306 cell
+							307 container Sep 30, 2026, 3:03 AM UTC
+								308 text Sep 30, 2026
+					309 row folder-row-24
+						310 cell
+							311 link Description: cmuxUITests, (Directory), Value: github.com/manaflow…
+						312 cell
+							313 container
+								314 link Description: Open the Cloud team picker as an anchored dropdown (, Value: github.com/manaflow…, Help: Open the Cloud team picker as an anchored dropdown (#15078) * test: serve fixture team membership to Cloud team picker UI tests The signed-in UI-test auth fixture had no team membership, so no UI test could open a team list, switch teams or create one. Fixture sessions now load teams through the i
+								315 link Description: #15078, Value: github.com/manaflow…
+								316 link Description: ), Value: github.com/manaflow…, Help: Open the Cloud team picker as an anchored dropdown (#15078) * test: serve fixture team membership to Cloud team picker UI tests The signed-in UI-test auth fixture had no team membership, so no UI test could open a team list, switch teams or create one. Fixture sessions now load teams through the i
+						317 cell
+							318 container Sep 30, 2026, 12:14 AM UTC
+								319 text Sep 30, 2026
+					320 row folder-row-25
+						321 cell
+							322 link Description: config, (Directory), Value: github.com/manaflow…
+						323 cell
+							324 link Description: build: read Xcode projects with Foundation and drop XcodeProj and Pat…, Value: github.com/manaflow…, Help: build: read Xcode projects with Foundation and drop XcodeProj and PathKit (#13111) * test: cover the Xcode project adapter with a synthetic project Adds a fixture project that exercises every source tree, variant and synchronized groups, target dependencies, memberships, configurations and schemes
+						325 cell
+							326 container Sep 20, 2026, 10:58 AM UTC
+								327 text Sep 20, 2026
+					328 row folder-row-26
+						329 cell
+							330 link Description: daemon/remote, (Directory), Help: This path skips through empty directories, Value: github.com/manaflow…
+						331 cell
+							332 link Description: Consolidate SSH security, shim hardening, and restored terminal repla…, Value: github.com/manaflow…, Help: Consolidate SSH security, shim hardening, and restored terminal replay fixes (#15116) * test: cover durable Claude shim storage * fix: keep per-pane Claude shims outside TMPDIR * test: harden durable Claude shim coverage * fix: make event reconnect policy instantiable * cmux ssh: test that the
+						333 cell
+							334 container Sep 29, 2026, 9:31 AM UTC
+								335 text Sep 29, 2026
+					336 row folder-row-27
+						337 cell
+							338 link Description: design, (Directory), Value: github.com/manaflow…
+						339 cell
+							340 container
+								341 link Description: Regenerate app icons from Icon Composer (, Value: github.com/manaflow…, Help: Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f
+								342 link Description: #1005, Value: github.com/manaflow…
+								343 link Description: ), Value: github.com/manaflow…, Help: Regenerate app icons from Icon Composer (#1005) * Add Apple Icon Composer source file Store the .icon project file in design/cmux.icon so the icon can be edited in Icon Composer and regenerated from source. * Regenerate all app icons from Icon Composer Use ictool to render light/dark icon PNGs f
+						344 cell
+							345 container Mar 6, 2026, 12:30 PM UTC
+								346 text Mar 6, 2026
+					347 row folder-row-28
+						348 cell
+							349 link Description: docs, (Directory), Value: github.com/manaflow…
+						350 cell
+							351 container
+								352 link Description: docs: explain native notification banner lifetime (, Value: github.com/manaflow…, Help: docs: explain native notification banner lifetime (#15763) * ci: register the nightly owned-Mac producer on the fork default branch GitHub only dispatches workflows that exist on the default branch; the content that runs comes from the dispatched ref. Co-Authored-By: Claude Opus 5.5 <noreply@anth
+								353 link Description: #15763, Value: github.com/manaflow…
+								354 link Description: ), Value: github.com/manaflow…, Help: docs: explain native notification banner lifetime (#15763) * ci: register the nightly owned-Mac producer on the fork default branch GitHub only dispatches workflows that exist on the default branch; the content that runs comes from the dispatched ref. Co-Authored-By: Claude Opus 5.5 <noreply@anth
+						355 cell
+							356 container Sep 30, 2026, 12:45 AM UTC
+								357 text Sep 30, 2026
+					358 row folder-row-29
+						359 cell
+							360 link Description: dogfood, (Directory), Value: github.com/manaflow…
+						361 cell
+							362 container
+								363 link Description: fix(events): keep sequence allocation off publish path (, Value: github.com/manaflow…, Help: fix(events): keep sequence allocation off publish path (#15118) * test(events): cover sequence lease persistence * fix(events): lease durable sequence ranges off publish path * fix(events): use explicit sequence store initializer * test(events): synchronize sequence allocation assertions * test
+								364 link Description: #15118, Value: github.com/manaflow…
+								365 link Description: ), Value: github.com/manaflow…, Help: fix(events): keep sequence allocation off publish path (#15118) * test(events): cover sequence lease persistence * fix(events): lease durable sequence ranges off publish path * fix(events): use explicit sequence store initializer * test(events): synchronize sequence allocation assertions * test
+						366 cell
+							367 container Sep 28, 2026, 9:28 PM UTC
+								368 text Sep 28, 2026
+					369 row folder-row-30
+						370 cell
+							371 link Description: examples/cmux-pack-template, (Directory), Help: This path skips through empty directories, Value: github.com/manaflow…
+						372 cell
+							373 container
+								374 link Description: feat: load local cmux config packs (, Value: github.com/manaflow…, Help: feat: load local cmux config packs (#13356) * Add local cmux config packs prototype * Fix cmux pack template layout JSON * Fix cmux pack precedence and watching * Fix cmux pack trust and watcher behavior * Watch missing cmux pack recovery paths * Fix pack icon sources for built-in buttons * F
+								375 link Description: #13356, Value: github.com/manaflow…
+								376 link Description: ), Value: github.com/manaflow…, Help: feat: load local cmux config packs (#13356) * Add local cmux config packs prototype * Fix cmux pack template layout JSON * Fix cmux pack precedence and watching * Fix cmux pack trust and watcher behavior * Watch missing cmux pack recovery paths * Fix pack icon sources for built-in buttons * F
+						377 cell
+							378 container Sep 24, 2026, 9:13 AM UTC
+								379 text Sep 24, 2026
+					380 row folder-row-31
+						381 cell
+							382 link Description: experiments, (Directory), Value: github.com/manaflow…
+						383 cell
+							384 container
+								385 link Description: iroh default mobile transport: design + green Swift FFI spike (, Value: github.com/manaflow…, Help: iroh default mobile transport: design + green Swift FFI spike (#5735) * spike: iroh Swift C-FFI harness (macOS + iOS-sim) for mobile transport Minimal Rust staticlib (iroh 1.0.0-rc.1) exposing a blocking C API: bind endpoint, dial by EndpointId via n0 relays/discovery, one bi-stream send/recv. Swi
+								386 link Description: #5735, Value: github.com/manaflow…
+								387 link Description: ), Value: github.com/manaflow…, Help: iroh default mobile transport: design + green Swift FFI spike (#5735) * spike: iroh Swift C-FFI harness (macOS + iOS-sim) for mobile transport Minimal Rust staticlib (iroh 1.0.0-rc.1) exposing a blocking C API: bind endpoint, dial by EndpointId via n0 relays/discovery, one bi-stream send/recv. Swi
+						388 cell
+							389 container Jun 10, 2026, 4:04 AM UTC
+								390 text Jun 10, 2026
+					391 row folder-row-32
+						392 cell
+							393 link Description: ghostty, (Submodule), Help: ghostty, Value: github.com/manaflow…
+						394 cell
+							395 container
+								396 link Description: Cloud: preserve Codex composer rows after restore (, Value: github.com/manaflow…, Help: Cloud: preserve Codex composer rows after restore (#15146) * test: reproduce Codex composer replay row loss * fix: keep Cloud VT replay rows anchored * test: cover Codex replay cells and redraw * fix: update Ghostty replay formatter * docs: describe Cloud replay cell preservation * build: pin
+								397 link Description: #15146, Value: github.com/manaflow…
+								398 link Description: ), Value: github.com/manaflow…, Help: Cloud: preserve Codex composer rows after restore (#15146) * test: reproduce Codex composer replay row loss * fix: keep Cloud VT replay rows anchored * test: cover Codex replay cells and redraw * fix: update Ghostty replay formatter * docs: describe Cloud replay cell preservation * build: pin
+						399 cell
+							400 container Sep 29, 2026, 3:07 AM UTC
+								401 text Sep 29, 2026
+					402 row folder-row-33
+						403 cell
+							404 link Description: homebrew-cmux, (Submodule), Help: homebrew-cmux, Value: github.com/manaflow…
+						405 cell
+							406 link Description: Fix CI: remove broken tests for deleted function, fix review comments, Value: github.com/manaflow…, Help: Fix CI: remove broken tests for deleted function, fix review comments - Remove tests for shouldLoadReleaseAppSupportGhosttyConfig (function was deleted but tests survived, breaking CI on all branches) - Fix missed localization on optional-chain notification fallback path - Validate explicit-but-e
+						407 cell
+							408 container Mar 16, 2026, 4:08 AM UTC
+								409 text Mar 16, 2026
+					410 row folder-row-34
+						411 cell
+							412 link Description: ios, (Directory), Value: github.com/manaflow…
+						413 cell
+							414 link Description: fix(ios): keep computer picker stable during background updates, Value: github.com/manaflow…, Help: fix(ios): keep computer picker stable during background updates Keep the iOS computer picker menu stable while background workspace updates refresh its surrounding SwiftUI state. The contributor implementation passed the full available CI suite.
+						415 cell
+							416 container Sep 29, 2026, 12:13 PM UTC
+								417 text Sep 29, 2026
+					418 row folder-row-35
+						419 cell
+							420 link Description: plans, (Directory), Value: github.com/manaflow…
+						421 cell
+							422 link Description: fix(agent-chat): harden agent room message contracts, Value: github.com/manaflow…
+						423 cell
+							424 container Sep 21, 2026, 7:56 AM UTC
+								425 text Sep 21, 2026
+					426 row folder-row-36
+						427 cell
+							428 link Description: schemas/control-plane, (Directory), Help: This path skips through empty directories, Value: github.com/manaflow…
+						429 cell
+							430 container
+								431 link Description: Device-list authorization + DO-first control plane (listauth) (, Value: github.com/manaflow…, Help: Device-list authorization + DO-first control plane (listauth) (#11220) * test: reproduce irx mint failure on stale kept-alive broker connection During the 60-min irx soak (issue #10924) the iOS client failed its first mint attempt on 15/15 autopilot cycles with journal a_error "connectivity". The
+								432 link Description: #11220, Value: github.com/manaflow…
+								433 link Description: ), Value: github.com/manaflow…, Help: Device-list authorization + DO-first control plane (listauth) (#11220) * test: reproduce irx mint failure on stale kept-alive broker connection During the 60-min irx soak (issue #10924) the iOS client failed its first mint attempt on 15/15 autopilot cycles with journal a_error "connectivity". The
+						434 cell
+							435 container Sep 1, 2026, 7:38 AM UTC
+								436 text Sep 1, 2026
+					437 row folder-row-37
+						438 cell
+							439 link Description: scripts, (Directory), Value: github.com/manaflow…
+						440 cell
+							441 link Description: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (, Value: github.com/manaflow…, Help: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (#15576) * ci: budget the diff viewer's eagerly evaluated JS `scripts/check-webviews-diff-budget.mjs` walks the committed webviews bundle from `main.mjs` and `chunks/diffSurface.mjs` through static imports, sums the bytes the d
+						442 cell
+							443 container Sep 30, 2026, 1:58 AM UTC
+								444 text Sep 30, 2026
+					445 row folder-row-38
+						446 cell
+							447 link Description: services/iroh-relay-minter, (Directory), Help: This path skips through empty directories, Value: github.com/manaflow…
+						448 cell
+							449 container
+								450 link Description: Use founders@cmux.com as the contact address everywhere (, Value: github.com/manaflow…, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								451 link Description: #15219, Value: github.com/manaflow…
+								452 link Description: ), Value: github.com/manaflow…, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						453 cell
+							454 container Sep 29, 2026, 3:28 AM UTC
+								455 text Sep 29, 2026
+					456 row folder-row-39
+						457 cell
+							458 link Description: skills, (Directory), Value: github.com/manaflow…
+						459 cell
+							460 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						461 cell
+							462 container Sep 30, 2026, 3:03 AM UTC
+								463 text Sep 30, 2026
+					464 row folder-row-40
+						465 cell
+							466 link Description: tests, (Directory), Value: github.com/manaflow…
+						467 cell
+							468 container
+								469 link Description: Install updates automatically at a quiet moment and resume agents (, Value: github.com/manaflow…, Help: Install updates automatically at a quiet moment and resume agents (#15296) * Install updates automatically at a quiet moment; explicit installs relaunch right away An explicit Install and Relaunch, Restart Now or Install Now relaunches as soon as the app has captured its sessions (#15084). With th
+								470 link Description: #1…, Value: github.com/manaflow…
+						471 cell
+							472 container Sep 30, 2026, 1:02 AM UTC
+								473 text Sep 30, 2026
+					474 row folder-row-41
+						475 cell
+							476 link Description: tests_v2, (Directory), Value: github.com/manaflow…
+						477 cell
+							478 link Description: Consolidate SSH security, shim hardening, and restored terminal repla…, Value: github.com/manaflow…, Help: Consolidate SSH security, shim hardening, and restored terminal replay fixes (#15116) * test: cover durable Claude shim storage * fix: keep per-pane Claude shims outside TMPDIR * test: harden durable Claude shim coverage * fix: make event reconnect policy instantiable * cmux ssh: test that the
+						479 cell
+							480 container Sep 29, 2026, 9:31 AM UTC
+								481 text Sep 29, 2026
+					482 row folder-row-42
+						483 cell
+							484 link Description: vault, (Directory), Value: github.com/manaflow…
+						485 cell
+							486 container
+								487 link Description: Fix Codex Security scan findings (, Value: github.com/manaflow…, Help: Fix Codex Security scan findings (#7437) * Add security regression coverage * Fix security scan findings * Address security review follow-ups * Fix review regressions in lease cleanup * Fix final security review findings * Fix remaining autoreview findings * Address final autoreview regressio
+								488 link Description: #7437, Value: github.com/manaflow…
+								489 link Description: ), Value: github.com/manaflow…, Help: Fix Codex Security scan findings (#7437) * Add security regression coverage * Fix security scan findings * Address security review follow-ups * Fix review regressions in lease cleanup * Fix final security review findings * Fix remaining autoreview findings * Address final autoreview regressio
+						490 cell
+							491 container Jul 8, 2026, 8:08 AM UTC
+								492 text Jul 8, 2026
+					493 row folder-row-43
+						494 cell
+							495 link Description: vendor, (Directory), Value: github.com/manaflow…
+						496 cell
+							497 container
+								498 link Description: Keep split-divider-color on the split divider only (, Value: github.com/manaflow…, Help: Keep split-divider-color on the split divider only (#15093) * test: split-divider-color must not recolor pane borders Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com> * Keep split-divider-color on the split divider only #12066 put Ghostty's split-divider-color into Bonsplit's
+								499 link Description: #15093, Value: github.com/manaflow…
+								500 link Description: ), Value: github.com/manaflow…, Help: Keep split-divider-color on the split divider only (#15093) * test: split-divider-color must not recolor pane borders Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com> * Keep split-divider-color on the split divider only #12066 put Ghostty's split-divider-color into Bonsplit's
+						501 cell
+							502 container Sep 30, 2026, 2:49 AM UTC
+								503 text Sep 30, 2026
+					504 row folder-row-44
+						505 cell
+							506 link Description: web, (Directory), Value: github.com/manaflow…
+						507 cell
+							508 container
+								509 link Description: docs: add CodeRouter documentation in all locales (, Value: github.com/manaflow…, Help: docs: add CodeRouter documentation in all locales (#15506) Three pages under /docs/coderouter: an overview (supported accounts, routing and failover, Mac quickstart, teams and sharing, usage, and credential handling), agents and models (Codex, OpenCode, Pi, and Claude Code on a Mac and on Cloud mac
+								510 link Description: #15506, Value: github.com/manaflow…
+								511 link Description: ), Value: github.com/manaflow…, Help: docs: add CodeRouter documentation in all locales (#15506) Three pages under /docs/coderouter: an overview (supported accounts, routing and failover, Mac quickstart, teams and sharing, usage, and credential handling), agents and models (Codex, OpenCode, Pi, and Claude Code on a Mac and on Cloud mac
+						512 cell
+							513 container Sep 30, 2026, 3:14 AM UTC
+								514 text Sep 30, 2026
+					515 row folder-row-45
+						516 cell
+							517 link Description: webviews, (Directory), Value: github.com/manaflow…
+						518 cell
+							519 link Description: Diff viewer: untracked files in unstaged, persisted viewer prefs, sof…, Value: github.com/manaflow…, Help: Diff viewer: untracked files in unstaged, persisted viewer prefs, soft refresh, hunk/file navigation (#6010) * Add failing tests: untracked files in unstaged, persisted viewer prefs, hunk navigation Regression tests for diff viewer round 1, replayed on current main: - Rust sidecar and CLI: `cmux
+						520 cell
+							521 container Sep 30, 2026, 3:03 AM UTC
+								522 text Sep 30, 2026
+					523 row folder-row-46
+						524 cell
+							525 link Description: workers, (Directory), Value: github.com/manaflow…
+						526 cell
+							527 link Description: fix(iroh-v2): omit bearer device attribution, Value: github.com/manaflow…, Help: fix(iroh-v2): omit bearer device attribution Follow-up security fix for #15444; validated by the targeted routing test and typecheck.
+						528 cell
+							529 container Sep 29, 2026, 12:56 PM UTC
+								530 text Sep 29, 2026
+					531 row folder-row-47
+						532 cell
+							533 link Description: .coderabbit.yaml, (File), Value: github.com/manaflow…
+						534 cell
+							535 container
+								536 link Description: review: scope error privacy checks to end-user surfaces (, Help: review: scope error privacy checks to end-user surfaces (#13277), Value: github.com/manaflow…
+								537 link Description: #13277, Value: github.com/manaflow…
+								538 link Description: ), Help: review: scope error privacy checks to end-user surfaces (#13277), Value: github.com/manaflow…
+						539 cell
+							540 container Sep 20, 2026, 8:29 PM UTC
+								541 text Sep 20, 2026
+					542 row folder-row-48
+						543 cell
+							544 link Description: .gitattributes, (File), Value: github.com/manaflow…
+						545 cell
+							546 link Description: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (, Value: github.com/manaflow…, Help: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (#15576) * ci: budget the diff viewer's eagerly evaluated JS `scripts/check-webviews-diff-budget.mjs` walks the committed webviews bundle from `main.mjs` and `chunks/diffSurface.mjs` through static imports, sums the bytes the d
+						547 cell
+							548 container Sep 30, 2026, 1:58 AM UTC
+								549 text Sep 30, 2026
+					550 row folder-row-49
+						551 cell
+							552 link Description: .gitignore, (File), Value: github.com/manaflow…
+						553 cell
+							554 container
+								555 link Description: ci: pilot persistent Mac compile admission (, Value: github.com/manaflow…, Help: ci: pilot persistent Mac compile admission (#13383) * Rebase persistent Mac actionlint labels onto current main * Rebase .gitignore persistent Mac changes onto current main * Rebase scripts/ci/compile-app-host-test-product.sh persistent Mac changes onto current main * Rebase CLAUDE.md persistent
+								556 link Description: #13383, Value: github.com/manaflow…
+								557 link Description: ), Value: github.com/manaflow…, Help: ci: pilot persistent Mac compile admission (#13383) * Rebase persistent Mac actionlint labels onto current main * Rebase .gitignore persistent Mac changes onto current main * Rebase scripts/ci/compile-app-host-test-product.sh persistent Mac changes onto current main * Rebase CLAUDE.md persistent
+						558 cell
+							559 container Sep 21, 2026, 6:18 PM UTC
+								560 text Sep 21, 2026
+					561 row folder-row-50
+						562 cell
+							563 link Description: .gitkeep, (File), Value: github.com/manaflow…
+						564 cell
+							565 link Description: chore: update release skill metadata, Value: github.com/manaflow…
+						566 cell
+							567 container Feb 21, 2026, 12:21 PM UTC
+								568 text Feb 21, 2026
+					569 row folder-row-51
+						570 cell
+							571 link Description: .gitmodules, (File), Value: github.com/manaflow…
+						572 cell
+							573 container
+								574 link Description: Fix frozen terminals after split churn (, Value: github.com/manaflow…, Help: Fix frozen terminals after split churn (#12) * Fix blank terminal after split operations and add visual tests ## Blank Terminal Fix - Add `needsRefreshAfterWindowChange` flag in GhosttyTerminalView - Force terminal refresh when view is added to window, even if size unchanged - Add `ghostty_surface
+								575 link Description: #12, Value: github.com/manaflow…
+								576 link Description: ), Value: github.com/manaflow…, Help: Fix frozen terminals after split churn (#12) * Fix blank terminal after split operations and add visual tests ## Blank Terminal Fix - Add `needsRefreshAfterWindowChange` flag in GhosttyTerminalView - Force terminal refresh when view is added to window, even if size unchanged - Add `ghostty_surface
+						577 cell
+							578 container Feb 14, 2026, 12:45 AM UTC
+								579 text Feb 14, 2026
+					580 row folder-row-52
+						581 cell
+							582 link Description: .vercelignore, (File), Value: github.com/manaflow…
+						583 cell
+							584 container
+								585 link Description: fix(web): let the Vercel ignore step see the previous deployment (, Value: github.com/manaflow…, Help: fix(web): let the Vercel ignore step see the previous deployment (#13947) * fix(web): let the Vercel ignore step see the previous deployment Vercel builds from a shallow clone. main lands commits faster than that clone is deep, so `VERCEL_GIT_PREVIOUS_SHA` is normally not in it, the reachability g
+								586 link Description: #13947, Value: github.com/manaflow…
+						587 cell
+							588 container Sep 23, 2026, 10:38 AM UTC
+								589 text Sep 23, 2026
+					590 row folder-row-53
+						591 cell
+							592 link Description: .xcode-version, (File), Value: github.com/manaflow…
+						593 cell
+							594 link Description: ci: give every macOS job its pool's pinned Xcode, and refuse one belo…, Value: github.com/manaflow…, Help: ci: give every macOS job its pool's pinned Xcode, and refuse one below .xcode-version (#14050) * ci: pin unpinned Xcode selection to the runner's pool, and refuse an Xcode below .xcode-version select-ci-xcode.sh picked the best SDK on the image when a job set no CMUX_CI_XCODE_APP, and accepted any
+						595 cell
+							596 container Sep 24, 2026, 10:22 AM UTC
+								597 text Sep 24, 2026
+					598 row folder-row-54
+						599 cell
+							600 link Description: AGENTS.md, (Symlink to file), Value: github.com/manaflow…
+						601 cell
+							602 link Description: agents, Value: github.com/manaflow…
+						603 cell
+							604 container Jan 22, 2026, 11:18 AM UTC
+								605 text Jan 22, 2026
+					606 row folder-row-55
+						607 cell
+							608 link Description: CHANGELOG.md, (File), Value: github.com/manaflow…
+						609 cell
+							610 container
+								611 link Description: Graduate Dock from Beta Features (, Value: github.com/manaflow…, Help: Graduate Dock from Beta Features (#15456) * test: cover Dock legacy opt-out graduation * feat: graduate Dock from beta features * test: remove obsolete Dock defaults helper * test: restore legacy Dock default in probe * test: stabilize sidebar settings UI assertions * test: fix Dock browser-di
+								612 link Description: #15456, Value: github.com/manaflow…
+								613 link Description: ), Value: github.com/manaflow…, Help: Graduate Dock from Beta Features (#15456) * test: cover Dock legacy opt-out graduation * feat: graduate Dock from beta features * test: remove obsolete Dock defaults helper * test: restore legacy Dock default in probe * test: stabilize sidebar settings UI assertions * test: fix Dock browser-di
+						614 cell
+							615 container Sep 29, 2026, 5:57 AM UTC
+								616 text Sep 29, 2026
+					617 row folder-row-56
+						618 cell
+							619 link Description: CLA.md, (File), Value: github.com/manaflow…
+						620 cell
+							621 container
+								622 link Description: ci: harden CLA checks for reopened and oversized pull requests (, Value: github.com/manaflow…, Help: ci: harden CLA checks for reopened and oversized pull requests (#11430) * Fail closed on oversized CLA pull requests * Harden CLA workflow filtering and document signing * Preserve trusted bot and lock ordering * Separate trusted automation from CLA allowlist * Require CLA for every contributor
+								623 link Description: #11430, Value: github.com/manaflow…
+								624 link Description: ), Value: github.com/manaflow…, Help: ci: harden CLA checks for reopened and oversized pull requests (#11430) * Fail closed on oversized CLA pull requests * Harden CLA workflow filtering and document signing * Preserve trusted bot and lock ordering * Separate trusted automation from CLA allowlist * Require CLA for every contributor
+						625 cell
+							626 container Sep 1, 2026, 11:15 AM UTC
+								627 text Sep 1, 2026
+					628 row folder-row-57
+						629 cell
+							630 link Description: CLAUDE.md, (File), Value: …
+						631 cell
+							632 container
+								633 link Description: docs: make CI runner policy the fleet routing owner (, Value: …, Help: docs: make CI runner policy the fleet routing owner (#15638) Link the hq fleet entry point and state the Xcode, minis-first, and Blacksmith outage invariants where CI routing is maintained.
+								634 link Description: #15638, Value: …
+								635 link Description: ), Value: …, Help: docs: make CI runner policy the fleet routing owner (#15638) Link the hq fleet entry point and state the Xcode, minis-first, and Blacksmith outage invariants where CI routing is maintained.
+						636 cell
+							637 container Sep 29, 2026, 4:14 PM UTC
+								638 text Sep 29, 2026
+					639 row folder-row-58
+						640 cell
+							641 link Description: CODE_OF_CONDUCT.md, (File), Value: …
+						642 cell
+							643 container
+								644 link Description: docs: add a front door for outside contributors (, Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+								645 link Description: #15263, Value: …
+								646 link Description: ), Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+						647 cell
+							648 container Sep 29, 2026, 3:39 PM UTC
+								649 text Sep 29, 2026
+					650 row folder-row-59
+						651 cell
+							652 link Description: CONTRIBUTING.md, (File), Value: …
+						653 cell
+							654 container
+								655 link Description: docs: add a front door for outside contributors (, Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+								656 link Description: #15263, Value: …
+								657 link Description: ), Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+						658 cell
+							659 container Sep 29, 2026, 3:39 PM UTC
+								660 text Sep 29, 2026
+					661 row folder-row-60
+						662 cell
+							663 link Description: LICENSE, (File), Value: …
+						664 cell
+							665 container
+								666 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								667 link Description: #15219, Value: …
+								668 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						669 cell
+							670 container Sep 29, 2026, 3:28 AM UTC
+								671 text Sep 29, 2026
+					672 row folder-row-61
+						673 cell
+							674 link Description: PR-10599-AUDIT.md, (File), Value: …
+						675 cell
+							676 link Description: File Preview: token colors, line numbers, chrome, and cmux product-bl…, Value: …, Help: File Preview: token colors, line numbers, chrome, and cmux product-blue gutter (#10599) * feat(file-preview): token colors, line numbers, and editor chrome File Preview stays on the TextKit 1 NSTextView but no longer paints one flat color. Highlightr token-colors common languages, a gutter draws l
+						677 cell
+							678 container Sep 4, 2026, 10:31 PM UTC
+								679 text Sep 4, 2026
+					680 row folder-row-62
+						681 cell
+							682 link Description: PROJECTS.md, (File), Value: …
+						683 cell
+							684 link Description: Reversion all 1.x.x to 0.x.x for pre-launch versioning, Value: …
+						685 cell
+							686 container Feb 18, 2026, 2:31 AM UTC
+								687 text Feb 18, 2026
+					688 row folder-row-63
+						689 cell
+							690 link Description: README.ar.md, (File), Value: …
+						691 cell
+							692 container
+								693 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								694 link Description: #15219, Value: …
+								695 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						696 cell
+							697 container Sep 29, 2026, 3:28 AM UTC
+								698 text Sep 29, 2026
+					699 row folder-row-64
+						700 cell
+							701 link Description: README.bs.md, (File), Value: …
+						702 cell
+							703 container
+								704 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								705 link Description: #15219, Value: …
+								706 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						707 cell
+							708 container Sep 29, 2026, 3:28 AM UTC
+								709 text Sep 29, 2026
+					710 row folder-row-65
+						711 cell
+							712 link Description: README.da.md, (File), Value: …
+						713 cell
+							714 container
+								715 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								716 link Description: #15219, Value: …
+								717 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						718 cell
+							719 container Sep 29, 2026, 3:28 AM UTC
+								720 text Sep 29, 2026
+					721 row folder-row-66
+						722 cell
+							723 link Description: README.de.md, (File), Value: …
+						724 cell
+							725 container
+								726 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								727 link Description: #15219, Value: …
+								728 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						729 cell
+							730 container Sep 29, 2026, 3:28 AM UTC
+								731 text Sep 29, 2026
+					732 row folder-row-67
+						733 cell
+							734 link Description: README.es.md, (File), Value: …
+						735 cell
+							736 container
+								737 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								738 link Description: #15219, Value: …
+								739 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						740 cell
+							741 container Sep 29, 2026, 3:28 AM UTC
+								742 text Sep 29, 2026
+					743 row folder-row-68
+						744 cell
+							745 link Description: README.fr.md, (File), Value: …
+						746 cell
+							747 container
+								748 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								749 link Description: #15219, Value: …
+								750 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						751 cell
+							752 container Sep 29, 2026, 3:28 AM UTC
+								753 text Sep 29, 2026
+					754 row folder-row-69
+						755 cell
+							756 link Description: README.it.md, (File), Value: …
+						757 cell
+							758 container
+								759 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								760 link Description: #15219, Value: …
+								761 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						762 cell
+							763 container Sep 29, 2026, 3:28 AM UTC
+								764 text Sep 29, 2026
+					765 row folder-row-70
+						766 cell
+							767 link Description: README.ja.md, (File), Value: …
+						768 cell
+							769 container
+								770 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								771 link Description: #15219, Value: …
+								772 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						773 cell
+							774 container Sep 29, 2026, 3:28 AM UTC
+								775 text Sep 29, 2026
+					776 row folder-row-71
+						777 cell
+							778 link Description: README.km.md, (File), Value: …
+						779 cell
+							780 container
+								781 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								782 link Description: #15219, Value: …
+								783 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						784 cell
+							785 container Sep 29, 2026, 3:28 AM UTC
+								786 text Sep 29, 2026
+					787 row folder-row-72
+						788 cell
+							789 link Description: README.ko.md, (File), Value: …
+						790 cell
+							791 container
+								792 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								793 link Description: #15219, Value: …
+								794 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						795 cell
+							796 container Sep 29, 2026, 3:28 AM UTC
+								797 text Sep 29, 2026
+					798 row folder-row-73
+						799 cell
+							800 link Description: README.md, (File), Value: …
+						801 cell
+							802 container
+								803 link Description: docs: add a front door for outside contributors (, Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+								804 link Description: #15263, Value: …
+								805 link Description: ), Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+						806 cell
+							807 container Sep 29, 2026, 3:39 PM UTC
+								808 text Sep 29, 2026
+					809 row folder-row-74
+						810 cell
+							811 link Description: README.no.md, (File), Value: …
+						812 cell
+							813 container
+								814 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								815 link Description: #15219, Value: …
+								816 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						817 cell
+							818 container Sep 29, 2026, 3:28 AM UTC
+								819 text Sep 29, 2026
+					820 row folder-row-75
+						821 cell
+							822 link Description: README.pl.md, (File), Value: …
+						823 cell
+							824 container
+								825 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								826 link Description: #15219, Value: …
+								827 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						828 cell
+							829 container Sep 29, 2026, 3:28 AM UTC
+								830 text Sep 29, 2026
+					831 row folder-row-76
+						832 cell
+							833 link Description: README.pt-BR.md, (File), Value: …
+						834 cell
+							835 container
+								836 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								837 link Description: #15219, Value: …
+								838 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						839 cell
+							840 container Sep 29, 2026, 3:28 AM UTC
+								841 text Sep 29, 2026
+					842 row folder-row-77
+						843 cell
+							844 link Description: README.ru.md, (File), Value: …
+						845 cell
+							846 container
+								847 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								848 link Description: #15219, Value: …
+								849 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						850 cell
+							851 container Sep 29, 2026, 3:28 AM UTC
+								852 text Sep 29, 2026
+					853 row folder-row-78
+						854 cell
+							855 link Description: README.th.md, (File), Value: …
+						856 cell
+							857 container
+								858 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								859 link Description: #15219, Value: …
+								860 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						861 cell
+							862 container Sep 29, 2026, 3:28 AM UTC
+								863 text Sep 29, 2026
+					864 row folder-row-79
+						865 cell
+							866 link Description: README.tr.md, (File), Value: …
+						867 cell
+							868 container
+								869 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								870 link Description: #15219, Value: …
+								871 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						872 cell
+							873 container Sep 29, 2026, 3:28 AM UTC
+								874 text Sep 29, 2026
+					875 row folder-row-80
+						876 cell
+							877 link Description: README.uk.md, (File), Value: …
+						878 cell
+							879 container
+								880 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								881 link Description: #15219, Value: …
+								882 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						883 cell
+							884 container Sep 29, 2026, 3:28 AM UTC
+								885 text Sep 29, 2026
+					886 row folder-row-81
+						887 cell
+							888 link Description: README.vi.md, (File), Value: …
+						889 cell
+							890 container
+								891 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								892 link Description: #15219, Value: …
+								893 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						894 cell
+							895 container Sep 29, 2026, 3:28 AM UTC
+								896 text Sep 29, 2026
+					897 row folder-row-82
+						898 cell
+							899 link Description: README.zh-CN.md, (File), Value: …
+						900 cell
+							901 container
+								902 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								903 link Description: #15219, Value: …
+								904 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						905 cell
+							906 container Sep 29, 2026, 3:28 AM UTC
+								907 text Sep 29, 2026
+					908 row folder-row-83
+						909 cell
+							910 link Description: README.zh-TW.md, (File), Value: …
+						911 cell
+							912 container
+								913 link Description: Use founders@cmux.com as the contact address everywhere (, Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+								914 link Description: #15219, Value: …
+								915 link Description: ), Value: …, Help: Use founders@cmux.com as the contact address everywhere (#15219) * Use founders@cmux.com as the contact address everywhere Replaces founders@manaflow.com (and one founders@manaflow.ai link) in the app, CLI, profiling helper, website, legal pages, API contact routes, VM motd, license files, and tes
+						916 cell
+							917 container Sep 29, 2026, 3:28 AM UTC
+								918 text Sep 29, 2026
+					919 row folder-row-84
+						920 cell
+							921 link Description: SECURITY.md, (File), Value: …
+						922 cell
+							923 container
+								924 link Description: docs: add a front door for outside contributors (, Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+								925 link Description: #15263, Value: …
+								926 link Description: ), Value: …, Help: docs: add a front door for outside contributors (#15263) * docs: add a front door for outside contributors cmux had no start-here page, no code of conduct and no security policy, so someone arriving from a link had to infer from CONTRIBUTING.md whether they could contribute at all without a Mac. T
+						927 cell
+							928 container Sep 29, 2026, 3:39 PM UTC
+								929 text Sep 29, 2026
+					930 row folder-row-85
+						931 cell
+							932 link Description: STYLE.md, (File), Value: …
+						933 cell
+							934 container
+								935 link Description: Clarify writing guidance for issue and PR descriptions (, Value: …, Help: Clarify writing guidance for issue and PR descriptions (#13275) * Clarify writing guidance for issue and PR descriptions * Describe task-first skills and procedural instructions * Keep PR drafting instructions out of rendered descriptions * Preserve current review wiring in writing template * R
+								936 link Description: #13275, Value: …
+								937 link Description: ), Value: …, Help: Clarify writing guidance for issue and PR descriptions (#13275) * Clarify writing guidance for issue and PR descriptions * Describe task-first skills and procedural instructions * Keep PR drafting instructions out of rendered descriptions * Preserve current review wiring in writing template * R
+						938 cell
+							939 container Sep 24, 2026, 6:15 AM UTC
+								940 text Sep 24, 2026
+					941 row folder-row-86
+						942 cell
+							943 link Description: THIRD_PARTY_LICENSES.md, (File), Value: …
+						944 cell
+							945 link Description: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (, Value: …, Help: Load diff viewer grammars lazily and drop dead vendored Pierre bundles (#15576) * ci: budget the diff viewer's eagerly evaluated JS `scripts/check-webviews-diff-budget.mjs` walks the committed webviews bundle from `main.mjs` and `chunks/diffSurface.mjs` through static imports, sums the bytes the d
+						946 cell
+							947 container Sep 30, 2026, 1:58 AM UTC
+								948 text Sep 30, 2026
+					949 row folder-row-87
+						950 cell
+							951 link Description: TODO.md, (File), Value: …
+						952 cell
+							953 link Description: feat: expose browser download history in CLI, Value: …
+						954 cell
+							955 container Sep 13, 2026, 3:57 AM UTC
+								956 text Sep 13, 2026
+					957 row folder-row-88
+						958 cell
+							959 link Description: biome.json, (File), Value: …
+						960 cell
+							961 container
+								962 link Description: Scope Biome checks to maintained JS sources (, Value: …, Help: Scope Biome checks to maintained JS sources (#6008) * fix: scope biome checks * chore: remove redundant biome ignore
+								963 link Description: #6008, Value: …
+								964 link Description: ), Value: …, Help: Scope Biome checks to maintained JS sources (#6008) * fix: scope biome checks * chore: remove redundant biome ignore
+						965 cell
+							966 container Jun 13, 2026, 11:14 PM UTC
+								967 text Jun 13, 2026
+					968 row folder-row-89
+						969 cell
+							970 link Description: bun.lock, (File), Value: …
+						971 cell
+							972 container
+								973 link Description: Scope Biome checks to maintained JS sources (, Value: …, Help: Scope Biome checks to maintained JS sources (#6008) * fix: scope biome checks * chore: remove redundant biome ignore
+								974 link Description: #6008, Value: …
+								975 link Description: ), Value: …, Help: Scope Biome checks to maintained JS sources (#6008) * fix: scope biome checks * chore: remove redundant biome ignore
+						976 cell
+							977 container Jun 13, 2026, 11:14 PM UTC
+								978 text Jun 13, 2026
+					979 row folder-row-90
+						980 cell
+							981 link Description: cmux-Bridging-Header.h, (File), Value: …
+						982 cell
+							983 container
+								984 link Description: Bound app termination with a force-exit watchdog (, Value: …, Help: Bound app termination with a force-exit watchdog (#6758) (#6837) * test: red regression for termination watchdog (#6758) cmux can hang the main thread for ~30s on Cmd+Q when a clipboard-history manager (Paste, Raycast, Maccy, …) is mid-read of cmux's promised pasteboard data: AppKit's will-termina
+								985 link Description: #6758, Value: …
+								986 link Description: ) (, Value: …, Help: Bound app termination with a force-exit watchdog (#6758) (#6837) * test: red regression for termination watchdog (#6758) cmux can hang the main thread for ~30s on Cmd+Q when a clipboard-history manager (Paste, Raycast, Maccy, …) is mid-read of cmux's promised pasteboard data: AppKit's will-termina
+								987 link Description: #6837, Value: …
+								988 link Description: ), Value: …, Help: Bound app termination with a force-exit watchdog (#6758) (#6837) * test: red regression for termination watchdog (#6758) cmux can hang the main thread for ~30s on Cmd+Q when a clipboard-history manager (Paste, Raycast, Maccy, …) is mid-read of cmux's promised pasteboard data: AppKit's will-termina
+						989 cell
+							990 container Jun 29, 2026, 3:09 PM UTC
+								991 text Jun 29, 2026
+					992 row folder-row-91
+						993 cell
+							994 link Description: cmux-helper.entitlements, (File), Value: …
+						995 cell
+							996 container
+								997 link Description: Inside-out signing with per-binary entitlements to restore passkeys (, Value: …, Help: Inside-out signing with per-binary entitlements to restore passkeys (#2905) The AuthenticationServices WebAuthn / passkey path on Developer ID Mac apps requires com.apple.application-identifier in the codesigned entitlements blob of the calling process. AS does not fall back to the embedded provisi
+								998 link Description: #…, Value: …
+						999 cell
+							1000 container Apr 15, 2026, 3:52 AM UTC
+								1001 text Apr 15, 2026
+					1002 row folder-row-92
+						1003 cell
+							1004 link Description: cmux.entitlements, (File), Value: …
+						1005 cell
+							1006 link Description: Add personal-information entitlements for Calendar, Contacts, Locatio…, Value: …, Help: Add personal-information entitlements for Calendar, Contacts, Location & Photos (#1816) Adds com.apple.security.personal-information.{calendars,addressbook,location,photos-library} to all three app signing entitlement files (dev, release, nightly) and the matching NS*UsageDescription keys with 18-l
+						1007 cell
+							1008 container Aug 26, 2026, 11:15 PM UTC
+								1009 text Aug 26, 2026
+					1010 row folder-row-93
+						1011 cell
+							1012 link Description: cmux.nightly.entitlements, (File), Value: …
+						1013 cell
+							1014 link Description: Cloud VPN: app-managed WireGuard tunnel via a NetworkExtension system…, Value: …, Help: Cloud VPN: app-managed WireGuard tunnel via a NetworkExtension system extension, on-demand only (#11789) * Cloud tunnel: vendor WireGuardKit and build the wireguard-go bridge Vendor the WireGuardKit Swift package from wireguard-apple 2fec12a6 (1.0.16-27, MIT) at vendor/WireGuardKit as a local Swif
+						1015 cell
+							1016 container Sep 5, 2026, 1:28 AM UTC
+								1017 text Sep 5, 2026
+					1018 row folder-row-94
+						1019 cell
+							1020 link Description: cmux.rc.entitlements, (File), Value: …
+						1021 cell
+							1022 container
+								1023 link Description: Add the cmux RC release channel (com.cmuxterm.app.rc) (, Value: …, Help: Add the cmux RC release channel (com.cmuxterm.app.rc) (#12777) * Add the cmux RC release channel Publish a third signed channel, cmux RC (com.cmuxterm.app.rc), from every push to an rc/** branch through nightly.yml. The decide job resolves the channel identity once (bundle id, app name, URL scheme
+								1024 link Description: #12777, Value: …
+								1025 link Description: ), Value: …, Help: Add the cmux RC release channel (com.cmuxterm.app.rc) (#12777) * Add the cmux RC release channel Publish a third signed channel, cmux RC (com.cmuxterm.app.rc), from every push to an rc/** branch through nightly.yml. The decide job resolves the channel identity once (bundle id, app name, URL scheme
+						1026 cell
+							1027 container Sep 17, 2026, 1:58 AM UTC
+								1028 text Sep 17, 2026
+					1029 row folder-row-95
+						1030 cell
+							1031 link Description: cmux.release.entitlements, (File), Value: …
+						1032 cell
+							1033 link Description: Cloud VPN: app-managed WireGuard tunnel via a NetworkExtension system…, Value: …, Help: Cloud VPN: app-managed WireGuard tunnel via a NetworkExtension system extension, on-demand only (#11789) * Cloud tunnel: vendor WireGuardKit and build the wireguard-go bridge Vendor the WireGuardKit Swift package from wireguard-apple 2fec12a6 (1.0.16-27, MIT) at vendor/WireGuardKit as a local Swif
+						1034 cell
+							1035 container Sep 5, 2026, 1:28 AM UTC
+								1036 text Sep 5, 2026
+					1037 row folder-row-96
+						1038 cell
+							1039 link Description: ghostty.h, (File), Value: …
+						1040 cell
+							1041 link Description: Fix ghostty bridge header drift, Value: …
+						1042 cell
+							1043 container Mar 31, 2026, 12:44 AM UTC
+								1044 text Mar 31, 2026
+					1045 row folder-row-97
+						1046 cell
+							1047 link Description: glaeda.apple.json, (File), Value: …
+						1048 cell
+							1049 container
+								1050 link Description: ci: pilot persistent Mac compile admission (, Value: …, Help: ci: pilot persistent Mac compile admission (#13383) * Rebase persistent Mac actionlint labels onto current main * Rebase .gitignore persistent Mac changes onto current main * Rebase scripts/ci/compile-app-host-test-product.sh persistent Mac changes onto current main * Rebase CLAUDE.md persistent
+								1051 link Description: #13383, Value: …
+								1052 link Description: ), Value: …, Help: ci: pilot persistent Mac compile admission (#13383) * Rebase persistent Mac actionlint labels onto current main * Rebase .gitignore persistent Mac changes onto current main * Rebase scripts/ci/compile-app-host-test-product.sh persistent Mac changes onto current main * Rebase CLAUDE.md persistent
+						1053 cell
+							1054 container Sep 21, 2026, 6:18 PM UTC
+								1055 text Sep 21, 2026
+					1056 row folder-row-98
+						1057 cell
+							1058 link Description: package.json, (File), Value: …
+						1059 cell
+							1060 container
+								1061 link Description: Fix Iroh relay policy Vercel deployment (, Value: …, Help: Fix Iroh relay policy Vercel deployment (#8118) * Add regression coverage for Vercel build inputs * Fix Iroh relay policy Vercel deployment * Update relay catalog workflow paths * Make relay retry test deterministic * Fix Iroh authorization test module import * Account for Iroh test import --
+								1062 link Description: #8118, Value: …
+								1063 link Description: ), Value: …, Help: Fix Iroh relay policy Vercel deployment (#8118) * Add regression coverage for Vercel build inputs * Fix Iroh relay policy Vercel deployment * Update relay catalog workflow paths * Make relay retry test deterministic * Fix Iroh authorization test module import * Account for Iroh test import --
+						1064 cell
+							1065 container Jul 15, 2026, 3:30 AM UTC
+								1066 text Jul 15, 2026
+					1067 row folder-row-99
+						1068 cell
+							1069 link Description: reports.md, (File), Value: …
+						1070 cell
+							1071 container
+								1072 link Description: Add global font magnification (, Value: …, Help: Add global font magnification (#6554) * [cmux] add global font magnification across terminals and chrome * [cmux] address PR review for global font magnification * [cmux] cap global font magnification at 200% to fit chrome budgets * [cmux] keep About title bold, label magnification stepper, robu
+								1073 link Description: #6554, Value: …
+								1074 link Description: ), Value: …, Help: Add global font magnification (#6554) * [cmux] add global font magnification across terminals and chrome * [cmux] address PR review for global font magnification * [cmux] cap global font magnification at 200% to fit chrome budgets * [cmux] keep About title bold, label magnification stepper, robu
+						1075 cell
+							1076 container Jun 22, 2026, 7:27 AM UTC
+								1077 text Jun 22, 2026
+					1078 row folder-row-100
+						1079 cell
+							1080 link Description: skills.sh, (File), Value: …
+						1081 cell
+							1082 container
+								1083 link Description: Revert "docs: add cmux automate skill (, Value: …, Help: Revert "docs: add cmux automate skill (#4301)" (#4305) This reverts commit a6ba12b585d667168a6f9c97fb42e562745c4aae. Co-authored-by: Lawrence Chen <lawrencecchen@users.noreply.github.com>
+								1084 link Description: #4301, Value: …
+								1085 link Description: )" (, Value: …, Help: Revert "docs: add cmux automate skill (#4301)" (#4305) This reverts commit a6ba12b585d667168a6f9c97fb42e562745c4aae. Co-authored-by: Lawrence Chen <lawrencecchen@users.noreply.github.com>
+								1086 link Description: #4305, Value: …
+								1087 link Description: ), Value: …, Help: Revert "docs: add cmux automate skill (#4301)" (#4305) This reverts commit a6ba12b585d667168a6f9c97fb42e562745c4aae. Co-authored-by: Lawrence Chen <lawrencecchen@users.noreply.github.com>
+						1088 cell
+							1089 container May 18, 2026, 11:13 AM UTC
+								1090 text May 18, 2026
+				1091 container
+					1092 heading Repository files navigation, Value: 2
+						1093 text Repository files navigation
+					1094 container Repository files
+						1095 content list
+							1096 link Description: README, Value: …
+							1097 link Description: Code of conduct, Value: …
+							1098 link Description: Contributing, Value: …
+							1099 link Description: License, Value: …
+							1100 link Description: Security, Value: …
+					1101 pop up button (collapsed) Description: Outline, Secondary Actions: Expand
+				1102 container
+					1103 heading cmux, Value: 1
+						1104 text cmux
+					1105 link Description: Permalink: cmux, Value: …, ID: user-content-cmux
+					1106 text A Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents
+					1107 link Description: Download cmux for macOS, Value: …
+					1108 text English | 
+					1109 link Description: 日本語, Value: …
+					1110 text  | 
+					1111 link Description: Tiếng Việt, Value: …
+					1112 text  | 
+					1113 link Description: 简体中文, Value: …
+					1114 text  | 
+					1115 link Description: 繁體中文, Value: …
+					1116 text  | 
+					1117 link Description: 한국어, Value: …
+					1118 text  | 
+					1119 link Description: Deutsch, Value: …
+					1120 text  | 
+					1121 link Description: Español, Value: …
+					1122 text  | 
+					1123 link Description: Français, Value: …
+					1124 text  | 
+					1125 link Description: Italiano, Value: …
+					1126 text  | 
+					1127 link Description: Dansk, Value: …
+					1128 text  | 
+					1129 link Description: Polski, Value: …
+					1130 text  | 
+					1131 link Description: Русский, Value: …
+					1132 text  | 
+					1133 link Description: Bosanski, Value: …
+					1134 text  | 
+					1135 link Description: العربية, Value: …
+					1136 text  | 
+					1137 link Description: Norsk, Value: …
+					1138 text  | 
+					1139 link Description: Português (Brasil), Value: …
+					1140 text  | 
+					1141 link Description: ไทย, Value: …
+					1142 text  | 
+					1143 link Description: Türkçe, Value: …
+					1144 text  | 
+					1145 link Description: ភាសាខ្មែរ, Value: …
+					1146 text  | 
+					1147 link Description: Українська, Value: …
+					1148 link Description: X / Twitter, Value: …
+					1149 link Description: Discord, Value: …
+					1150 link Description: GitHub stars, Value: …
+					1151 link Description: cmux screenshot, Value: …
+					1152 link Description: ▶ Demo video, Value: …
+					1153 text  · 
+					1154 link Description: The Zen of cmux, Value: …
+					1155 link Description: Docs, Value: …
+					1156 text  · 
+					1157 link Description: Blog, Value: …
+					1158 text  · 
+					1159 link Description: Changelog, Value: …
+					1160 text  · 
+					1161 link Description: Community, Value: …
+					1162 heading Features, Value: 2
+						1163 text Features
+					1164 link Description: Permalink: Features, Value: …, ID: user-content-features
+					1165 table
+						1166 row
+							1167 cell
+								1168 container
+									1169 heading Notification rings, Value: 3
+										1170 text Notification rings
+									1171 link Description: Permalink: Notification rings, Value: …, ID: user-content-notification-rings
+								1172 text Panes get a blue ring and tabs light up when coding agents need your attention
+							1173 cell
+								1174 link Description: Notification rings, Value: …
+						1175 row
+							1176 cell
+								1177 container
+									1178 heading Notification panel, Value: 3
+										1179 text Notification panel
+									1180 link Description: Permalink: Notification panel, Value: …, ID: user-content-notification-panel
+								1181 text See all pending notifications in one place, jump to the most recent unread
+							1182 cell
+								1183 link Description: Sidebar notification badge, Value: …
+						1184 row
+							1185 cell
+								1186 container
+									1187 heading In-app browser, Value: 3
+										1188 text In-app browser
+									1189 link Description: Permalink: In-app browser, Value: …, ID: user-content-in-app-browser
+								1190 text Split a browser alongside your terminal with a scriptable API ported from 
+								1191 link Description: agent-browser, Value: …
+							1192 cell
+								1193 link Description: Built-in browser, Value: …
+						1194 row
+							1195 cell
+								1196 container
+									1197 heading Vertical + horizontal tabs, Value: 3
+										1198 text Vertical + horizontal tabs
+									1199 link Description: Permalink: Vertical + horizontal tabs, Value: …, ID: user-content-vertical--horizontal-tabs
+								1200 text Sidebar shows git branch, linked PR status/number, working directory, listening ports, and latest notification text. Split horizontally and vertically.
+							1201 cell
+								1202 link Description: Vertical tabs and split panes, Value: …
+						1203 row
+							1204 cell
+								1205 container
+									1206 heading SSH, Value: 3
+										1207 text SSH
+									1208 link Description: Permalink: SSH, Value: …, ID: user-content-ssh
+								1209 text cmux ssh user@remote
+								1210 text  creates a workspace for a remote machine. Pass 
+								1211 text --command 'omp "investigate auth"'
+								1212 text  to run an initial command once in its first remote terminal. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp.
+							1213 cell
+								1214 link Description: cmux SSH, Value: …
+						1215 row
+							1216 cell
+								1217 container
+									1218 heading Claude Code Teams, Value: 3
+										1219 text Claude Code Teams
+									1220 link Description: Permalink: Claude Code Teams, Value: …, ID: user-content-claude-code-teams
+								1221 text cmux claude-teams
+								1222 text  runs Claude Code's teammate mode with one command. Teammates spawn as native splits with sidebar metadata and notifications. No tmux required.
+							1223 cell
+								1224 link Description: Claude Code Teams, Value: …
+					1225 content list
+						1226 container
+							1227 AXListMarker • 
+							1228 text Browser import  — Import cookies, history, and sessions from Chrome, Firefox, Arc, and 20+ browsers so browser panes start authenticated
+						1229 container
+							1230 AXListMarker • 
+							1231 text Custom commands  — Define project-specific actions in 
+							1232 link Description: cmux.json, Value: …
+							1233 text  that launch from the command palette
+						1234 container
+							1235 AXListMarker • 
+							1236 text Programmable  — CLI and socket API to create workspaces, split panes, send keystrokes, and automate the browser
+						1237 container
+							1238 AXListMarker • 
+							1239 text Native macOS app  — Built with Swift and AppKit, not Electron. Fast startup, low memory.
+						1240 container
+							1241 AXListMarker • 
+							1242 text Ghostty compatible  — Reads your existing  ~/.config/ghostty/config  for themes, fonts, and colors
+						1243 container
+							1244 AXListMarker • 
+							1245 text GPU-accelerated  — Powered by libghostty for smooth rendering
+						1246 container
+							1247 AXListMarker • 
+							1248 text Keyboard shortcuts  — 
+							1249 link Description: Extensive shortcuts, Value: …
+							1250 text  for workspaces, splits, browser, and more
+						1251 container
+							1252 AXListMarker • 
+							1253 text Open source  — Free and GPL-licensed
+					1254 heading Install, Value: 2
+						1255 text Install
+					1256 link Description: Permalink: Install, Value: …, ID: user-content-install
+					1257 heading DMG (recommended), Value: 3
+						1258 text DMG (recommended)
+					1259 link Description: Permalink: DMG (recommended), Value: …, ID: user-content-dmg-recommended
+					1260 link Description: Download cmux for macOS, Value: …
+					1261 text Open the 
+					1262 text .dmg
+					1263 text  and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+					1264 heading Homebrew, Value: 3
+						1265 text Homebrew
+					1266 link Description: Permalink: Homebrew, Value: …, ID: user-content-homebrew
+					1267 text brew tap manaflow-ai/cmux
+brew install --cask cmux
+					1268 button Copy code to clipboard
+					1269 text To update later:
+					1270 text brew upgrade --cask cmux
+					1271 button Copy code to clipboard
+					1272 text On first launch, macOS may ask you to confirm opening an app from an identified developer. Click 
+					1273 text Open
+					1274 text  to proceed.
+					1275 heading Why cmux?, Value: 2
+						1276 text Why cmux?
+					1277 link Description: Permalink: Why cmux?, Value: …, ID: user-content-why-cmux
+					1278 text I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore. I tried a few coding orchestrators but most of them were Electron/Tauri apps and the performance bugged me. I also just prefer the terminal since GUI orchestrators lock you into their workflow. So I built cmux as a native macOS app in Swift/AppKit. It uses libghostty for terminal rendering and reads your existing Ghostty config for themes, fonts, and colors. The main additions are the sidebar and notification system. The sidebar has vertical tabs that show git branch, linked PR status/number, working directory, listening ports, and the latest notification text for each workspace. The notification system picks up terminal sequences (OSC 9/99/777) and has a CLI (
+					1279 text cmux notify
+					1280 text ) you can wire into agent hooks for Claude Code, OpenCode, etc. When an agent is waiting, its pane gets a blue ring and the tab lights up in the sidebar, so I can tell which one needs me across splits and tabs. Cmd+Shift+U jumps to the most recent unread. The in-app browser has a scriptable API ported from 
+					1281 link Description: agent-browser, Value: …
+					1282 text . Agents can snapshot the accessibility tree, get element refs, click, fill forms, and evaluate JS. You can split a browser pane next to your terminal and have Claude Code interact with your dev server directly. Everything is scriptable through the CLI and socket API — create workspaces/tabs, split panes, send keystrokes, open URLs in the browser.
+					1283 heading The Zen of cmux, Value: 2
+						1284 text The Zen of cmux
+					1285 link Description: Permalink: The Zen of cmux, Value: …, ID: user-content-the-zen-of-cmux
+					1286 text cmux is not prescriptive about how developers hold their tools. It's a terminal and browser with a CLI, and the rest is up to you. cmux is a primitive, not a solution. It gives you a terminal, a browser, notifications, workspaces, splits, tabs, and a CLI to control all of it. cmux doesn't force you into an opinionated way to use coding agents. What you build with the primitives is yours. The best developers have always built their own tools. Nobody has figured out the best way to work with agents yet, and the teams building closed products definitely haven't either. The developers closest to their own codebases will figure it out first. Give a million developers composable primitives and they'll collectively find the most efficient workflows faster than any product team could design top-down.
+					1287 heading Documentation, Value: 2
+						1288 text Documentation
+					1289 link Description: Permalink: Documentation, Value: …, ID: user-content-documentation
+					1290 text For more info on how to configure cmux, 
+					1291 link Description: head over to our docs, Value: …
+					1292 text . To theme cmux (colors, fonts, transparency, sidebar, and more), see 
+					1293 link Description: Customizing cmux's look, Value: …
+					1294 text . For shell watcher churn and managed-Mac process audit volume, see the supported 
+					1295 link Description: CMUX_NO_GIT_WATCH=1 mitigation, Value: …
+					1296 text  and its Git/PR update trade-offs.
+					1297 heading Keyboard Shortcuts, Value: 2
+						1298 text Keyboard Shortcuts
+					1299 link Description: Permalink: Keyboard Shortcuts, Value: …, ID: user-content-keyboard-shortcuts
+					1300 heading Workspaces, Value: 3
+						1301 text Workspaces
+					1302 link Description: Permalink: Workspaces, Value: …, ID: user-content-workspaces
+					1303 table
+						1304 row
+							1305 cell
+								1306 text Shortcut
+							1307 cell
+								1308 text Action
+						1309 row
+							1310 cell
+								1311 text ⌘ N
+							1312 cell
+								1313 text New workspace
+						1314 row
+							1315 cell
+								1316 text ⌘ 1–8
+							1317 cell
+								1318 text Jump to workspace 1–8
+						1319 row
+							1320 cell
+								1321 text ⌘ 9
+							1322 cell
+								1323 text Jump to last workspace
+						1324 row
+							1325 cell
+								1326 text ⌃ ⌘ ]
+							1327 cell
+								1328 text Next workspace
+						1329 row
+							1330 cell
+								1331 text ⌃ ⌘ [
+							1332 cell
+								1333 text Previous workspace
+						1334 row
+							1335 cell
+								1336 text ⌘ ⇧ W
+							1337 cell
+								1338 text Close workspace
+						1339 row
+							1340 cell
+								1341 text ⌘ ⇧ R
+							1342 cell
+								1343 text Rename workspace
+						1344 row
+							1345 cell
+								1346 text ⌥ ⌘ E
+							1347 cell
+								1348 text Edit workspace description
+						1349 row
+							1350 cell
+								1351 text ⌘ B
+							1352 cell
+								1353 text Toggle sidebar
+						1354 row
+							1355 cell
+								1356 text ⌥ ⌘ B
+							1357 cell
+								1358 text Toggle right sidebar
+						1359 row
+							1360 cell
+								1361 text ⌘ ⇧ E
+							1362 cell
+								1363 text Toggle right sidebar focus
+					1364 heading Surfaces, Value: 3
+						1365 text Surfaces
+					1366 link Description: Permalink: Surfaces, Value: …, ID: user-content-surfaces
+					1367 table
+						1368 row
+							1369 cell
+								1370 text Shortcut
+							1371 cell
+								1372 text Action
+						1373 row
+							1374 cell
+								1375 text ⌘ T
+							1376 cell
+								1377 text New surface
+						1378 row
+							1379 cell
+								1380 text ⌘ ⇧ ]
+							1381 cell
+								1382 text Next surface
+						1383 row
+							1384 cell
+								1385 text ⌘ ⇧ [
+							1386 cell
+								1387 text Previous surface
+						1388 row
+							1389 cell
+								1390 text ⌃ Tab
+							1391 cell
+								1392 text Next surface
+						1393 row
+							1394 cell
+								1395 text ⌃ ⇧ Tab
+							1396 cell
+								1397 text Previous surface
+						1398 row
+							1399 cell
+								1400 text ⌃ 1–8
+							1401 cell
+								1402 text Jump to surface 1–8
+						1403 row
+							1404 cell
+								1405 text ⌃ 9
+							1406 cell
+								1407 text Jump to last surface
+						1408 row
+							1409 cell
+								1410 text ⌘ W
+							1411 cell
+								1412 text Close surface
+					1413 heading Split Panes, Value: 3
+						1414 text Split Panes
+					1415 link Description: Permalink: Split Panes, Value: …, ID: user-content-split-panes
+					1416 table
+						1417 row
+							1418 cell
+								1419 text Shortcut
+							1420 cell
+								1421 text Action
+						1422 row
+							1423 cell
+								1424 text ⌘ D
+							1425 cell
+								1426 text Split right
+						1427 row
+							1428 cell
+								1429 text ⌘ ⇧ D
+							1430 cell
+								1431 text Split down
+						1432 row
+							1433 cell
+								1434 text ⌥ ⌘ ← → ↑ ↓
+							1435 cell
+								1436 text Focus pane directionally
+						1437 row
+							1438 cell
+								1439 text ⌃ ⇧ H J K L
+							1440 cell
+								1441 text Resize pane left/down/up/right
+						1442 row
+							1443 cell
+								1444 text ⌘ ⇧ H
+							1445 cell
+								1446 text Flash focused panel
+					1447 heading Browser, Value: 3
+						1448 text Browser
+					1449 link Description: Permalink: Browser, Value: …, ID: user-content-browser
+					1450 text Browser developer-tool shortcuts follow Safari defaults and are customizable in 
+					1451 text Settings → Keyboard Shortcuts
+					1452 text . Command palette navigation shortcuts, including ⌃ P, are also customizable and can be cleared so the keypress reaches the active terminal.
+					1453 table
+						1454 row
+							1455 cell
+								1456 text Shortcut
+							1457 cell
+								1458 text Action
+						1459 row
+							1460 cell
+								1461 text ⌘ ⇧ L
+							1462 cell
+								1463 text Open browser in split
+						1464 row
+							1465 cell
+								1466 text ⌘ L
+							1467 cell
+								1468 text Focus address bar
+						1469 row
+							1470 cell
+								1471 text ⌘ [
+							1472 cell
+								1473 text Back
+						1474 row
+							1475 cell
+								1476 text ⌘ ]
+							1477 cell
+								1478 text Forward
+						1479 row
+							1480 cell
+								1481 text ⌘ R
+							1482 cell
+								1483 text Reload page
+						1484 row
+							1485 cell
+								1486 text ⌥ ⌘ I
+							1487 cell
+								1488 text Toggle Developer Tools (Safari default)
+						1489 row
+							1490 cell
+								1491 text ⌥ ⌘ C
+							1492 cell
+								1493 text Show JavaScript Console (Safari default)
+					1494 heading Notifications, Value: 3
+						1495 text Notifications
+					1496 link Description: Permalink: Notifications, Value: …, ID: user-content-notifications
+					1497 table
+						1498 row
+							1499 cell
+								1500 text Shortcut
+							1501 cell
+								1502 text Action
+						1503 row
+							1504 cell
+								1505 text ⌘ I
+							1506 cell
+								1507 text Show notifications panel
+						1508 row
+							1509 cell
+								1510 text ⌘ ⇧ U
+							1511 cell
+								1512 text Jump to latest unread
+						1513 row
+							1514 cell
+								1515 text ⌥ ⌘ U
+							1516 cell
+								1517 text Toggle current item unread state
+						1518 row
+							1519 cell
+								1520 text ⌃ ⌘ U
+							1521 cell
+								1522 text Mark current item as oldest unread and jump to next latest unread
+						1523 row
+							1524 cell
+								1525 text —
+							1526 cell
+								1527 text Mark all notifications read (unbound by default; configure in Settings or 
+								1528 text cmux.json
+								1529 text )
+						1530 row
+							1531 cell
+								1532 text —
+							1533 cell
+								1534 text Clear all notifications (unbound by default; configure in Settings or 
+								1535 text cmux.json
+								1536 text )
+					1537 heading Find, Value: 3
+						1538 text Find
+					1539 link Description: Permalink: Find, Value: …, ID: user-content-find
+					1540 table
+						1541 row
+							1542 cell
+								1543 text Shortcut
+							1544 cell
+								1545 text Action
+						1546 row
+							1547 cell
+								1548 text ⌘ F
+							1549 cell
+								1550 text Find
+						1551 row
+							1552 cell
+								1553 text ⌘ ⇧ F
+							1554 cell
+								1555 text Find in directory
+						1556 row
+							1557 cell
+								1558 text ⌘ G / ⌥ ⌘ G
+							1559 cell
+								1560 text Find next / previous
+						1561 row
+							1562 cell
+								1563 text ⌥ ⌘ ⇧ F
+							1564 cell
+								1565 text Hide find bar
+						1566 row
+							1567 cell
+								1568 text ⌘ E
+							1569 cell
+								1570 text Use selection for find
+					1571 heading Terminal, Value: 3
+						1572 text Terminal
+					1573 link Description: Permalink: Terminal, Value: …, ID: user-content-terminal
+					1574 table
+						1575 row
+							1576 cell
+								1577 text Shortcut
+							1578 cell
+								1579 text Action
+						1580 row
+							1581 cell
+								1582 text ⌘ K
+							1583 cell
+								1584 text Clear scrollback
+						1585 row
+							1586 cell
+								1587 text ⌘ C
+							1588 cell
+								1589 text Copy (with selection)
+						1590 row
+							1591 cell
+								1592 text ⌘ V
+							1593 cell
+								1594 text Paste
+						1595 row
+							1596 cell
+								1597 text ⌘ + / ⌘ -
+							1598 cell
+								1599 text Increase / decrease font size
+						1600 row
+							1601 cell
+								1602 text ⌘ 0
+							1603 cell
+								1604 text Reset font size
+					1605 heading Window, Value: 3
+						1606 text Window
+					1607 link Description: Permalink: Window, Value: …, ID: user-content-window
+					1608 table
+						1609 row
+							1610 cell
+								1611 text Shortcut
+							1612 cell
+								1613 text Action
+						1614 row
+							1615 cell
+								1616 text ⌘ ⇧ N
+							1617 cell
+								1618 text New window
+						1619 row
+							1620 cell
+								1621 text ⌘ ⇧ O
+							1622 cell
+								1623 text Reopen previous session
+						1624 row
+							1625 cell
+								1626 text ⌘ ,
+							1627 cell
+								1628 text Settings
+						1629 row
+							1630 cell
+								1631 text ⌘ ⇧ ,
+							1632 cell
+								1633 text Reload configuration
+						1634 row
+							1635 cell
+								1636 text ⌘ Q
+							1637 cell
+								1638 text Quit
+					1639 heading Nightly Builds, Value: 2
+						1640 text Nightly Builds
+					1641 link Description: Permalink: Nightly Builds, Value: …, ID: user-content-nightly-builds
+					1642 link Description: Download cmux NIGHTLY, Value: …
+					1643 text  (universal; updates then switch to your Mac's architecture automatically) cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest 
+					1644 text main
+					1645 text  commit and auto-updates via its own Sparkle feed. Report nightly bugs on 
+					1646 link Description: GitHub Issues, Value: …
+					1647 text  or in 
+					1648 link Description: #nightly-bugs on Discord, Value: …
+					1649 text .
+					1650 heading Session restore, Value: 2
+						1651 text Session restore
+					1652 link Description: Permalink: Session restore, Value: …, ID: user-content-session-restore
+					1653 text Quitting cmux saves the current session. On relaunch, cmux restores app-owned state:
+					1654 content list
+						1655 container
+							1656 AXListMarker • 
+							1657 text Window/workspace/pane layout
+						1658 container
+							1659 AXListMarker • 
+							1660 text Working directories
+						1661 container
+							1662 AXListMarker • 
+							1663 text Terminal scrollback (best effort)
+						1664 container
+							1665 AXListMarker • 
+							1666 text Browser URL and navigation history
+					1667 text cmux does not checkpoint arbitrary live process state. Ordinary terminals, tmux, vim, shells, and unsupported terminal apps reopen as normal terminals. For live detach/reattach across cmux quit, crashes, and updates, opt in to the local tmux owner with 
+					1668 text cmux local-tmux
+					1669 text ; see 
+					1670 link Description: docs/local-tmux.md, Value: …
+					1671 text  for its lifecycle and machine-sleep limits. Supported agent sessions can resume when hooks have saved a native session ID. Install hooks after installing the agent CLI so its binary is on 
+					1672 text PATH
+					1673 text :
+					1674 text cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+					1675 button Copy code to clipboard
+					1676 text cmux hooks setup
+					1677 text  installs supported agents it can find and prints a summary for skipped agents. Supported resume integrations include Claude Code, Codex, Grok, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings. Advanced users and integrations can attach a custom resume command to the current terminal surface. This is useful for tools with their own durable state, such as tmux sessions or custom agent CLIs:
+					1678 container
+						1679 text cmux surface resume  set  --kind tmux --checkpoint work --shell  " tmux attach -t work " 
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+					1680 button Copy code to clipboard
+					1681 text The binding stays attached to the cmux surface. Public CLI or socket-created bindings are stored for inspection and manual restore unless you approve a signed command prefix for automatic restore. Approved prefixes are also bound to the working directory and exact environment values, when present. Review or edit approvals in 
+					1682 text Settings > Terminal > Resume Commands
+					1683 text . cmux only auto-runs resume bindings it marks trusted, such as live process-detected tmux bindings or user-approved prefixes. Sensitive environment keys such as tokens, passwords, secrets, and API keys are dropped before a resume binding is stored. To keep restored agent terminals idle instead of automatically running their resume commands, turn off 
+					1684 text Settings > Terminal > Resume Agent Sessions on Reopen
+					1685 text  or set this in 
+					1686 text ~/.config/cmux/cmux.json
+					1687 text :
+					1688 container
+						1689 text {
+   "terminal" : {
+     "autoResumeAgentSessions" :  false 
+  }
+}
+					1690 button Copy code to clipboard
+					1691 text This only disables automatic agent resume commands. cmux still restores the saved layout, working directories, scrollback, and browser history. If you need to reapply the last saved snapshot manually, use:
+					1692 content list
+						1693 container
+							1694 AXListMarker • 
+							1695 text File > Reopen Previous Session
+						1696 container
+							1697 AXListMarker • 
+							1698 text ⌘ ⇧ O
+						1699 container
+							1700 AXListMarker • 
+							1701 text cmux restore-session
+					1702 text Each cmux install (stable, nightly, rc, staging, and tagged debug builds) keeps its own saved session. To bring a session from one install into another, for example after trying nightly and switching back to stable, run this from the install you want to open it in:
+					1703 container
+						1704 text cmux restore-session --from nightly           #  or stable, rc, staging, debug:<tag> 
+cmux restore-session --export  ~ /session.json  #  write this install's saved session to a file 
+cmux restore-session --export  ~ /session.json --force  #  replace an existing export file 
+cmux restore-session --from  ~ /session.json    #  reopen an exported file
+					1705 button Copy code to clipboard
+					1706 text The imported session opens as additional windows next to the ones you have, like 
+					1707 text cmux restore-session
+					1708 text ; the other install's saved file is only read. Agent resume carries over because hook session mappings in 
+					1709 text ~/.cmuxterm/
+					1710 text  are shared by every install. Browser cookies and logins are per install and do not move.
+					1711 text --from <channel>
+					1712 text  restores another install's own session file with the same trust as your own session, including automatic agent resume. 
+					1713 text --from <path>
+					1714 text  treats the file as untrusted: layout, working directories, text scrollback, and http(s) browser tabs restore, but nothing in the file runs automatically. Built-in agents (Claude Code, Codex, Amp, and the rest) resume with the command cmux builds from the agent kind and session id, ignoring launch arguments stored in the file, and only when the working directory already exists on this Mac. Custom agent resume commands, resume bindings, and tmux start commands are kept for manual restore only (approved resume prefixes never apply to them): the CLI reports how many were held back, and in each terminal 
+					1715 text cmux surface resume show
+					1716 text  shows the command and 
+					1717 text cmux restore --surface
+					1718 text  runs it. Terminal control sequences in the scrollback (clipboard, notifications, links, titles), draft attachments, non-http(s) browser pages and profiles, SSH/cloud connections, and workspace environment variables from the file are dropped. A snapshot saved by a newer cmux (newer session format) is refused with an error; if a downgraded cmux finds one in its own session file, it keeps a copy next to it as 
+					1719 text session-<bundle id>.schema-v<N>.json
+					1720 text . Under the hood, cmux writes a versioned snapshot under 
+					1721 text ~/Library/Application Support/cmux/
+					1722 text  and agent hooks write session mappings under 
+					1723 text ~/.cmuxterm/
+					1724 text . On restore, cmux rebuilds the layout first, then runs the supported agent's native resume command when automatic agent resume is enabled. Read the full guide at 
+					1725 link Description: https://cmux.com/docs/session-restore, Value: …
+					1726 text .
+					1727 heading FAQ, Value: 2
+						1728 text FAQ
+					1729 link Description: Permalink: FAQ, Value: …, ID: user-content-faq
+					1730 heading How does cmux relate to Ghostty?, Value: 3
+						1731 text How does cmux relate to Ghostty?
+					1732 link Description: Permalink: How does cmux relate to Ghostty?, Value: …, ID: user-content-how-does-cmux-relate-to-ghostty
+					1733 text cmux is not a fork of Ghostty. It uses 
+					1734 link Description: libghostty, Value: …
+					1735 text  as a library for terminal rendering, the same way apps use WebKit for web views. Ghostty is a standalone terminal; cmux is a different app built on top of its rendering engine.
+					1736 heading What platforms does it support?, Value: 3
+						1737 text What platforms does it support?
+					1738 link Description: Permalink: What platforms does it support?, Value: …, ID: user-content-what-platforms-does-it-support
+					1739 text macOS only, for now. cmux is a native Swift + AppKit app.
+					1740 heading Is there an iOS app?, Value: 3
+						1741 text Is there an iOS app?
+					1742 link Description: Permalink: Is there an iOS app?, Value: …, ID: user-content-is-there-an-ios-app
+					1743 text Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with 
+					1744 link Description: cmux Founders Edition, Value: …
+					1745 text . See the 
+					1746 link Description: iOS docs, Value: …
+					1747 text .
+					1748 heading What coding agents does cmux work with?, Value: 3
+						1749 text What coding agents does cmux work with?
+					1750 link Description: Permalink: What coding agents does cmux work with?, Value: …, ID: user-content-what-coding-agents-does-cmux-work-with
+					1751 text All of them. cmux is a terminal, so any agent that runs in a terminal works out of the box: Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider, Goose, Amp, Cline, Cursor Agent, and anything else you can launch from the command line.
+					1752 heading Can cmux orchestrate multiple agents and subagents?, Value: 3
+						1753 text Can cmux orchestrate multiple agents and subagents?
+					1754 link Description: Permalink: Can cmux orchestrate multiple agents and subagents?, Value: …, ID: user-content-can-cmux-orchestrate-multiple-agents-and-subagents
+					1755 text Yes. When an agent spawns subagents or teammates, cmux turns them into native panes and splits instead of hidden background processes. It supports 
+					1756 link Description: Claude Code teams, Value: …
+					1757 text  and 
+					1758 link Description: oh-my-opencode, Value: …
+					1759 text  multi-model orchestration, so every agent in a run is visible and controllable.
+					1760 heading Can I use cmux with remote machines?, Value: 3
+						1761 text Can I use cmux with remote machines?
+					1762 link Description: Permalink: Can I use cmux with remote machines?, Value: …, ID: user-content-can-i-use-cmux-with-remote-machines
+					1763 text Yes. Open workspaces over SSH and attach to remote tmux sessions, so agents can run on a remote host while you drive them from cmux. See 
+					1764 link Description: SSH and remote, Value: …
+					1765 text .
+					1766 heading How do notifications work?, Value: 3
+						1767 text How do notifications work?
+					1768 link Description: Permalink: How do notifications work?, Value: …, ID: user-content-how-do-notifications-work
+					1769 text When a process needs attention, cmux shows notification rings around panes, unread badges in the sidebar, a notification popover, and a macOS desktop notification. These fire automatically via standard terminal escape sequences (OSC 9/99/777), or you can trigger them with the 
+					1770 link Description: cmux CLI, Value: …
+					1771 text  and 
+					1772 link Description: agent hooks, Value: …
+					1773 text . Any agent that supports hooks or OSC works, including Claude Code, Codex, OpenCode, and pi.
+					1774 heading Is cmux programmable?, Value: 3
+						1775 text Is cmux programmable?
+					1776 link Description: Permalink: Is cmux programmable?, Value: …, ID: user-content-is-cmux-programmable
+					1777 text Yes. Every action is available through the cmux CLI and a Unix socket: create workspaces, open split panes, send input, read screen contents, take screenshots, and drive the in-app browser. See the 
+					1778 link Description: CLI reference, Value: …
+					1779 text  and 
+					1780 link Description: browser automation, Value: …
+					1781 text  docs.
+					1782 heading What can the built-in browser do?, Value: 3
+						1783 text What can the built-in browser do?
+					1784 link Description: Permalink: What can the built-in browser do?, Value: …, ID: user-content-what-can-the-built-in-browser-do
+					1785 text cmux can split a real browser pane next to your terminal, and it is fully programmable: navigate, snapshot the DOM, click, type, evaluate JavaScript, and read console and network activity over the same socket API. Agents use it to verify their own web changes without leaving cmux. See 
+					1786 link Description: browser automation, Value: …
+					1787 text .
+					1788 heading Does cmux have skills?, Value: 3
+						1789 text Does cmux have skills?
+					1790 link Description: Permalink: Does cmux have skills?, Value: …, ID: user-content-does-cmux-have-skills
+					1791 text Yes. Skills are reusable workflows you can give any agent running in cmux, for things like CLI control, workspace automation, settings, and browser surfaces. Browse the open collection at 
+					1792 link Description: cmux-skills, Value: …
+					1793 text , or read the 
+					1794 link Description: skills docs, Value: …
+					1795 text .
+					1796 heading Can I customize keyboard shortcuts?, Value: 3
+						1797 text Can I customize keyboard shortcuts?
+					1798 link Description: Permalink: Can I customize keyboard shortcuts?, Value: …, ID: user-content-can-i-customize-keyboard-shortcuts
+					1799 text Terminal keybindings are read from your Ghostty config file (
+					1800 text ~/.config/ghostty/config
+					1801 text ), including leader sequences and key tables. Ghostty tab actions target cmux workspaces; see the 
+					1802 link Description: action mapping, precedence, and limitations, Value: …
+					1803 text . cmux-specific shortcuts (workspaces, splits, browser, notifications) can be customized in Settings. See the 
+					1804 link Description: default shortcuts, Value: …
+					1805 text  for a full list.
+					1806 heading Can I customize cmux?, Value: 3
+						1807 text Can I customize cmux?
+					1808 link Description: Permalink: Can I customize cmux?, Value: …, ID: user-content-can-i-customize-cmux
+					1809 text Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and cursor carry over directly. cmux's own settings in 
+					1810 text ~/.config/cmux/cmux.json
+					1811 text  control the sidebar, tab bar, split panes, and behavior, and every 
+					1812 link Description: keyboard shortcut, Value: …
+					1813 text  is editable. See 
+					1814 link Description: configuration, Value: …
+					1815 text .
+					1816 heading Are my sessions saved?, Value: 3
+						1817 text Are my sessions saved?
+					1818 link Description: Permalink: Are my sessions saved?, Value: …, ID: user-content-are-my-sessions-saved
+					1819 text cmux restores windows, workspaces, panes, working directories, and best-effort scrollback when you relaunch. Supported agent integrations can resume from their saved session IDs. Those are reconstructed app state and resume commands; they do not keep arbitrary live processes running. Use 
+					1820 text cmux local-tmux
+					1821 text  for live local detach/reattach across cmux quit, crashes, and updates. A local tmux server cannot survive logout, restart, shutdown, or power loss; use 
+					1822 text cmux ssh-tmux
+					1823 text , 
+					1824 text cmux mosh-tmux
+					1825 text , or a persistent cloud VM when the owner must remain online while this Mac is offline. See 
+					1826 link Description: session restore, Value: …
+					1827 text  and 
+					1828 link Description: docs/local-tmux.md, Value: …
+					1829 text .
+					1830 heading How does it compare to tmux?, Value: 3
+						1831 text How does it compare to tmux?
+					1832 link Description: Permalink: How does it compare to tmux?, Value: …, ID: user-content-how-does-it-compare-to-tmux
+					1833 text tmux is a terminal multiplexer that runs inside any terminal. cmux is a native macOS app with a GUI: vertical tabs, split panes, an embedded browser, and a socket API, all built in, no config files or prefix keys needed. That said, lots of people happily run cmux with SSH and tmux together, and cmux can attach to your remote tmux sessions natively (
+					1834 link Description: beta, Value: …
+					1835 text ).
+					1836 heading Is cmux free?, Value: 3
+						1837 text Is cmux free?
+					1838 link Description: Permalink: Is cmux free?, Value: …, ID: user-content-is-cmux-free
+					1839 text Yes, cmux is free to use. The source code is available on 
+					1840 link Description: GitHub, Value: …
+					1841 text .
+					1842 heading How can I support cmux?, Value: 3
+						1843 text How can I support cmux?
+					1844 link Description: Permalink: How can I support cmux?, Value: …, ID: user-content-how-can-i-support-cmux
+					1845 text cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out 
+					1846 link Description: cmux Founders Edition, Value: …
+					1847 text .
+					1848 heading I have a feature request or found a bug?, Value: 3
+						1849 text I have a feature request or found a bug?
+					1850 link Description: Permalink: I have a feature request or found a bug?, Value: …, ID: user-content-i-have-a-feature-request-or-found-a-bug
+					1851 text We want to hear it. Open an 
+					1852 link Description: issue, Value: …
+					1853 text  or 
+					1854 link Description: pull request, Value: …
+					1855 text  on GitHub, or 
+					1856 link Description: email us, Value: …
+					1857 text .
+					1858 heading Star History, Value: 2
+						1859 text Star History
+					1860 link Description: Permalink: Star History, Value: …, ID: user-content-star-history
+					1861 link Description: Star History Chart, Value: …
+					1862 heading Contributing, Value: 2
+						1863 text Contributing
+					1864 link Description: Permalink: Contributing, Value: …, ID: user-content-contributing
+					1865 text New here? 
+					1866 link Description: Start here, Value: …
+					1867 text  is the short path from "I want to change something" to a merged pull request, including what you can fix without a Mac. Then the 
+					1868 link Description: contributor guide, Value: …
+					1869 text  and 
+					1870 link Description: fast local checks, Value: …
+					1871 text . Ways to get involved:
+					1872 content list
+						1873 container
+							1874 AXListMarker • 
+							1875 text Follow us on X for updates 
+							1876 link Description: @manaflowai, Value: …
+							1877 text , 
+							1878 link Description: @lawrencecchen, Value: …
+							1879 text , and 
+							1880 link Description: @austinywang, Value: …
+						1881 container
+							1882 AXListMarker • 
+							1883 text Join the conversation on 
+							1884 link Description: Discord, Value: …
+						1885 container
+							1886 AXListMarker • 
+							1887 text Create and participate in 
+							1888 link Description: GitHub issues, Value: …
+							1889 text  and 
+							1890 link Description: discussions, Value: …
+						1891 container
+							1892 AXListMarker • 
+							1893 text Let us know what you're building with cmux
+					1894 heading Community, Value: 2
+						1895 text Community
+					1896 link Description: Permalink: Community, Value: …, ID: user-content-community
+					1897 content list
+						1898 container
+							1899 AXListMarker • 
+							1900 link Description: Discord, Value: …
+						1901 container
+							1902 AXListMarker • 
+							1903 link Description: WhatsApp, Value: …
+						1904 container
+							1905 AXListMarker • 
+							1906 link Description: GitHub, Value: …
+						1907 container
+							1908 AXListMarker • 
+							1909 link Description: X / Twitter, Value: …
+						1910 container
+							1911 AXListMarker • 
+							1912 link Description: YouTube, Value: …
+						1913 container
+							1914 AXListMarker • 
+							1915 link Description: LinkedIn, Value: …
+						1916 container
+							1917 AXListMarker • 
+							1918 link Description: Reddit, Value: …
+					1919 text WeChat:
+					1920 text  Scan the QR code to join the community.
+					1921 link Description: WeChat QR code to join the cmux community, Value: …
+					1922 heading Founder's Edition, Value: 2
+						1923 text Founder's Edition
+					1924 link Description: Permalink: Founder's Edition, Value: …, ID: user-content-founders-edition
+					1925 text cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
+					1926 link Description: Get Founder's Edition, Value: …
+					1927 content list
+						1928 container
+							1929 AXListMarker • 
+							1930 text Prioritized feature requests/bug fixes
+						1931 container
+							1932 AXListMarker • 
+							1933 text Early access: cmux AI that gives you context on every workspace, tab and panel
+						1934 container
+							1935 AXListMarker • 
+							1936 text Early access: iOS app with terminals synced between desktop and phone
+						1937 container
+							1938 AXListMarker • 
+							1939 text Early access: Cloud VMs
+						1940 container
+							1941 AXListMarker • 
+							1942 text Early access: Voice mode
+						1943 container
+							1944 AXListMarker • 
+							1945 text My personal iMessage/WhatsApp
+					1946 heading Install, Value: 2
+						1947 text Install
+					1948 link Description: Permalink: Install, Value: …, ID: user-content-install-1
+					1949 heading DMG (recommended), Value: 3
+						1950 text DMG (recommended)
+					1951 link Description: Permalink: DMG (recommended), Value: …, ID: user-content-dmg-recommended-1
+					1952 link Description: Download cmux for macOS, Value: …
+					1953 text Open the 
+					1954 text .dmg
+					1955 text  and drag cmux to your Applications folder. cmux auto-updates via Sparkle, so you only need to download once.
+					1956 heading Homebrew, Value: 3
+						1957 text Homebrew
+					1958 link Description: Permalink: Homebrew, Value: …, ID: user-content-homebrew-1
+					1959 text brew tap manaflow-ai/cmux
+brew install --cask cmux
+					1960 button Copy code to clipboard
+					1961 text To update later:
+					1962 text brew upgrade --cask cmux
+					1963 button Copy code to clipboard
+					1964 text On first launch, macOS may ask you to confirm opening an app from an identified developer. Click 
+					1965 text Open
+					1966 text  to proceed.
+					1967 heading License, Value: 2
+						1968 text License
+					1969 link Description: Permalink: License, Value: …, ID: user-content-license
+					1970 text cmux is open source under 
+					1971 link Description: GPL-3.0-or-later, Value: …
+					1972 text . The cmux server software (
+					1973 text web/
+					1974 text , the Cloudflare workers, and the relay services listed in 
+					1975 link Description: LICENSE, Value: …
+					1976 text ) uses the 
+					1977 link Description: Business Source License 1.1, Value: …
+					1978 text  instead: you can read, modify, and run it for non-production use, and production use or self-hosting requires a commercial license. If your organization cannot comply with GPL, commercial terms may be available for portions for which Manaflow controls the necessary rights. They do not relicense third-party material or outside contributions for which Manaflow lacks a separate grant. See 
+					1979 link Description: LICENSE, Value: …
+					1980 text  for the exact scope and contact 
+					1981 link Description: founders@cmux.com, Value: …
+					1982 text  for details.
+				1983 heading About, Value: 2
+					1984 text About
+				1985 text Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability.
+				1986 link Description: cmux.com, Value: …
+				1987 heading Topics, Value: 3
+					1988 text Topics
+				1989 link Description: amp, Value: …
+				1990 link Description: claude-code, Value: …
+				1991 link Description: cli, Value: …
+				1992 link Description: codex, Value: …
+				1993 link Description: coding-agents, Value: …
+				1994 link Description: gemini, Value: …
+				1995 link Description: ghostty, Value: …
+				1996 link Description: macos, Value: …
+				1997 link Description: multiplexer, Value: …
+				1998 link Description: multitasking, Value: …
+				1999 link Description: opencode, Value: …
+				2000 link Description: organization, Value: …
+				2001 link Description: parallel-agents, Value: …
+				2002 link Description: programmability, Value: …
+				2003 link Description: terminal, Value: …
+				2004 link Description: terminal-multiplexer, Value: …
+				2005 link Description: tmux, Value: …
+				2006 link Description: workspace-manager, Value: …
+				2007 heading Resources, Value: 3
+					2008 text Resources
+				2009 link Description: Readme, Value: …
+				2010 link Description: License, Value: …
+				2011 heading Code of conduct, Value: 3
+					2012 text Code of conduct
+				2013 link Description: Code of conduct, Value: …
+				2014 heading Contributing, Value: 3
+					2015 text Contributing
+				2016 link Description: Contributing, Value: …
+				2017 heading Security policy, Value: 3
+					2018 text Security policy
+				2019 link Description: Security policy, Value: …
+				2020 link Description: Activity, Value: …
+				2021 link Description: Custom properties, Value: …
+				2022 heading Stars, Value: 3
+					2023 text Stars
+				2024 container
+					2025 text 27.5k  stars
+				2026 heading Watchers, Value: 3
+					2027 text Watchers
+				2028 container
+					2029 text 45  watching
+				2030 heading Forks, Value: 3
+					2031 text Forks
+				2032 link Description: 2.4k forks, Value: …
+				2033 link Description: Report repository, Value: …
+				2034 heading Releases  (59), Value: 2
+					2035 link Description: Releases, Value: …
+					2036 text  (59)
+				2037 link Description: v0.64.25 Latest Sep 17, 2026, Value: …
+				2038 link Description: + 58 releases, Value: …
+				2039 heading Sponsor this project, Value: 2
+					2040 text Sponsor this project
+				2041 content list
+					2042 link Description: https://github.com/manaflow-ai/cmux#founders-edition, Value: …
+				2043 heading Contributors  (226), Value: 2
+					2044 link Description: Contributors, Value: …
+					2045 text  (226)
+				2046 content list
+					2047 link Description: @lawrencecchen, Value: …
+					2048 link Description: @austinywang, Value: …
+					2049 link Description: @claude, Value: …
+					2050 link Description: @azooz2003-bit, Value: …
+					2051 link Description: @teamleaderleo, Value: …
+					2052 link Description: @ejc3, Value: …
+					2053 link Description: @smoreg, Value: …
+					2054 link Description: @lawrence703, Value: …
+					2055 link Description: @mykmelez, Value: …
+					2056 link Description: @mp-grind, Value: …
+					2057 link Description: @mxschmitt, Value: …
+					2058 link Description: @smorin, Value: …
+					2059 link Description: @haung921209, Value: …
+					2060 link Description: @talldan, Value: …
+				2061 link Description: + 212 contributors, Value: …
+				2062 heading Languages, Value: 2
+					2063 text Languages
+				2064 progress indicator Description: Swift: 62.2%, Value: 62
+				2065 progress indicator Description: Rust: 12.4%, Value: 12
+				2066 progress indicator Description: TypeScript: 9.1%, Value: 9
+				2067 progress indicator Description: Python: 8.9%, Value: 9
+				2068 progress indicator Description: Shell: 1.8%, Value: 2
+				2069 progress indicator Description: Java: 1.3%, Value: 1
+				2070 progress indicator Description: Other: 4.3%, Value: 4
+				2071 content list
+					2072 link Description: Swift 62.2%, Value: …
+					2073 link Description: Rust 12.4%, Value: …
+					2074 link Description: TypeScript 9.1%, Value: …
+					2075 link Description: Python 8.9%, Value: …
+					2076 link Description: Shell 1.8%, Value: …
+					2077 link Description: Java 1.3%, Value: …
+					2078 link Description: Other 4.3%, Value: …
+	2079 container
+		2080 heading Footer, Value: 2
+			2081 text Footer
+		2082 link Description: GitHub Homepage, Value: …
+		2083 text © 2026 GitHub, Inc.
+		2084 container Footer
+			2085 heading Footer navigation, Value: 3, ID: sr-footer-heading
+				2086 text Footer navigation
+			2087 content list Footer navigation
+				2088 link Description: Terms, Value: …
+				2089 link Description: Privacy, Value: …
+				2090 link Description: Security, Value: …
+				2091 link Description: Status, Value: …
+				2092 link Description: Community, Value: …
+				2093 link Description: Docs, Value: …
+				2094 link Description: Contact, Value: …
+				2095 button Manage cookies
+				2096 button Do not share my personal information
+	2097 container react-scan-toast
+		2098 container react-scan-toast-title
+			2099 text ⚛️ React Not Detected
+		2100 text React is not detected on this page.
+Please ensure you're visiting a React application.
+		2101 button react-scan-toast-close-button
+			2102 image
+
+The focused UI element is 1 AXWebArea URL: 127.0.0.1:18911/cor…, GitHub - manaflow-ai/cmux: Open source Ghostty-based macOS terminal with vertical tabs and notifications for AI coding agents. Built for multitasking, organization, and programmability. · GitHub
