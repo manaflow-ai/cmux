@@ -56,6 +56,7 @@ struct MacMessageRowModel: Hashable {
     var isEmojiOnly: Bool
     var reactionKinds: [ConversationReaction]
     var hasMyReaction: Bool
+    var myReactions: Set<ConversationReaction> = []
 }
 
 /// Builds rows from store state with the shared Messages grouping rules.
@@ -106,7 +107,8 @@ enum MacConversationRowBuilder {
                 reactionKinds: message.reactions.reduce(into: []) { kinds, mark in
                     if !kinds.contains(mark.reaction) { kinds.append(mark.reaction) }
                 },
-                hasMyReaction: message.reactions.contains { $0.participantID == meID }
+                hasMyReaction: message.reactions.contains { $0.participantID == meID },
+                myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction))
             )))
         }
         if !store.typingParticipantIDs.isEmpty {

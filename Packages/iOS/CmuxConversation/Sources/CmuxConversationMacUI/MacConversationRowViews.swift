@@ -168,7 +168,7 @@ final class MacMessageRowView: MacFlippedView {
     let avatar = MacAvatarView()
     let quoteAvatar = MacAvatarView()
     let badge = MacFlippedView()
-    let badgeLabel = makeMacLabel()
+    private var badgeCircles: [MacFlippedView] = []
     let editedLabel = makeMacLabel()
     let repliesLabel = makeMacLabel()
     let footerLabel = makeMacLabel()
@@ -189,7 +189,7 @@ final class MacMessageRowView: MacFlippedView {
         quoteBubble.lineWidth = 1
         layer?.addSublayer(bubble)
         addSubview(textLabel)
-        for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, footerLabel, badgeLabel] {
+        for label in [emojiLabel, senderLabel, quoteLabel, editedLabel, repliesLabel, footerLabel] {
             addSubview(label)
         }
         senderLabel.font = MacConversationTheme.senderNameFont
@@ -201,12 +201,11 @@ final class MacMessageRowView: MacFlippedView {
         editedLabel.textColor = .systemBlue
         repliesLabel.font = MacConversationTheme.editedFont
         repliesLabel.textColor = .systemBlue
-        footerLabel.font = MacConversationTheme.footerFont
+        footerLabel.font = .systemFont(ofSize: 10, weight: .semibold)
         emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize)
         addSubview(avatar)
         addSubview(quoteAvatar)
         addSubview(badge)
-        badge.addSubview(badgeLabel)
         failedBadge.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
         failedBadge.contentTintColor = .systemRed
         failedBadge.symbolConfiguration = .init(pointSize: 16, weight: .regular)
@@ -330,6 +329,8 @@ final class MacMessageRowView: MacFlippedView {
         setAccessibilityIdentifier("conversation.message.\(model.message.id)")
     }
 
+    /// Every distinct tapback gets its own circle; circles overlap by 45%,
+    /// newest in front, mine tinted blue.
     private func configureBadge(_ model: MacMessageRowModel, layout: MacMessageLayout) {
         guard let anchor = layout.reactionAnchor else {
             badge.isHidden = true
@@ -337,20 +338,41 @@ final class MacMessageRowView: MacFlippedView {
         }
         badge.isHidden = false
         let s = MacConversationTheme.reactionBadgeSize
-        let count = min(model.reactionKinds.count, 3)
-        let width = s + CGFloat(max(0, count - 1)) * s * 0.55
+        let kinds = Array(model.reactionKinds.prefix(3))
+        let step = s * 0.55
+        let width = s + CGFloat(max(0, kinds.count - 1)) * step
         let x = model.isOutgoing ? anchor.x - width + 9 : anchor.x - 9
         badge.frame = CGRect(x: x, y: anchor.y - s + 10, width: width, height: s)
-        badge.layer?.cornerRadius = s / 2
-        badge.layer?.borderWidth = 1.5
-        badge.layer?.borderColor = resolved(MacConversationTheme.background, in: self)
-        badge.layer?.backgroundColor = resolved(model.hasMyReaction && count == 1 ? NSColor.systemBlue : MacConversationTheme.badgeFill, in: self)
-        let text = NSMutableAttributedString()
-        for kind in model.reactionKinds.prefix(3) { text.append(MacTapbackGlyph.text(kind)) }
-        badgeLabel.attributedStringValue = text
-        badgeLabel.maximumNumberOfLines = 2
-        let h = text.boundingRect(with: CGSize(width: width, height: s), options: [.usesLineFragmentOrigin]).height
-        badgeLabel.frame = CGRect(x: 0, y: (s - h) / 2, width: width, height: ceil(h) + 1)
+        badge.layer?.backgroundColor = nil
+        while badgeCircles.count < kinds.count {
+            let circle = MacFlippedView()
+            let label = makeMacLabel()
+            label.maximumNumberOfLines = 2
+            circle.addSubview(label)
+            badge.addSubview(circle)
+            badgeCircles.append(circle)
+        }
+        let mine = model.myReactions
+        for (index, circle) in badgeCircles.enumerated() {
+            guard index < kinds.count else {
+                circle.isHidden = true
+                continue
+            }
+            circle.isHidden = false
+            // Leading circles sit behind; on outgoing rows the stack grows leftward.
+            let order = model.isOutgoing ? kinds.count - 1 - index : index
+            circle.frame = CGRect(x: CGFloat(order) * step, y: 0, width: s, height: s)
+            circle.layer?.cornerRadius = s / 2
+            circle.layer?.borderWidth = 1.5
+            circle.layer?.borderColor = resolved(MacConversationTheme.background, in: self)
+            circle.layer?.backgroundColor = resolved(mine.contains(kinds[index]) ? NSColor.systemBlue : MacConversationTheme.badgeFill, in: self)
+            circle.layer?.zPosition = CGFloat(index)
+            guard let label = circle.subviews.first as? NSTextField else { continue }
+            let text = MacTapbackGlyph.text(kinds[index])
+            label.attributedStringValue = text
+            let h = text.boundingRect(with: CGSize(width: s, height: s), options: [.usesLineFragmentOrigin]).height
+            label.frame = CGRect(x: 0, y: (s - ceil(h)) / 2, width: s, height: ceil(h) + 1)
+        }
     }
 
     private func configureImages(_ model: MacMessageRowModel, layout: MacMessageLayout) {
@@ -395,6 +417,77 @@ final class MacMessageRowView: MacFlippedView {
 
     /// The bubble/content area, for hit testing and menus.
     var contentFrame: CGRect { rowLayout?.contentFrame ?? bounds }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        // Resolved CGColors (bubble fills, strokes, badges) follow the new appearance now.
+        guard let model, let rowLayout else { return }
+        configure(model, layout: rowLayout, text: textLabel.attributedText)
+        textLabel.needsDisplay = true
+    }
+
+    private func spring(_ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
+        let animation = CASpringAnimation(keyPath: keyPath)
+        animation.fromValue = from
+        animation.toValue = to
+        animation.mass = 1
+        animation.stiffness = 240
+        animation.damping = 26
+        animation.duration = animation.settlingDuration
+        return animation
+    }
+
+    /// The send flight: the bubble starts at the composer field's frame and
+    /// width and springs to its slot; the text glides from the field's text.
+    func flyIn(fromField field: CGRect, text: CGRect) {
+        guard let rowLayout else { return }
+        let identity = NSValue(caTransform3D: CATransform3DIdentity)
+        if let frame = rowLayout.bubbleFrame, frame.width > 0, frame.height > 0 {
+            var start = CATransform3DMakeTranslation(-frame.minX, -frame.minY, 0)
+            start = CATransform3DConcat(start, CATransform3DMakeScale(field.width / frame.width, field.height / frame.height, 1))
+            start = CATransform3DConcat(start, CATransform3DMakeTranslation(field.minX, field.minY, 0))
+            bubble.add(spring("transform", from: NSValue(caTransform3D: start), to: identity), forKey: "flight")
+        }
+        if let target = rowLayout.textFrame {
+            let dx = text.minX - target.minX
+            let dy = text.minY + (min(text.height, field.height) - target.height) / 2 - target.minY
+            textLabel.layer?.add(spring("transform", from: NSValue(caTransform3D: CATransform3DMakeTranslation(dx, dy, 0)), to: identity), forKey: "flight")
+        }
+        let content = rowLayout.emojiFrame ?? rowLayout.imageFrames.first
+        if let content {
+            let shift = NSValue(caTransform3D: CATransform3DMakeTranslation(field.minX - content.minX, field.minY - content.minY, 0))
+            for view in [emojiLabel] + imageViews where !view.isHidden {
+                view.layer?.add(spring("transform", from: shift, to: identity), forKey: "flight")
+            }
+        }
+    }
+
+    /// Arrivals: the bubble grows from its tail corner (bottom leading edge)
+    /// and fades in; the avatar and sender name do not scale.
+    func growIn() {
+        guard let rowLayout else { return }
+        let content = rowLayout.contentFrame
+        let pivot = CGPoint(x: model?.isOutgoing == true ? content.maxX : content.minX, y: content.maxY)
+        func scaled(_ s: CGFloat, origin: CGPoint) -> NSValue {
+            let p = CGPoint(x: pivot.x - origin.x, y: pivot.y - origin.y)
+            var m = CATransform3DMakeTranslation(-p.x, -p.y, 0)
+            m = CATransform3DConcat(m, CATransform3DMakeScale(s, s, 1))
+            m = CATransform3DConcat(m, CATransform3DMakeTranslation(p.x, p.y, 0))
+            return NSValue(caTransform3D: m)
+        }
+        var targets: [(CALayer, CGPoint)] = [(bubble, .zero)]
+        for view in [textLabel, emojiLabel, badge] + imageViews where !view.isHidden {
+            if let layer = view.layer { targets.append((layer, view.frame.origin)) }
+        }
+        for (layer, origin) in targets {
+            layer.add(spring("transform", from: scaled(0.6, origin: origin), to: NSValue(caTransform3D: CATransform3DIdentity)), forKey: "arrive")
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = 0.15
+            layer.add(fade, forKey: "arriveFade")
+        }
+    }
 }
 
 @MainActor
@@ -445,11 +538,13 @@ final class MacTimestampRowView: MacFlippedView {
         } else {
             day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))
         }
+        let centered = NSMutableParagraphStyle()
+        centered.alignment = .center
         let text = NSMutableAttributedString(string: day, attributes: [
-            .font: MacConversationTheme.timestampBoldFont, .foregroundColor: MacConversationTheme.secondaryText,
+            .font: MacConversationTheme.timestampBoldFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
         ])
         text.append(NSAttributedString(string: " " + date.formatted(date: .omitted, time: .shortened), attributes: [
-            .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText,
+            .font: MacConversationTheme.timestampFont, .foregroundColor: MacConversationTheme.secondaryText, .paragraphStyle: centered,
         ]))
         label.attributedStringValue = text
         needsLayout = true
@@ -520,6 +615,8 @@ final class MacTypingRowView: MacFlippedView {
     private var dots: [CALayer] = []
     let avatar = MacAvatarView()
     var showsAvatar = false { didSet { needsLayout = true } }
+    /// 0...1: the indicator grows from its tail corner as its row opens.
+    var progress: CGFloat = 1 { didSet { applyProgress() } }
     static let height: CGFloat = 36
 
     override init(frame: NSRect) {
@@ -551,7 +648,32 @@ final class MacTypingRowView: MacFlippedView {
         }
         avatar.isHidden = !showsAvatar
         avatar.frame = CGRect(x: t.sideMargin, y: frame.maxY - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
+        bubbleFrame = frame
+        applyProgress()
         startPulse()
+    }
+
+    private var bubbleFrame: CGRect = .zero
+
+    private func applyProgress() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let p = CGPoint(x: bubbleFrame.minX, y: bubbleFrame.maxY)
+        let scale = 0.5 + 0.5 * progress
+        var m = CATransform3DMakeTranslation(-p.x, -p.y, 0)
+        m = CATransform3DConcat(m, CATransform3DMakeScale(scale, scale, 1))
+        m = CATransform3DConcat(m, CATransform3DMakeTranslation(p.x, p.y, 0))
+        for layer in [bubble as CALayer] + dots {
+            layer.transform = m
+            layer.opacity = Float(progress)
+        }
+        avatar.alphaValue = progress
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsLayout = true
     }
 
     private func startPulse() {

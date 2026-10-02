@@ -44,10 +44,33 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     private var rowIndex: [String: Int] = [:]
     private var hasPositioned = false
     private var isPinnedToBottom = true
-    private var pendingSendRowID: String?
     private var arrivingRowIDs: Set<String> = []
     private var lastWidth: CGFloat = 0
     private var isLiveScrolling = false
+    /// Sends whose bubble should fly from the composer once their row exists.
+    private var pendingFlightRowIDs: [String] = []
+    private var flightSource: (field: CGRect, text: CGRect)?
+    private var isSubmitting = false
+    /// 0...1 height of the typing row; animated so rows above glide.
+    private var typingProgress: CGFloat = 0
+    private var typingTarget: CGFloat = 0
+    private var typingLink: CADisplayLink?
+    private var typingAnimationStart: CFTimeInterval = 0
+    private var typingAnimationFrom: CGFloat = 0
+    private let olderSpinner = NSProgressIndicator()
+    #if DEBUG
+    /// Lab `faketyping on|off`: a local typing indicator through the real row path.
+    private var debugTyping = false
+    /// Lab `trace`: per-event transcript geometry, to verify motion without video.
+    private var traceLog: [String] = []
+    private func trace(_ event: String) {
+        guard traceLog.count < 4000 else { return }
+        let bottomGap = tableView.bounds.height - (scrollView.contentView.bounds.maxY - scrollView.contentInsets.bottom)
+        traceLog.append(String(format: "%.4f %@ progress=%.3f originY=%.1f tableH=%.1f bottomGap=%.1f", CACurrentMediaTime(), event, typingProgress, scrollView.contentView.bounds.origin.y, tableView.bounds.height, bottomGap))
+    }
+    #else
+    private func trace(_ event: String) {}
+    #endif
 
     // Reply / edit state.
     private var replyTarget: ConversationMessage?
@@ -131,6 +154,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.addSubview(initialSpinner)
         initialSpinner.startAnimation(nil)
 
+        // Paging spinner pinned under the toolbar while an older page loads
+        // near the top (the in-list loading row is usually above the viewport).
+        olderSpinner.style = .spinning
+        olderSpinner.controlSize = .small
+        olderSpinner.isDisplayedWhenStopped = false
+        olderSpinner.translatesAutoresizingMaskIntoConstraints = false
+        olderSpinner.setAccessibilityIdentifier("conversation.pagingSpinner")
+        view.addSubview(olderSpinner)
+
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             // The content pane extends under the floating sidebar; the transcript starts beside it.
@@ -143,6 +175,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             replyBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             replyBanner.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             replyBanner.heightAnchor.constraint(equalToConstant: 30),
+            olderSpinner.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
+            olderSpinner.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
             initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
@@ -182,15 +216,22 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             // Live resize reflows bubbles; keep the bottom pinned or the reader's anchor fixed.
             let anchor = captureAnchor()
             lastWidth = width
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+            withoutAnimation {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
+            }
+            reconfigureVisibleRows()
             if isPinnedToBottom { scrollToBottom() } else { restore(anchor) }
         }
         composer.maximumFieldHeight = max(28, view.bounds.height * 0.45)
         // Row heights settle in layout passes; a pinned reader stays on the newest message.
-        if hasPositioned, isPinnedToBottom, !isLiveScrolling { scrollToBottom() }
+        if hasPositioned, isPinnedToBottom, !isLiveScrolling, !isSubmitting { scrollToBottom() }
     }
 
-    private func updateInsets() {
+    private func updateInsets(followingBottom: Bool = true) {
+        // While a send is in flight the collapsing composer must not shrink the
+        // inset yet: the clip would clamp and drop the transcript before the
+        // new row exists. composerDidSubmit applies it after the insert.
+        guard !isSubmitting else { return }
         // The toolbar and the composer accessory arrive as safe-area insets.
         let top = view.safeAreaInsets.top
         // Measured: Messages leaves 60 pt from the window bottom to the newest
@@ -207,7 +248,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         guard old.top != insets.top || old.bottom != insets.bottom else { return }
         scrollView.contentInsets = insets
         scrollView.scrollerInsets = NSEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
-        if isPinnedToBottom, hasPositioned { scrollToBottom() }
+        if followingBottom, isPinnedToBottom, hasPositioned { scrollToBottom() }
     }
 
     // MARK: Scrolling
@@ -293,9 +334,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             initialSpinner.isHidden = true
         }
         if let info = store.info { onInfoChange?(info, store.meID, store.connection == .connected) }
+        updatePagingSpinner()
         if case .connection = change { return }
 
-        let newRows = MacConversationRowBuilder.rows(store: store)
+        var newRows = MacConversationRowBuilder.rows(store: store)
+        #if DEBUG
+        if debugTyping, newRows.last.map({ if case .typing = $0 { return false } else { return true } }) ?? true,
+           let someone = store.info?.participants.first(where: { $0.id != store.meID }) {
+            newRows.append(.typing(participantIDs: [someone.id]))
+        }
+        #endif
+        let oldRows = rows
         let oldIDs = Set(rowIndex.keys)
         let wasAtBottom = isPinnedToBottom || isNearBottom()
         let anchor = captureAnchor()
@@ -306,11 +355,25 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
                 if case let .message(model) = row, !model.isOutgoing { arrivingRowIDs.insert(model.rowID) }
             }
         }
-        rows = newRows
-        rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
-        tableView.reloadData()
-        tableView.layoutSubtreeIfNeeded()
+        // A typing indicator that stops without a message collapses first, so
+        // the rows above glide down instead of jumping.
+        let typingLeft = oldRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
+        let typingNow = newRows.last.map { if case .typing = $0 { return true } else { return false } } ?? false
+        let lastIsNew = newRows.last.map { !oldIDs.contains($0.id) } ?? false
+        if typingLeft, !typingNow, !lastIsNew, hasPositioned, typingProgress > 0, let typing = oldRows.last {
+            newRows.append(typing)
+            animateTyping(to: 0)
+        } else if typingNow, !typingLeft {
+            typingProgress = 0
+            animateTyping(to: 1)
+        } else if typingNow {
+            animateTyping(to: 1)
+        }
+
+        trace("change.before \(change)")
+        apply(newRows, from: oldRows)
         updateInsets()
+        defer { trace("change.after \(change)") }
 
         if !hasPositioned {
             if store.hasLoadedNewest, !rows.isEmpty {
@@ -320,16 +383,166 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             }
             return
         }
-        if sentByMe {
+        if isSubmitting {
+            // composerDidSubmit runs the flight once send() returns the row id.
+            return
+        } else if sentByMe {
             isPinnedToBottom = true
             scrollToBottom(animated: true)
         } else if case .live = change, wasAtBottom {
             scrollToBottom(animated: true)
+        } else if case .typing = change, isPinnedToBottom {
+            // The typing row's own height animation keeps the bottom pinned.
+            scrollToBottom()
         } else if isPinnedToBottom, change != .prepended {
-            // Status, typing and rebase changes keep a pinned reader at the bottom.
+            // Status and rebase changes keep a pinned reader at the bottom.
             scrollToBottom()
         } else {
             restore(anchor)
+        }
+    }
+
+    /// Applies a new row list with minimal table work: removals, insertions,
+    /// and in-place reconfiguration keyed by stable row identity. A pending
+    /// send keeps its row (and view) when the server acknowledges it.
+    private func apply(_ newRows: [MacConversationRow], from oldRows: [MacConversationRow]) {
+        rows = newRows
+        rowIndex = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($1.id, $0) })
+        guard !oldRows.isEmpty, tableView.numberOfRows == oldRows.count else {
+            tableView.reloadData()
+            tableView.layoutSubtreeIfNeeded()
+            return
+        }
+        let oldIDs = oldRows.map(\.id)
+        let newIDs = newRows.map(\.id)
+        var removals = IndexSet()
+        var insertions = IndexSet()
+        for step in newIDs.difference(from: oldIDs) {
+            switch step {
+            case let .remove(offset, _, _): removals.insert(offset)
+            case let .insert(offset, _, _): insertions.insert(offset)
+            }
+        }
+        var oldByID: [String: (index: Int, row: MacConversationRow)] = [:]
+        for (index, row) in oldRows.enumerated() { oldByID[row.id] = (index, row) }
+        var changed = IndexSet()
+        for (index, row) in newRows.enumerated() where !insertions.contains(index) {
+            guard let old = oldByID[row.id] else { continue }
+            let previousOld = old.index > 0 ? oldRows[old.index - 1].isMessage : false
+            let previousNew = index > 0 ? newRows[index - 1].isMessage : false
+            if old.row != row || previousOld != previousNew { changed.insert(index) }
+        }
+        withoutAnimation {
+            tableView.beginUpdates()
+            if !removals.isEmpty { tableView.removeRows(at: removals, withAnimation: []) }
+            if !insertions.isEmpty { tableView.insertRows(at: insertions, withAnimation: []) }
+            tableView.endUpdates()
+            if !changed.isEmpty { tableView.noteHeightOfRows(withIndexesChanged: changed) }
+        }
+        for index in changed {
+            guard let view = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) else { continue }
+            configure(view, row: index)
+        }
+        tableView.layoutSubtreeIfNeeded()
+    }
+
+    private func withoutAnimation(_ body: () -> Void) {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        body()
+        NSAnimationContext.endGrouping()
+    }
+
+    /// Re-lays out every on-screen row at the current width (live resize).
+    private func reconfigureVisibleRows() {
+        tableView.enumerateAvailableRowViews { rowView, index in
+            guard index < rows.count, let view = rowView.view(atColumn: 0) as? NSView else { return }
+            configure(view, row: index)
+        }
+    }
+
+    private func updatePagingSpinner() {
+        let loading = store.older == .loading
+        let nearTop = scrollView.contentView.bounds.origin.y + scrollView.contentInsets.top < scrollView.contentSize.height
+        if loading, nearTop, hasPositioned {
+            olderSpinner.startAnimation(nil)
+        } else {
+            olderSpinner.stopAnimation(nil)
+        }
+    }
+
+    // MARK: Typing height
+
+    private func animateTyping(to target: CGFloat) {
+        guard typingTarget != target || (typingLink == nil && typingProgress != target) else { return }
+        typingTarget = target
+        typingAnimationFrom = typingProgress
+        typingAnimationStart = CACurrentMediaTime()
+        if typingLink == nil {
+            let link = view.displayLink(target: self, selector: #selector(typingTick))
+            link.add(to: .main, forMode: .common)
+            typingLink = link
+        }
+    }
+
+    @objc private func typingTick() {
+        // The indicator grows and collapses over 0.3 s, ease-out.
+        let t = min(1, (CACurrentMediaTime() - typingAnimationStart) / 0.3)
+        let eased = 1 - pow(1 - t, 3)
+        typingProgress = typingAnimationFrom + (typingTarget - typingAnimationFrom) * eased
+        if let index = rows.lastIndex(where: { if case .typing = $0 { return true } else { return false } }) {
+            withoutAnimation { tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: index)) }
+            if let typingView = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? MacTypingRowView {
+                typingView.progress = typingProgress
+            }
+            updateInsets()
+            if isPinnedToBottom { scrollToBottom() }
+            trace("typing.tick")
+        }
+        guard t >= 1 else { return }
+        typingLink?.invalidate()
+        typingLink = nil
+        if typingTarget == 0, store.typingParticipantIDs.isEmpty, !isDebugTyping,
+           rows.last.map({ if case .typing = $0 { return true } else { return false } }) == true {
+            storeDidChange(.typing)
+        }
+    }
+
+    private var isDebugTyping: Bool {
+        #if DEBUG
+        return debugTyping
+        #else
+        return false
+        #endif
+    }
+
+    // MARK: Send flight
+
+    /// Messages' send: the bubble starts as the composer field (its position
+    /// and width) and springs into place while the transcript scrolls up.
+    private func runPendingFlights() {
+        let ids = pendingFlightRowIDs
+        pendingFlightRowIDs = []
+        let source = flightSource
+        flightSource = nil
+        view.layoutSubtreeIfNeeded()
+        let start = scrollView.contentView.bounds.origin.y
+        for id in ids {
+            guard let index = rowIndex[id], let row = rowView(at: index), let source else { continue }
+            row.flyIn(fromField: row.convert(source.field, from: nil), text: row.convert(source.text, from: nil))
+        }
+        let end = maxOffset
+        trace(String(format: "flight scroll %.1f -> %.1f", start, end))
+        if abs(end - start) > 0.5 {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.32
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.25, 1)
+                context.allowsImplicitAnimation = true
+                scrollView.contentView.animator().setBoundsOrigin(NSPoint(x: 0, y: end))
+            }
+        } else {
+            scrollToBottom()
         }
     }
 
@@ -347,77 +560,66 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case .timestamp: return MacTimestampRowView.height
         case .loadingOlder: return MacSpinnerRowView.height
         case .conversationStart: return MacConversationStartRowView.height
-        case .typing: return MacTypingRowView.height
+        case .typing: return max(0.01, MacTypingRowView.height * typingProgress)
         }
     }
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        let identifier: String
+        switch rows[row] {
+        case .message: identifier = "m"
+        case .timestamp: identifier = "t"
+        case .loadingOlder: identifier = "l"
+        case .conversationStart: identifier = "s"
+        case .typing: identifier = "y"
+        }
+        let view: NSView = tableView.makeView(withIdentifier: .init(identifier), owner: nil) ?? {
+            switch rows[row] {
+            case .message: return MacMessageContainerView()
+            case .timestamp: return MacTimestampRowView()
+            case .loadingOlder: return MacSpinnerRowView()
+            case .conversationStart: return MacConversationStartRowView()
+            case .typing: return MacTypingRowView()
+            }
+        }()
+        view.identifier = .init(identifier)
+        configure(view, row: row)
+        if let container = view as? MacMessageContainerView, case let .message(model) = rows[row] {
+            animateIfNeeded(container, model: model)
+        }
+        return view
+    }
+
+    private func configure(_ view: NSView, row: Int) {
         switch rows[row] {
         case let .message(model):
-            let view = tableView.makeView(withIdentifier: .init("m"), owner: nil) as? MacMessageContainerView ?? MacMessageContainerView()
-            view.identifier = .init("m")
+            guard let view = view as? MacMessageContainerView else { return }
             let spacing = row > 0 && rows[row - 1].isMessage
                 ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
             view.topSpacing = spacing
             view.row.configure(model, layout: layoutCache.layout(model, width: transcriptWidth), text: layoutCache.text(model))
             view.timestampReveal = timestampsRevealed
-            animateIfNeeded(view, model: model)
-            return view
         case let .timestamp(_, date):
-            let view = tableView.makeView(withIdentifier: .init("t"), owner: nil) as? MacTimestampRowView ?? MacTimestampRowView()
-            view.identifier = .init("t")
-            view.configure(date: date)
-            return view
+            (view as? MacTimestampRowView)?.configure(date: date)
         case .loadingOlder:
-            let view = tableView.makeView(withIdentifier: .init("l"), owner: nil) as? MacSpinnerRowView ?? MacSpinnerRowView()
-            view.identifier = .init("l")
-            return view
+            break
         case .conversationStart:
-            let view = tableView.makeView(withIdentifier: .init("s"), owner: nil) as? MacConversationStartRowView ?? MacConversationStartRowView()
-            view.identifier = .init("s")
-            view.configure(title: serviceTitle, subtitle: String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module))
-            return view
+            (view as? MacConversationStartRowView)?.configure(title: serviceTitle, subtitle: String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module))
         case let .typing(ids):
-            let view = tableView.makeView(withIdentifier: .init("y"), owner: nil) as? MacTypingRowView ?? MacTypingRowView()
-            view.identifier = .init("y")
+            guard let view = view as? MacTypingRowView else { return }
             view.showsAvatar = store.info?.kind == .group
             view.avatar.initials = ids.first.flatMap { store.info?.participant($0)?.initials } ?? ""
-            return view
+            view.avatar.colorHex = ids.first.flatMap { store.info?.participant($0)?.colorHex }
+            view.progress = typingProgress
         }
     }
 
     public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { false }
 
-    /// Sends slide up from the composer; arrivals grow from their tail corner.
+    /// Arrivals grow from their tail corner (the bubble's bottom leading edge).
     private func animateIfNeeded(_ view: MacMessageContainerView, model: MacMessageRowModel) {
-        guard let layer = view.row.layer else { return }
-        if model.rowID == pendingSendRowID {
-            pendingSendRowID = nil
-            let rise = CASpringAnimation(keyPath: "transform.translation.y")
-            rise.fromValue = 46
-            rise.toValue = 0
-            rise.damping = 18
-            rise.stiffness = 320
-            rise.mass = 1
-            rise.duration = rise.settlingDuration
-            layer.add(rise, forKey: "send")
-        } else if arrivingRowIDs.remove(model.rowID) != nil {
-            let content = view.row.contentFrame
-            layer.anchorPoint = .zero
-            let pop = CASpringAnimation(keyPath: "transform.scale")
-            pop.fromValue = 0.8
-            pop.toValue = 1
-            pop.damping = 16
-            pop.stiffness = 260
-            pop.duration = pop.settlingDuration
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0
-            fade.toValue = 1
-            fade.duration = 0.18
-            _ = content
-            layer.add(pop, forKey: "arrive")
-            layer.add(fade, forKey: "arriveFade")
-        }
+        guard arrivingRowIDs.remove(model.rowID) != nil else { return }
+        view.row.growIn()
     }
 
     func messageModel(at row: Int) -> MacMessageRowModel? {
@@ -453,8 +655,28 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         }
         let replyTo = replyTarget?.id
         let text = composer.text
+        // The bubble flies from where the draft sits, captured before the
+        // composer collapses; the collapse and insert land in one scroll.
+        flightSource = (
+            field: composer.field.convert(composer.field.bounds, to: nil),
+            text: composer.scrollView.convert(composer.scrollView.bounds, to: nil)
+        )
+        trace("submit.begin")
+        isSubmitting = true
         composer.clearAfterSend()
-        pendingSendRowID = store.send(text: text, images: images, replyToID: replyTo)
+        trace("submit.cleared")
+        let rowID = store.send(text: text, images: images, replyToID: replyTo)
+        isSubmitting = false
+        // The flight's scroll animates to the new bottom.
+        updateInsets(followingBottom: false)
+        if let rowID, rowIndex[rowID] != nil {
+            pendingFlightRowIDs.append(rowID)
+            isPinnedToBottom = true
+            runPendingFlights()
+        } else {
+            flightSource = nil
+            updateInsets()
+        }
         if replyTarget != nil { exitReplyOrEdit(sent: true) }
     }
 
@@ -788,6 +1010,29 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case "escape":
             exitReplyOrEdit()
             return "ok"
+        #if DEBUG
+        case "multireact":
+            // Scrolls to the newest loaded message carrying two or more tapback kinds.
+            if argument == "make",
+               let index = rows.indices.reversed().first(where: { messageModel(at: $0).map { $0.reactionKinds.count == 1 && $0.myReactions.isEmpty } ?? false }),
+               let model = messageModel(at: index) {
+                let other = ConversationReaction.allCases.first { !model.reactionKinds.contains($0) } ?? .heart
+                store.react(messageID: model.message.id, reaction: other)
+            }
+            guard let index = rows.indices.reversed().first(where: { (messageModel(at: $0)?.reactionKinds.count ?? 0) >= 2 }),
+                  let model = messageModel(at: index) else { return "none" }
+            isPinnedToBottom = false
+            tableView.scrollRowToVisible(index)
+            return "found \(model.message.id) \(model.reactionKinds.map(\.rawValue).joined(separator: ","))"
+        case "faketyping":
+            debugTyping = argument == "on"
+            storeDidChange(.typing)
+            return "ok"
+        case "trace":
+            let dump = traceLog.joined(separator: "\n")
+            traceLog = []
+            return "trace\n" + dump
+        #endif
         default:
             return "error unknown verb"
         }
