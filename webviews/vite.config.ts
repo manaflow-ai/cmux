@@ -90,9 +90,11 @@ export default defineConfig({
             // Shared vendor chunks keep Rollup's manualChunks behavior: their
             // otherwise unassigned dependencies (hast utilities under shiki,
             // for example) land in the same chunk. One group per chunk, in
-            // this order, so `diff-vendor` cannot capture shiki (which the
-            // worker needs without the renderer) as a dependency.
-            ...["shiki-core", "diff-vendor", "vendor"].map((name, index) => ({
+            // this order: `shiki-core` first so `diff-vendor` cannot capture
+            // shiki (which the worker needs without the renderer), and
+            // `vendor` before `diff-vendor` so React stays in `vendor` and the
+            // agent session does not load the diff renderer at startup.
+            ...["shiki-core", "vendor", "diff-vendor"].map((name, index) => ({
               name,
               test: (id: string) => sharedChunkName(id) === name,
               priority: 3 - index,
