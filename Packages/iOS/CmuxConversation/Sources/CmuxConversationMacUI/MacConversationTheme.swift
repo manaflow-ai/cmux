@@ -36,15 +36,16 @@ enum MacConversationTheme {
     nonisolated(unsafe) static let timestampFont = NSFont.systemFont(ofSize: 11, weight: .medium)
     nonisolated(unsafe) static let timestampBoldFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
 
-    /// Measured (50, 137, 249) in dark mode; independent of the accent color.
+    /// Dark: Display P3 (67, 145, 247), matched by rendering swatches on the same
+    /// display as Messages (it is outside sRGB); independent of the accent color.
     static let outgoingBubble = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 50 / 255, green: 137 / 255, blue: 249 / 255, alpha: 1)
+            ? NSColor(displayP3Red: 67 / 255, green: 145 / 255, blue: 247 / 255, alpha: 1)
             : NSColor(srgbRed: 0 / 255, green: 122 / 255, blue: 255 / 255, alpha: 1)
     }
     static let incomingBubble = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 51 / 255, green: 52 / 255, blue: 54 / 255, alpha: 1)
+            ? NSColor(srgbRed: 58 / 255, green: 59 / 255, blue: 62 / 255, alpha: 1)
             : NSColor(srgbRed: 0.914, green: 0.914, blue: 0.922, alpha: 1)
     }
     static let badgeFill = NSColor(name: nil) { appearance in
@@ -61,10 +62,10 @@ enum MacConversationTheme {
     static let outgoingText = NSColor.white
     static let incomingText = NSColor.labelColor
     static let secondaryText = NSColor.secondaryLabelColor
-    /// Measured (28, 28, 28) in dark mode.
+    /// Dark: sRGB (30, 30, 30), matched on the same display as Messages.
     static let background = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(srgbRed: 28 / 255, green: 28 / 255, blue: 28 / 255, alpha: 1)
+            ? NSColor(srgbRed: 30 / 255, green: 30 / 255, blue: 30 / 255, alpha: 1)
             : NSColor.white
     }
 
