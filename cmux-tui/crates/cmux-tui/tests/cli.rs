@@ -25,9 +25,40 @@ struct HeadlessServer {
     socket: PathBuf,
     state: PathBuf,
     dir: PathBuf,
+    /// The daemon's stderr, drained continuously. An undrained pipe blocks
+    /// every daemon thread that logs once the pipe buffer fills, while that
+    /// thread may hold mux locks; the tail also explains a teardown failure.
+    stderr: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
 }
 
 impl HeadlessServer {
+    /// Adopts a spawned daemon whose stderr is piped and starts draining it.
+    fn adopt(mut child: Child, socket: PathBuf, state: PathBuf, dir: PathBuf) -> Self {
+        const STDERR_TAIL: usize = 64 * 1024;
+        let stderr = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        if let Some(mut pipe) = child.stderr.take() {
+            let sink = stderr.clone();
+            std::thread::spawn(move || {
+                use std::io::Read as StderrRead;
+                let mut chunk = [0_u8; 4096];
+                while let Ok(read) = StderrRead::read(&mut pipe, &mut chunk) {
+                    if read == 0 {
+                        break;
+                    }
+                    let mut tail = sink.lock().unwrap();
+                    tail.extend_from_slice(&chunk[..read]);
+                    let excess = tail.len().saturating_sub(STDERR_TAIL);
+                    tail.drain(..excess);
+                }
+            });
+        }
+        Self { child, socket, state, dir, stderr }
+    }
+
+    fn stderr_tail(&self) -> String {
+        String::from_utf8_lossy(&self.stderr.lock().unwrap()).into_owned()
+    }
+
     fn start(name: &str) -> Self {
         Self::start_with_config(name, None)
     }
@@ -69,7 +100,7 @@ impl HeadlessServer {
             command.current_dir(launch_cwd);
         }
         let child = command.spawn().unwrap();
-        let server = Self { child, socket, state, dir };
+        let server = Self::adopt(child, socket, state, dir);
         server.wait_for_socket();
         server
     }
@@ -131,33 +162,57 @@ impl HeadlessServer {
         // close every terminal resource, including zero-view terminals that
         // cannot appear in the legacy workspace tree below.
         let mut close_failures = Vec::new();
-        if let Ok(output) = Command::new(bin())
+        // A failed listing closes nothing, so it must surface in the leak
+        // report instead of leaving the leak unexplained.
+        let listing = Command::new(bin())
             .args(["--json", "--socket"])
             .arg(&self.socket)
             .args(["terminal", "list"])
             .env_remove("CMUX_TUI_SOCKET")
-            .output()
-            && output.status.success()
-            && let Ok(terminals) = serde_json::from_slice::<serde_json::Value>(&output.stdout)
-            && let Some(terminals) = terminals.as_array()
-        {
-            for terminal in terminals {
-                let Some(terminal_id) = terminal["id"].as_str() else { continue };
-                let output = Command::new(bin())
-                    .args(["--quiet", "--socket"])
-                    .arg(&self.socket)
-                    .args(["terminal", terminal_id, "close"])
-                    .env_remove("CMUX_TUI_SOCKET")
-                    .output();
-                match output {
-                    Ok(output) if output.status.success() => {}
-                    Ok(output) => close_failures.push(format!(
-                        "{terminal_id}: status={:?} stderr={}",
-                        output.status.code(),
-                        String::from_utf8_lossy(&output.stderr)
-                    )),
-                    Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
+            .output();
+        let terminals = match &listing {
+            Ok(output) if output.status.success() => {
+                match serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                    Ok(serde_json::Value::Array(terminals)) => terminals,
+                    _ => {
+                        close_failures.push(format!(
+                            "terminal list printed no array: {}",
+                            String::from_utf8_lossy(&output.stdout)
+                        ));
+                        Vec::new()
+                    }
                 }
+            }
+            Ok(output) => {
+                close_failures.push(format!(
+                    "terminal list: status={:?} stderr={}",
+                    output.status.code(),
+                    String::from_utf8_lossy(&output.stderr)
+                ));
+                Vec::new()
+            }
+            Err(error) => {
+                close_failures.push(format!("terminal list: {error}"));
+                Vec::new()
+            }
+        };
+        let listed = terminals.iter().map(serde_json::Value::to_string).collect::<Vec<_>>();
+        for terminal in &terminals {
+            let Some(terminal_id) = terminal["id"].as_str() else { continue };
+            let output = Command::new(bin())
+                .args(["--quiet", "--socket"])
+                .arg(&self.socket)
+                .args(["terminal", terminal_id, "close"])
+                .env_remove("CMUX_TUI_SOCKET")
+                .output();
+            match output {
+                Ok(output) if output.status.success() => {}
+                Ok(output) => close_failures.push(format!(
+                    "{terminal_id}: status={:?} stderr={}",
+                    output.status.code(),
+                    String::from_utf8_lossy(&output.stderr)
+                )),
+                Err(error) => close_failures.push(format!("{terminal_id}: {error}")),
             }
         }
 
@@ -210,9 +265,30 @@ impl HeadlessServer {
             .filter(|pid| process_exists(*pid) || process_group_exists(*pid))
             .collect::<Vec<_>>();
         Err(format!(
-            "close failures: {close_failures:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
+            "close failures: {close_failures:?}; listed terminals: {listed:?}; records: {record_paths:?}; live hosts: {live_hosts:?}; live terminals or groups: {live_terminals:?}"
         ))
     }
+}
+
+#[cfg(unix)]
+/// Creates an executable script without this process ever holding a write
+/// descriptor for it. Tests run on many threads, and a sibling test that
+/// forks while such a descriptor is open hands a copy to its child until that
+/// child execs; running the script in that window fails with ETXTBSY ("Text
+/// file busy"). A short-lived `sh` opens, writes, and closes the file in its
+/// own process, so no fork of this process can inherit it.
+#[cfg(unix)]
+fn write_executable(path: impl AsRef<std::path::Path>, contents: impl AsRef<[u8]>) {
+    use std::io::Write as _;
+    let path = path.as_ref();
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(contents.as_ref()).unwrap();
+    assert!(child.wait().unwrap().success(), "could not write {}", path.display());
 }
 
 #[cfg(unix)]
@@ -251,6 +327,11 @@ fn signal_test_process_group(pid: u32, signal: libc::c_int) {
 
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            // A failed assertion (for example an indeterminate terminal
+            // write) is explained by what the daemon logged before it.
+            eprintln!("headless daemon stderr before the failure:\n{}", self.stderr_tail());
+        }
         // Durable terminal hosts intentionally outlive the daemon. Tests must
         // close their terminal resources first rather than assuming SIGKILL
         // of the daemon also owns or reaps their processes.
@@ -262,7 +343,10 @@ impl Drop for HeadlessServer {
         if let Err(error) = hosts_stopped
             && !std::thread::panicking()
         {
-            panic!("headless CLI fixture left a durable terminal-host process behind: {error}");
+            panic!(
+                "headless CLI fixture left a durable terminal-host process behind: {error}\ndaemon stderr:\n{}",
+                self.stderr_tail()
+            );
         }
     }
 }
@@ -1351,7 +1435,7 @@ fn explicit_socket_keeps_state_in_platform_root() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let server = HeadlessServer { child, socket, state, dir };
+    let server = HeadlessServer::adopt(child, socket, state, dir);
     server.wait_for_socket();
 
     let registry_exists = || {
@@ -2462,7 +2546,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
     fs::write(theme_dir.join("Dark Direct Probe"), "foreground = #010203\n").unwrap();
     fs::write(theme_dir.join("Light Direct Probe"), "foreground = #a0b0c0\n").unwrap();
     let gdbus = bin_dir.join("gdbus");
-    fs::write(
+    write_executable(
         &gdbus,
         "#!/bin/sh\n\
          if [ \"${CMUX_MACHINE_PROVIDER_TOKEN+x}\" = x ] || [ \"${CMUX_PROVIDER_WORKSPACE_AUTHORITY+x}\" = x ]; then\n\
@@ -2470,9 +2554,7 @@ fn ghostty_config_helper_scrubs_provider_env_before_desktop_probe() {
          \texit 0\n\
          fi\n\
          printf '(<uint32 1>,)\\n'\n",
-    )
-    .unwrap();
-    fs::set_permissions(&gdbus, fs::Permissions::from_mode(0o700)).unwrap();
+    );
 
     let output = Command::new(bin())
         .arg("__ghostty-config-defaults")
@@ -2895,15 +2977,13 @@ fn startup_does_not_invoke_external_ghostty_config_resolver() {
     let helper = dir.join("ghostty-config-probe");
     let capture = dir.join("resolver-invoked.txt");
     let socket = dir.join("mux.sock");
-    fs::write(
+    write_executable(
         &helper,
         r#"#!/bin/sh
 echo invoked > "$CMUX_TEST_GHOSTTY_CAPTURE"
 exit 0
 "#,
-    )
-    .unwrap();
-    fs::set_permissions(&helper, fs::Permissions::from_mode(0o700)).unwrap();
+    );
 
     let output = Command::new(bin())
         .args(["--machine-provider", "/does/not/exist", "--headless", "--socket"])

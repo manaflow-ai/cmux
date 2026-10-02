@@ -43,13 +43,13 @@ final class OmnibarPillView: NSView {
     }
 
     private func refresh(animated: Bool) {
-        let fill: NSColor = switch state {
-        case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
-        case .editing, .card: OmnibarStyle.cardFill
-        }
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         Motion.transaction(animated ? .hover : nil) {
-            effectiveAppearance.performAsCurrentDrawingAppearance {
+            performWithTheme {
+                let fill: NSColor = switch state {
+                case .idle: isHovering ? OmnibarStyle.barHoverFill : OmnibarStyle.barFill
+                case .editing, .card: OmnibarStyle.cardFill
+                }
                 layer?.backgroundColor = fill.cgColor
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
@@ -101,7 +101,7 @@ final class OmnibarCardTopView: NSView {
     }
 
     private func refresh() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             card.backgroundColor = OmnibarStyle.cardFill.cgColor
         }
     }

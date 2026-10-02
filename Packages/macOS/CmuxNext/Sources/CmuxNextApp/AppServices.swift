@@ -5,6 +5,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextPalette
+import CmuxNextBrowserImport
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
@@ -48,9 +49,24 @@ final class AppServices {
     /// Input invariants and desync reports (plans/cmux-next/input-spec.md).
     var inputMonitor: InputInvariantMonitor!
     var inputGeometryObservers: [any NSObjectProtocol] = []
+    /// No-activate mode only: gives back a keyboard the user did not give.
+    var keyboardGuard: NoActivateKeyboardGuard?
+    var keyboardGuardObservers: [any NSObjectProtocol] = []
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
+    /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
+    private(set) lazy var locationTrail = LocationTrailService(services: self)
+    /// The merged history read side and the per-profile visit logs.
+    private(set) lazy var history = HistoryService(services: self)
+    /// `cmux://history`: opens the page and serves its data.
+    private(set) lazy var historyPage = HistoryPageService(services: self)
+    /// Recently closed workspaces (history lists).
+    private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
+    /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
+    private(set) lazy var bookmarks = BookmarkService(services: self)
+    /// `cmux://bookmarks`: the manager pages.
+    private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
@@ -63,24 +79,50 @@ final class AppServices {
     private(set) var chromiumWarmup: ChromiumWarmup!
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
+    /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
+    private(set) lazy var quit = QuitCoordinator(services: self)
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
+    /// Provider sign-ins and CodeRouter accounts (Settings > Accounts, onboarding).
+    private(set) lazy var accounts = AccountsService(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     let terminalTheme = TerminalThemeSetting()
+    /// Room, workspace and terminal themes.
+    private(set) var themes: ThemeCoordinator!
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) var remoteLocalhost: RemoteLocalhostService!
     var chromiumLikelyObservations: [Task<Void, Never>] = []
+    /// Page menus and the open-menu diagnostic shared by browser hosts.
+    let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment) in floating panels.
-    let popups = BrowserPopupPanels()
+    let popups: BrowserPopupPanels
+    /// Browser profiles: records, the new-tab cascade, each tab's store.
+    private(set) lazy var browserProfiles = BrowserProfileService(services: self)
+    /// Agent chat tabs and their shared acpmux host (New Agent Chat).
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag)
+    /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
+    /// them in the import store only.
+    var importedBookmarkSink: (any ImportedBookmarkSink)?
+    /// Browser tab favicons per profile, for tab strips.
+    let favicons = TabFaviconStore()
+    /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
+    private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
+        let contextMenus = BrowserContextMenuBuilder.shared
+        self.contextMenus = contextMenus
+        popups = BrowserPopupPanels(contextMenus: contextMenus)
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
-        cache = TabContentCache(daemon: daemon)
+        BrowserLifecycleTrace.shared.configure { tab, event in
+            InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
+        }
+        cache = TabContentCache(daemon: daemon, cef: CEFEngine(lifecycleTrace: .shared, contextMenus: contextMenus))
+        themes = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))
         remoteLocalhost = RemoteLocalhostService(machines: machines)
         cache.configureBrowser = { [weak self] tab, url, base in
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
@@ -94,11 +136,13 @@ final class AppServices {
         cache.defersRestoredPages = crashRecovery.recovery.skipsBrowserPages
         crashRecovery.observe(cache.cef.crashLog)
         cache.cef.onReady = { [crashRecovery] in crashRecovery.marker?.installHandlers() }
-        cache.cef.openURLWithoutWindow = { [weak self] url, disposition in
+        cache.cef.openURLWithoutWindow = { [weak self] url, disposition, profile in
             // Chromium wanted a window and has none for that profile (a
             // normal one; an incognito store never gets here): a new browser
-            // tab in the focused pane of a normal window (Chromium opens nothing).
-            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab)
+            // tab in the focused pane of a normal window (Chromium opens nothing),
+            // in the requesting page's browser profile.
+            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab,
+                                                                          profile: profile.map(BrowserProfileRecord.wireID(for:)))
         }
         cache.cef.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
         cache.browserTabs.isIncognitoTab = { [weak self] key in
@@ -109,9 +153,16 @@ final class AppServices {
             guard let self, let windows, let workspace = daemon.store.workspace(containing: pane)?.id else { return false }
             return windows.isIncognito(workspace: workspace)
         }
-        cache.browserProfile = { [weak self] key in
-            guard let self, let windows else { return nil }
-            return windows.browserProfile(forWorkspace: workspaceID(ofTab: key))
+        cache.browserProfile = { [weak self] key in self?.browserProfiles.engineProfile(forTab: key) }
+        cache.profileBadge = { [weak self] key in self?.browserProfiles.omnibarBadge(forTab: key) }
+        cache.profileBadgeMenu = { [weak self] key in
+            guard let self, let tab = cache.tabModel(key) else { return nil }
+            let target = ActionTargetRef(kind: .browserProfile, id: browserProfiles.profileID(ofTab: tab))
+            return self.registry.makeContextMenu(for: .browserProfile, target: target)
+        }
+        cache.browserTabs.resolveProfile = { [weak self] pane, explicit in
+            guard let self else { return explicit }
+            return browserProfiles.profileForNewTab(in: pane, on: daemon, explicit: explicit)
         }
         emptyWorkspaces = EmptyWorkspaceRepair(daemon: daemon)
         cache.sessionDelegate = terminalDelegate
@@ -120,7 +171,13 @@ final class AppServices {
         keyRouter.services = self
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
-        cache.onBrowserEntryCreated = { [registry] entry in PageInfoHandlers.installRouter(on: entry, registry: registry) }
+        cache.onBrowserEntryCreated = { [registry, unowned self] entry in
+            PageInfoHandlers.installRouter(on: entry, registry: registry)
+            bookmarks.attach(entry)
+        }
+        cache.extraSuggestionProviders = { [unowned self] profile in
+            [BookmarkSuggestionProvider(service: bookmarks, profile: bookmarks.profile(of: profile))]
+        }
         cache.makeExtensionMenuHandler = { [unowned self] key in ExtensionMenuRouter(services: self, tabKey: key) }
         cache.onDevToolsChange = { [weak self] key, state, focused in self?.devToolsDidChange(key, state: state, focused: focused) }
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
@@ -131,9 +188,15 @@ final class AppServices {
         cache.onPresentationChange = { [weak self] in self?.surfaceInvariant.noteChange() }
         resources = AppResourceSource(services: self)
         windows = WindowManager(services: self)
-        windows.incognitoHistoryReset = { [weak cache] in cache?.resetIncognitoHistory() }
+        windows.incognitoHistoryReset = { [weak cache, weak self] in
+            cache?.resetIncognitoHistory()
+            self?.locationTrail.forgetIncognito()
+        }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
+        remoteTerminals = RemoteTerminalService(services: self)
+        remoteTerminals.start()
+        WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         let registry = registry
         daemon.workTracker = { registry.track($0) }
         palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self))
@@ -142,7 +205,6 @@ final class AppServices {
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
         updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
-        BrowserLifecycleTrace.sink = { tab, event in InputJournal.shared.append(window: nil, .content(tab: tab, event: event)) }
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }
@@ -150,6 +212,7 @@ final class AppServices {
         }
         observePaletteForFocus()
         startInputVerification()
+        startNoActivateGuard()
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }

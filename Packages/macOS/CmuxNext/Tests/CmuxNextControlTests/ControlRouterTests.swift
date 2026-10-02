@@ -159,12 +159,12 @@ import Testing
     let home = URL(fileURLWithPath: "/Users/u")
 
     @Test func matchesTheOldConventions() {
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: "My Tag", isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug.ctl", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.debug", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.nightly", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app.rc.x1", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
-        #expect(ControlSocketPath.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug", tag: "My Tag", isDebugBuild: true, home: home) == "/tmp/cmux-debug-my-tag.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug.ctl", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug-ctl.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.debug", tag: nil, isDebugBuild: true, home: home) == "/tmp/cmux-debug.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.nightly", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-nightly.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app.rc.x1", tag: nil, isDebugBuild: false, home: home) == "/tmp/cmux-rc-x1.sock")
+        #expect(ControlSocketPath.shared.resolve(bundleID: "com.cmuxterm.app", tag: "ignored", isDebugBuild: false, home: home) == "/Users/u/.local/state/cmux/cmux.sock")
     }
 
     @Test func parsesAccessModesWithLegacyAliases() {

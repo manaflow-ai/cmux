@@ -25,6 +25,10 @@ enum MuxEventFilter {
     ConfigReload,
     /// Events that can change which terminals have zero placements.
     TerminalTopology,
+    /// Events that change the launch snapshot's layout or projections. Title
+    /// changes alone are left out: a busy terminal retitles itself many
+    /// times a second, and the live tree corrects a stale title at once.
+    LaunchSnapshot,
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -77,6 +81,10 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_terminal_topology(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::TerminalTopology)
+    }
+
+    pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::LaunchSnapshot)
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -151,6 +159,15 @@ impl MuxEventFilter {
                     | MuxEvent::SurfaceExited(_)
                     | MuxEvent::Empty
             ),
+            Self::LaunchSnapshot => matches!(
+                event,
+                MuxEvent::TreeChanged
+                    | MuxEvent::TreeSelectionChanged
+                    | MuxEvent::TreeDelta(_)
+                    | MuxEvent::LayoutChanged(_)
+                    | MuxEvent::FrontendProjectionChanged { .. }
+                    | MuxEvent::Empty
+            ),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -219,6 +236,7 @@ impl SurfaceSessionScope {
             | TreeDeltaKind::WorkspaceChanged
             | TreeDeltaKind::ScreenAdded
             | TreeDeltaKind::ScreenRenamed
+            | TreeDeltaKind::ScreenChanged
             | TreeDeltaKind::PaneAdded => false,
         };
         if delta.surface == Some(self.surface) && delta.kind == TreeDeltaKind::TabAdded {

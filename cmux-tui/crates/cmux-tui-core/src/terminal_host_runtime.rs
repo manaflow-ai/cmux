@@ -1598,6 +1598,15 @@ mod unix {
             self.protocol_version
         }
 
+        /// Ask the host to end without a receipt: a Terminate with request
+        /// id 0, which the host acts on and never acknowledges. The caller
+        /// waits for the durable exit receipt instead. A receipted Terminate
+        /// would block on its TerminateAck, which the surface's reader thread
+        /// delivers only after the terminal output queued ahead of it.
+        pub fn request_termination(&self) -> std::io::Result<()> {
+            self.send(MessageKind::Terminate, &[])
+        }
+
         pub fn terminate(&mut self) -> anyhow::Result<()> {
             if !self.record.supports_terminate_ack {
                 self.send(MessageKind::Terminate, &[])?;
@@ -2095,11 +2104,16 @@ mod unix {
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
-        let command = options
-            .command
-            .clone()
-            .filter(|command| !command.is_empty())
-            .unwrap_or_else(|| vec![crate::platform::default_shell()]);
+        let shell_launch = match options.command.clone().filter(|command| !command.is_empty()) {
+            Some(command) => {
+                crate::shell_integration::ShellLaunch { command, env: options.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![crate::platform::default_shell()],
+                options.extra_env.clone(),
+            ),
+        };
+        let command = shell_launch.command;
         let launch = HostLaunch {
             endpoint: endpoint.to_string_lossy().into_owned(),
             record_path: record_path.to_string_lossy().into_owned(),
@@ -2110,7 +2124,7 @@ mod unix {
             scrollback: options.scrollback,
             cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
-            extra_env: options.extra_env.clone(),
+            extra_env: shell_launch.env,
             default_colors,
             kitty_graphics_limits,
         };
@@ -6004,6 +6018,17 @@ mod unix {
                     MessageKind::Terminate => {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
                             break;
+                        }
+                        // Integration failure-injection seam: a host whose
+                        // termination receipt reaches the daemon late. Only a
+                        // receipted request waits; bounded so an accidental
+                        // setting cannot wedge a real host.
+                        if frame.request_id != 0
+                            && let Ok(delay) = std::env::var("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS")
+                            && let Ok(delay) = delay.parse::<u64>()
+                            && delay > 0
+                        {
+                            thread::sleep(Duration::from_millis(delay.min(5_000)));
                         }
                         if launch_owner_claimed {
                             command_host.mark_launch_owner_stream_ready();

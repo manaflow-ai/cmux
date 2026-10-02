@@ -59,6 +59,9 @@ extension DaemonEvent {
             case "frontend-projection-changed": return .frontendProjectionChanged(try d(ProjectionChange.self))
             case "terminal-registry-changed":
                 return .terminalRegistryChanged(revision: try d(EventPayload.TerminalRegistryChanged.self).terminalRevision)
+            case "bookmarks-changed":
+                let e = try d(EventPayload.BookmarksChanged.self)
+                return .bookmarksChanged(browserProfileID: e.browserProfileID, revision: e.revision ?? 0)
             case "client-attached", "client-changed", "client-detached", "client-list-invalidated":
                 return .client(name: name, payload: payload())
             case "overflow": return .overflow(try d(EventPayload.OverflowEvent.self).error ?? "overflow")
@@ -76,6 +79,15 @@ extension DaemonEvent {
 
 /// Minimal payload shapes for events whose fields map onto enum cases.
 private enum EventPayload {
+    struct BookmarksChanged: Decodable {
+        var browserProfileID: String
+        var revision: UInt64?
+        enum CodingKeys: String, CodingKey {
+            case browserProfileID = "browser_profile_id"
+            case revision = "bookmarks_revision"
+        }
+    }
+
     struct ScreenField: Decodable {
         var screen: ScreenID
         var clientTransactionID: ClientTransactionID?

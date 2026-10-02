@@ -9,8 +9,8 @@ import QuartzCore
 /// children's activity and unread total.
 final class GroupHeaderRowView: SidebarRowView {
     private let dot = CAShapeLayer()
-    private let name = SidebarRowView.label(font: SidebarStyle.headerFont, color: Palette.textSecondary)
-    private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont, color: Palette.textTertiary)
+    private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
+    private let count = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let chevron = NSImageView()
     private let activity = ActivityIndicatorView()
     private let badge = UnreadBadgeView()
@@ -25,8 +25,6 @@ final class GroupHeaderRowView: SidebarRowView {
         super.init(key: key)
         layer?.addSublayer(dot)
         count.alignment = .right
-        pin.contentTintColor = Palette.textTertiary
-        chevron.contentTintColor = Palette.textTertiary
         [name, pin, count, chevron, activity, badge].forEach(addSubview)
     }
 
@@ -82,21 +80,27 @@ final class GroupHeaderRowView: SidebarRowView {
 
     override func updateLayer() {
         guard let layer else { return }
-        let tint = SidebarStyle.color(color)
-        // Fills only: a drop onto the group tints the row in its color.
-        if isDropTarget {
-            layer.backgroundColor = resolvedCGColor(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
-        } else {
-            layer.backgroundColor = isHovered ? resolvedCGColor(Palette.hoverFill) : nil
+        performWithTheme {
+            name.textColor = Palette.textSecondary
+            count.textColor = Palette.textTertiary
+            pin.contentTintColor = Palette.textTertiary
+            chevron.contentTintColor = Palette.textTertiary
+            let tint = SidebarStyle.color(color)
+            // Fills only: a drop onto the group tints the row in its color.
+            if isDropTarget {
+                layer.backgroundColor = (color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16)).cgColor
+            } else {
+                layer.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+            }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            // A chosen color shows as a small dot: filled expanded, a ring collapsed.
+            dot.isHidden = color == .grey
+            dot.fillColor = collapsed ? nil : tint.cgColor
+            dot.strokeColor = tint.cgColor
+            dot.lineWidth = collapsed ? Metrics.dividerThickness * 1.5 : 0
+            CATransaction.commit()
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        // A chosen color shows as a small dot: filled expanded, a ring collapsed.
-        dot.isHidden = color == .grey
-        dot.fillColor = collapsed ? nil : resolvedCGColor(tint)
-        dot.strokeColor = resolvedCGColor(tint)
-        dot.lineWidth = collapsed ? Metrics.dividerThickness * 1.5 : 0
-        CATransaction.commit()
     }
 
     /// The disclosure chevron: a click here toggles immediately.

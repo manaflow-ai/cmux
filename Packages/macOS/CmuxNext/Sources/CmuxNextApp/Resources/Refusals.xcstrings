@@ -1311,137 +1311,6 @@
         }
       }
     },
-    "handlers.refusal.copyModeUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs a keyboard copy mode in the cmux-next terminal"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux-next のターミナルにキーボードのコピーモードが必要です"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب وضع نسخ بلوحة المفاتيح في طرفية cmux-next"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je način kopiranja tastaturom u cmux-next terminalu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver en tastaturkopiertilstand i cmux-next-terminalen"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert einen Tastatur-Kopiermodus im cmux-next-Terminal"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere un modo de copia por teclado en el terminal de cmux-next"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite un mode copie au clavier dans le terminal cmux-next"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede una modalità copia da tastiera nel terminale di cmux-next"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការរបៀបចម្លងតាមក្ដារចុចក្នុង Terminal cmux-next"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next 터미널에서 키보드 복사 모드가 필요함"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever en tastaturbasert kopimodus i cmux-next-terminalen"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga klawiaturowego trybu kopiowania w terminalu cmux-next"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer um modo de cópia por teclado no terminal do cmux-next"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужен режим копирования с клавиатуры в терминале cmux-next"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องมีโหมดคัดลอกด้วยแป้นพิมพ์ในเทอร์มินัล cmux-next"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cmux-next terminalinde klavyeyle kopyalama modu gerekiyor"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібен клавіатурний режим копіювання в терміналі cmux-next"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần chế độ sao chép bằng bàn phím trong terminal cmux-next"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 终端支持键盘复制模式"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要 cmux-next 終端機支援鍵盤拷貝模式"
-          }
-        }
-      }
-    },
     "handlers.refusal.couldNotOpen": {
       "extractionState": "manual",
       "localizations": {
@@ -2486,137 +2355,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "需要以窗格呈現「尋找」面板（cmux-next 尚未提供）"
-          }
-        }
-      }
-    },
-    "handlers.refusal.findPanelUnported": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "needs the Find panel (not in cmux-next yet)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Find パネルが必要です(cmux-next にはまだありません)"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يتطلب لوحة البحث (غير متوفرة في cmux-next بعد)"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "potreban je panel Pretraga (još nije u cmux-next)"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "kræver Søg-panelet (endnu ikke i cmux-next)"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "erfordert das Such-Panel (noch nicht in cmux-next)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requiere el panel Buscar (aún no está en cmux-next)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "nécessite le panneau Rechercher (pas encore dans cmux-next)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "richiede il pannello Trova (non ancora in cmux-next)"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ត្រូវការផ្ទាំងស្វែងរក (មិនទាន់មានក្នុង cmux-next)"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Find 패널이 필요함(cmux-next에는 아직 없음)"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "krever Finn-panelet (ikke i cmux-next ennå)"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "wymaga panelu Znajdź (jeszcze nie w cmux-next)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "requer o painel Busca (ainda não existe no cmux-next)"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "нужна панель «Поиск» (в cmux-next пока нет)"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ต้องใช้แผงค้นหา (ยังไม่มีใน cmux-next)"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bul paneli gerekiyor (cmux-next’te henüz yok)"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "потрібна панель Find (у cmux-next ще немає)"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "cần bảng Tìm kiếm (chưa có trong cmux-next)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要查找面板（cmux-next 尚不支持）"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "需要「尋找」面板（cmux-next 尚未提供）"
           }
         }
       }
@@ -13752,6 +13490,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有最近關閉的項目 %@"
+          }
+        }
+      }
+    },
+    "handlers.refusal.unknownTheme": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ghostty has no theme '%@' (use a theme name, an absolute path, or light:A,dark:B)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يحتوي Ghostty على السمة '%@' (استخدم اسم سمة أو مسارًا مطلقًا أو light:A,dark:B)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty nema temu '%@' (koristite naziv teme, apsolutnu putanju ili light:A,dark:B)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty har intet tema '%@' (brug et temanavn, en absolut sti eller light:A,dark:B)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty hat kein Design '%@' (einen Designnamen, einen absoluten Pfad oder light:A,dark:B verwenden)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty no tiene el tema '%@' (usa un nombre de tema, una ruta absoluta o light:A,dark:B)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty n’a pas de thème '%@' (utilisez un nom de thème, un chemin absolu ou light:A,dark:B)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty non ha il tema '%@' (usa un nome di tema, un percorso assoluto o light:A,dark:B)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty にテーマ '%@' はありません (テーマ名、絶対パス、または light:A,dark:B を使用)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty មិនមានរចនាប័ទ្ម '%@' ទេ (ប្រើឈ្មោះរចនាប័ទ្ម ផ្លូវពេញ ឬ light:A,dark:B)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty에 '%@' 테마가 없습니다 (테마 이름, 절대 경로 또는 light:A,dark:B 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty har ikke temaet '%@' (bruk et temanavn, en absolutt bane eller light:A,dark:B)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty nie ma motywu '%@' (użyj nazwy motywu, ścieżki bezwzględnej lub light:A,dark:B)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O Ghostty não tem o tema '%@' (use um nome de tema, um caminho absoluto ou light:A,dark:B)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В Ghostty нет темы '%@' (укажите имя темы, абсолютный путь или light:A,dark:B)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty ไม่มีธีม '%@' (ใช้ชื่อธีม พาธแบบเต็ม หรือ light:A,dark:B)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty'de '%@' teması yok (bir tema adı, mutlak yol veya light:A,dark:B kullanın)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У Ghostty немає теми '%@' (вкажіть назву теми, абсолютний шлях або light:A,dark:B)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty không có chủ đề '%@' (dùng tên chủ đề, đường dẫn tuyệt đối hoặc light:A,dark:B)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty 没有主题“%@”（请使用主题名称、绝对路径或 light:A,dark:B）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ghostty 沒有主題「%@」（請使用主題名稱、絕對路徑或 light:A,dark:B）"
           }
         }
       }

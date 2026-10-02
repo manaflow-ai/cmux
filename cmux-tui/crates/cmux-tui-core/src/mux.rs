@@ -9,6 +9,7 @@ mod presentation;
 mod public_projections;
 mod resource_content;
 mod resource_topology;
+mod screen_groups;
 mod state_commit;
 mod state_personal;
 mod state_screens;
@@ -35,6 +36,10 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
+pub(crate) use screen_groups::workspace_screen_groups;
+pub use screen_groups::{
+    ScreenDestination, ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, WorkspaceScreenGroup,
+};
 pub use tab_drag::{TabDragOutcome, TabDropEdge};
 pub(crate) use tab_groups::{PaneTabGroup, pane_tab_groups};
 pub use tab_groups::{TabGroupDestination, TabGroupOutcome};
@@ -1066,6 +1071,8 @@ pub enum TreeDeltaKind {
     ScreenAdded,
     ScreenClosed,
     ScreenRenamed,
+    /// Screen presentation (color, icon, pin, group) or position changed.
+    ScreenChanged,
     PaneAdded,
     PaneClosed,
     TabAdded,
@@ -1087,6 +1094,7 @@ impl TreeDeltaKind {
             Self::ScreenAdded => "screen-added",
             Self::ScreenClosed => "screen-closed",
             Self::ScreenRenamed => "screen-renamed",
+            Self::ScreenChanged => "screen-changed",
             Self::PaneAdded => "pane-added",
             Self::PaneClosed => "pane-closed",
             Self::TabAdded => "tab-added",
@@ -1143,6 +1151,55 @@ impl NotificationLevel {
     }
 }
 
+/// Who posted a notification (`notification-source-v1`). Frontends apply
+/// per-source preferences from it instead of guessing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum NotificationSource {
+    /// `cmux notify`, the `notify` verb without a source, or
+    /// `notification.create`.
+    Cli,
+    /// A program in the terminal: OSC 9, OSC 777 `notify` or kitty OSC 99,
+    /// parsed by the daemon from the terminal's output.
+    Terminal,
+    /// An agent hook (Claude Code, Codex, ...), daemon-side or reported by a
+    /// frontend.
+    Agent,
+    /// Any other daemon producer.
+    Daemon,
+}
+
+impl NotificationSource {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NotificationSource::Cli => "cli",
+            NotificationSource::Terminal => "terminal",
+            NotificationSource::Agent => "agent",
+            NotificationSource::Daemon => "daemon",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "cli" => Some(NotificationSource::Cli),
+            "terminal" => Some(NotificationSource::Terminal),
+            "agent" => Some(NotificationSource::Agent),
+            "daemon" => Some(NotificationSource::Daemon),
+            _ => None,
+        }
+    }
+
+    /// The source of a durable notification written before sources existed,
+    /// from its idempotency key: agent hooks mint `agent-hook-notification-*`;
+    /// every other producer then was `notify` or `notification.create`.
+    pub(crate) fn from_legacy_key(idempotency_key: &str) -> Self {
+        if idempotency_key.starts_with("agent-hook-notification-") {
+            NotificationSource::Agent
+        } else {
+            NotificationSource::Cli
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct NotificationEvent {
     pub notification: u64,
@@ -1150,6 +1207,7 @@ pub struct NotificationEvent {
     pub body: String,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
+    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1162,6 +1220,7 @@ pub struct ResourceNotification {
     pub level: NotificationLevel,
     pub terminal_id: Option<TerminalPublicId>,
     pub created_at_ms: u64,
+    pub source: NotificationSource,
     pub(crate) surface: Option<SurfaceId>,
 }
 
@@ -1528,6 +1587,7 @@ pub struct SurfaceNotification {
     pub notification: u64,
     pub level: NotificationLevel,
     pub unread: bool,
+    pub source: NotificationSource,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1666,11 +1726,14 @@ pub struct TerminalSpawnOptions {
     /// Caller-chosen terminal host id (32 lowercase hex, UUIDv4), so the
     /// caller can put it in `env` before the child starts.
     pub terminal_id: Option<String>,
+    /// The program and arguments to run instead of the bare default shell
+    /// (`terminal-shell-args-v1` resolves `shell_args` into it).
+    pub argv: Option<Vec<String>>,
 }
 
 impl TerminalSpawnOptions {
     pub fn new(cwd: Option<String>, env: Vec<(String, String)>) -> Self {
-        Self { cwd, env, terminal_id: None }
+        Self { cwd, env, terminal_id: None, argv: None }
     }
 }
 
@@ -1964,6 +2027,7 @@ pub(crate) struct ClientSizingIdentity {
     pub(crate) display_name: Option<String>,
     pub(crate) device_kind: TerminalDeviceKind,
     pub(crate) device_name: Option<String>,
+    pub(crate) device_id: Option<String>,
 }
 
 /// Where a size-state publication goes after the sizing lock is released.
@@ -1989,6 +2053,10 @@ struct ClientSizingState {
     workspace_size_policies: HashMap<WorkspaceId, TerminalSizingPolicy>,
     /// Runtimes whose published state changed since the last flush.
     pending_size_states: BTreeSet<SurfaceId>,
+    /// Own views (connection, placement) someone detached with a view
+    /// detach. The connection stays attached; its view is not a participant
+    /// until `reattach-view`.
+    detached_views: HashSet<(u64, SurfaceId)>,
 }
 
 /// Host participant id of one client's view of one terminal placement. The
@@ -2690,6 +2758,8 @@ pub struct Mux {
     /// The running reaper's event receiver, so keep and grace changes can
     /// wake it.
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
+    launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.
@@ -3114,6 +3184,7 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
+            launch_snapshot_path: Mutex::new(None),
             terminal_work: terminal_work::TerminalWorkPool::default(),
             #[cfg(unix)]
             prelaunched_terminals: Mutex::new(HashMap::new()),
@@ -4670,6 +4741,10 @@ impl Mux {
         Self::insert_optional_string(fields, "cwd", spawn.cwd);
         Self::insert_terminal_env(fields, spawn.env);
         Self::insert_optional_string(fields, RESERVED_TERMINAL_ID_FIELD, spawn.terminal_id);
+        if let Some(argv) = spawn.argv {
+            fields
+                .insert("argv".into(), Value::Array(argv.into_iter().map(Value::String).collect()));
+        }
     }
 
     fn insert_cell_size(fields: &mut Map<String, Value>, size: Option<(u16, u16)>) {
@@ -6562,6 +6637,7 @@ impl Mux {
                 body,
                 level,
                 Some(surface),
+                NotificationSource::Agent,
             )
             .with_context(|| format!("agent hook notification for sequence {sequence}"))?;
         }
@@ -9063,6 +9139,7 @@ impl Mux {
         attached_surfaces: impl IntoIterator<Item = SurfaceId>,
     ) {
         let mut sizing = self.client_sizing.lock().unwrap();
+        sizing.detached_views.retain(|(viewer, _)| *viewer != client);
         let attached_clients = self.control_clients.attached_client_ids_by_surface();
         // The registry snapshot no longer contains this client. Reconstruct
         // whether each old attachment suppressed excluded-report fallback so
@@ -9184,6 +9261,9 @@ impl Mux {
             return None;
         }
         Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            if sizing.detached_views.contains(&(client, surface)) {
+                return false;
+            }
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
             let id = view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
@@ -9284,6 +9364,7 @@ impl Mux {
                 participant.user_id = identity.user_id.clone();
                 participant.display_name = identity.display_name.clone();
                 participant.device_name = identity.device_name.clone();
+                participant.device_id = identity.device_id.clone();
                 changed |= entry.engine.update_identity(&participant);
             }
             sizing.note_size_state(runtime, changed);
@@ -9330,6 +9411,7 @@ impl Mux {
                 display_name: identity.display_name,
                 device_kind: identity.device_kind,
                 device_name: identity.device_name,
+                device_id: identity.device_id,
                 via: Some(via),
                 viewport: viewport.map(|(cols, rows)| TerminalGridSize::new(cols, rows)),
                 counts_override: None,
@@ -9403,6 +9485,75 @@ impl Mux {
                 .members
                 .get(participant)
                 .map(|member| (member.client, member.placement, member.view.clone()))
+        })
+    }
+
+    /// Resolve a host participant id on one terminal (participant ids are
+    /// per terminal, so the same `c<client>` can name views of several).
+    pub(crate) fn terminal_participant_member_on(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> Option<(u64, SurfaceId, Option<String>)> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let sizing = self.client_sizing.lock().unwrap();
+        sizing
+            .terminal_sizing
+            .get(&runtime)?
+            .members
+            .get(participant)
+            .map(|member| (member.client, member.placement, member.view.clone()))
+    }
+
+    /// Detach one connection's own view of a terminal placement, keeping the
+    /// connection, its stream and its relay sub-views. The view stays out of
+    /// the engine until [`Self::reattach_terminal_own_view`].
+    pub(crate) fn detach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+    ) -> Option<bool> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self.surface(placement)?.terminal_runtime_id()?;
+        Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            sizing.detached_views.insert((client, placement));
+            let before =
+                sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation);
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            before
+                != sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation)
+        }))
+    }
+
+    /// Restore a view detached by [`Self::detach_terminal_own_view`], with
+    /// its latest report. `counts` sets its counts override (a viewer
+    /// reattaches with `Some(false)`). Returns the view's participant id.
+    pub(crate) fn reattach_terminal_own_view(
+        &self,
+        placement: SurfaceId,
+        client: u64,
+        counts: Option<bool>,
+    ) -> anyhow::Result<String> {
+        let _lifecycle = self.lock_client_sizing_lifecycle();
+        let runtime = self
+            .surface(placement)
+            .and_then(|surface| surface.terminal_runtime_id())
+            .ok_or_else(|| anyhow::anyhow!("surface {placement} is not a terminal"))?;
+        let id = view_participant_id(runtime, placement, client);
+        self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            anyhow::ensure!(
+                sizing.detached_views.remove(&(client, placement)),
+                "view of surface {placement} is not detached"
+            );
+            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
+            if let Some(entry) = sizing.terminal_sizing.get_mut(&runtime)
+                && entry.engine.contains(&id)
+                && counts.is_some()
+            {
+                let changed = entry.engine.set_counts_override(&id, counts);
+                sizing.note_size_state(runtime, changed);
+            }
+            Ok(id.clone())
         })
     }
 
@@ -9550,6 +9701,7 @@ impl Mux {
             display_name: identity.display_name,
             device_kind: identity.device_kind,
             device_name: identity.device_name,
+            device_id: identity.device_id,
             via: None,
             viewport: sizing
                 .surfaces
@@ -9616,7 +9768,8 @@ impl Mux {
             sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
         let attached = client != 0
             && self.control_clients.attached_client_ids_for_surface(placement).contains(&client);
-        let present = attached || has_report;
+        let present =
+            (attached || has_report) && !sizing.detached_views.contains(&(client, placement));
         let known =
             sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
         if !present && !known {
@@ -10783,6 +10936,33 @@ impl Mux {
         }
     }
 
+    /// The launch snapshot file (`launch-snapshot-v1`) while its writer runs.
+    pub fn launch_snapshot_path(&self) -> Option<std::path::PathBuf> {
+        self.launch_snapshot_path.lock().unwrap().clone()
+    }
+
+    pub(crate) fn set_launch_snapshot_path(&self, path: Option<std::path::PathBuf>) {
+        *self.launch_snapshot_path.lock().unwrap() = path;
+    }
+
+    /// Events that can change the launch snapshot.
+    pub(crate) fn subscribe_launch_snapshot(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_launch_snapshot()
+    }
+
+    /// The directory of this session's durable registry, or none for an
+    /// in-memory session.
+    pub(crate) fn session_state_directory(&self) -> Option<std::path::PathBuf> {
+        let database = self.workspace_registry.lock().unwrap().session_journal_database_path()?;
+        database.parent().map(Path::to_path_buf)
+    }
+
+    pub(crate) fn launch_snapshot_frontend_projections(
+        &self,
+    ) -> anyhow::Result<Vec<FrontendProjection>> {
+        self.workspace_registry.lock().unwrap().native_frontend_projections()
+    }
+
     /// Post a notification from the legacy `notify` verb. This is the same
     /// durable path as `notification.create`, under a fresh key, so remote
     /// subscribers of the resource feed and a restarted daemon see it too.
@@ -10793,9 +10973,45 @@ impl Mux {
         level: NotificationLevel,
         surface: Option<SurfaceId>,
     ) -> anyhow::Result<u64> {
+        self.post_notification_from(title, body, level, surface, NotificationSource::Cli)
+    }
+
+    /// `post_notification` with an explicit source.
+    pub fn post_notification_from(
+        &self,
+        title: String,
+        body: String,
+        level: NotificationLevel,
+        surface: Option<SurfaceId>,
+        source: NotificationSource,
+    ) -> anyhow::Result<u64> {
         let key = format!("notify-{}", crate::workspace_registry::new_uuid_v4());
-        self.create_durable_notification(&key, title, None, body, level, surface)?
+        self.create_durable_notification(&key, title, None, body, level, surface, source)?
             .context("fresh notify key unexpectedly replayed")
+    }
+
+    /// Post what a program in `surface`'s terminal asked for with OSC 9,
+    /// OSC 777 or OSC 99. Called by the terminal's output reader after it
+    /// released the terminal lock; the reader already applied the rate limit.
+    pub(crate) fn post_terminal_notifications(
+        &self,
+        surface: SurfaceId,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        for notification in notifications {
+            if self
+                .post_notification_from(
+                    notification.title,
+                    notification.body,
+                    NotificationLevel::Info,
+                    Some(surface),
+                    NotificationSource::Terminal,
+                )
+                .is_err()
+            {
+                self.report_internal_diagnostic("terminal notification not posted");
+            }
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -10809,6 +11025,7 @@ impl Mux {
         surface: Option<SurfaceId>,
         terminal_id: Option<TerminalPublicId>,
         created_at_ms: u64,
+        source: NotificationSource,
     ) -> u64 {
         let id = self.next_notification_id();
         {
@@ -10822,6 +11039,7 @@ impl Mux {
                 level,
                 terminal_id: terminal_id.clone(),
                 created_at_ms,
+                source,
                 surface,
             });
             let mut evicted = Vec::new();
@@ -10847,16 +11065,16 @@ impl Mux {
             Some(terminal_id) => {
                 self.terminal_notifications.lock().unwrap().insert(
                     terminal_id,
-                    SurfaceNotification { notification: id, level, unread: true },
+                    SurfaceNotification { notification: id, level, unread: true, source },
                 );
                 unread_changed = true;
             }
             None if surface.is_some() => {
                 let surface = surface.expect("checked notification surface");
-                self.placement_notifications
-                    .lock()
-                    .unwrap()
-                    .insert(surface, SurfaceNotification { notification: id, level, unread: true });
+                self.placement_notifications.lock().unwrap().insert(
+                    surface,
+                    SurfaceNotification { notification: id, level, unread: true, source },
+                );
                 unread_changed = true;
             }
             None => {}
@@ -10867,6 +11085,7 @@ impl Mux {
             body,
             level,
             surface,
+            source,
         }));
         if unread_changed {
             self.emit(MuxEvent::TreeChanged);
@@ -10937,6 +11156,9 @@ impl Mux {
         if let Some(subtitle) = &notification.subtitle {
             value["subtitle"] = serde_json::json!(subtitle);
         }
+        // Stored under `extra`, which every registry schema already accepts,
+        // so a downgraded daemon still opens the receipt.
+        value["extra"] = serde_json::json!({"source": notification.source.as_str()});
         value
     }
 
@@ -10946,6 +11168,7 @@ impl Mux {
     /// (agent hooks) and the legacy `notify` verb share one durable ledger
     /// with the resource API and survive a daemon restart. A fresh post
     /// returns the session-local legacy notification id.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_durable_notification(
         &self,
         idempotency_key: &str,
@@ -10954,6 +11177,7 @@ impl Mux {
         body: String,
         level: NotificationLevel,
         surface: Option<SurfaceId>,
+        source: NotificationSource,
     ) -> anyhow::Result<Option<u64>> {
         const OPERATION: &str = "notification.create";
         let terminal_id = surface.and_then(|surface| {
@@ -10997,6 +11221,7 @@ impl Mux {
                     "level": level.as_str(),
                     "terminal_id": terminal_id,
                     "created_at_ms": now_ms(),
+                    "source": source.as_str(),
                 });
                 self.prepare_resource_effect(
                     idempotency_key,
@@ -11031,6 +11256,13 @@ impl Mux {
             .get("created_at_ms")
             .and_then(Value::as_u64)
             .context("stored notification intent has an invalid timestamp")?;
+        // An intent prepared by a daemon without sources has none; the
+        // producer retrying it now names it.
+        let source = intent
+            .get("source")
+            .and_then(Value::as_str)
+            .and_then(NotificationSource::parse)
+            .unwrap_or(source);
         let numeric_id = self.post_resource_notification(
             notification_id.clone(),
             title.clone(),
@@ -11040,6 +11272,7 @@ impl Mux {
             surface,
             terminal_id.clone(),
             created_at_ms,
+            source,
         );
         let session_id = self.workspace_registry.lock().unwrap().session_id().clone();
         let value = self.notification_snapshot_value(
@@ -11051,6 +11284,7 @@ impl Mux {
                 level,
                 terminal_id,
                 created_at_ms,
+                source,
                 surface,
             },
             &session_id,
@@ -14111,6 +14345,18 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<Arc<Surface>> {
+        self.new_screen_named(workspace, None, cwd, size)
+    }
+
+    /// New screen with a name (set in the creating commit) and a directory
+    /// for its first terminal.
+    pub(crate) fn new_screen_named(
+        self: &Arc<Self>,
+        workspace: Option<WorkspaceId>,
+        name: Option<String>,
+        cwd: Option<String>,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<Arc<Surface>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let selectors = match workspace {
             Some(workspace) => self
@@ -14126,6 +14372,7 @@ impl Mux {
             }
         };
         let mut fields = Map::new();
+        Self::insert_optional_string(&mut fields, "name", name);
         Self::insert_optional_string(&mut fields, "cwd", cwd);
         Self::insert_cell_size(&mut fields, size);
         let commit = self.commit_ordinary_topology_operation(
@@ -25791,6 +26038,105 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_notification_source_is_on_event_marker_and_snapshot_and_survives_restart() {
+        let root = std::env::temp_dir()
+            .join(format!("cmux-notification-source-{}", WorkspacePublicId::random().unwrap()));
+        let session = "notification-source";
+        let open = || {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            Mux::from_workspace_registry(
+                session.into(),
+                SurfaceOptions::default(),
+                registry,
+                ProviderWorkspaceState::default(),
+                true,
+            )
+            .unwrap()
+        };
+        let mux = open();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let surface_id = surface.id;
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let events = mux.subscribe();
+
+        mux.post_notification("plain".into(), "".into(), NotificationLevel::Info, Some(surface_id))
+            .unwrap();
+        mux.post_notification_from(
+            "osc".into(),
+            "body".into(),
+            NotificationLevel::Info,
+            Some(surface_id),
+            NotificationSource::Terminal,
+        )
+        .unwrap();
+        let sources = events
+            .try_iter()
+            .filter_map(|event| match event {
+                MuxEvent::Notification(note) => Some((note.title, note.source)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            sources,
+            vec![
+                ("plain".to_string(), NotificationSource::Cli),
+                ("osc".to_string(), NotificationSource::Terminal),
+            ]
+        );
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Terminal)
+        );
+        let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();
+        let sources = snapshot["notifications"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["extra"]["source"].clone())
+            .collect::<Vec<_>>();
+        assert!(sources.contains(&serde_json::json!("terminal")), "{sources:?}");
+        assert!(sources.contains(&serde_json::json!("cli")), "{sources:?}");
+        drop(events);
+        mux.shutdown();
+        drop(mux);
+
+        let mux = open();
+        let ledger = mux.resource_notifications(16);
+        assert_eq!(ledger[0].title, "osc");
+        assert_eq!(ledger[0].source, NotificationSource::Terminal);
+        assert_eq!(ledger[1].source, NotificationSource::Cli);
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Terminal)
+        );
+        mux.shutdown();
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn cmux_next_agent_hook_notifications_have_the_agent_source() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, None).unwrap();
+        let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        let ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            "PermissionRequest",
+            Some(&terminal_id.to_string()),
+            serde_json::json!({"tool_name":"Bash"}),
+        )
+        .unwrap();
+        mux.apply_agent_hook_record(&ingress, 1).unwrap();
+        let posted = mux.resource_notifications(16);
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].source, NotificationSource::Agent);
+        assert_eq!(
+            mux.terminal_notification(&terminal_id).map(|marker| marker.source),
+            Some(NotificationSource::Agent)
+        );
+    }
+
+    #[test]
     fn agent_hook_transitions_post_durable_notifications_once() {
         let mux = test_mux();
         let surface = mux.new_workspace(None, None).unwrap();
@@ -25964,6 +26310,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(first.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -25973,6 +26320,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(second.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         mux.create_durable_notification(
@@ -25982,6 +26330,7 @@ mod tests {
             "".into(),
             NotificationLevel::Info,
             Some(first.id),
+            NotificationSource::Cli,
         )
         .unwrap();
         let snapshot = crate::resource_api::public_session_snapshot(&mux).unwrap();

@@ -128,7 +128,7 @@ fn screen_extra(connection: &Connection, screen_id: &str) -> anyhow::Result<Map<
     let mut fields = Map::new();
     let state = connection
         .query_row(
-            "SELECT pinned, color, icon FROM screen_state WHERE screen_id = ?1",
+            "SELECT pinned, color, icon FROM screen_presentation WHERE screen_id = ?1",
             [screen_id],
             |row| {
                 Ok((

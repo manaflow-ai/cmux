@@ -43,6 +43,9 @@ public final class BrowserChromeView: NSView {
 
     let toolbar = NSView()
     private let separator = NSView()
+    /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
+    let accessoryBar = NSView()
+    var accessoryHeight: CGFloat = 0
     let backButton: ChromeIconButton
     let forwardButton: ChromeIconButton
     let reloadButton: ChromeIconButton
@@ -75,9 +78,9 @@ public final class BrowserChromeView: NSView {
     /// commit and cancel return focus to the page.
     public var onOmnibarEvent: ((OmnibarEvent) -> Void)?
 
-    /// A modified omnibar commit (Cmd-Enter, Cmd-click): the host opens `url`
-    /// in another tab or window. When nil, this tab loads it.
+    /// Modified commits (Cmd-Enter) open elsewhere, nil: here; `loadOverride` true: the host served it (`cmux://history`).
     public var onOpenURL: ((URL, OmnibarDisposition) -> Void)?
+    public var loadOverride: ((URL) -> Bool)?
 
     /// Where finished page loads are recorded (omnibar history suggestions).
     public var history: (any BrowserHistoryStore)?
@@ -100,10 +103,10 @@ public final class BrowserChromeView: NSView {
         reloadButton = ChromeIconButton(symbol: "arrow.clockwise", label: Strings.reload, action: nil, target: nil, toolbar: true)
         super.init(frame: .zero)
         wantsLayer = true
-        backButton.setAccessibilityIdentifier(Identifier.back)
-        forwardButton.setAccessibilityIdentifier(Identifier.forward)
-        reloadButton.setAccessibilityIdentifier(Identifier.reload)
-        addressBar.setAccessibilityIdentifier(Identifier.omnibar)
+        backButton.setAccessibilityIdentifier(BrowserChromeView.backIdentifier)
+        forwardButton.setAccessibilityIdentifier(BrowserChromeView.forwardIdentifier)
+        reloadButton.setAccessibilityIdentifier(BrowserChromeView.reloadIdentifier)
+        addressBar.setAccessibilityIdentifier(BrowserChromeView.omnibarIdentifier)
         buildLayout()
         wireActions()
         attach(tab, replacing: nil)
@@ -166,7 +169,7 @@ public final class BrowserChromeView: NSView {
     // MARK: Layout
 
     private func buildLayout() {
-        for view in [toolbar, separator, contentContainer, progressLine, findBar, promptBar] as [NSView] {
+        for view in [toolbar, separator, accessoryBar, contentContainer, progressLine, findBar, promptBar] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
         toolbar.wantsLayer = true
@@ -192,6 +195,7 @@ public final class BrowserChromeView: NSView {
         addSubview(contentContainer)
         addSubview(toolbar)
         addSubview(separator)
+        installAccessoryBar(below: separator)
         addSubview(progressLine)
         pageStatus.install(in: self, over: contentContainer) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -237,7 +241,7 @@ public final class BrowserChromeView: NSView {
             progressLine.trailingAnchor.constraint(equalTo: trailingAnchor),
             density.bind(progressLine.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.progressThickness },
 
-            contentContainer.topAnchor.constraint(equalTo: separator.bottomAnchor),
+            contentContainer.topAnchor.constraint(equalTo: accessoryBar.bottomAnchor),
             contentContainer.leadingAnchor.constraint(equalTo: leadingAnchor),
             contentContainer.trailingAnchor.constraint(equalTo: trailingAnchor),
             contentContainer.bottomAnchor.constraint(equalTo: bottomAnchor),
@@ -364,6 +368,8 @@ public final class BrowserChromeView: NSView {
         isToolbarHidden = hidden
         let height = hidden ? 0 : Self.toolbarHeight
         if !hidden { toolbar.isHidden = false; separator.isHidden = false }
+        accessoryBar.isHidden = hidden
+        applyAccessoryHeight()
         Motion.animateTimed(hidden ? .disappear : .appear, {
             self.toolbarHeight.animator().constant = height
             self.layoutSubtreeIfNeeded()
@@ -375,22 +381,13 @@ public final class BrowserChromeView: NSView {
         })
     }
 
-    private var containsFirstResponder: Bool {
-        guard let responder = window?.firstResponder else { return false }
-        if let view = responder as? NSView { return view.isDescendant(of: self) }
-        if let editor = responder as? NSText, let delegate = editor.delegate as? NSView {
-            return delegate.isDescendant(of: self)
-        }
-        return false
-    }
-
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()
     }
 
     private func updateColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.contentBackground.cgColor
             toolbar.layer?.backgroundColor = OmnibarStyle.toolbarBackground.cgColor
             separator.layer?.backgroundColor = Palette.separator.cgColor

@@ -90,6 +90,9 @@ pub(crate) struct OwnerSpec {
     /// owner has no terminal of its own, so the client passes these values
     /// through the private startup contract before it creates a PTY.
     pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
+    /// `--terminal-reap-grace-seconds` for the owner. Reaping is opt-in, so
+    /// `None` starts an owner that never reaps unplaced terminals.
+    pub terminal_reap_grace: Option<Duration>,
 }
 
 /// A validated, client-ready owner.
@@ -453,6 +456,9 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
     }
+    if let Some(grace) = spec.terminal_reap_grace {
+        command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
+    }
     if let Some(colors) = spec.initial_host_colors {
         if let Some(foreground) = colors.fg {
             command
@@ -592,6 +598,7 @@ mod tests {
                 state: None,
                 term: None,
                 initial_host_colors: None,
+                terminal_reap_grace: None,
             }
         }
 

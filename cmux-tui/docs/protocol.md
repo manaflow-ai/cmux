@@ -110,6 +110,18 @@ custom `title` on every workspace. `set-workspace-metadata` treats an absent
 field as unchanged and `null` as clear, commits one workspace-registry
 revision, and emits `workspace-changed` with the full workspace entity.
 
+`workspace-pin-v1` adds `pinned` to every workspace and to
+`set-workspace-metadata`. An absent `pinned` is unchanged; `true` or `false`
+sets it. The daemon keeps the workspace order; frontends list pinned
+workspaces in a Pinned section at the top of the sidebar.
+
+`notification-mark-unread-v1` adds `marked_unread` to every workspace and to
+`set-workspace-metadata`, with the same absent-or-boolean rule. It is a manual
+mark (Mark Workspace as Unread), separate from notification markers and
+`unread_count`. The daemon keeps it until a frontend clears it, which the Mac
+app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
+as Read or Clear Notifications; focusing or opening the workspace keeps it.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
@@ -266,8 +278,9 @@ that long. The idle clock restarts at every attach and when the owner restarts,
 so a restart can delay a close but never make it early.
 
 When `identify` advertises `terminal-reap-v1`, the owner also ends a terminal
-that has had no tab placement for the reap grace period (default 30 seconds,
-set with `--terminal-reap-grace-seconds`) and emits `terminal-reaped`. Mark a
+that has had no tab placement for the reap grace period and emits
+`terminal-reaped`, but only when the owner was started with
+`--terminal-reap-grace-seconds` (reaping is opt-in). Mark a
 terminal that must outlive its tabs with
 `{"cmd":"set-terminal-keep","terminal_id":"term_...","keep":true}` or pass
 `"keep":true` to `new-tab`, `split`, or `create-terminal`. A close commits and

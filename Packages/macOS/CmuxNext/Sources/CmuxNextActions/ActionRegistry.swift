@@ -39,6 +39,12 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
+    /// User chords (`["ctrl+b", "c"]` in cmux.json); an action with one has
+    /// no single-key shortcut.
+    public internal(set) var chordOverrides: [ActionID: ShortcutChord] = [:] {
+        didSet { shortcutIndex = nil }
+    }
+
     /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
     /// `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
@@ -55,6 +61,19 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
+    /// with the hovered value (action, argument name, value, target), and
+    /// with a nil value when the menu closes. The App previews themes here.
+    @ObservationIgnored public var choicePreview: (@MainActor (ActionID, String, String?, ActionTargetRef?) -> Void)?
+    /// Every known value of a suggested argument (`ActionSuggestions.source`),
+    /// supplied by the App.
+    @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// Whether free text is a valid value of a suggested argument (a theme
+    /// Ghostty accepts); nil accepts any non-empty text.
+    @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?
+    /// The current value of a choices submenu's argument for a target, shown
+    /// with a checkmark.
+    @ObservationIgnored public var choiceState: (@MainActor (ActionID, ActionTargetRef?) -> String?)?
 
     /// Old IDs folded into canonical IDs on register and lookup.
     @ObservationIgnored public private(set) var aliases: [ActionID: ActionID] = [:]
@@ -78,7 +97,6 @@ public final class ActionRegistry {
     @ObservationIgnored public internal(set) var isReportingRefusal = false
     @ObservationIgnored var reportedRefusal: String?
     @ObservationIgnored var capturedWork: [ActionWork]?
-
     @ObservationIgnored private var indexByID: [ActionID: Int] = [:]
     @ObservationIgnored var descriptorIndexByID: [ActionID: Int] = [:]
     @ObservationIgnored var shortcutIndex: ShortcutIndex?
@@ -270,8 +288,8 @@ public final class ActionRegistry {
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
-        let missing = descriptor(for: id)?.arguments.contains {
-            $0.isRequired && invocation.arguments[$0.name] == nil
+        let missing = descriptor(for: id).map { descriptor in
+            descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
         } ?? false
         if missing, let argumentCollector {
             // A menu item or shortcut for an argument-taking action: let the
@@ -345,7 +363,7 @@ public final class ActionRegistry {
         return perform(resolved.id)
     }
 
-    private func bestCandidate(_ ids: [ActionID]) -> ActionID? {
+    func bestCandidate(_ ids: [ActionID]) -> ActionID? {
         var best: (id: ActionID, specificity: Int)?
         for id in ids where canPerform(id) {
             let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0
@@ -357,6 +375,18 @@ public final class ActionRegistry {
     }
 
     @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
+    /// Delegates of open choices submenus, released with their menu.
+    @ObservationIgnored let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    /// A target of an argument's kind supplies that argument when the
+    /// action does not act on that kind itself: right-clicking a browser
+    /// profile and choosing New Tab with Browser Profile… uses that profile,
+    /// while Merge Workspace into… (which acts on a workspace) still asks
+    /// for the other workspace.
+    static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {
+        guard case .target(let kind) = argument.kind, let target = invocation.target else { return false }
+        return target.kind == kind && !descriptor.targets.contains(kind)
+    }
 
     static func synthesizedDescriptor(for action: Action) -> ActionDescriptor {
         ActionDescriptor(

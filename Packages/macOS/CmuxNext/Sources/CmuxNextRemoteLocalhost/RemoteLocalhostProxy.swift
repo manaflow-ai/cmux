@@ -70,8 +70,17 @@ public final class RemoteLocalhostProxy: Sendable {
     /// Open connections, capped so a flood cannot exhaust descriptors.
     static let maxConnections = 256
 
-    public init(secret: String = ProxyCredential.randomToken(bytes: 32)) {
+    /// The endpoint a direct destination connects to. Tests map a name to
+    /// this Mac's loopback to stand in for DNS rebinding.
+    let directHost: @Sendable (String) -> NWEndpoint.Host
+
+    public convenience init(secret: String = ProxyCredential.randomToken(bytes: 32)) {
+        self.init(secret: secret, directHost: { NWEndpoint.Host($0) })
+    }
+
+    init(secret: String = ProxyCredential.randomToken(bytes: 32), directHost: @escaping @Sendable (String) -> NWEndpoint.Host) {
         self.secret = secret
+        self.directHost = directHost
     }
 
     /// The listening port once `start` returned.

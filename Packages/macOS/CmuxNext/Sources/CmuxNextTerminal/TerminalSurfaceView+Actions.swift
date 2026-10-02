@@ -25,8 +25,6 @@ extension TerminalSurfaceView {
             } else {
                 NSSound.beep()
             }
-        case .desktopNotification(let title, let body):
-            session.delegate?.terminalSession(session, didPostNotification: title, body: body)
         case .openURL(let text):
             guard let url = Self.url(from: text) else { return false }
             if let delegate = session.delegate {
@@ -61,6 +59,8 @@ extension TerminalSurfaceView {
             model.backgroundOverride = NSColor(srgbRed: CGFloat(red) / 255, green: CGFloat(green) / 255, blue: CGFloat(blue) / 255, alpha: 1)
         case .scrollbar(let scrollbar):
             model.scrollbar = scrollbar
+            // Output or a mouse scroll moved the viewport under the cursor box.
+            syncCopyModeCursor()
         case .startSearch(let needle):
             model.search = TerminalSearchState(needle: needle, total: nil, selected: nil)
         case .endSearch:

@@ -18,6 +18,7 @@ public final class NewTabRequest implements WireValue {
     private final Field<Boolean> keep;
     private final Field<UInt64> pane;
     private final Field<Integer> rows;
+    private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
 
     private NewTabRequest(Builder builder) {
@@ -27,6 +28,7 @@ public final class NewTabRequest implements WireValue {
         this.keep = builder.keep;
         this.pane = builder.pane;
         this.rows = builder.rows;
+        this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
     }
 
@@ -38,6 +40,7 @@ public final class NewTabRequest implements WireValue {
     public Field<Boolean> keep() { return keep; }
     public Field<UInt64> pane() { return pane; }
     public Field<Integer> rows() { return rows; }
+    public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
 
     public static NewTabRequest fromWire(Object value) {
@@ -67,6 +70,10 @@ public final class NewTabRequest implements WireValue {
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "NewTabRequest.rows"));
         }
+        Object rawShellArgs = Wire.optional(object, "shell_args");
+        if (!Wire.isMissing(rawShellArgs)) {
+            builder.shellArgs(rawShellArgs == null ? null : Wire.array(rawShellArgs, "NewTabRequest.shell_args", item -> Wire.string(item, "NewTabRequest.shell_args item")));
+        }
         Object rawTerminalId = Wire.optional(object, "terminal_id");
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewTabRequest.terminal_id"));
@@ -83,6 +90,7 @@ public final class NewTabRequest implements WireValue {
         Wire.put(object, "keep", keep);
         Wire.put(object, "pane", pane);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
         return Collections.unmodifiableMap(object);
     }
@@ -90,11 +98,11 @@ public final class NewTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewTabRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(terminalId, that.terminalId);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, rows, terminalId); }
+    public int hashCode() { return Objects.hash(cols, cwd, env, keep, pane, rows, shellArgs, terminalId); }
 
     @Override
     public String toString() { return "NewTabRequest" + toWire(); }
@@ -106,6 +114,7 @@ public final class NewTabRequest implements WireValue {
         private Field<Boolean> keep = Field.omitted();
         private Field<UInt64> pane = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
 
         public Builder cols(Integer value) {
@@ -130,6 +139,10 @@ public final class NewTabRequest implements WireValue {
         }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder shellArgs(List<String> value) {
+            this.shellArgs = Field.ofNullable(value);
             return this;
         }
         public Builder terminalId(String value) {

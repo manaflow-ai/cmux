@@ -82,8 +82,11 @@ extension PaneController {
                 if v2 { return try await c.updateTabGroup(id, color: color.rawValue) }
                 _ = try await c.updateTabGroup(group, color: .set(color.rawValue), transaction: t)
             }
-        case .newTab:
-            newTerminalTab()
+        case .newTab(let id):
+            let groupTabs = stripModel.orderedTabs.filter { $0.groupID == id }.map(\.id.rawValue)
+            StripNewTab.requestInGroup(selected: stripModel.selectedID?.rawValue, groupTabs: groupTabs, pane: paneKey) {
+                _ = services.registry.perform($0, invocation: $1)
+            }
         case .ungroup:
             groupCommand("ungroup-tab-group") { c, t in
                 if v2 { return try await c.ungroupTabGroup(id) }
@@ -108,7 +111,7 @@ extension PaneController {
     /// After a drag moved `tab` into this pane: joins `group` (or leaves its
     /// group when nil) if membership differs. Needs tab-groups-v1.
     func syncGroupMembership(of tab: TabModel, to group: String?) {
-        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.tabGroups) else { return }
+        guard tab.tabGroup?.rawValue != group, daemon.supports(DaemonCapabilities.shared.tabGroups) else { return }
         let surface = tab.surface, resource = usesStateGroups ? tab.resourceID : nil
         if let group {
             let id = CmuxNextDaemon.TabGroupID(rawValue: group)

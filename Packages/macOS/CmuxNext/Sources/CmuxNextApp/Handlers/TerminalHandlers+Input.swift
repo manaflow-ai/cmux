@@ -11,6 +11,8 @@ extension TerminalHandlers {
         registry.bind("find", invoke: { invocation in
             guard let (pane, content) = ctx.visibleContent(invocation) else { return }
             switch content {
+            case .agent:
+                return ctx.refuse(RefusalStrings.notATerminal)
             case .browser:
                 guard let window = ctx.services.windowController(showing: pane) else { return }
                 window.focus.send(.focusPane(pane.paneKey, source: .intent))
@@ -20,6 +22,8 @@ extension TerminalHandlers {
                 guard let window = pane.view.window ?? ctx.refuse(RefusalStrings.noWindowForFind) else { return }
                 let initial = entry.session.model.search?.needle ?? selection(of: entry) ?? ""
                 findPrompt(initial: initial, in: window) { entry.session.surfaceView.search($0) }
+            case .placeholder:
+                return
             }
         })
         registry.bind("findNext", invoke: { navigate($0, forward: true, ctx) })
@@ -55,12 +59,16 @@ extension TerminalHandlers {
     private static func navigate(_ invocation: ActionInvocation, forward: Bool, _ ctx: AppActionContext) {
         guard let (_, content) = ctx.visibleContent(invocation) else { return }
         switch content {
+        case .agent:
+            return ctx.refuse(RefusalStrings.notATerminal)
         case .browser(let entry):
             entry.chrome.perform(forward ? .findNext : .findPrevious)
         case .terminal(let entry):
             let view = entry.session.surfaceView
             guard entry.session.model.search != nil else { return ctx.refuse(RefusalStrings.noActiveFind) }
             if forward { view.searchNext() } else { view.searchPrevious() }
+        case .placeholder:
+            return
         }
     }
 
@@ -83,7 +91,7 @@ extension TerminalHandlers {
         })
     }
 
-    private static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
+    static func send(_ text: String, paste: Bool, _ invocation: ActionInvocation, _ ctx: AppActionContext) {
         guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
         guard tab.kind == .pty else { return ctx.refuse(RefusalStrings.notATerminal) }
         let surface = tab.surface
@@ -108,7 +116,7 @@ extension TerminalHandlers {
         (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
     }
 
-    private static func shellQuoted(_ path: String) -> String {
+    static func shellQuoted(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 

@@ -59,9 +59,9 @@ import Testing
         #expect(mirror.terminalProgress[ResourceID(rawValue: Self.terminal)] == TerminalProgressReport(state: .normal, value: 40))
     }
 
-    @Test func aSnapshotWithoutStateMeansTheDaemonPredatesIt() {
+    @Test func aSnapshotWithoutStateIsNotAStateItem() {
         let old = Self.item(#"{"kind":"snapshot","cursor":{"generation":"g","revision":"1"},"snapshot":{"workspaces":[],"screens":[],"tabs":[],"terminals":[],"cursor":{"generation":"g","revision":"1"}}}"#)
-        #expect(event(old) == .sessionState(.unsupported))
+        #expect(SessionStreamItem.decode(Data(old.utf8)) == nil)
         let end = #"{"protocol":"cmux.protocol/2","type":"stream_end","stream_id":"stream_1","reason":"gap"}"#
         #expect(event(end) == .sessionState(.ended(reason: "gap")))
     }
@@ -69,10 +69,10 @@ import Testing
     @Test func storeLaysTheStateOverItsRecords() throws {
         let store = try loadedStore()
         #expect(!store.servesStateResources)
-        #expect(!store.supports(DaemonCapabilities.screenGroups))
-        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: event(Self.snapshot))])
+        // The daemon's `identify` says it serves the state resources.
+        store.noteHandshake(DaemonCompatibilityTests.identity([DaemonCapabilities.shared.stateResources]))
         #expect(store.servesStateResources)
-        #expect(store.supports(DaemonCapabilities.screenGroups))
+        store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: event(Self.snapshot))])
         let workspace = try #require(store.workspaces.first { $0.resourceID?.rawValue == Self.workspace })
         #expect(workspace.ephemeral)
         #expect(workspace.status?.line == "Building")

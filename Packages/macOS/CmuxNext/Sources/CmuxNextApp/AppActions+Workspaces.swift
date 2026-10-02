@@ -11,7 +11,7 @@ extension AppActions {
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: services.activeDaemon)
+            let terminals = WorkspaceClose.closing(workspace, on: services.activeDaemon)
             services.activeDaemon.send("close-workspace") { connection in
                 try await WorkspaceClose.close(key, terminals: terminals, on: connection)
             }
@@ -49,9 +49,16 @@ extension AppActions {
         // window when none is open (a workspace never lives in no window).
         let hasOpenWindow = !windows.registry.value.openWindows.isEmpty
         let target: String? = show || !hasOpenWindow ? windows.targetWindow(preferring: windows.active?.state.id) : nil
+        // `machine` (App machine id; the CLI's `--session`): born on that
+        // session's daemon (plans/cmux-next/data-model.md 1.3).
+        let daemon = (invocation["machine"]?.targetValue?.id ?? invocation["machine"]?.stringValue).flatMap(services.machines.daemon(machine:))
+        if invocation["machine"] != nil, daemon?.connection == nil {
+            services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
+            return
+        }
         services.registry.track(Task {
             do {
-                _ = try await windows.createWorkspace(spawn, into: target)
+                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")

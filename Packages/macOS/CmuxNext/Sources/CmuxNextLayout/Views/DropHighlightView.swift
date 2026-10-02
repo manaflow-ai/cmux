@@ -1,28 +1,30 @@
 import AppKit
 import CmuxNextDesign
 
-/// Glass highlight showing where a dragged tab will land.
+/// Highlight showing where a dragged tab will land: real Liquid Glass on
+/// macOS 26 and later, a tinted blur before it, an opaque Ghostty-derived
+/// fill with Reduce Transparency (`OverlayMaterial`, `OverlaySurfaceView`).
+/// Same shape, corner radius and spring on every path; Reduce Motion snaps
+/// (the layout passes `animated: false`).
 final class DropHighlightView: NSView {
-    private let glass: NSGlassEffectView
+    let surface: OverlaySurfaceView
     private let label = NSTextField(labelWithString: "")
     private var frameSpring = AnimatedFrame(.zero, alpha: 0)
     private(set) var isShowing = false
 
-    override init(frame frameRect: NSRect) {
-        let content = NSView()
-        glass = Glass.makePanel(content: content, style: .clear, cornerRadius: Metrics.panelCornerRadius)
-        super.init(frame: frameRect)
+    /// `material` pins one material (tests); nil follows this Mac.
+    init(material: OverlayMaterial? = nil) {
+        surface = OverlaySurfaceView(material: material)
+        let content = surface.contentView
+        super.init(frame: .zero)
         label.font = Typography.bodyEmphasized
-        label.textColor = Palette.textPrimary
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(label)
-        addSubview(glass)
+        surface.frame = bounds
+        surface.autoresizingMask = [.width, .height]
+        addSubview(surface)
         NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
             label.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             label.centerYAnchor.constraint(equalTo: content.centerYAnchor),
             label.leadingAnchor.constraint(greaterThanOrEqualTo: content.leadingAnchor, constant: Metrics.space3),
@@ -39,12 +41,29 @@ final class DropHighlightView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            label.textColor = Palette.textPrimary
+        }
+        surface.applyTheme()
+    }
+
     /// Moves the highlight to `rect` (superview coordinates). Returns true if
     /// an animation frame is needed. Design tokens are re-read on every call
     /// so a density change applies to the next drag without a rebuild.
     func show(_ rect: CGRect, text: String, inset: CGFloat, cornerRadius: CGFloat, animated: Bool) -> Bool {
         let rect = rect.insetBy(dx: inset, dy: inset)
-        glass.cornerRadius = cornerRadius
+        surface.cornerRadius = cornerRadius
         label.font = Typography.bodyEmphasized
         label.stringValue = text
         label.isHidden = text.isEmpty || rect.width < 90

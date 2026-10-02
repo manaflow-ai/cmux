@@ -21,6 +21,7 @@ nonisolated extension ActionCatalog {
         "workspace.duplicateTerminalsOnly", "workspace.setIcon", "workspace.clearIcon", "workspace.moveToBottom",
         "workspace.moveToNewGroup", "workspace.closeOthersInGroup", "workspace.sortByName", "workspace.sortByLastUsed",
         "workspace.sortByDirectory", "workspace.mergeInto", "workspace.moveToRoom", "workspace.duplicateToRoom",
+        "workspace.setTheme", "workspace.clearTheme",
         // Workspace groups
         "newWorkspaceGroup", "moveWorkspaceToGroup", "removeWorkspaceFromGroup", "workspaceGroup.setColor",
         "workspaceGroup.collapse", "workspaceGroup.expand", "workspaceGroup.moveUp", "workspaceGroup.moveDown",
@@ -30,7 +31,7 @@ nonisolated extension ActionCatalog {
         "workspaceGroup.moveToRoom",
         // Rooms
         "room.new", "room.newWindow", "room.newWorkspace", "room.rename", "room.setColor", "room.clearColor", "room.setIcon",
-        "room.clearIcon", "room.delete", "room.move", "room.switch",
+        "room.clearIcon", "room.delete", "room.move", "room.switch", "room.setTheme", "room.clearTheme",
         // Screens
         "screen.new", "screen.newWith", "screen.duplicate", "screen.close", "screen.closeOthers",
         // Panes
@@ -41,6 +42,7 @@ nonisolated extension ActionCatalog {
         "moveSurfaceToPreviousPane", "moveSurfaceToNextPane", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight",
         "moveSurfaceToPaneUp", "moveSurfaceToPaneDown", "palette.moveTabToNewWorkspace", "palette.toggleTabPin",
         "palette.toggleTabUnread", "duplicateTab", "reloadTab", "reopenClosedBrowserPanel", "hibernateTab", "wakeTab",
+        "newTab.sameKind",
         // Tab groups
         "tabGroup.create", "tabGroup.addTab", "tabGroup.removeTab", "tabGroup.rename", "tabGroup.setColor",
         "tabGroup.collapse", "tabGroup.expand", "tabGroup.ungroup", "tabGroup.close", "tabGroup.moveToNewSplit",
@@ -48,10 +50,22 @@ nonisolated extension ActionCatalog {
         "tabGroup.newTab", "tabGroup.save", "tabGroup.unsave", "tabGroup.deleteSaved", "tabGroup.reopenSaved",
         // Browser
         "browserBack", "browserForward", "browserReload", "browserHardReload", "splitBrowserRight", "splitBrowserDown",
-        "browserScreenshotPage", "palette.browserClearHistory", "browserNewProfile", "browserRenameProfile",
+        "browserScreenshotPage", "palette.browserClearHistory",
         "browser.pageInfo.deleteSiteData", "browser.pageInfo.setPermission",
+        // Browser profiles
+        "browserProfile.new", "browserProfile.rename", "browserProfile.setColor", "browserProfile.clearColor",
+        "browserProfile.setIcon", "browserProfile.clearIcon", "browserProfile.delete", "browserProfile.newTab",
+        "browserProfile.newWindow", "browserProfile.newWorkspace", "browserProfile.openLink",
+        "browserProfile.setWorkspaceDefault", "browserProfile.clearWorkspaceDefault", "browserProfile.setRoomDefault",
+        "browserProfile.clearRoomDefault", "browserProfile.moveTab", "browserProfile.duplicateTab",
+        // Bookmarks
+        "bookmark.add", "bookmark.newFolder", "bookmark.open", "bookmark.openInNewTab", "bookmark.openAll",
+        "bookmark.edit", "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.export",
+        // History
+        "history.reopen", "history.clear", "history.resumeAgentSession",
         // Terminals
-        "terminal.keep", "resetTerminal", "reconnectPane", "resumeCommandSet", "resumeCommandClear",
+        "terminal.keep", "resetTerminal", "reconnectPane", "resumeCommandSet", "resumeCommandClear", "terminal.setTheme",
+        "terminal.clearTheme",
         // Notifications
         "markAllNotificationsRead", "clearAllNotifications", "notifications.toggleWorkspaceMute",
         // Agents
@@ -61,7 +75,8 @@ nonisolated extension ActionCatalog {
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot", "palette.cloud.restore",
         "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports", "palette.cloud.handoff",
         "cloudNewTerminal", "cloudRenameMachine", "cloudKillMachine", "cloudResizeMachine", "cloudDiagnostics",
-        "palette.auth.signIn", "palette.auth.signOut", "remote.connect", "remote.newWorkspace", "remote.reconnect",
+        "palette.auth.signIn", "palette.auth.signOut", "accounts.connect", "accounts.remove", "accounts.refresh",
+        "accounts.reauthenticate", "remote.connect", "remote.newWorkspace", "remote.openTerminalHere", "remote.reconnect",
         "remote.disconnect", "remote.install", "remote.forget",
         // Settings that make sense headless
         "reloadConfiguration", "palette.toggleSetting", "palette.shortcutKeymap", "palette.installCLI", "palette.uninstallCLI",

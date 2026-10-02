@@ -5,11 +5,12 @@ import Foundation
 
 /// Maps the daemon store's sidebar flattening into sidebar rows: one machine
 /// section for the local daemon, loose workspaces first, then groups.
-public enum SidebarMapping {
+public struct SidebarMapping {
+    public static let shared = Self()
     /// A row's live second line is the status hooks and the CLI reported
     /// to the workspace's daemon (`WorkspaceModel.status`); the cwd stays
     /// passive detail (tooltip, accessibility).
-    public static func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
+    public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 showsUnread: Bool = true) -> [SidebarRowSection] {
         var nodes: [SidebarNode] = []
@@ -31,7 +32,7 @@ public enum SidebarMapping {
     }
 
     /// `showsUnread: false` hides the unread badge (`notifications.attention.showOnSidebar`).
-    public static func row(_ workspace: WorkspaceModel, machine: MachineID, showsUnread: Bool = true) -> SidebarWorkspace {
+    public func row(_ workspace: WorkspaceModel, machine: MachineID, showsUnread: Bool = true) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         return SidebarWorkspace(
@@ -41,7 +42,7 @@ public enum SidebarMapping {
             subtitle: subtitle(tabs),
             status: workspace.status?.line,
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map { WorkspaceIcon.symbol($0) },
-            unread: unread > 0 ? .count(unread) : .none,
+            unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: activity(tabs),
             progress: progress(workspace, tabs: tabs)
         )
@@ -49,10 +50,10 @@ public enum SidebarMapping {
 
     /// The workspace's reported progress, else the first terminal progress
     /// the daemon parsed for one of its tabs (mounted or not).
-    static func progress(_ workspace: WorkspaceModel, tabs: [TabModel]) -> SidebarProgress? {
+    func progress(_ workspace: WorkspaceModel, tabs: [TabModel]) -> SidebarProgress? {
         if let reported = workspace.status?.progress { return SidebarProgress(value: reported.value) }
         guard let terminal = tabs.lazy.compactMap(\.progress).first else { return nil }
-        return progress(terminal)
+        return Self.progress(terminal)
     }
 
     /// A terminal's OSC 9;4 progress as a bar; nil for a paused one with no value.
@@ -67,28 +68,28 @@ public enum SidebarMapping {
     }
 
     /// cwd of the first tab that reports one, `~`-abbreviated, plus branch.
-    static func subtitle(_ tabs: [TabModel]) -> String? {
+    func subtitle(_ tabs: [TabModel]) -> String? {
         guard let tab = tabs.first(where: { $0.cwd != nil }), let cwd = tab.cwd else { return nil }
         let path = abbreviate(cwd)
         guard let branch = tab.gitBranch, !branch.isEmpty else { return path }
         return "\(path) · \(branch)"
     }
 
-    static func abbreviate(_ path: String) -> String {
+    func abbreviate(_ path: String) -> String {
         let home = NSHomeDirectory()
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
     }
 
-    static func activity(_ tabs: [TabModel]) -> AgentActivity {
+    func activity(_ tabs: [TabModel]) -> AgentActivity {
         let states = tabs.compactMap { $0.agent?.state }
         if states.contains(.blocked) { return .needsInput }
         if states.contains(.working) { return .running }
         return .idle
     }
 
-    public static func color(_ name: String?) -> GroupColor? {
+    public func color(_ name: String?) -> GroupColor? {
         guard let name else { return nil }
         return GroupColor(rawValue: name.lowercased()) ?? (name.lowercased() == "gray" ? .grey : nil)
     }

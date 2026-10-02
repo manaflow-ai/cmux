@@ -97,6 +97,9 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// Has a purpose outside the GUI: the CLI offers it by `cliName`
     /// (`ActionDescriptor.cli`).
     public var isCLI = false
+    /// The CLI waits for the work's result (`ActionDescriptor.waitsForResult`);
+    /// `action.run` with `wait` then gets the result deadline.
+    public var waitsForResult = false
 
     public init(
         id: String, title: String, category: String, categoryTitle: String, cliName: String, symbol: String,
@@ -144,6 +147,7 @@ public struct ControlActionInfo: Sendable, Hashable {
             "destructive": .bool(isDestructive),
             "starts_terminal": .bool(startsTerminal),
             "cli": .bool(isCLI),
+            "waits_for_result": .bool(waitsForResult),
         ]
         if let mainMenu { members["main_menu"] = .string(mainMenu) }
         if let unavailableReason { members["unavailable_reason"] = .string(unavailableReason) }

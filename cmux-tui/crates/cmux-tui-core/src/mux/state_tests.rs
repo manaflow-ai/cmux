@@ -669,6 +669,48 @@ fn screens_pin_first_move_and_group_contiguously() {
 }
 
 #[test]
+fn raw_screen_commands_and_v2_operations_share_one_storage() {
+    let mux = Mux::new_for_test("state-screens-shared", SurfaceOptions::default());
+    mux.new_workspace(None, None).unwrap();
+    let workspace = mux.with_state(|state| state.workspaces[state.active_workspace].id);
+    mux.new_screen(Some(workspace), None).unwrap();
+    let (ids, publics) = mux.with_state(|state| {
+        let record = &state.workspaces[state.workspace_index(workspace).unwrap()];
+        (
+            record.screens.iter().map(|screen| screen.id).collect::<Vec<_>>(),
+            record.screens.iter().map(|screen| screen.public_id.to_string()).collect::<Vec<_>>(),
+        )
+    });
+
+    // A raw command publishes the state change v2 readers follow.
+    let before = revision(&mux);
+    let outcome = mux.create_screen_group(&ids, Some("Raw".into()), Some("blue".into())).unwrap();
+    let group = outcome.group.unwrap().id;
+    assert!(changes_after(&mux, before).iter().any(|change| {
+        change["kind"] == "state_upsert"
+            && change["resource"] == "screen_group"
+            && change["id"] == group
+            && change["value"]["screen_ids"] == json!(publics)
+    }));
+    assert_eq!(read(&mux, "screen_group.get", json!({"screen_group": group}))["name"], "Raw");
+
+    // A v2 operation writes the rows the raw tree reads.
+    mutate(&mux, "screen_group.update", json!({"screen_group": group, "name": "Both"}), "rename");
+    mutate(&mux, "screen.update", json!({"screen": publics[1], "color": "red"}), "color");
+    let presentation = mux.presentation_snapshot();
+    assert_eq!(presentation.screens.groups[&group].name, "Both");
+    assert_eq!(
+        presentation.screens.screen(&publics[1]).and_then(|record| record.color.clone()),
+        Some("red".to_string())
+    );
+    // A retry with the same key replays without a second commit.
+    let replay =
+        send(&mux, "screen.update", json!({"screen": publics[1], "color": "red"}), Some("color"))
+            .unwrap();
+    assert_eq!(replay["replayed"], true);
+}
+
+#[test]
 fn closed_tabs_and_workspaces_are_recorded_and_reopen() {
     let mux = Mux::new_for_test("state-closed", SurfaceOptions::default());
     let tabs = terminal_tabs(&mux, 2);

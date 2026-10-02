@@ -12,20 +12,20 @@ struct TabItemMappingTests {
         let store = try BridgeFixture.store()
         let tab = try #require(store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first)
         let terminal = try #require(tab.terminalResourceID)
-        #expect(!TabItemMapping.item(tab, fallbackTitle: "t").isBusy)
+        #expect(!TabItemMapping.shared.item(tab, fallbackTitle: "t").isBusy)
 
         var state = SessionStateMirror()
         state.terminalProgress[terminal] = TerminalProgressReport(state: .normal, value: 40)
         store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .sessionState(.snapshot(state)))])
-        #expect(TabItemMapping.item(tab, fallbackTitle: "t").isBusy)
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").isBusy)
 
         state.terminalProgress[terminal] = TerminalProgressReport(state: .error, value: 40)
         store.apply(batch: [DaemonEventEnvelope(sequence: 2, event: .sessionState(.snapshot(state)))])
-        let failed = TabItemMapping.item(tab, fallbackTitle: "t")
+        let failed = TabItemMapping.shared.item(tab, fallbackTitle: "t")
         #expect(!failed.isBusy && failed.status == .failure)
 
         state.terminalProgress[terminal] = nil
         store.apply(batch: [DaemonEventEnvelope(sequence: 3, event: .sessionState(.snapshot(state)))])
-        #expect(TabItemMapping.item(tab, fallbackTitle: "t").status == .none)
+        #expect(TabItemMapping.shared.item(tab, fallbackTitle: "t").status == .none)
     }
 }

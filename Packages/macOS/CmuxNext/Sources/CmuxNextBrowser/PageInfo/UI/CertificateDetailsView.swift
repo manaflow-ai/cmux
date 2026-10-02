@@ -9,6 +9,7 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
     private let table = NSTableView()
     private let valueView = NSTextView()
     private var fields: [(String, String)] = []
+    private var scrollFit: ScrollFitElasticity?
 
     init(chain: [PageInfoCertificate]) {
         self.chain = chain
@@ -30,12 +31,12 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
         table.backgroundColor = .clear
         let tableScroll = NSScrollView()
         tableScroll.documentView = table
+        scrollFit = ScrollFitElasticity(scrollView: tableScroll)
         tableScroll.hasVerticalScroller = true
         tableScroll.drawsBackground = false
 
         valueView.isEditable = false
         valueView.font = .monospacedSystemFont(ofSize: PageInfoStyle.captionFont.pointSize, weight: .regular)
-        valueView.textColor = PageInfoStyle.text
         valueView.drawsBackground = false
         let valueScroll = NSScrollView()
         valueScroll.documentView = valueView
@@ -71,6 +72,16 @@ final class CertificateDetailsView: NSView, NSTableViewDataSource, NSTableViewDe
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        performWithTheme { valueView.textColor = PageInfoStyle.text }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        performWithTheme { valueView.textColor = PageInfoStyle.text }
+    }
 
     @objc private func selectCertificate() {
         let index = max(hierarchy.indexOfSelectedItem, 0)

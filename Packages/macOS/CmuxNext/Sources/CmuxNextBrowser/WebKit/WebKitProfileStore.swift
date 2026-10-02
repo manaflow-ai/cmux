@@ -70,4 +70,15 @@ public final class WebKitProfileStore {
         stores[profile] = nil
         try await factory.removeStore(identifier: profile.rawValue)
     }
+
+    /// Deletes every record of a deleted profile's store (cookies, storage,
+    /// caches) through a store instance. The static
+    /// `WKWebsiteDataStore.remove(forIdentifier:)` crashed on WebKit's IO
+    /// queue at launch for a store no page used in the process; the empty
+    /// container stays behind.
+    public func clearData(for profile: BrowserProfileID) async {
+        stores[profile] = nil
+        let store = factory.makeStore(identifier: profile.rawValue)
+        await store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
+    }
 }

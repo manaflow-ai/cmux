@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
 
 
 import type * as T from "./types.js";
@@ -84,6 +84,7 @@ export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
 export type DetachedEvent = { event: "detached" } & {
   "by"?: T.SizeDetachActor;
   "reason"?: T.DetachReason;
+  "scope"?: string;
   "surface": T.Id;
   "view"?: string;
 };
@@ -138,6 +139,7 @@ export type NotificationEvent = { event: "notification" } & {
   "body": string;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
 };
@@ -236,6 +238,14 @@ export type ResizedEvent = { event: "resized" } & {
 export type ScreenAddedEvent = { event: "screen-added" } & {
   "entity": T.Screen;
   "index": bigint;
+  "screen": T.Id;
+  "workspace": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe-deltas. */
+export type ScreenChangedEvent = { event: "screen-changed" } & {
+  "entity": T.Screen;
+  "index"?: (bigint) | null;
   "screen": T.Id;
   "workspace": T.Id;
 };
@@ -485,6 +495,7 @@ export type KnownCmuxEvent =
   | RenderStateEvent
   | ResizedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
@@ -536,6 +547,7 @@ export type KnownSubscribeEvent =
   | PaneClosedEvent
   | PersonalChangedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | ScrollChangedEvent
@@ -565,6 +577,7 @@ export type TreeDeltaEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | ScreenAddedEvent
+  | ScreenChangedEvent
   | ScreenClosedEvent
   | ScreenRenamedEvent
   | TabAddedEvent

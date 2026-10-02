@@ -20,9 +20,6 @@ public enum SessionStateChange: Sendable, Hashable {
 public enum SessionStreamItem: Sendable, Hashable {
     /// The full state: replaces the mirror.
     case snapshot(SessionStateMirror)
-    /// The daemon's snapshot lists no state resources (`extra.state`): it
-    /// predates them, so the app keeps its own paths.
-    case unsupported
     case delta([SessionStateChange])
     /// The stream ended (`stream_end`), e.g. `gap` after the app fell behind.
     case ended(reason: String)
@@ -30,7 +27,7 @@ public enum SessionStreamItem: Sendable, Hashable {
     /// The stream needs the connection's attention: cancel or reopen it.
     var endsStream: Bool {
         switch self {
-        case .unsupported, .ended: true
+        case .ended: true
         case .snapshot, .delta: false
         }
     }
@@ -43,7 +40,7 @@ public enum SessionStreamItem: Sendable, Hashable {
         switch item.kind {
         case "snapshot":
             guard let snapshot = item.snapshot else { return nil }
-            guard let state = snapshot.extra?.state else { return .unsupported }
+            guard let state = snapshot.extra?.state else { return nil }
             return .snapshot(snapshot.mirror(state))
         case "delta":
             return .delta(item.changes?.compactMap(\.change) ?? [])

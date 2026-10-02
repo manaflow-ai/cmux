@@ -74,6 +74,9 @@ final class WindowManager {
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
+    /// One-shot work for a workspace a reveal is still mounting, by window
+    /// id; dropped when the window shows another workspace or closes.
+    private var contentWaiters: [String: [(workspaceID: String, body: () -> Void)]] = [:]
     /// The incognito session's off-the-record browser profile while any
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
@@ -149,7 +152,7 @@ final class WindowManager {
     /// snapshot arrives, the launch window becoming the frontmost of them.
     /// Creates a workspace only when the daemon tree is empty.
     func restoreWhenLoaded() {
-        if controllers.isEmpty {
+        if controllers.isEmpty, !showLaunchSnapshot() {
             let id = UUID().uuidString.lowercased()
             launchWindowID = id
             makeController(for: WindowRegistry.Window(id: id))
@@ -166,6 +169,7 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
         if let windowState = services.daemon.windowState {
@@ -264,10 +268,22 @@ final class WindowManager {
         window.workspaceIDs.contains { services.machines.workspace(id: $0) != nil }
     }
 
+    /// Runs `body` once `controller` next shows a workspace, if that is
+    /// `workspaceID`.
+    func afterNextContent(in controller: WindowController, showing workspaceID: String, _ body: @escaping () -> Void) {
+        contentWaiters[controller.state.id, default: []].append((workspaceID, body))
+    }
+
     /// The window installed its first workspace content: a window kept off
     /// screen for it is ordered in now.
     func contentDidAppear(_ controller: WindowController) {
-        defer { onContentDidAppear?(controller) }
+        defer {
+            onContentDidAppear?(controller)
+            let shown = controller.content?.workspace.id
+            for waiter in contentWaiters.removeValue(forKey: controller.state.id) ?? [] where waiter.workspaceID == shown {
+                waiter.body()
+            }
+        }
         guard let front = awaitingContent.removeValue(forKey: controller.state.id) else { return }
         present(controller)
         if front { bringToFront(controller) }
@@ -296,6 +312,7 @@ final class WindowManager {
         let id = controller.state.id
         controllers.removeAll { $0 === controller }
         awaitingContent[id] = nil
+        contentWaiters[id] = nil
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {

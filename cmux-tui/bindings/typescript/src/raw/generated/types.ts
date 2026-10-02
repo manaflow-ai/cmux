@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474. */
+/* cmux-tui mux protocol 12, IR 45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -257,6 +257,7 @@ export type IdentifyResult = {
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "launch_snapshot_path"?: (string) | null;
   "lifecycle_ready"?: boolean;
   "machine_name"?: string;
   "pid": number;
@@ -396,8 +397,11 @@ export type NotificationLevel = "info" | "warning" | "error";
 export type NotificationMarker = {
   "level": NotificationLevel;
   "notification": Id;
+  "source"?: NotificationSource;
   "unread": boolean;
 };
+
+export type NotificationSource = "cli" | "terminal" | "agent" | "daemon";
 
 export type NotifyResult = {
   "notification": Id;
@@ -447,6 +451,11 @@ export type ReadScrollbackResult = {
   "rows": Array<RenderRow>;
   "start": number;
   "total": number;
+};
+
+export type ReattachViewResult = {
+  "participant": string;
+  "state": SizeState;
 };
 
 export type RenderCursor = {
@@ -718,6 +727,7 @@ export type SizeMode = "latest" | "smallest" | "largest" | "priority" | "fixed";
 export type SizeParticipant = {
   "counts": boolean;
   "counts_override": (boolean) | null;
+  "device_id": (string) | null;
   "device_kind": SizeDeviceKind;
   "device_name": (string) | null;
   "display_name": (string) | null;
@@ -747,6 +757,7 @@ export type SizeState = {
 };
 
 export type SizingIdentity = {
+  "device_id"?: (string) | null;
   "device_kind"?: (string) | null;
   "device_name"?: (string) | null;
   "display_name"?: (string) | null;

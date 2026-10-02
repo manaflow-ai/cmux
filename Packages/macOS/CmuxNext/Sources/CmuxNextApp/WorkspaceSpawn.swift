@@ -14,6 +14,8 @@ struct WorkspaceSpawn: Sendable {
     var keep = false
     /// Room the workspace is born in; nil = the target window's room.
     var profile: ProfileID?
+    /// Browser profile of the workspace's new browser tabs; nil = its room's.
+    var browserProfile: String?
     /// Where the new workspace goes in its window's sidebar; nil leaves it
     /// where the daemon puts it (after the loose rows).
     var slot: WorkspaceSlot?
@@ -80,6 +82,10 @@ extension WindowManager {
         if let room, let session = daemon.store.registryID, let homeConnection = home.connection {
             try await homeConnection.pinWorkspace(session: session, key: key, to: room.id)
         }
+        if let browserProfile = spawn.browserProfile {
+            let qualified = BrowserProfileService.QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: key.rawValue)
+            try services.browserProfiles.setWorkspaceDefault(browserProfile, for: qualified)
+        }
         let defaults = daemon.isLocal ? room?.defaults : nil
         // Local terminals get the app's environment; a Cloud terminal only
         // the caller's keys. Both get the placement keys hooks read.
@@ -87,8 +93,8 @@ extension WindowManager {
         vars.merge(defaults?.env ?? [:]) { _, profile in profile }
         vars.merge(spawn.env) { _, caller in caller }
         vars.merge(DaemonConnection.placementEnvironment(workspace: key, terminal: terminal)) { _, placement in placement }
-        let env: [String: String]? = daemon.supports(DaemonCapabilities.terminalEnv) ? vars : nil
-        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.terminalReap) ? true : nil
+        let env: [String: String]? = daemon.supports(DaemonCapabilities.shared.terminalEnv) ? vars : nil
+        let keep: Bool? = spawn.keep && daemon.supports(DaemonCapabilities.shared.terminalReap) ? true : nil
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         let cwd = spawn.cwd ?? defaults?.cwd.flatMap { $0.isEmpty ? nil : ($0 as NSString).expandingTildeInPath } ?? daemon.defaultCwd
         return try await repair.populating(key) {

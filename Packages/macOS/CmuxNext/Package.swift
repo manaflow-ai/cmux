@@ -12,7 +12,7 @@ import PackageDescription
 //   CmuxNextBridge -> Daemon, Layout, Sidebar, Tabs (App-layer mapping, testable)
 //   CmuxNextTabs, Sidebar, Layout, Browser -> CmuxNextDesign; Palette -> Design, Actions
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
-//   CmuxNextTerminal -> CmuxNextTerminalGeometry (pure), CmuxGhosttyKit (binary)
+//   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
 //   CmuxNextDesign, CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
@@ -28,8 +28,16 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextHistory -> Design (history model, SQLite visit log, cmux://history page; no daemon)
+//   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
+//     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
+//   CmuxNextAccounts -> CodeRouter, Design (Settings > Accounts and the onboarding step; the App supplies AccountsServices)
+//   CmuxNextBookmarks -> Design (bookmark tree per browser profile, Netscape HTML, ranking, file store,
+//     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
+//   CmuxNextAgentPane -> Design, Actions (WKWebView host for the React agent pane and the acpmux
+//     handshake; the page talks to acpmux itself; no daemon)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -100,10 +108,63 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextAgentPane",
+                "CmuxNextHistory",
+                "CmuxNextCodeRouter",
+                "CmuxNextAccounts",
+                "CmuxNextBookmarks",
             ],
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Agent pane (plans/cmux-next roadmap Phase 1): hosts the React pane
+        // from webviews/src/agent-session/acpmux, built into
+        // Resources/agent-pane by scripts/cmux-next/build-agent-pane-web.sh,
+        // and answers its versioned handshake (find or start acpmux, endpoint,
+        // token, session id). Everything above the handshake is TypeScript.
+        .target(
+            name: "CmuxNextAgentPane",
+            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            resources: [
+                .process("Resources/Localizable.xcstrings"),
+                .copy("Resources/agent-pane"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAgentPaneTests",
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // CodeRouter and provider accounts (plans/cmux-next/coderouter.md):
+        // presence-only detection of local sign-ins (Codex, Claude Code, API
+        // keys, clouds, local servers), the /api/coderouter control-plane
+        // client, the pasted-key Keychain store and the row state machine.
+        .target(
+            name: "CmuxNextCodeRouter",
+            dependencies: ["CmuxNextCloud"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCodeRouterTests",
+            dependencies: ["CmuxNextCodeRouter"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The Accounts screen (Settings > Accounts, onboarding step). The App
+        // supplies `AccountsServices`.
+        .target(
+            name: "CmuxNextAccounts",
+            dependencies: ["CmuxNextCodeRouter", "CmuxNextDesign"],
+            resources: [
+                .process("Localizable.xcstrings"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextAccountsTests",
+            dependencies: ["CmuxNextAccounts", "CmuxNextCodeRouter"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser import (onboarding step 2; data-model.md 5): source detection
@@ -140,6 +201,39 @@ let package = Package(
         // Resource usage for hover cards and `resources` (CPU and memory per
         // tab, per workspace, shared processes apart). Pure aggregation and a
         // sampler that runs only while a card is open.
+        // History (plans/cmux-next/history.md): the location trail, merged
+        // history entries, search, agent sessions from the session journal,
+        // the per-profile page visit log (SQLite), and the cmux://history page.
+        .target(
+            name: "CmuxNextHistory",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHistoryTests",
+            dependencies: ["CmuxNextHistory"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Bookmarks (plans/cmux-next/bookmarks.md): the tree per browser
+        // profile, Netscape HTML import/export, omnibar ranking, the local
+        // file store, the cmux://bookmarks page, the bookmarks bar and the
+        // edit bubble.
+        .target(
+            name: "CmuxNextBookmarks",
+            dependencies: ["CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextBookmarksTests",
+            dependencies: ["CmuxNextBookmarks"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
@@ -243,8 +337,12 @@ let package = Package(
         .target(
             name: "CmuxNextActions",
             resources: [
+                .process("AccountsActions.xcstrings"),
+                .process("BookmarkActions.xcstrings"),
+                .process("BrowserProfileActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),
+                .process("HistoryActions.xcstrings"),
                 .process("LayoutActions.xcstrings"),
                 .process("Localizable.xcstrings"),
                 .process("PageInfoActions.xcstrings"),
@@ -253,6 +351,7 @@ let package = Package(
                 .process("ScreenActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
+                .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),
             ],
             swiftSettings: uiSwiftSettings
@@ -280,6 +379,7 @@ let package = Package(
                 "CmuxNextWakeups",
                 "CmuxNextDesign",
                 "CmuxNextTerminalGeometry",
+                "CmuxNextCopyMode",
                 .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"),
             ],
             resources: [
@@ -298,6 +398,17 @@ let package = Package(
             name: "CmuxNextTerminalGeometryTests",
             dependencies: ["CmuxNextTerminalGeometry"],
             swiftSettings: uiSwiftSettings
+        ),
+        // Copy mode's vim key table and cursor-box geometry. No GhosttyKit, so
+        // it has tests; CmuxNextTerminal drives Ghostty's keyboard-copy API.
+        .target(
+            name: "CmuxNextCopyMode",
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextCopyModeTests",
+            dependencies: ["CmuxNextCopyMode"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextTabs",
@@ -356,7 +467,7 @@ let package = Package(
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
-            resources: [.copy("CEF/Shim/cmux_cef_shim.h")],
+            resources: [.copy("CEF/Shim/cmux_cef_shim.h"), .process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -416,7 +527,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

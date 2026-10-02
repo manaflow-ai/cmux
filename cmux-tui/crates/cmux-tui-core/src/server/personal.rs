@@ -209,3 +209,14 @@ pub(super) fn set_workspace(
         mux.personal_mutation(|registry| registry.set_personal_workspace(session, key, update))?;
     Ok(json!({"workspace": workspace, "changed": changed}))
 }
+
+pub(super) fn set_terminal(
+    mux: &Mux,
+    session: &str,
+    key: &str,
+    theme: Option<&str>,
+) -> anyhow::Result<Value> {
+    let (terminal, changed) =
+        mux.personal_mutation(|registry| registry.set_personal_terminal(session, key, theme))?;
+    Ok(json!({"terminal": terminal, "changed": changed}))
+}

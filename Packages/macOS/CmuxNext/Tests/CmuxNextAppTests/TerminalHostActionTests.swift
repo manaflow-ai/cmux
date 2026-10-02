@@ -91,7 +91,7 @@ struct TerminalHostActionTests {
     }
 
     @Test func terminalRightClickOffersSplits() {
-        let ids = ContextMenuCatalog.referencedIDs(ContextMenuCatalog.entries(for: .terminalSelection))
+        let ids = ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .terminalSelection))
         for id: ActionID in ["splitRight", "splitDown", "splitLeft", "splitUp"] {
             #expect(ids.contains(id), "\(id)")
         }

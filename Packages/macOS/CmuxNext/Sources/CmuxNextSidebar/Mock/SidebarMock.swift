@@ -3,7 +3,8 @@ import Foundation
 
 /// Demo data: 40 workspaces across a pinned area, a local machine with
 /// groups, and one cloud VM. Lets the module run without a daemon.
-public enum SidebarMock {
+public struct SidebarMock {
+    public init() {}
     public static let cloudMachine = MachineID("vm-freestyle-a1")
 
     public static func makeModel() -> SidebarModel {

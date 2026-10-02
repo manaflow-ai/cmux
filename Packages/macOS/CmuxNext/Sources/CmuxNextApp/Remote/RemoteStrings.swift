@@ -3,6 +3,34 @@ import Foundation
 
 /// User-facing SSH machine text. Keys live in Resources/Remote.xcstrings.
 enum RemoteStrings {
+    // Remote-terminal tab placeholder (plans/cmux-next/data-model.md 1.4).
+    static func placeholderReconnecting(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.reconnecting", defaultValue: "Reconnecting to %@…", table: "Remote", bundle: .module), machine)
+    }
+    static func placeholderOffline(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.offline", defaultValue: "%@ is offline", table: "Remote", bundle: .module), machine)
+    }
+    static func placeholderUnknown(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.unknown", defaultValue: "%@ is not connected on this Mac", table: "Remote", bundle: .module), machine)
+    }
+    static var placeholderConnect: String {
+        String(localized: "remote.terminal.connect", defaultValue: "Connect", table: "Remote", bundle: .module)
+    }
+    static var placeholderNoSnapshot: String {
+        String(localized: "remote.terminal.noSnapshot", defaultValue: "No saved screen", table: "Remote", bundle: .module)
+    }
+    static func terminalOn(_ machine: String) -> String {
+        String(format: String(localized: "remote.terminal.title", defaultValue: "Terminal on %@", table: "Remote", bundle: .module), machine)
+    }
+    static var moveBrowserAcrossMachines: String {
+        String(localized: "remote.terminal.moveBrowser", defaultValue: "Browser tabs cannot move to a workspace on another machine yet.", table: "Remote", bundle: .module)
+    }
+    static var needsRemoteTerminalTabs: String {
+        String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module)
+    }
+    static var machineHasNoTerminal: String {
+        String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module)
+    }
     static var noClient: String {
         String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module)
     }

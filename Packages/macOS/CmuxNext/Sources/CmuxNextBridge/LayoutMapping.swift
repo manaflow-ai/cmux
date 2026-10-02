@@ -7,13 +7,14 @@ public import CmuxNextLayout
 /// Rules (REWRITE.md Integration notes): a daemon `stack` becomes one leaf
 /// showing its expanded pane; a zoomed pane fills its screen; unknown node
 /// types drop out and their sibling takes the space.
-public enum LayoutMapping {
+public struct LayoutMapping {
+    public static let shared = Self()
     public struct Result: Equatable, Sendable {
         public var screens: [LayoutScreen]
         public var handles: LayoutHandleMap
     }
 
-    public static func map(_ workspace: WorkspaceModel) -> Result {
+    public func map(_ workspace: WorkspaceModel) -> Result {
         var handles = LayoutHandleMap()
         var screens: [LayoutScreen] = []
         for screen in workspace.screens {
@@ -31,7 +32,7 @@ public enum LayoutMapping {
         return Result(screens: screens, handles: handles)
     }
 
-    static func layout(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID],
+    func layout(of screen: ScreenModel, paneIDs: [DaemonPaneID: LayoutPaneID],
                        handles: inout LayoutHandleMap) -> ScreenLayout? {
         if let zoomed = screen.zoomedPane, let id = paneIDs[zoomed] {
             return .splits(.leaf(id))
@@ -50,7 +51,7 @@ public enum LayoutMapping {
     }
 
     /// Converts one daemon layout node. Nil when nothing in it can be shown.
-    public static func node(_ node: LayoutNode, paneIDs: [DaemonPaneID: LayoutPaneID],
+    public func node(_ node: LayoutNode, paneIDs: [DaemonPaneID: LayoutPaneID],
                             handles: inout LayoutHandleMap) -> SplitNode? {
         switch node {
         case .leaf(let pane):

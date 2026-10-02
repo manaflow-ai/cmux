@@ -81,12 +81,23 @@ nxmot (MacBook Pro, 120 Hz).
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
+| `theme` | 0.16 s | room, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
 
 | Loop | Period | Used by |
 | --- | --- | --- |
 | `spinner` | 0.9 s | busy tab spinner, sidebar agent spinner |
 | `pulse` | 1.8 s | sidebar agent-waiting pulse |
 | `flash` | 0.6 s | pane attention flash (two blinks; one 0.3 s fade under Reduce Motion) |
+
+| Marquee (`MotionMarquee`) | Value | Used by |
+| --- | --- | --- |
+| `delay` | 0.6 s pointer rest (Core Animation `beginTime`, no timer) | clipped tab and workspace titles on hover (plans/cmux-next/tabs.md) |
+| `pointsPerSecond` | 40 pt/s, at least `minimumScroll` 0.4 s, ease in and out | same |
+| `hold` | 1.2 s at the end, then back with `move`'s timed equivalent | same |
+
+Leaving stops the marquee at once; a title caught mid-scroll springs back
+with `disappear` from its presented position. `normal` scales delay,
+scroll and hold by 1.5; Reduce Motion and `off` never start it.
 
 "normal" multiplies every response and fade duration by 1.5; damping does
 not change. Loops keep their period (they show state, not transitions).

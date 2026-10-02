@@ -61,7 +61,11 @@ final class ClosedTabTracker {
         var generations: [String: String] = [:]
         for daemon in daemons {
             let store = daemon.store
-            guard case .connected = store.connectionState, !store.servesStateResources else { continue }
+            // The launch snapshot's provisional tree is not live: a tab it
+            // shows that the live tree lacks was not closed in this app. A
+            // daemon that records closed history keeps it instead.
+            guard case .connected = store.connectionState, store.isLoaded, !store.isProvisional,
+                  !store.servesStateResources else { continue }
             let machine = daemon.machineID
             generations[machine] = store.generation?.rawValue ?? ""
             for workspace in store.workspaces {
@@ -105,6 +109,8 @@ final class ClosedTabTracker {
             record.url = previous[record.tabID]?.url
             record.engine = previous[record.tabID]?.browserEngine
             record.terminalResourceID = previous[record.tabID]?.terminalResourceID?.rawValue
+            record.title = previous[record.tabID].map(\.displayTitle).flatMap { $0.isEmpty ? nil : $0 }
+            record.closedAt = Date()
             return record
         }
         lastSeen = Dictionary(structure.tabs.map { ($0.record.tabID, $0.tab) }, uniquingKeysWith: { first, _ in first })
@@ -112,6 +118,18 @@ final class ClosedTabTracker {
 
     func popLast() -> ClosedTabHistory.Record? {
         history.popLast()
+    }
+
+    /// Closed tabs, oldest first (history lists).
+    var records: [ClosedTabHistory.Record] { history.closed }
+
+    /// Takes one record out to reopen it.
+    func take(_ tabID: String) -> ClosedTabHistory.Record? {
+        history.remove(tabID: tabID)
+    }
+
+    func clear(since: Date?) {
+        history.removeAll(since: since)
     }
 
     /// Reopens `record` at its old position in its old pane, else in `fallback`.

@@ -1,0 +1,68 @@
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextTerminal
+import Observation
+
+extension TerminalCursorDefault {
+    /// The user's Ghostty `cursor-style` and `cursor-style-blink`.
+    @MainActor static var user: TerminalCursorDefault {
+        GhosttyRuntime.shared.cursorDefaults.map { TerminalCursorDefault(style: $0.style, blink: $0.blink) } ?? .ghostty
+    }
+}
+
+/// Tells one terminal view about daemon facts its stream cannot: the
+/// terminal's process ended (tab `dead`), or the terminal or the daemon
+/// connection came back, which re-attaches a disconnected view. Observation
+/// only (re-armed after each change); nothing polls.
+@MainActor
+final class TerminalLinkWatch {
+    private weak var store: DaemonStore?
+    private weak var io: DaemonTerminalIO?
+    private let surface: SurfaceID
+    private var connected: Bool
+    private var dead: Bool
+    private var stopped = false
+
+    init(store: DaemonStore, surface: SurfaceID, io: DaemonTerminalIO) {
+        self.store = store
+        self.surface = surface
+        self.io = io
+        connected = Self.isConnected(store.connectionState)
+        dead = store.tab(surface: surface)?.dead ?? false
+        if dead { io.processExited() }
+        arm()
+    }
+
+    func stop() { stopped = true }
+
+    private func arm() {
+        guard !stopped, let store else { return }
+        let surface = surface
+        withObservationTracking {
+            _ = store.connectionState
+            _ = store.tab(surface: surface)?.dead
+        } onChange: { [weak self] in
+            // task-owner: one hop per observed change, re-arms itself; ends with the watch
+            Task { @MainActor [weak self] in self?.changed() }
+        }
+    }
+
+    private func changed() {
+        guard !stopped, let store, let io else { return }
+        let nowConnected = Self.isConnected(store.connectionState)
+        let nowDead = store.tab(surface: surface)?.dead ?? dead
+        if nowDead, !dead {
+            io.processExited()
+        } else if (nowConnected && !connected) || (dead && !nowDead) {
+            io.reconnect()
+        }
+        connected = nowConnected
+        dead = nowDead
+        arm()
+    }
+
+    private static func isConnected(_ state: DaemonConnectionState) -> Bool {
+        if case .connected = state { return true }
+        return false
+    }
+}

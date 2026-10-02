@@ -24,8 +24,12 @@ public final class PaletteModel {
     }
 
     public internal(set) var sections: [PaletteResultSection] = []
-    public internal(set) var selectedRowID: String?
-    public internal(set) var hoveredRowID: String?
+    public internal(set) var selectedRowID: String? {
+        didSet { if selectedRowID != oldValue { reportHighlight() } }
+    }
+    public internal(set) var hoveredRowID: String? {
+        didSet { if hoveredRowID != oldValue { reportHighlight() } }
+    }
     public internal(set) var actionsMenu: PaletteActionsMenuState?
     /// The inline shortcut recorder (Cmd-K on an action), when open.
     public internal(set) var shortcutRecorder: PaletteShortcutRecorderState?
@@ -151,7 +155,9 @@ public final class PaletteModel {
     @discardableResult
     public func pop() -> Bool {
         guard stack.count > 1 else { return false }
-        stack.removeLast().cancel()
+        let removed = stack.removeLast()
+        removed.cancel()
+        leave(removed)
         actionsMenu = nil
         if let current { activate(current, restoring: true) }
         return true
@@ -166,7 +172,10 @@ public final class PaletteModel {
     }
 
     private func clearStack() {
-        for state in stack { state.cancel() }
+        for state in stack.reversed() {
+            state.cancel()
+            leave(state)
+        }
         stack = []
         actionsMenu = nil
         shortcutRecorder = nil
@@ -194,6 +203,7 @@ public final class PaletteModel {
         case .deferred:
             break
         case .perform(let handler):
+            current?.committed = true
             onDismiss?()
             perform(handler, rowID: item.id, closing: true)
         case .performKeepingOpen(let handler):

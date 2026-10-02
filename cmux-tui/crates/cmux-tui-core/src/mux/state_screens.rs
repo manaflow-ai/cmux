@@ -1,334 +1,153 @@
-//! Screen metadata (pinned, color, icon), screen order, and screen groups
-//! (`sgrp_<32 hex>`) as v2 state mutations. Pinned screens sort first and
-//! cannot be grouped; group members stay contiguous. A change that reorders
-//! screens commits the screen order patch and the state rows together.
+//! One durable commit for every screen presentation change: screen color,
+//! icon and pin, screen order, and screen groups. The raw screen commands
+//! (`screen_groups.rs`, `screen-metadata-v1`, `screen-groups-v1`) and the v2
+//! operations (`screen.update`, `screen.move`, `screen_group.*`) share it, so
+//! there is one storage (`screen_store`'s tables) and one event path.
+//!
+//! A change that may reorder screens commits the topology patch and the
+//! screen rows in one transaction ([`Mux::commit_screen_request`]); a
+//! change that leaves order alone commits the rows alone
+//! ([`Mux::commit_screen_rows`]). Raw commands pass a local mutation; v2
+//! operations pass their idempotency key, so a retry replays the stored
+//! result. Either way the `session.events` batch restates every screen whose
+//! presentation or group changed and every screen group the change touched.
 
-use std::collections::{HashMap, HashSet};
-
-use rusqlite::Connection;
+use std::collections::BTreeSet;
 
 use super::state_commit::{StateEffects, state_not_found};
+use super::tab_strip::StripRequest;
 use super::*;
+use crate::workspace_registry::ScreenPresentationState;
 use crate::workspace_registry::screen_state_store::{
-    ScreenGroupRecord, ScreenMetaUpdate, delete_screen_group, new_screen_group_id,
-    prune_screen_groups, put_screen_group, screen_group, screen_group_members, screen_group_of,
-    screen_group_snapshot, screen_pinned, set_screen_group_member, update_screen_meta,
+    ScreenMetaUpdate, screen_group_snapshot, write_screen_rows,
 };
 use crate::workspace_registry::state_store::{
     StateChanges, StateCommit, state_delete, state_upsert,
 };
 use crate::workspace_registry::state_values::{fresh_upserts, upserted_value};
 
-/// What a screen change returns.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ScreenResult {
+/// What a screen change returns as its v2 result.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum ScreenResult {
+    #[default]
+    None,
+    /// The decorated `ScreenSnapshot` of a screen (public id).
     Screen(String),
+    /// The `ScreenGroupSnapshot` of a group.
     Group(String),
+    /// The snapshots of the groups that still exist.
     Groups(Vec<String>),
+    /// A dissolved group and its former members.
+    Release { group: String, screens: Vec<String> },
 }
 
-/// State rows a screen change writes with its order patch.
-#[derive(Debug, Default)]
-struct ScreenEdit {
-    meta: Vec<(String, ScreenMetaUpdate)>,
-    groups: Vec<ScreenGroupRecord>,
-    members: Vec<(String, Option<String>)>,
-    touched_screens: Vec<String>,
-    touched_groups: Vec<String>,
-    result: Option<ScreenResult>,
+/// The screen rows a change edits, starting from the committed ones.
+pub(crate) struct ScreenEdit {
+    pub(crate) screens: ScreenPresentationState,
+    pub(crate) result: ScreenResult,
 }
 
-/// One screen order request.
+/// One v2 screen request.
 #[derive(Debug, Clone)]
 pub(crate) enum ScreenChange {
-    Update { selectors: crate::ResourceSelectors, update: ScreenMetaUpdate },
-    Move { selectors: crate::ResourceSelectors, index: usize },
-    GroupCreate { screens: Vec<String>, name: String, color: String },
-    GroupAdd { group: String, screens: Vec<String> },
-    GroupRemove { screens: Vec<String> },
+    Update {
+        selectors: crate::ResourceSelectors,
+        update: ScreenMetaUpdate,
+    },
+    Move {
+        selectors: crate::ResourceSelectors,
+        index: usize,
+    },
+    GroupCreate {
+        screens: Vec<String>,
+        name: String,
+        color: String,
+    },
+    GroupAdd {
+        group: String,
+        screens: Vec<String>,
+    },
+    GroupRemove {
+        screens: Vec<String>,
+    },
+    GroupUpdate {
+        group: String,
+        name: Option<String>,
+        color: Option<String>,
+        collapsed: Option<bool>,
+    },
+    GroupUngroup {
+        group: String,
+    },
 }
 
-fn workspace_of(state: &State, screen: &str) -> anyhow::Result<usize> {
-    state
-        .workspaces
-        .iter()
-        .position(|workspace| {
-            workspace.screens.iter().any(|candidate| candidate.public_id.as_str() == screen)
-        })
-        .ok_or_else(|| anyhow::Error::new(ResourceError::not_found("screen", screen)))
-}
-
-fn screen_order(state: &State, workspace: usize) -> Vec<String> {
-    state.workspaces[workspace].screens.iter().map(|screen| screen.public_id.to_string()).collect()
-}
-
-/// Pinned screens first, then each group contiguous at its first member,
-/// otherwise stable.
-fn normalize(
-    order: &[String],
-    pinned: &HashSet<String>,
-    group_of: &HashMap<String, String>,
-) -> Vec<String> {
-    let mut output = order.iter().filter(|id| pinned.contains(*id)).cloned().collect::<Vec<_>>();
-    let mut placed = HashSet::new();
-    for id in order.iter().filter(|id| !pinned.contains(*id)) {
-        if placed.contains(id) {
-            continue;
-        }
-        match group_of.get(id) {
-            Some(group) => {
-                for member in order.iter().filter(|candidate| !pinned.contains(*candidate)) {
-                    if group_of.get(member) == Some(group) && placed.insert(member.clone()) {
-                        output.push(member.clone());
-                    }
-                }
-            }
-            None => {
-                placed.insert(id.clone());
-                output.push(id.clone());
-            }
-        }
-    }
-    output
-}
-
-/// Reorder `state.workspaces[workspace].screens` to `order`, keeping the
-/// active screen.
-fn apply_order(state: &mut State, workspace: usize, order: &[String]) {
-    let record = &mut state.workspaces[workspace];
-    let active =
-        record.screens.get(record.active_screen).map(|screen| screen.public_id.to_string());
-    record
-        .screens
-        .sort_by_key(|screen| order.iter().position(|id| id == screen.public_id.as_str()));
-    if let Some(active) = active {
-        record.active_screen = record
-            .screens
-            .iter()
-            .position(|screen| screen.public_id.as_str() == active)
-            .unwrap_or(record.active_screen);
+impl StripRequest {
+    /// A raw screen command: a fresh local mutation that never replays.
+    pub(crate) fn local_screens(operation: &str) -> Self {
+        Self { mutation: WorkspaceMutation::local("cmux-tui-screens"), ..Self::local(operation) }
     }
 }
 
-/// The pinned flags and group memberships of one workspace's screens after
-/// the edit's pending rows.
-fn layout_flags(
-    connection: &Connection,
-    order: &[String],
-    edit: &ScreenEdit,
-) -> anyhow::Result<(HashSet<String>, HashMap<String, String>)> {
-    let mut pinned = HashSet::new();
-    let mut group_of = HashMap::new();
-    for id in order {
-        if screen_pinned(connection, id)? {
-            pinned.insert(id.clone());
-        }
-        if let Some(group) = screen_group_of(connection, id)? {
-            group_of.insert(id.clone(), group);
+/// The in-transaction write of a screen edit: rows, restatements, result.
+fn screen_rows_write(
+    before: &ScreenPresentationState,
+    edit: ScreenEdit,
+) -> crate::resource_mutation::PlanStateWrite {
+    let ScreenEdit { screens, result: result_kind } = edit;
+    let mut touched_screens = BTreeSet::new();
+    for id in before.screens.keys().chain(screens.screens.keys()) {
+        if before.screens.get(id) != screens.screens.get(id) {
+            touched_screens.insert(id.clone());
         }
     }
-    for (id, update) in &edit.meta {
-        match update.pinned {
-            Some(true) => {
-                pinned.insert(id.clone());
-                group_of.remove(id);
-            }
-            Some(false) => {
-                pinned.remove(id);
-            }
-            None => {}
+    for id in before.members.keys().chain(screens.members.keys()) {
+        if before.members.get(id) != screens.members.get(id) {
+            touched_screens.insert(id.clone());
         }
     }
-    for (id, group) in &edit.members {
-        match group {
-            Some(group) => group_of.insert(id.clone(), group.clone()),
-            None => group_of.remove(id),
+    if let ScreenResult::Screen(screen) = &result_kind {
+        touched_screens.insert(screen.clone());
+    }
+    let mut changed_groups = BTreeSet::new();
+    for id in before.groups.keys().chain(screens.groups.keys()) {
+        let members = |state: &ScreenPresentationState| {
+            state.members.iter().filter(|(_, group)| *group == id).count()
         };
-    }
-    Ok((pinned, group_of))
-}
-
-fn plan_change(
-    mux: &Mux,
-    connection: &Connection,
-    state: &mut State,
-    change: ScreenChange,
-    edit: &mut ScreenEdit,
-) -> anyhow::Result<()> {
-    let (workspace, mut order) = match &change {
-        ScreenChange::Update { selectors, .. } | ScreenChange::Move { selectors, .. } => {
-            let resolved = mux.resolve_in_state(state, crate::ResourceTarget::Screen, selectors)?;
-            let screen = resolved.path.screen.context("screen selector resolved no screen")?;
-            let workspace = workspace_of(state, screen.as_str())?;
-            (workspace, screen_order(state, workspace))
-        }
-        ScreenChange::GroupCreate { screens, .. }
-        | ScreenChange::GroupAdd { screens, .. }
-        | ScreenChange::GroupRemove { screens } => {
-            let workspace = workspace_of(state, &screens[0])?;
-            for screen in screens {
-                anyhow::ensure!(
-                    workspace_of(state, screen)? == workspace,
-                    "bad request: grouped screens must share one workspace"
-                );
-            }
-            (workspace, screen_order(state, workspace))
-        }
-    };
-    let workspace_id = state.workspaces[workspace].public_id.to_string();
-    match change {
-        ScreenChange::Update { selectors, update } => {
-            let screen = mux
-                .resolve_in_state(state, crate::ResourceTarget::Screen, &selectors)?
-                .path
-                .screen
-                .context("screen selector resolved no screen")?
-                .to_string();
-            if update.pinned == Some(true)
-                && let Some(group) = screen_group_of(connection, &screen)?
-            {
-                edit.touched_groups.push(group);
-            }
-            edit.meta.push((screen.clone(), update));
-            edit.touched_screens.push(screen.clone());
-            edit.result = Some(ScreenResult::Screen(screen));
-        }
-        ScreenChange::Move { selectors, index } => {
-            let screen = mux
-                .resolve_in_state(state, crate::ResourceTarget::Screen, &selectors)?
-                .path
-                .screen
-                .context("screen selector resolved no screen")?
-                .to_string();
-            order.retain(|id| *id != screen);
-            let index = index.min(order.len());
-            order.insert(index, screen.clone());
-            edit.touched_screens.push(screen.clone());
-            edit.result = Some(ScreenResult::Screen(screen));
-        }
-        ScreenChange::GroupCreate { screens, name, color } => {
-            let group = new_screen_group_id();
-            for screen in &screens {
-                anyhow::ensure!(
-                    !screen_pinned(connection, screen)?,
-                    "bad request: pinned screens cannot be grouped"
-                );
-                if let Some(previous) = screen_group_of(connection, screen)? {
-                    edit.touched_groups.push(previous);
-                }
-                edit.members.push((screen.clone(), Some(group.clone())));
-            }
-            edit.groups.push(ScreenGroupRecord {
-                id: group.clone(),
-                workspace_id,
-                name,
-                color,
-                collapsed: false,
-            });
-            edit.touched_screens.extend(screens);
-            edit.touched_groups.push(group.clone());
-            edit.result = Some(ScreenResult::Group(group));
-        }
-        ScreenChange::GroupAdd { group, screens } => {
-            let record = screen_group(connection, &group)?
-                .ok_or_else(|| state_not_found("screen_group", &group))?;
-            anyhow::ensure!(
-                record.workspace_id == workspace_id,
-                "bad request: grouped screens must share one workspace"
-            );
-            let members = screen_group_members(connection, &group)?;
-            for screen in &screens {
-                anyhow::ensure!(
-                    !screen_pinned(connection, screen)?,
-                    "bad request: pinned screens cannot be grouped"
-                );
-                if let Some(previous) = screen_group_of(connection, screen)?
-                    && previous != group
-                {
-                    edit.touched_groups.push(previous);
-                }
-                edit.members.push((screen.clone(), Some(group.clone())));
-            }
-            // New members land after the group's last member.
-            if let Some(last) = members.iter().rev().find(|member| !screens.contains(member)) {
-                order.retain(|id| !screens.contains(id));
-                let after = order.iter().position(|id| id == last).map_or(order.len(), |at| at + 1);
-                order.splice(after..after, screens.iter().cloned());
-            }
-            edit.touched_screens.extend(screens);
-            edit.touched_groups.push(group.clone());
-            edit.result = Some(ScreenResult::Group(group));
-        }
-        ScreenChange::GroupRemove { screens } => {
-            let mut touched = Vec::new();
-            for screen in &screens {
-                let Some(group) = screen_group_of(connection, screen)? else { continue };
-                let members = screen_group_members(connection, &group)?;
-                // The screen lands right after its former group.
-                if let Some(last) = members.iter().rev().find(|member| !screens.contains(member)) {
-                    order.retain(|id| id != screen);
-                    let after =
-                        order.iter().position(|id| id == last).map_or(order.len(), |at| at + 1);
-                    order.insert(after, screen.clone());
-                }
-                edit.members.push((screen.clone(), None));
-                if !touched.contains(&group) {
-                    touched.push(group);
-                }
-            }
-            edit.touched_screens.extend(screens);
-            edit.touched_groups.extend(touched.iter().cloned());
-            edit.result = Some(ScreenResult::Groups(touched));
+        if before.groups.get(id) != screens.groups.get(id) || members(before) != members(&screens) {
+            changed_groups.insert(id.clone());
         }
     }
-    let (pinned, group_of) = layout_flags(connection, &order, edit)?;
-    let order = normalize(&order, &pinned, &group_of);
-    apply_order(state, workspace, &order);
-    Ok(())
-}
-
-fn screen_state_write(edit: ScreenEdit) -> crate::resource_mutation::PlanStateWrite {
+    let touched_screens = touched_screens.into_iter().collect::<Vec<_>>();
     Box::new(move |transaction, result, changes| {
-        for group in &edit.groups {
-            put_screen_group(transaction, group)?;
-        }
-        for (screen, update) in &edit.meta {
-            update_screen_meta(transaction, screen, update)?;
-        }
-        for (screen, group) in &edit.members {
-            set_screen_group_member(transaction, screen, group.as_deref())?;
-        }
-        let dropped = prune_screen_groups(transaction)?;
-        let fresh = fresh_upserts(transaction, &[], &edit.touched_screens, &[])?;
-        changes.extend(fresh.iter().cloned());
-        let mut groups = edit.touched_groups.clone();
-        for screen in changes
+        write_screen_rows(transaction, &screens)?;
+        let fresh = fresh_upserts(transaction, &[], &touched_screens, &[])?;
+        // Screens the patch moved restate their group: its member order
+        // changed with them.
+        let moved = changes
             .iter()
             .filter(|change| change["kind"] == "upsert" && change["resource"] == "screen")
             .filter_map(|change| change["id"].as_str().map(str::to_string))
-            .collect::<Vec<_>>()
-        {
-            if let Some(group) = screen_group_of(transaction, &screen)?
-                && !groups.contains(&group)
-            {
-                groups.push(group);
+            .collect::<BTreeSet<_>>();
+        let mut group_ids = changed_groups.clone();
+        for (screen, group) in &screens.members {
+            if moved.contains(screen) {
+                group_ids.insert(group.clone());
             }
         }
-        for id in &groups {
+        changes.extend(fresh.iter().cloned());
+        for id in &group_ids {
             match screen_group_snapshot(transaction, id)? {
                 Some(snapshot) => changes.push(state_upsert("screen_group", id, snapshot)),
                 None => changes.push(state_delete("screen_group", id)),
             }
         }
-        for id in dropped.iter().filter(|id| !groups.contains(id)) {
-            changes.push(state_delete("screen_group", id));
-        }
-        *result = match &edit.result {
-            Some(ScreenResult::Screen(screen)) => upserted_value(&fresh, "screen", screen)
+        *result = match &result_kind {
+            ScreenResult::None => result.clone(),
+            ScreenResult::Screen(screen) => upserted_value(&fresh, "screen", screen)
                 .ok_or_else(|| state_not_found("screen", screen))?,
-            Some(ScreenResult::Group(group)) => screen_group_snapshot(transaction, group)?
+            ScreenResult::Group(group) => screen_group_snapshot(transaction, group)?
                 .ok_or_else(|| state_not_found("screen_group", group))?,
-            Some(ScreenResult::Groups(ids)) => {
+            ScreenResult::Groups(ids) => {
                 let mut values = Vec::new();
                 for id in ids {
                     if let Some(snapshot) = screen_group_snapshot(transaction, id)? {
@@ -337,128 +156,260 @@ fn screen_state_write(edit: ScreenEdit) -> crate::resource_mutation::PlanStateWr
                 }
                 Value::Array(values)
             }
-            None => result.clone(),
+            ScreenResult::Release { group, screens } => {
+                serde_json::json!({"screen_group_id": group, "screen_ids": screens})
+            }
         };
         Ok(())
     })
 }
 
 impl Mux {
-    /// `screen.update`, `screen.move`, and the screen group mutations that
-    /// change membership or order.
-    pub(crate) fn state_screen_change(
+    /// The live screen with this public id.
+    fn screen_id_of(&self, public: &str) -> Option<ScreenId> {
+        self.with_state(|state| {
+            state
+                .workspaces
+                .iter()
+                .flat_map(|workspace| workspace.screens.iter())
+                .find(|screen| screen.public_id.as_str() == public)
+                .map(|screen| screen.id)
+        })
+    }
+
+    /// Commit a change that may reorder screens or move them between
+    /// workspaces. `mutate` edits a clone of the live state and the screen
+    /// rows; both commit together, then the clone replaces the live state.
+    /// Returns `mutate`'s output (`None` on a replay, which runs nothing).
+    pub(crate) fn commit_screen_request<R>(
         self: &Arc<Self>,
-        mutation: &WorkspaceMutation,
-        operation: &str,
-        fingerprint: &Value,
-        expected_revision: Option<u64>,
-        change: ScreenChange,
-    ) -> anyhow::Result<ResourcePatchCommit> {
-        if let ScreenChange::Update { update, .. } = &change {
-            update.validate()?;
-        }
-        if let ScreenChange::GroupCreate { name, color, .. } = &change {
-            crate::workspace_registry::validate_tab_group_name(name)?;
-            crate::workspace_registry::validate_tab_group_color(color)?;
-        }
+        request: StripRequest,
+        mutate: impl FnOnce(&Arc<Mux>, &mut State, &mut ScreenEdit) -> anyhow::Result<R>,
+    ) -> anyhow::Result<(Option<R>, ResourcePatchCommit)> {
         let mux = Arc::clone(self);
+        let mut output = None;
+        let mut retarget = Vec::new();
         let commit = self.commit_resource_mutation_plan(
-            mutation,
-            operation,
-            fingerprint,
+            &request.mutation,
+            &request.operation,
+            &request.fingerprint,
             None,
-            expected_revision,
+            request.expected_revision,
             |state, registry| {
                 let mut projected = state.clone();
-                let mut edit = ScreenEdit::default();
-                registry.read_state(|connection| {
-                    plan_change(&mux, connection, &mut projected, change, &mut edit)
-                })?;
-                let projection = mux.resource_effect_projection_locked(
+                let before = mux.presentation_snapshot().screens.clone();
+                let mut edit = ScreenEdit { screens: before.clone(), result: ScreenResult::None };
+                let result = mutate(&mux, &mut projected, &mut edit)?;
+                screen_groups::prune_screen_state(&projected, &mut edit.screens);
+                for workspace in &mut projected.workspaces {
+                    screen_groups::normalize_screen_order(workspace, &edit.screens);
+                }
+                projected.rebuild_resource_indexes();
+                Mux::rebuild_split_screen_index(&mut projected);
+                let workspace_key = |state: &State, surface: SurfaceId| {
+                    state
+                        .pane_of(surface)
+                        .and_then(|pane| state.screen_of(pane))
+                        .map(|(workspace, _)| state.workspaces[workspace].key.clone())
+                };
+                for (surface, runtime) in &projected.surfaces {
+                    let (Some(before), Some(after)) =
+                        (workspace_key(&*state, *surface), workspace_key(&projected, *surface))
+                    else {
+                        continue;
+                    };
+                    if before != after
+                        && let Some(terminal) = runtime.terminal_public_id()
+                    {
+                        retarget.push((*surface, terminal.clone(), after));
+                    }
+                }
+                let created = projected
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .find(|(_, workspace)| state.workspace_index(workspace.id).is_none())
+                    .map(|(index, workspace)| (index, workspace.id, workspace.key.clone()));
+                let ledger = created.map(|(index, id, key)| ResourceWorkspaceLedger {
+                    event_kind: "workspace-added",
+                    workspace_key: key.clone(),
+                    workspaces: mux.registry_projection(&projected),
+                    legacy_result: serde_json::json!({
+                        "workspace": id,
+                        "key": key,
+                        "index": index,
+                        "changed": true,
+                    }),
+                    presentation: None,
+                });
+                let mut projection = mux.resource_effect_projection_locked(
                     registry,
                     &mut projected,
                     serde_json::json!({}),
                 )?;
-                Ok(ResourceMutationPlan::new(
+                for (_, terminal, key) in &retarget {
+                    tab_drag::retarget_terminal_workspace(&mut projection.patch, terminal, key);
+                }
+                output = Some(result);
+                let write = screen_rows_write(&before, edit);
+                let mut plan = ResourceMutationPlan::new(
                     projection.patch,
                     projection.result,
                     projection.changes,
                     move |state| *state = projected,
                 )
-                .with_state_write(screen_state_write(edit)))
+                .with_state_write(write);
+                if let Some(ledger) = ledger {
+                    plan = plan.with_workspace_ledger(ledger);
+                }
+                Ok(plan)
             },
         )?;
         if !commit.replayed {
+            {
+                let registry = self.workspace_registry.lock().unwrap();
+                self.reload_presentation(&registry)?;
+            }
+            for (surface, _, key) in retarget {
+                if let Some(runtime) = self.surface(surface) {
+                    let _ = runtime.persist_host_workspace(&key);
+                }
+            }
+            self.publish_journal_event();
             self.emit(MuxEvent::TreeChanged);
         }
-        Ok(commit)
+        Ok((output, commit))
     }
 
-    /// `screen_group.update` and `screen_group.ungroup`: rows only.
-    pub(crate) fn state_screen_group_rows(
+    /// Commit screen rows that leave screen order alone (color, icon, group
+    /// name, color and collapsed state, ungroup, saved links).
+    pub(crate) fn commit_screen_rows<R>(
         &self,
-        mutation: &WorkspaceMutation,
-        operation: &'static str,
-        expected_revision: Option<u64>,
-        group: &str,
-        update: Option<(Option<String>, Option<String>, Option<bool>)>,
-    ) -> anyhow::Result<StateCommit> {
-        if let Some((name, color, _)) = &update {
-            if let Some(name) = name {
-                crate::workspace_registry::validate_tab_group_name(name)?;
-            }
-            if let Some(color) = color {
-                crate::workspace_registry::validate_tab_group_color(color)?;
-            }
-        }
-        let fingerprint = serde_json::json!({
-            "operation": operation,
-            "screen_group": group,
-            "update": update,
-        });
-        self.commit_state(
-            mutation,
-            operation,
-            &fingerprint,
-            expected_revision,
-            StateEffects { presentation: false, tree: true },
-            |transaction, _| {
-                let mut record = screen_group(transaction, group)?
-                    .ok_or_else(|| state_not_found("screen_group", group))?;
-                let members = screen_group_members(transaction, group)?;
-                if members.is_empty() {
-                    return Err(state_not_found("screen_group", group));
-                }
-                match update {
-                    Some((name, color, collapsed)) => {
-                        if let Some(name) = name {
-                            record.name = name;
-                        }
-                        if let Some(color) = color {
-                            record.color = color;
-                        }
-                        if let Some(collapsed) = collapsed {
-                            record.collapsed = collapsed;
-                        }
-                        put_screen_group(transaction, &record)?;
-                        let snapshot = screen_group_snapshot(transaction, group)?
-                            .ok_or_else(|| state_not_found("screen_group", group))?;
-                        Ok(StateChanges::new(
-                            snapshot.clone(),
-                            vec![state_upsert("screen_group", group, snapshot)],
-                        ))
-                    }
-                    None => {
-                        delete_screen_group(transaction, group)?;
-                        let mut changes = fresh_upserts(transaction, &[], &members, &[])?;
-                        changes.push(state_delete("screen_group", group));
-                        Ok(StateChanges::new(
-                            serde_json::json!({"screen_group_id": group, "screen_ids": members}),
-                            changes,
-                        ))
-                    }
-                }
+        request: StripRequest,
+        mutate: impl FnOnce(&State, &mut ScreenEdit) -> anyhow::Result<R>,
+    ) -> anyhow::Result<(Option<R>, StateCommit)> {
+        let mut output = None;
+        let commit = self.commit_state(
+            &request.mutation,
+            &request.operation,
+            &request.fingerprint,
+            request.expected_revision,
+            StateEffects::PRESENTATION,
+            |transaction, state| {
+                let before = self.presentation_snapshot().screens.clone();
+                let mut edit = ScreenEdit { screens: before.clone(), result: ScreenResult::None };
+                output = Some(mutate(state, &mut edit)?);
+                screen_groups::prune_screen_state(state, &mut edit.screens);
+                let mut result = Value::Null;
+                let mut changes = Vec::new();
+                screen_rows_write(&before, edit)(transaction, &mut result, &mut changes)?;
+                Ok(StateChanges::new(result, changes))
             },
-        )
+        )?;
+        if !commit.replayed {
+            self.publish_journal_event();
+        }
+        Ok((output, commit))
+    }
+
+    /// The v2 screen operations: `screen.update`, `screen.move`, and
+    /// `screen_group.create|add_screens|remove_screens|update|ungroup`.
+    pub(crate) fn state_screen_change(
+        self: &Arc<Self>,
+        request: StripRequest,
+        change: ScreenChange,
+    ) -> anyhow::Result<StateCommit> {
+        let screen_of = |selectors: &crate::ResourceSelectors| -> anyhow::Result<ScreenId> {
+            let resolved = self.resolve_resource_path(crate::ResourceTarget::Screen, selectors)?;
+            let public = resolved.screen.context("screen selector resolved no screen")?;
+            self.screen_id_of(public.as_str())
+                .ok_or_else(|| state_not_found("screen", public.as_str()))
+        };
+        let screens_of = |ids: &[String]| -> anyhow::Result<Vec<ScreenId>> {
+            anyhow::ensure!(!ids.is_empty(), "bad request: screens is empty");
+            ids.iter()
+                .map(|id| self.screen_id_of(id).ok_or_else(|| state_not_found("screen", id)))
+                .collect()
+        };
+        Ok(match change {
+            ScreenChange::Update { selectors, update } => {
+                update.validate()?;
+                let screen = screen_of(&selectors)?;
+                self.update_screen_presentation(request, screen, update)?
+            }
+            ScreenChange::Move { selectors, index } => {
+                let screen = screen_of(&selectors)?;
+                self.move_screen_block_request(
+                    request,
+                    &[screen],
+                    ScreenDestination::Workspace { workspace: None, index: Some(index) },
+                    true,
+                )?
+                .into()
+            }
+            ScreenChange::GroupCreate { screens, name, color } => {
+                let screens = screens_of(&screens)?;
+                self.create_screen_group_request(request, &screens, Some(name), Some(color))?
+                    .1
+                    .into()
+            }
+            ScreenChange::GroupAdd { group, screens } => {
+                let screens = screens_of(&screens)?;
+                self.add_screens_request(request, &group, &screens, None)?.into()
+            }
+            ScreenChange::GroupRemove { screens } => {
+                let screens = screens_of(&screens)?;
+                self.remove_screens_request(request, &screens)?.1.into()
+            }
+            ScreenChange::GroupUpdate { group, name, color, collapsed } => {
+                self.update_screen_group_request(request, &group, name, color, collapsed)?
+            }
+            ScreenChange::GroupUngroup { group } => {
+                self.ungroup_screen_group_request(request, &group)?.1
+            }
+        })
+    }
+
+    /// Set a screen's color, icon, and pin in one commit. Pinning reorders
+    /// (pinned screens first) and leaves the screen's group.
+    pub(crate) fn update_screen_presentation(
+        self: &Arc<Self>,
+        request: StripRequest,
+        screen: ScreenId,
+        update: ScreenMetaUpdate,
+    ) -> anyhow::Result<StateCommit> {
+        update.validate()?;
+        let edit_rows = move |state: &State, edit: &mut ScreenEdit| -> anyhow::Result<bool> {
+            let public = screen_groups::screen_public_id(state, screen)?;
+            let before = edit.screens.screen(&public).cloned().unwrap_or_default();
+            edit.screens.edit(&public, |record| {
+                if let Some(color) = update.color {
+                    record.color = color;
+                }
+                if let Some(icon) = update.icon {
+                    record.icon = icon;
+                }
+                if let Some(pinned) = update.pinned {
+                    record.pinned = pinned;
+                }
+            });
+            if update.pinned == Some(true) {
+                edit.screens.members.remove(&public);
+            }
+            let changed = edit.screens.screen(&public).cloned().unwrap_or_default() != before;
+            edit.result = ScreenResult::Screen(public);
+            Ok(changed)
+        };
+        let (changed, commit) = if update.pinned.is_some() {
+            let (changed, commit) =
+                self.commit_screen_request(request, |_, state, edit| edit_rows(state, edit))?;
+            (changed, commit.into())
+        } else {
+            self.commit_screen_rows(request, edit_rows)?
+        };
+        if changed.unwrap_or(false) {
+            self.emit_screen_changed(&[screen]);
+        }
+        Ok(commit)
     }
 }

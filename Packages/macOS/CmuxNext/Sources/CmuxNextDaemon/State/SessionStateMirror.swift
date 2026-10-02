@@ -109,21 +109,25 @@ public struct StateScreenGroup: Sendable, Hashable, Decodable {
     public var color: String?
     public var collapsed: Bool
     public var screenIDs: [ResourceID]
+    /// The saved screen group this live group is linked to.
+    public var savedID: String?
 
     enum CodingKeys: String, CodingKey {
         case id, name, color, collapsed
         case workspaceID = "workspace_id"
         case screenIDs = "screen_ids"
+        case savedID = "saved_id"
     }
 
     public init(id: String, workspaceID: ResourceID, name: String = "", color: String? = nil, collapsed: Bool = false,
-                screenIDs: [ResourceID] = []) {
+                screenIDs: [ResourceID] = [], savedID: String? = nil) {
         self.id = id
         self.workspaceID = workspaceID
         self.name = name
         self.color = color
         self.collapsed = collapsed
         self.screenIDs = screenIDs
+        self.savedID = savedID
     }
 }
 

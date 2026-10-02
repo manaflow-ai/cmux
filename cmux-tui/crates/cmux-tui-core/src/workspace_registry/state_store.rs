@@ -13,7 +13,9 @@
 //! current.
 //!
 //! The tables here are additive and carry no foreign keys: an older binary
-//! that opens the registry ignores them.
+//! that opens the registry ignores them. Screen presentation and screen
+//! groups live in `screen_store`'s tables (one storage for the raw screen
+//! commands and the v2 operations).
 
 use anyhow::Context;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
@@ -40,23 +42,6 @@ pub(super) fn create_state_schema(transaction: &Transaction<'_>) -> anyhow::Resu
            zoom REAL,
            back_json TEXT,
            forward_json TEXT
-         );
-         CREATE TABLE IF NOT EXISTS screen_state (
-           screen_id TEXT PRIMARY KEY NOT NULL,
-           pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
-           color TEXT,
-           icon TEXT
-         );
-         CREATE TABLE IF NOT EXISTS screen_groups (
-           group_id TEXT PRIMARY KEY NOT NULL,
-           workspace_id TEXT NOT NULL,
-           name TEXT NOT NULL DEFAULT '',
-           color TEXT NOT NULL,
-           collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1))
-         );
-         CREATE TABLE IF NOT EXISTS screen_group_members (
-           screen_id TEXT PRIMARY KEY NOT NULL,
-           group_id TEXT NOT NULL
          );
          CREATE TABLE IF NOT EXISTS workspace_status_entries (
            workspace_id TEXT NOT NULL,

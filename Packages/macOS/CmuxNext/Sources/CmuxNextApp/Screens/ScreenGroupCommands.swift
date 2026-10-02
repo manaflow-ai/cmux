@@ -5,9 +5,9 @@ import CmuxNextDesign
 /// The one mutation path for screen groups (`screen-groups-v1`), shared by
 /// the screen bar's chips and editor bubble, the palette, context menus,
 /// shortcuts, and the CLI. Each change is one daemon command: the v2
-/// `screen_group.*` operations on a daemon with state resources; group
-/// moves and saved groups have no daemon operation there
-/// (`DaemonCapabilities.savedScreenGroups`).
+/// `screen_group.*` operations on a daemon with state resources, else the
+/// raw commands. Both write the daemon's one screen storage; group moves and
+/// saved groups have only the raw commands.
 @MainActor
 enum ScreenGroupCommands {
     /// Public ids of `screens` when their daemon takes the v2 operations.

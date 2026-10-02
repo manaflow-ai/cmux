@@ -7,16 +7,14 @@ import Observation
 /// `sessionState`, rebuilt after each structural change and each state
 /// change, never written by the app (state-ownership.md 1).
 extension DaemonStore {
-    /// True once this daemon delivered state resources: closed history,
-    /// ephemeral workspaces, workspace status, the v2 state mutations
-    /// (`DaemonCapabilities.stateResources`).
-    public var servesStateResources: Bool { sessionState != nil }
+    /// True when this daemon serves the state resources (closed history,
+    /// ephemeral workspaces, workspace status, the v2 state mutations): its
+    /// `identify` advertises `DaemonCapabilities.stateResources`.
+    public var servesStateResources: Bool { supports(DaemonCapabilities.shared.stateResources) }
 
-    /// Whether this daemon serves `capability`: its `identify`, or the
-    /// state resources for the capabilities they provide.
+    /// Whether this daemon's `identify` advertises `capability`.
     public func supports(_ capability: String) -> Bool {
-        if DaemonCapabilities.providedByStateResources.contains(capability), servesStateResources { return true }
-        return identity?.supports(capability) ?? false
+        identity?.supports(capability) ?? false
     }
 
     /// Recently closed tabs, screens, and workspaces, newest first.
@@ -50,8 +48,8 @@ extension DaemonStore {
         }
     }
 
-    /// Returns once this daemon answered whether it serves state resources
-    /// (`sessionStateKnown`), or the connection changed.
+    /// Returns once the state resources' first snapshot arrived, or this
+    /// daemon serves none (`sessionStateKnown`), or the connection changed.
     public func sessionStateResolved() async {
         guard !sessionStateKnown else { return }
         let state = connectionState
@@ -66,15 +64,14 @@ extension DaemonStore {
         case .snapshot(let mirror):
             if sessionState != mirror { sessionState = mirror }
             if !sessionStateKnown { sessionStateKnown = true }
-        case .unsupported:
-            if sessionState != nil { sessionState = nil }
-            if !sessionStateKnown { sessionStateKnown = true }
         case .delta(let changes):
             guard var state = sessionState else { return }
             state.apply(changes)
             if state != sessionState { sessionState = state }
         case .ended:
-            // The reopened stream's snapshot replaces the mirror.
+            // The reopened stream's snapshot replaces the mirror; a stream
+            // that could not open leaves no snapshot to wait for.
+            if !sessionStateKnown { sessionStateKnown = true }
             return
         }
         applyStateOverlay()
@@ -116,7 +113,8 @@ extension DaemonStore {
             let members = group.screenIDs.compactMap { handles[$0] }
             let start = group.screenIDs.compactMap { order.firstIndex(of: $0) }.min() ?? 0
             return ScreenGroupSnapshot(id: ScreenGroupID(rawValue: group.id), name: group.name, color: group.color,
-                                       collapsed: group.collapsed, start: start, screens: members)
+                                       collapsed: group.collapsed, savedID: group.savedID.map(SavedScreenGroupID.init(rawValue:)),
+                                       start: start, screens: members)
         }
     }
 }

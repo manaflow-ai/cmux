@@ -4,12 +4,11 @@ import Foundation
 /// (closed history, workspace status, ephemeral workspaces, screen metadata
 /// and groups, tab records, terminal progress) to `DaemonStore.sessionState`.
 ///
-/// Opened on every connect, after the handshake, without blocking it. Its
-/// lines arrive on the control socket between the raw events and travel
-/// through the same ordered event stream (`DaemonEvent.sessionState`). A
-/// daemon whose snapshot lists no state resources predates them: the
-/// stream is cancelled and the app keeps its own paths. A stream that ends
-/// with `gap` (the app fell behind) is opened again for a fresh snapshot.
+/// Opened after the handshake, without blocking it, when the daemon's
+/// `identify` advertises `state-resources-v1`. Its lines arrive on the
+/// control socket between the raw events and travel through the same
+/// ordered event stream (`DaemonEvent.sessionState`). A stream that ends with
+/// `gap` (the app fell behind) is opened again for a fresh snapshot.
 extension DaemonConnection {
     /// True when this connection mirrors the state resources (it opens
     /// `session.events`); otherwise the store never learns about them.
@@ -25,10 +24,11 @@ extension DaemonConnection {
         enum CodingKeys: String, CodingKey { case streamID = "stream_id" }
     }
 
-    /// Opens `session.events` on connection `serial`. A daemon or fake that
-    /// cannot serve it leaves the app on its own paths.
+    /// Opens `session.events` on connection `serial` when the daemon serves
+    /// the state resources.
     func openSessionEvents(serial: UInt64) async {
-        guard configuration.sessionEvents, isReady, self.serial == serial else { return }
+        guard configuration.sessionEvents, isReady, self.serial == serial,
+              identity?.supports(DaemonCapabilities.shared.stateResources) == true else { return }
         let id = Self.newStreamID()
         sessionStream = id
         do {
@@ -39,26 +39,18 @@ extension DaemonConnection {
         } catch {
             guard sessionStream == id else { return }
             sessionStream = nil
-            // No stream: the store learns the daemon serves no state
-            // resources instead of waiting for a snapshot.
+            // No stream: waiters for the first snapshot stop waiting.
             if let sequence = eventSequence() {
-                yieldEvent(DaemonEventEnvelope(sequence: sequence, event: .sessionState(.unsupported)))
+                yieldEvent(DaemonEventEnvelope(sequence: sequence, event: .sessionState(.ended(reason: "failed"))))
             }
         }
     }
 
-    /// Routes stream lifecycle the reader saw: cancel a stream the daemon
-    /// serves no state on, reopen one that ended with `gap`.
+    /// Routes stream lifecycle the reader saw: reopen a stream that ended
+    /// with `gap`.
     func sessionStreamEvent(_ item: SessionStreamItem, serial: UInt64) async {
         guard self.serial == serial else { return }
         switch item {
-        case .unsupported:
-            guard let id = sessionStream else { return }
-            sessionStream = nil
-            _ = try? await resourceRequest({ requestID in
-                ResourceRequestEnvelope(id: requestID, operation: "stream.cancel", params: ["stream": .string(id)],
-                                        idempotencyKey: nil)
-            }, as: JSONValue.self)
         case .ended(let reason):
             sessionStream = nil
             if reason == "gap" { await openSessionEvents(serial: serial) }

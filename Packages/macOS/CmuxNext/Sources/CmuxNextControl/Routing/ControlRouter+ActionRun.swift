@@ -140,7 +140,7 @@ extension ControlRouter {
         defer { scope.close() }
         let failure: ActionWorkFailure?
         do {
-            failure = try await ControlDeadline.run(method: method, deadline: deadline) {
+            failure = try await ControlDeadline.shared.run(method: method, deadline: deadline) {
                 let tracked = await Self.firstFailure(of: run.work)
                 await Self.awaitIdle(scope)
                 return tracked

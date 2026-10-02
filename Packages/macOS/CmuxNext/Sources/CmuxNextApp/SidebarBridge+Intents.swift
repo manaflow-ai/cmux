@@ -12,6 +12,26 @@ import CmuxNextSidebar
 extension SidebarBridge {
     func handle(_ intent: SidebarIntent) {
         guard let state else { return }
+        // The Pinned section is the daemon's pin, in either organization: a
+        // drop there pins, a pinned workspace dropped on its own machine
+        // unpins. Pinned order follows the sidebar, so a drop of workspaces
+        // that are all pinned already only snaps back.
+        if case .reorder(let ids, let position) = intent {
+            switch position.section {
+            case .pinned:
+                let unpinned = ids.filter { services.machines.workspace(id: $0.rawValue)?.0.pinned != true }
+                guard !unpinned.isEmpty else { return resync() }
+                model.apply(intent)
+                return sendPinned(unpinned, true)
+            case .machine(let machine):
+                let target = services.machines.daemon(machine: machine.rawValue)
+                let leaving = ids.filter { id in
+                    guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue) else { return false }
+                    return workspace.pinned && daemon === target
+                }
+                if !leaving.isEmpty { sendPinned(leaving, false) }
+            }
+        }
         if usesPersonalOrganization, handlePersonal(intent) { return }
         switch intent {
         case .select(let id):
@@ -52,7 +72,7 @@ extension SidebarBridge {
         case .closeGroup(let group):
             let members = (model.group(group)?.workspaces.map(\.id) ?? []).compactMap { id in
                 services.machines.workspace(id: id.rawValue).flatMap { workspace, daemon in
-                    workspace.key.map { (daemon, $0, WorkspaceClose.terminals(of: workspace, on: daemon)) }
+                    workspace.key.map { (daemon, $0, WorkspaceClose.closing(workspace, on: daemon)) }
                 }
             }
             model.apply(intent)
@@ -67,10 +87,25 @@ extension SidebarBridge {
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
             command("move-profile", on: services.machines.local) { c, _ in try await c.moveProfile(id, to: index) }
-        case .setIcon, .setPinned, .setGroupPinned, .openGroup:
+        case .setPinned(let ids, let pinned):
+            model.apply(intent)
+            sendPinned(ids, pinned)
+        case .setIcon, .setGroupPinned, .openGroup:
             // Needs daemon fields this build does not map yet; apply locally
             // so the UI responds, the next store change restores truth.
             model.apply(intent)
+        }
+    }
+
+    /// `set-workspace-metadata` with the pin, per owning daemon. A daemon
+    /// without `workspace-pin-v1` keeps the row where it was.
+    private func sendPinned(_ ids: [SidebarWorkspaceID], _ pinned: Bool) {
+        for (daemon, key) in keys(ids) {
+            guard daemon.supports(DaemonCapabilities.shared.workspacePin) else {
+                resync()
+                continue
+            }
+            command("set-workspace-metadata", on: daemon) { c, _ in _ = try await c.setWorkspaceMetadata(key, pinned: pinned) }
         }
     }
 
@@ -91,7 +126,7 @@ extension SidebarBridge {
 
     /// Why a group intent is refused without personal state.
     private func daemon(ofGroupless intent: SidebarIntent) -> String {
-        services.machines.local.missingCapabilityMessage(DaemonCapabilities.profiles)
+        services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles)
     }
 
     func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {

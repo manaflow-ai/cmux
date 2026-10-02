@@ -18,8 +18,9 @@ public struct ShortcutEditEnvironment: Sendable {
 
 /// Chords macOS keeps for itself; an app never sees them, or taking them
 /// breaks a system feature.
-public enum SystemReservedShortcuts {
-    public static let table: [Shortcut: String] = [
+public struct SystemReservedShortcuts {
+    public static let shared = Self()
+    public let table: [Shortcut: String] = [
         Shortcut(" ", modifiers: [.command]): "Spotlight",
         Shortcut(" ", modifiers: [.command, .option]): "Finder search",
         Shortcut(" ", modifiers: [.control]): "Input Sources",

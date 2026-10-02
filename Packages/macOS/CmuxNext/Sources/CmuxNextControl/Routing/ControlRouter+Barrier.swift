@@ -19,7 +19,7 @@ extension ControlRouter {
             sequence = UInt64(text) ?? 0
         case .string("sync"):
             guard let barrier = syncBarrier else { return snapshots.current }
-            sequence = try await ControlDeadline.run(method: method, deadline: deadline) { try await barrier() }
+            sequence = try await ControlDeadline.shared.run(method: method, deadline: deadline) { try await barrier() }
         default:
             throw ControlError.invalidParams(ControlStrings.text("control.error.afterShape",
                                                                  "after must be a sequence number from an earlier reply or \"sync\""))

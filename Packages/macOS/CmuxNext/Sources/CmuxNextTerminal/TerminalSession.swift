@@ -23,6 +23,7 @@ import GhosttyKit
 /// (another client holds geometry) never shows as a grid the PTY does not
 /// have. An IO that never sends `.resize` (a bare PTY, resized by the
 /// request itself) keeps the surface sized to the view.
+@MainActor
 public final class TerminalSession {
     public let model = TerminalSurfaceModel()
     public let view: TerminalHostView
@@ -39,6 +40,23 @@ public final class TerminalSession {
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
+    }
+
+    /// This terminal's theme when it differs from the Ghostty config (its
+    /// own, its workspace's or its room's); nil uses the config. Applied to
+    /// the live surface in place (`ghostty_surface_update_config`: palette,
+    /// background, foreground, cursor, selection), with no restart and no
+    /// grid change, and to every surface a later replay swaps in.
+    public private(set) var theme: GhosttyThemeConfig?
+
+    /// Sets ``theme``. `force` re-applies an unchanged one, after a config
+    /// reload pushed the app config to every surface.
+    public func setTheme(_ config: GhosttyThemeConfig?, force: Bool = false) {
+        let previous = theme
+        guard force || config !== previous else { return }
+        theme = config
+        view.theme = config
+        applyTheme(to: surfaceView, clearing: previous != nil && config == nil)
     }
 
     /// Mirrors currently shown. Forwarded to whichever surface is live so a
@@ -82,6 +100,8 @@ public final class TerminalSession {
                     await io.resize(cols: grid.columns, rows: grid.rows, pixelWidth: width, pixelHeight: height)
                 case .focusGained:
                     await io.focusGained()
+                case .reconnect:
+                    await io.reconnectRequested()
                 }
             }
         }
@@ -169,7 +189,17 @@ public final class TerminalSession {
             await applyCanonicalGrid(TerminalGridSize(columns: columns, rows: rows))
         case .exited:
             model.hasExited = true
+        case .status(let status):
+            model.connection = status
+            if status == .exited { model.hasExited = true }
+            view.showStatus(status)
         }
+    }
+
+    /// A click in the surface: a disconnected terminal re-attaches.
+    func surfaceClicked() {
+        guard case .disconnected(_, reconnecting: false) = model.connection else { return }
+        input.reconnect()
     }
 
     /// `ghostty_surface_restore_kitty_replay` (ghostty.h:1614-1628) runs on
@@ -244,10 +274,23 @@ public final class TerminalSession {
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
         view.install(fresh)
+        applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
+    }
+
+    /// A new surface starts from the app config, so only a theme needs
+    /// applying; clearing one re-applies the app config (Ghostty resolves
+    /// its light/dark variant per surface).
+    private func applyTheme(to surfaceView: TerminalSurfaceView, clearing: Bool) {
+        guard let surface = surfaceView.surface else { return }
+        if let theme {
+            ghostty_surface_update_config(surface, theme.config)
+        } else if clearing, let config = GhosttyRuntime.shared.config {
+            ghostty_surface_update_config(surface, config)
+        }
     }
 
     // MARK: From the surface view
@@ -259,37 +302,5 @@ public final class TerminalSession {
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int) {
         guard ownsGeometry else { return }
         input.resize(grid, pixelWidth: pixelWidth, pixelHeight: pixelHeight)
-    }
-}
-
-/// Container the App embeds. Holds the current surface view (swapped on
-/// replay) and paints the config background behind an announced grid that is
-/// smaller than the view.
-public final class TerminalHostView: NSView {
-    private weak var current: TerminalSurfaceView?
-
-    init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
-        wantsLayer = true
-        layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    func install(_ surfaceView: TerminalSurfaceView) {
-        let old = current
-        surfaceView.frame = bounds
-        surfaceView.autoresizingMask = [.width, .height]
-        addSubview(surfaceView)
-        current = surfaceView
-        old?.removeFromSuperview()
-    }
-
-    public override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        layer?.backgroundColor = GhosttyRuntime.shared.backgroundColor.cgColor
     }
 }

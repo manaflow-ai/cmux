@@ -35,7 +35,7 @@ enum LiveDaemon {
         let launcher = DaemonLauncher(
             configuration: .init(binary: try #require(LiveBinary.url), session: "cnm-it-\(id)",
                                  stateDirectory: root.appendingPathComponent("state")),
-            environment: { LoginEnvironment.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment, overrides: [:]) })
+            environment: { LoginEnvironment.shared.daemonEnvironment(login: nil, base: ProcessInfo.processInfo.environment, overrides: [:]) })
         let ensured = try await launcher.ensure()
         let control = DaemonConnection(endpointProvider: launcher.endpointProvider)
         try await control.start()

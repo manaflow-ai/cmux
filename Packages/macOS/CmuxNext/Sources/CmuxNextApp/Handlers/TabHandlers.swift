@@ -21,6 +21,7 @@ enum TabHandlers {
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
         registry.bind("newSurface", invoke: { TabLifecycle.newTerminal(ctx, $0) })
+        registry.bind("newTab.sameKind", invoke: { TabLifecycle.newTabOfPaneKind(ctx, $0) })
         registry.bind("openBrowser", invoke: { TabLifecycle.newBrowser(ctx, $0) })
         registry.bind("openBrowser.webkit", invoke: { TabLifecycle.newBrowser(ctx, $0, engine: .webkit) })
         let chromiumReason: @MainActor () -> String? = { ctx.services.cache.browserTabs?.cefUnavailableReason() }
@@ -50,6 +51,8 @@ enum TabHandlers {
                 pane.newBrowserTab(url: live ?? tab.url.flatMap(URL.init(string:)), inherited: tab.browserEngine)
             } else if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 pane.newBrowserTab(url: ctx.services.cache.existingBrowser(id.rawValue)?.tab.state.url)
+            } else if id.rawValue.hasPrefix(LocalAgentTab.prefix) {
+                pane.duplicateAgentTab(id.rawValue)
             } else {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
@@ -166,7 +169,7 @@ enum TabHandlers {
             guard let surface = pane.tab(id)?.surface ?? ctx.refuse(RefusalStrings.sessionLocalHasNoName) else { return }
             rename(surface, to: nil, ctx: ctx, pane: pane)
         })
-        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.tabMetadata), invoke: { invocation in
+        registry.bind("palette.toggleTabPin", unavailable: ctx.needs(DaemonCapabilities.shared.tabMetadata), invoke: { invocation in
             if TabLifecycle.togglePinHidden(ctx, invocation) { return }
             guard let (pane, id) = ctx.tab(invocation) else { return }
             guard let tab = pane.tab(id) ?? ctx.refuse(RefusalStrings.sessionLocalCannotPin) else { return }

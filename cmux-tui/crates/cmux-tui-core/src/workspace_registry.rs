@@ -34,14 +34,17 @@ pub(crate) mod closed_history_store;
 mod effect_store;
 mod idle_policy_store;
 mod journal_extensions;
+mod personal_browser_profiles;
 mod personal_mutations;
 pub(crate) mod personal_state_store;
 mod personal_store;
+mod personal_terminals;
 mod presentation_store;
 mod public_fold;
 mod public_projection_store;
 mod resource_store;
 pub(crate) mod screen_state_store;
+mod screen_store;
 mod session_journal;
 pub(crate) mod state_store;
 pub(crate) mod state_values;
@@ -71,13 +74,17 @@ pub(crate) use journal_extensions::{
     JournalHookDelivery, JournalHookDeliveryResult, JournalHookScan, JournalHookState,
     JournalSegmentSealCommit, JournalSegmentSealStart,
 };
+pub use personal_browser_profiles::{
+    BrowserProfileInput, BrowserProfileUpdate, PersonalBrowserProfile,
+};
 pub use personal_mutations::{PersonalWorkspaceUpdate, ProfileInput, ProfileUpdate};
 pub use personal_store::{DEFAULT_PROFILE_ID, PersonalSnapshot};
 pub use presentation_store::{
     FrontendBrowserRecord, PresentationSnapshot, SavedTabGroupRecord, SavedTabMember,
     TabGroupRecord, TabGroupState, WorkspaceGroupRecord, WorkspacePresentationUpdate,
-    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_tab_group_color,
-    validate_tab_group_name, validate_workspace_group_id,
+    new_saved_tab_group_id, new_tab_group_id, new_workspace_group_id, validate_presentation_color,
+    validate_presentation_icon, validate_tab_group_color, validate_tab_group_name,
+    validate_workspace_group_id,
 };
 pub use public_projection_store::RegistryPublicProjections;
 pub(crate) use public_projection_store::agent_projection_extra;
@@ -104,6 +111,10 @@ use resource_store::{
     migrate_resource_browser_metadata, migrate_resource_mutations_to_session_scope,
     migrate_resource_tabs_to_multiview, repair_dangling_terminal_resources,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
+};
+pub use screen_store::{
+    SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
+    ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
 };
 pub use session_journal::{
     JournalAuthority, JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity,
@@ -4014,6 +4025,7 @@ fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
 
 fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     presentation_store::create_presentation_schema(transaction)?;
+    screen_store::create_screen_schema(transaction)?;
     state_store::create_state_schema(transaction)?;
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspaces (

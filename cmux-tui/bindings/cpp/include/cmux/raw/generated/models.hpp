@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474";
+inline constexpr std::string_view kProtocolIrSha256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -79,6 +79,7 @@ struct MoveTerminalResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
+enum class NotificationSource;
 struct NotifyResult;
 struct Pane;
 enum class PaneDirection;
@@ -89,6 +90,7 @@ struct ProcessInfoResult;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
+struct ReattachViewResult;
 struct RenderCursor;
 enum class RenderGraphicFormat;
 struct RenderGraphicImage;
@@ -158,6 +160,7 @@ struct Workspace;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
 struct AckTabNotificationsRequest;
+struct AddScreensToScreenGroupRequest;
 struct AddTabsToTabGroupRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
@@ -181,21 +184,26 @@ struct ClientFocusResult;
 struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
+struct CloseScreenGroupRequest;
 struct CloseSurfaceRequest;
 struct CloseTabGroupRequest;
 struct CloseTabsRequest;
 struct CloseTerminalRequest;
 struct CloseWorkspaceRequest;
 struct CopyRequest;
+struct CreateBrowserProfileRequest;
 struct CreatePersonalGroupRequest;
 struct CreateProfileRequest;
+struct CreateScreenGroupRequest;
 struct CreateSurfaceWithReceiptRequest;
 struct CreateTabGroupRequest;
 struct CreateTerminalRequest;
 struct CreateWorkspaceRequest;
 struct CreateWorkspaceGroupRequest;
+struct DeleteBrowserProfileRequest;
 struct DeletePersonalGroupRequest;
 struct DeleteProfileRequest;
+struct DeleteSavedScreenGroupRequest;
 struct DeleteSavedTabGroupRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
@@ -218,6 +226,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListNotificationsRequest;
 struct ListPersonalRequest;
+struct ListSavedScreenGroupsRequest;
 struct ListSavedTabGroupsRequest;
 struct ListTabGroupsRequest;
 struct ListTerminalsRequest;
@@ -228,8 +237,11 @@ struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
+struct MoveBrowserProfileRequest;
 struct MovePersonalGroupRequest;
 struct MoveProfileRequest;
+struct MoveScreenRequest;
+struct MoveScreenGroupRequest;
 struct MoveTabRequest;
 struct MoveTabGroupRequest;
 struct MoveTabGroupToColumnRequest;
@@ -263,17 +275,20 @@ struct PutFrontendProjectionRequest;
 struct PutSessionRequest;
 struct ReadScreenRequest;
 struct ReadScrollbackRequest;
+struct ReattachViewRequest;
 struct RegisterBrowserProviderRequest;
 struct ReleaseAttachedViewSizeRequest;
 struct ReleaseSurfaceSizeRequest;
 struct ReloadConfigRequest;
 struct ReloadConfigResult;
+struct RemoveScreensFromScreenGroupRequest;
 struct RemoveTabsFromTabGroupRequest;
 struct RenamePaneRequest;
 struct RenameProviderManagedWorkspaceRequest;
 struct RenameScreenRequest;
 struct RenameSurfaceRequest;
 struct RenameWorkspaceRequest;
+struct ReopenSavedScreenGroupRequest;
 struct ReopenSavedTabGroupRequest;
 struct ReportAgentRequest;
 struct ReportFocusRequest;
@@ -281,6 +296,7 @@ struct ResizeAttachedViewRequest;
 struct ResizeSurfaceRequest;
 struct ResolveTerminalRequest;
 struct RunRequest;
+struct SaveScreenGroupRequest;
 struct SaveTabGroupRequest;
 struct ScrollSurfaceRequest;
 struct SelectScreenRequest;
@@ -293,9 +309,12 @@ struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
 struct SetDefaultColorsRequest;
+struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
 struct SetRatioRequest;
+struct SetScreenMetadataRequest;
+struct SetScreenPinnedRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
@@ -313,13 +332,17 @@ struct SwapPaneRequest;
 struct TerminalEventsRequest;
 struct TerminalResourcesRequest;
 struct UndoLayoutRequest;
+struct UngroupScreenGroupRequest;
 struct UngroupTabGroupRequest;
 struct UnpinWorkspaceRequest;
 struct UnregisterBrowserProviderRequest;
+struct UnsaveScreenGroupRequest;
 struct UnsaveTabGroupRequest;
+struct UpdateBrowserProfileRequest;
 struct UpdateFrontendBrowserTabRequest;
 struct UpdatePersonalGroupRequest;
 struct UpdateProfileRequest;
+struct UpdateScreenGroupRequest;
 struct UpdateTabGroupRequest;
 struct UpdateWorkspaceGroupRequest;
 struct UrlOpenRequest;
@@ -358,6 +381,7 @@ struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
 struct ScreenAddedEvent;
+struct ScreenChangedEvent;
 struct ScreenClosedEvent;
 struct ScreenRenamedEvent;
 struct ScrollChangedEvent;
@@ -420,6 +444,13 @@ struct Id {
 struct AckTabNotificationsRequest {
     Id surface{};
     friend bool operator==(const AckTabNotificationsRequest&, const AckTabNotificationsRequest&) = default;
+};
+
+struct AddScreensToScreenGroupRequest {
+    std::string group{};
+    Field<std::uint64_t> index{};
+    std::vector<Id> screens{};
+    friend bool operator==(const AddScreensToScreenGroupRequest&, const AddScreensToScreenGroupRequest&) = default;
 };
 
 struct TabRef {
@@ -995,6 +1026,12 @@ struct CloseProviderManagedWorkspaceRequest {
     friend bool operator==(const CloseProviderManagedWorkspaceRequest&, const CloseProviderManagedWorkspaceRequest&) = default;
 };
 
+struct CloseScreenGroupRequest {
+    std::optional<bool> end_terminals{};
+    std::string group{};
+    friend bool operator==(const CloseScreenGroupRequest&, const CloseScreenGroupRequest&) = default;
+};
+
 struct CloseScreenRequest {
     std::optional<bool> end_terminals{};
     Id screen{};
@@ -1115,6 +1152,21 @@ struct CopyResult {
     friend bool operator==(const CopyResult&, const CopyResult&) = default;
 };
 
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct CreateBrowserProfileRequest {
+    Field<std::string> browser_profile{};
+    Field<std::string> color{};
+    Field<std::string> icon{};
+    Field<std::uint64_t> index{};
+    std::string name{};
+    Field<JsonValue> source{};
+    friend bool operator==(const CreateBrowserProfileRequest&, const CreateBrowserProfileRequest&) = default;
+};
+
 struct CreatePersonalGroupRequest {
     std::optional<bool> collapsed{};
     Field<std::string> color{};
@@ -1123,11 +1175,6 @@ struct CreatePersonalGroupRequest {
     std::string name{};
     Field<std::string> profile{};
     friend bool operator==(const CreatePersonalGroupRequest&, const CreatePersonalGroupRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct CreateProfileRequest {
@@ -1142,6 +1189,13 @@ struct CreateProfileRequest {
     Field<std::string> profile{};
     Field<std::string> theme{};
     friend bool operator==(const CreateProfileRequest&, const CreateProfileRequest&) = default;
+};
+
+struct CreateScreenGroupRequest {
+    Field<std::string> color{};
+    Field<std::string> name{};
+    std::vector<Id> screens{};
+    friend bool operator==(const CreateScreenGroupRequest&, const CreateScreenGroupRequest&) = default;
 };
 
 struct ResourceSelectors {
@@ -1205,6 +1259,7 @@ struct CreateTerminalRequest {
     Field<std::string> name{};
     Field<std::string> origin{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
@@ -1238,6 +1293,11 @@ struct DeadPane {
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
 };
 
+struct DeleteBrowserProfileRequest {
+    std::string browser_profile{};
+    friend bool operator==(const DeleteBrowserProfileRequest&, const DeleteBrowserProfileRequest&) = default;
+};
+
 struct DeletePersonalGroupRequest {
     std::string group{};
     friend bool operator==(const DeletePersonalGroupRequest&, const DeletePersonalGroupRequest&) = default;
@@ -1247,6 +1307,11 @@ struct DeleteProfileRequest {
     Field<std::string> move_to{};
     std::string profile{};
     friend bool operator==(const DeleteProfileRequest&, const DeleteProfileRequest&) = default;
+};
+
+struct DeleteSavedScreenGroupRequest {
+    std::string saved{};
+    friend bool operator==(const DeleteSavedScreenGroupRequest&, const DeleteSavedScreenGroupRequest&) = default;
 };
 
 struct DeleteSavedTabGroupRequest {
@@ -1281,6 +1346,7 @@ struct SizeDetachActor {
 struct DetachClientRequest {
     Field<SizeDetachActor> by{};
     DetachClientTarget client{};
+    Field<Id> surface{};
     friend bool operator==(const DetachClientRequest&, const DetachClientRequest&) = default;
 };
 
@@ -1294,6 +1360,7 @@ enum class DetachReason {
 struct DetachedEvent {
     std::optional<SizeDetachActor> by{};
     std::optional<DetachReason> reason{};
+    std::optional<std::string> scope{};
     Id surface{};
     std::optional<std::string> view{};
     friend bool operator==(const DetachedEvent&, const DetachedEvent&) = default;
@@ -1503,6 +1570,7 @@ enum class SizeDeviceKind {
 struct SizeParticipant {
     bool counts{};
     std::optional<bool> counts_override{};
+    std::optional<std::string> device_id{};
     SizeDeviceKind device_kind{};
     std::optional<std::string> device_name{};
     std::optional<std::string> display_name{};
@@ -1617,6 +1685,7 @@ struct IdentifyResult {
     std::optional<std::vector<std::string>> capabilities{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
+    Field<std::string> launch_snapshot_path{};
     std::optional<bool> lifecycle_ready{};
     std::optional<std::string> machine_name{};
     std::uint32_t pid{};
@@ -1736,6 +1805,10 @@ struct ListPersonalRequest {
     friend bool operator==(const ListPersonalRequest&, const ListPersonalRequest&) = default;
 };
 
+struct ListSavedScreenGroupsRequest {
+    friend bool operator==(const ListSavedScreenGroupsRequest&, const ListSavedScreenGroupsRequest&) = default;
+};
+
 struct ListSavedTabGroupsRequest {
     friend bool operator==(const ListSavedTabGroupsRequest&, const ListSavedTabGroupsRequest&) = default;
 };
@@ -1816,9 +1889,17 @@ enum class NotificationLevel {
     error,
 };
 
+enum class NotificationSource {
+    cli,
+    terminal,
+    agent,
+    daemon,
+};
+
 struct NotificationMarker {
     NotificationLevel level{};
     Id notification{};
+    std::optional<NotificationSource> source{};
     bool unread{};
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
@@ -1929,6 +2010,12 @@ struct MintTerminalRendererResult {
     friend bool operator==(const MintTerminalRendererResult&, const MintTerminalRendererResult&) = default;
 };
 
+struct MoveBrowserProfileRequest {
+    std::string browser_profile{};
+    std::uint64_t index{};
+    friend bool operator==(const MoveBrowserProfileRequest&, const MoveBrowserProfileRequest&) = default;
+};
+
 struct MovePersonalGroupRequest {
     std::string group{};
     std::uint64_t index{};
@@ -1939,6 +2026,22 @@ struct MoveProfileRequest {
     std::uint64_t index{};
     std::string profile{};
     friend bool operator==(const MoveProfileRequest&, const MoveProfileRequest&) = default;
+};
+
+struct MoveScreenGroupRequest {
+    std::string group{};
+    Field<std::uint64_t> index{};
+    std::optional<bool> new_workspace{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveScreenGroupRequest&, const MoveScreenGroupRequest&) = default;
+};
+
+struct MoveScreenRequest {
+    Field<std::uint64_t> index{};
+    std::optional<bool> new_workspace{};
+    Id screen{};
+    Field<Id> workspace{};
+    friend bool operator==(const MoveScreenRequest&, const MoveScreenRequest&) = default;
 };
 
 struct PaneRef {
@@ -2107,6 +2210,7 @@ struct NewPaneRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewPaneRequest&, const NewPaneRequest&) = default;
 };
@@ -2118,14 +2222,22 @@ struct NewPaneRightRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<float> width{};
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
 struct NewScreenRequest {
+    Field<std::string> color{};
     Field<std::uint16_t> cols{};
+    Field<std::string> cwd{};
+    Field<std::string> group{};
+    Field<std::string> icon{};
+    Field<std::uint64_t> index{};
+    Field<bool> pinned{};
     Field<std::uint16_t> rows{};
+    Field<std::string> screen_name{};
     Field<Id> workspace{};
     friend bool operator==(const NewScreenRequest&, const NewScreenRequest&) = default;
 };
@@ -2137,6 +2249,7 @@ struct NewTabRequest {
     std::optional<bool> keep{};
     Field<Id> pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const NewTabRequest&, const NewTabRequest&) = default;
 };
@@ -2164,6 +2277,7 @@ struct NotificationEvent {
     std::string body{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
     friend bool operator==(const NotificationEvent&, const NotificationEvent&) = default;
@@ -2172,6 +2286,7 @@ struct NotificationEvent {
 struct NotifyRequest {
     std::string body{};
     Field<NotificationLevel> level{};
+    Field<NotificationSource> source{};
     Field<Id> surface{};
     std::string title{};
     friend bool operator==(const NotifyRequest&, const NotifyRequest&) = default;
@@ -2399,6 +2514,18 @@ struct ReadScrollbackResult {
     friend bool operator==(const ReadScrollbackResult&, const ReadScrollbackResult&) = default;
 };
 
+struct ReattachViewRequest {
+    Field<bool> counts{};
+    Id surface{};
+    friend bool operator==(const ReattachViewRequest&, const ReattachViewRequest&) = default;
+};
+
+struct ReattachViewResult {
+    std::string participant{};
+    SizeState state{};
+    friend bool operator==(const ReattachViewResult&, const ReattachViewResult&) = default;
+};
+
 struct RegisterBrowserProviderRequest {
     BrowserProviderAuthentication authentication{};
     Field<std::string> bearer_token{};
@@ -2427,6 +2554,11 @@ struct ReloadConfigRequest {
 struct ReloadConfigResult {
     std::optional<std::string> path{};
     friend bool operator==(const ReloadConfigResult&, const ReloadConfigResult&) = default;
+};
+
+struct RemoveScreensFromScreenGroupRequest {
+    std::vector<Id> screens{};
+    friend bool operator==(const RemoveScreensFromScreenGroupRequest&, const RemoveScreensFromScreenGroupRequest&) = default;
 };
 
 struct RemoveTabsFromTabGroupRequest {
@@ -2565,6 +2697,12 @@ struct RenderStateEvent {
     friend bool operator==(const RenderStateEvent&, const RenderStateEvent&) = default;
 };
 
+struct ReopenSavedScreenGroupRequest {
+    std::string saved{};
+    Field<Id> workspace{};
+    friend bool operator==(const ReopenSavedScreenGroupRequest&, const ReopenSavedScreenGroupRequest&) = default;
+};
+
 struct ReopenSavedTabGroupRequest {
     PaneRef pane{};
     std::string saved{};
@@ -2596,6 +2734,7 @@ struct ReportFocusRequest {
 };
 
 struct SizingIdentity {
+    Field<std::string> device_id{};
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
@@ -2684,6 +2823,11 @@ struct RunResult {
     friend bool operator==(const RunResult&, const RunResult&) = default;
 };
 
+struct SaveScreenGroupRequest {
+    std::string group{};
+    friend bool operator==(const SaveScreenGroupRequest&, const SaveScreenGroupRequest&) = default;
+};
+
 struct SaveTabGroupRequest {
     std::string group{};
     friend bool operator==(const SaveTabGroupRequest&, const SaveTabGroupRequest&) = default;
@@ -2707,6 +2851,14 @@ struct ScreenAddedEvent {
     Id screen{};
     Id workspace{};
     friend bool operator==(const ScreenAddedEvent&, const ScreenAddedEvent&) = default;
+};
+
+struct ScreenChangedEvent {
+    Screen entity{};
+    Field<std::uint64_t> index{};
+    Id screen{};
+    Id workspace{};
+    friend bool operator==(const ScreenChangedEvent&, const ScreenChangedEvent&) = default;
 };
 
 struct ScreenClosedEvent {
@@ -2871,6 +3023,7 @@ struct SetCellPixelsResult {
 
 struct SetClientInfoRequest {
     Field<std::vector<std::string>> capabilities{};
+    Field<std::string> device_id{};
     Field<std::string> device_kind{};
     Field<std::string> device_name{};
     Field<std::string> display_name{};
@@ -2901,6 +3054,13 @@ struct SetDefaultColorsRequest {
     friend bool operator==(const SetDefaultColorsRequest&, const SetDefaultColorsRequest&) = default;
 };
 
+struct SetPersonalTerminalRequest {
+    std::string session_id{};
+    std::string terminal_key{};
+    Field<std::string> theme{};
+    friend bool operator==(const SetPersonalTerminalRequest&, const SetPersonalTerminalRequest&) = default;
+};
+
 struct SetPersonalWorkspaceRequest {
     Field<std::string> browser_profile_id{};
     Field<std::string> group{};
@@ -2922,6 +3082,19 @@ struct SetRatioRequest {
     Id pane{};
     float ratio{};
     friend bool operator==(const SetRatioRequest&, const SetRatioRequest&) = default;
+};
+
+struct SetScreenMetadataRequest {
+    Field<std::string> color{};
+    Field<std::string> icon{};
+    Id screen{};
+    friend bool operator==(const SetScreenMetadataRequest&, const SetScreenMetadataRequest&) = default;
+};
+
+struct SetScreenPinnedRequest {
+    bool pinned{};
+    Id screen{};
+    friend bool operator==(const SetScreenPinnedRequest&, const SetScreenPinnedRequest&) = default;
 };
 
 struct SetSizeCountsRequest {
@@ -3010,8 +3183,10 @@ struct SetWorkspaceMetadataRequest {
     Field<std::uint64_t> expected_revision{};
     Field<std::string> icon{};
     Field<std::string> key{};
+    Field<bool> marked_unread{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<bool> pinned{};
     Field<std::string> title{};
     Field<Id> workspace{};
     friend bool operator==(const SetWorkspaceMetadataRequest&, const SetWorkspaceMetadataRequest&) = default;
@@ -3061,6 +3236,7 @@ struct SplitRequest {
     std::optional<bool> keep{};
     Id pane{};
     Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     friend bool operator==(const SplitRequest&, const SplitRequest&) = default;
 };
@@ -3294,6 +3470,11 @@ struct UndoLayoutRequest {
     friend bool operator==(const UndoLayoutRequest&, const UndoLayoutRequest&) = default;
 };
 
+struct UngroupScreenGroupRequest {
+    std::string group{};
+    friend bool operator==(const UngroupScreenGroupRequest&, const UngroupScreenGroupRequest&) = default;
+};
+
 struct UngroupTabGroupRequest {
     std::string group{};
     friend bool operator==(const UngroupTabGroupRequest&, const UngroupTabGroupRequest&) = default;
@@ -3309,9 +3490,22 @@ struct UnregisterBrowserProviderRequest {
     friend bool operator==(const UnregisterBrowserProviderRequest&, const UnregisterBrowserProviderRequest&) = default;
 };
 
+struct UnsaveScreenGroupRequest {
+    std::string group{};
+    friend bool operator==(const UnsaveScreenGroupRequest&, const UnsaveScreenGroupRequest&) = default;
+};
+
 struct UnsaveTabGroupRequest {
     std::string group{};
     friend bool operator==(const UnsaveTabGroupRequest&, const UnsaveTabGroupRequest&) = default;
+};
+
+struct UpdateBrowserProfileRequest {
+    std::string browser_profile{};
+    Field<std::string> color{};
+    Field<std::string> icon{};
+    Field<std::string> name{};
+    friend bool operator==(const UpdateBrowserProfileRequest&, const UpdateBrowserProfileRequest&) = default;
 };
 
 struct UpdateFrontendBrowserTabRequest {
@@ -3341,6 +3535,14 @@ struct UpdateProfileRequest {
     std::string profile{};
     Field<std::string> theme{};
     friend bool operator==(const UpdateProfileRequest&, const UpdateProfileRequest&) = default;
+};
+
+struct UpdateScreenGroupRequest {
+    Field<bool> collapsed{};
+    Field<std::string> color{};
+    std::string group{};
+    Field<std::string> name{};
+    friend bool operator==(const UpdateScreenGroupRequest&, const UpdateScreenGroupRequest&) = default;
 };
 
 struct UpdateTabGroupRequest {
@@ -3900,6 +4102,12 @@ struct Codec<NotificationMarker> {
 };
 
 template <>
+struct Codec<NotificationSource> {
+    static Result<Json> encode(const NotificationSource& value);
+    static Result<NotificationSource> decode(const Json& value);
+};
+
+template <>
 struct Codec<NotifyResult> {
     static Result<Json> encode(const NotifyResult& value);
     static Result<NotifyResult> decode(const Json& value);
@@ -3957,6 +4165,12 @@ template <>
 struct Codec<ReadScrollbackResult> {
     static Result<Json> encode(const ReadScrollbackResult& value);
     static Result<ReadScrollbackResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReattachViewResult> {
+    static Result<Json> encode(const ReattachViewResult& value);
+    static Result<ReattachViewResult> decode(const Json& value);
 };
 
 template <>
@@ -4374,6 +4588,12 @@ struct Codec<AckTabNotificationsRequest> {
 };
 
 template <>
+struct Codec<AddScreensToScreenGroupRequest> {
+    static Result<Json> encode(const AddScreensToScreenGroupRequest& value);
+    static Result<AddScreensToScreenGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<AddTabsToTabGroupRequest> {
     static Result<Json> encode(const AddTabsToTabGroupRequest& value);
     static Result<AddTabsToTabGroupRequest> decode(const Json& value);
@@ -4512,6 +4732,12 @@ struct Codec<CloseScreenRequest> {
 };
 
 template <>
+struct Codec<CloseScreenGroupRequest> {
+    static Result<Json> encode(const CloseScreenGroupRequest& value);
+    static Result<CloseScreenGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloseSurfaceRequest> {
     static Result<Json> encode(const CloseSurfaceRequest& value);
     static Result<CloseSurfaceRequest> decode(const Json& value);
@@ -4548,6 +4774,12 @@ struct Codec<CopyRequest> {
 };
 
 template <>
+struct Codec<CreateBrowserProfileRequest> {
+    static Result<Json> encode(const CreateBrowserProfileRequest& value);
+    static Result<CreateBrowserProfileRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CreatePersonalGroupRequest> {
     static Result<Json> encode(const CreatePersonalGroupRequest& value);
     static Result<CreatePersonalGroupRequest> decode(const Json& value);
@@ -4557,6 +4789,12 @@ template <>
 struct Codec<CreateProfileRequest> {
     static Result<Json> encode(const CreateProfileRequest& value);
     static Result<CreateProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CreateScreenGroupRequest> {
+    static Result<Json> encode(const CreateScreenGroupRequest& value);
+    static Result<CreateScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -4590,6 +4828,12 @@ struct Codec<CreateWorkspaceGroupRequest> {
 };
 
 template <>
+struct Codec<DeleteBrowserProfileRequest> {
+    static Result<Json> encode(const DeleteBrowserProfileRequest& value);
+    static Result<DeleteBrowserProfileRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<DeletePersonalGroupRequest> {
     static Result<Json> encode(const DeletePersonalGroupRequest& value);
     static Result<DeletePersonalGroupRequest> decode(const Json& value);
@@ -4599,6 +4843,12 @@ template <>
 struct Codec<DeleteProfileRequest> {
     static Result<Json> encode(const DeleteProfileRequest& value);
     static Result<DeleteProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteSavedScreenGroupRequest> {
+    static Result<Json> encode(const DeleteSavedScreenGroupRequest& value);
+    static Result<DeleteSavedScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -4734,6 +4984,12 @@ struct Codec<ListPersonalRequest> {
 };
 
 template <>
+struct Codec<ListSavedScreenGroupsRequest> {
+    static Result<Json> encode(const ListSavedScreenGroupsRequest& value);
+    static Result<ListSavedScreenGroupsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<ListSavedTabGroupsRequest> {
     static Result<Json> encode(const ListSavedTabGroupsRequest& value);
     static Result<ListSavedTabGroupsRequest> decode(const Json& value);
@@ -4794,6 +5050,12 @@ struct Codec<MintTerminalRendererByTerminalRequest> {
 };
 
 template <>
+struct Codec<MoveBrowserProfileRequest> {
+    static Result<Json> encode(const MoveBrowserProfileRequest& value);
+    static Result<MoveBrowserProfileRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MovePersonalGroupRequest> {
     static Result<Json> encode(const MovePersonalGroupRequest& value);
     static Result<MovePersonalGroupRequest> decode(const Json& value);
@@ -4803,6 +5065,18 @@ template <>
 struct Codec<MoveProfileRequest> {
     static Result<Json> encode(const MoveProfileRequest& value);
     static Result<MoveProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveScreenRequest> {
+    static Result<Json> encode(const MoveScreenRequest& value);
+    static Result<MoveScreenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MoveScreenGroupRequest> {
+    static Result<Json> encode(const MoveScreenGroupRequest& value);
+    static Result<MoveScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -5004,6 +5278,12 @@ struct Codec<ReadScrollbackRequest> {
 };
 
 template <>
+struct Codec<ReattachViewRequest> {
+    static Result<Json> encode(const ReattachViewRequest& value);
+    static Result<ReattachViewRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<RegisterBrowserProviderRequest> {
     static Result<Json> encode(const RegisterBrowserProviderRequest& value);
     static Result<RegisterBrowserProviderRequest> decode(const Json& value);
@@ -5031,6 +5311,12 @@ template <>
 struct Codec<ReloadConfigResult> {
     static Result<Json> encode(const ReloadConfigResult& value);
     static Result<ReloadConfigResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<RemoveScreensFromScreenGroupRequest> {
+    static Result<Json> encode(const RemoveScreensFromScreenGroupRequest& value);
+    static Result<RemoveScreensFromScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -5067,6 +5353,12 @@ template <>
 struct Codec<RenameWorkspaceRequest> {
     static Result<Json> encode(const RenameWorkspaceRequest& value);
     static Result<RenameWorkspaceRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ReopenSavedScreenGroupRequest> {
+    static Result<Json> encode(const ReopenSavedScreenGroupRequest& value);
+    static Result<ReopenSavedScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -5109,6 +5401,12 @@ template <>
 struct Codec<RunRequest> {
     static Result<Json> encode(const RunRequest& value);
     static Result<RunRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SaveScreenGroupRequest> {
+    static Result<Json> encode(const SaveScreenGroupRequest& value);
+    static Result<SaveScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -5184,6 +5482,12 @@ struct Codec<SetDefaultColorsRequest> {
 };
 
 template <>
+struct Codec<SetPersonalTerminalRequest> {
+    static Result<Json> encode(const SetPersonalTerminalRequest& value);
+    static Result<SetPersonalTerminalRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetPersonalWorkspaceRequest> {
     static Result<Json> encode(const SetPersonalWorkspaceRequest& value);
     static Result<SetPersonalWorkspaceRequest> decode(const Json& value);
@@ -5199,6 +5503,18 @@ template <>
 struct Codec<SetRatioRequest> {
     static Result<Json> encode(const SetRatioRequest& value);
     static Result<SetRatioRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetScreenMetadataRequest> {
+    static Result<Json> encode(const SetScreenMetadataRequest& value);
+    static Result<SetScreenMetadataRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetScreenPinnedRequest> {
+    static Result<Json> encode(const SetScreenPinnedRequest& value);
+    static Result<SetScreenPinnedRequest> decode(const Json& value);
 };
 
 template <>
@@ -5304,6 +5620,12 @@ struct Codec<UndoLayoutRequest> {
 };
 
 template <>
+struct Codec<UngroupScreenGroupRequest> {
+    static Result<Json> encode(const UngroupScreenGroupRequest& value);
+    static Result<UngroupScreenGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UngroupTabGroupRequest> {
     static Result<Json> encode(const UngroupTabGroupRequest& value);
     static Result<UngroupTabGroupRequest> decode(const Json& value);
@@ -5322,9 +5644,21 @@ struct Codec<UnregisterBrowserProviderRequest> {
 };
 
 template <>
+struct Codec<UnsaveScreenGroupRequest> {
+    static Result<Json> encode(const UnsaveScreenGroupRequest& value);
+    static Result<UnsaveScreenGroupRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<UnsaveTabGroupRequest> {
     static Result<Json> encode(const UnsaveTabGroupRequest& value);
     static Result<UnsaveTabGroupRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateBrowserProfileRequest> {
+    static Result<Json> encode(const UpdateBrowserProfileRequest& value);
+    static Result<UpdateBrowserProfileRequest> decode(const Json& value);
 };
 
 template <>
@@ -5343,6 +5677,12 @@ template <>
 struct Codec<UpdateProfileRequest> {
     static Result<Json> encode(const UpdateProfileRequest& value);
     static Result<UpdateProfileRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<UpdateScreenGroupRequest> {
+    static Result<Json> encode(const UpdateScreenGroupRequest& value);
+    static Result<UpdateScreenGroupRequest> decode(const Json& value);
 };
 
 template <>
@@ -5571,6 +5911,12 @@ template <>
 struct Codec<ScreenAddedEvent> {
     static Result<Json> encode(const ScreenAddedEvent& value);
     static Result<ScreenAddedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ScreenChangedEvent> {
+    static Result<Json> encode(const ScreenChangedEvent& value);
+    static Result<ScreenChangedEvent> decode(const Json& value);
 };
 
 template <>

@@ -57,7 +57,7 @@ extension TabHandlers {
     }
 
     private static func bindTabState(_ registry: ActionRegistry, _ ctx: AppActionContext) {
-        registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.notificationAck), invoke: { invocation in
+        registry.bind("palette.toggleTabUnread", unavailable: ctx.needs(DaemonCapabilities.shared.notificationAck), invoke: { invocation in
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard tab.hasUnread else { return ctx.refuse(RefusalStrings.markUnreadUnsupported("tab-mark-unread")) }
             let surface = tab.surface

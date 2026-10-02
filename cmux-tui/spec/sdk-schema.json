@@ -582,6 +582,15 @@
     "error"
    ]
   },
+  "NotificationSource": {
+   "kind": "enum",
+   "values": [
+    "cli",
+    "terminal",
+    "agent",
+    "daemon"
+   ]
+  },
   "AgentState": {
    "kind": "enum",
    "values": [
@@ -1322,6 +1331,16 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "source": {
+     "type": {
+      "kind": "ref",
+      "name": "NotificationSource"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "notification-source-v1"
     }
    },
    "additional_properties": false
@@ -1946,6 +1965,16 @@
      "nullable": false,
      "default": true,
      "since": 12
+    },
+    "launch_snapshot_path": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "launch-snapshot-v1"
     }
    },
    "additional_properties": false
@@ -5718,6 +5747,18 @@
      "presence": "optional",
      "nullable": true,
      "default": null
+    },
+    "device_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "constraints": [
+      "Stable per-install device id; tells two devices of one user apart."
+     ]
     }
    },
    "additional_properties": false
@@ -5795,6 +5836,14 @@
      "nullable": false
     },
     "device_name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "device_id": {
      "type": {
       "kind": "scalar",
       "name": "string"
@@ -6011,6 +6060,28 @@
   "PaneRef": {
    "kind": "opaque_json",
    "reason": "A pane named by its numeric id or its public pane_ id."
+  },
+  "ReattachViewResult": {
+   "kind": "object",
+   "fields": {
+    "participant": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "state": {
+     "type": {
+      "kind": "ref",
+      "name": "SizeState"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -6184,6 +6255,20 @@
       "constraints": [
        "Shared sizing identity."
       ]
+     },
+     "device_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Stable per-install device id; tells two devices of one user apart."
+      ]
      }
     },
     "additional_properties": false
@@ -6344,6 +6429,20 @@
       "constraints": [
        "Defaults to the requester's identity."
       ]
+     },
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "shared-sizing-v1",
+      "constraints": [
+       "Resolves a participant id on this terminal only; participant ids are per terminal."
+      ]
      }
     },
     "additional_properties": false
@@ -6353,7 +6452,9 @@
     "name": "EmptyResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "A participant that is the own view of a client with sizing-view-detach-v1 detaches that view only; the client stays connected."
+   ]
   },
   "reload-config": {
    "authority": "control",
@@ -7346,6 +7447,17 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NotificationSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": "cli",
+      "since": 12,
+      "capability": "notification-source-v1"
      }
     },
     "additional_properties": false
@@ -7780,6 +7892,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8156,6 +8282,20 @@
       "default": false,
       "since": 12,
       "capability": "terminal-reap-v1"
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8209,6 +8349,69 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "screen_name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false,
@@ -8221,7 +8424,574 @@
     "name": "SurfaceResult"
    },
    "stream": null,
-   "constraints": []
+   "constraints": [
+    "screen_name, color, icon, pinned, index, and group need capability screen-metadata-v1 (group: screen-groups-v1); the result then also carries screen."
+   ]
+  },
+  "set-screen-metadata": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-metadata-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screen": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "set-screen-pinned": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-metadata-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screen": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "move-screen": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-metadata-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screen": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "new_workspace": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "create-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screens": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "update-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "collapsed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "add-screens-to-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "screens": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "remove-screens-from-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "screens": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "Id"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "move-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "new_workspace": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "ungroup-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "close-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "end_terminals": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "list-saved-screen-groups": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "save-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "unsave-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "group": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "delete-saved-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "reopen-saved-screen-group": {
+   "authority": "control",
+   "since": 12,
+   "capability": "screen-groups-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "saved": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
   },
   "new-pane": {
    "authority": "control",
@@ -8308,6 +9078,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8424,6 +9208,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -8534,6 +9332,20 @@
         "format": "terminal host id (UUIDv4 hex without dashes)"
        }
       ]
+     },
+     "shell_args": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "terminal-shell-args-v1"
      }
     },
     "additional_properties": false,
@@ -13426,6 +14238,28 @@
       "nullable": true,
       "default": null
      },
+     "pinned": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-pin-v1"
+     },
+     "marked_unread": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "notification-mark-unread-v1"
+     },
      "origin": {
       "type": {
        "kind": "scalar",
@@ -13775,6 +14609,194 @@
    "request": {
     "kind": "object",
     "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "create-browser-profile": {
+   "authority": "control",
+   "since": 12,
+   "capability": "browser-profiles-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "browser_profile": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "update-browser-profile": {
+   "authority": "control",
+   "since": 12,
+   "capability": "browser-profiles-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "name": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "color": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "move-browser-profile": {
+   "authority": "control",
+   "since": 12,
+   "capability": "browser-profiles-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
+  "delete-browser-profile": {
+   "authority": "control",
+   "since": 12,
+   "capability": "browser-profiles-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "browser_profile": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
     "additional_properties": false
    },
    "result": {
@@ -14529,6 +15551,50 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "set-personal-terminal": {
+   "authority": "control",
+   "since": 12,
+   "capability": "personal-terminals-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "terminal_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "theme": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "set-personal-workspace": {
    "authority": "control",
    "since": 12,
@@ -14598,6 +15664,45 @@
    "stream": null,
    "constraints": [
     "See spec/commands.md for the result object."
+   ]
+  },
+  "reattach-view": {
+   "authority": "control",
+   "since": 12,
+   "capability": "sizing-view-detach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "counts": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "false reattaches as a viewer; omitted keeps the counts choice."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReattachViewResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Only a view detached by detach-client can be reattached."
    ]
   }
  },
@@ -15164,6 +16269,18 @@
       "presence": "optional",
       "nullable": false,
       "since": 12
+     },
+     "scope": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "constraints": [
+       "\"view\" when only the client's own view was detached; the connection stays."
+      ]
      }
     },
     "additional_properties": false
@@ -15507,6 +16624,16 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "source": {
+      "type": {
+       "kind": "ref",
+       "name": "NotificationSource"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "notification-source-v1"
      }
     },
     "additional_properties": false
@@ -16272,6 +17399,61 @@
       },
       "presence": "required",
       "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "screen-changed": {
+   "since": 12,
+   "capability": "screen-metadata-v1",
+   "streams": [
+    "subscribe-deltas"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "screen-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "screen": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "entity": {
+      "type": {
+       "kind": "ref",
+       "name": "Screen"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "index": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false

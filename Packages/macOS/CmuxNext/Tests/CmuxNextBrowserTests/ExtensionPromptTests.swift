@@ -71,3 +71,13 @@ import Testing
         ])
     }
 }
+
+/// Extension popup windows (chrome.windows.create type popup) stay off on
+/// forks whose popup-window hooks do not work yet (cmux.10, API 12).
+@Suite struct PopupWindowGateTests {
+    @Test func olderForksKeepTheOldBehavior() {
+        #expect(!CEFPopupWindows.isEnabled(forkAPIVersion: 10))
+        #expect(!CEFPopupWindows.isEnabled(forkAPIVersion: 12))
+        #expect(CEFPopupWindows.isEnabled(forkAPIVersion: CEFPopupWindows.minimumForkAPI))
+    }
+}

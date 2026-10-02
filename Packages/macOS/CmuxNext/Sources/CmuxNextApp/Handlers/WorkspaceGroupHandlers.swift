@@ -19,49 +19,49 @@ enum WorkspaceGroupHandlers {
 
     private static func bindMembers(_ registry: ActionRegistry, _ context: AppActionContext) {
         let home = context.services.machines.local
-        registry.bind("newWorkspaceGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("newWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             let members = (try? context.workspace(invocation).model).map { [SidebarWorkspaceID($0.id)] } ?? []
             try createGroup(named: invocation["name"]?.stringValue ?? "", members: members, context)
         })
-        registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("groupSelectedWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             var members = try context.sidebar().model.orderedSelection
             if members.isEmpty { members = [SidebarWorkspaceID(try context.workspace(invocation).model.id)] }
             try createGroup(named: "", members: members, context)
         })
-        registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("moveWorkspaceToGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard invocation["group"]?.targetValue != nil else { throw ActionFailure.invalidTarget(RefusalStrings.groupRequired) }
             let group = try context.group(ActionInvocation(arguments: invocation.arguments))
             let workspace = try context.workspace(invocation).model
             try context.sidebar().handle(.move([SidebarWorkspaceID(workspace.id)], toGroup: sidebarID(group)))
         })
-        registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
-            guard context.usesPersonalGroups else { throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapabilities.profiles)) }
+        registry.bind("removeWorkspaceFromGroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            guard context.usesPersonalGroups else { throw ActionFailure(message: home.missingCapabilityMessage(DaemonCapabilities.shared.profiles)) }
             context.ungroupPersonal(try context.workspace(invocation).model)
         })
-        registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.newWorkspace", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             newPersonalWorkspace(in: try context.group(invocation).id, context)
         })
-        registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
-        registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
+        registry.bind("workspaceGroup.markRead", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
+        registry.bind("workspaceGroup.clearNotifications", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try acknowledge(invocation, context) })
     }
 
     private static func bindEdits(_ registry: ActionRegistry, _ context: AppActionContext) {
         let home = context.services.machines.local
-        registry.bind("toggleFocusedWorkspaceGroupCollapsed", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(nil, invocation, context) })
-        registry.bind("workspaceGroup.collapse", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(true, invocation, context) })
-        registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try setCollapsed(false, invocation, context) })
-        registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("toggleFocusedWorkspaceGroupCollapsed", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(nil, invocation, context) })
+        registry.bind("workspaceGroup.collapse", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(true, invocation, context) })
+        registry.bind("workspaceGroup.expand", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try setCollapsed(false, invocation, context) })
+        registry.bind("workspaceGroup.setColor", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             guard let raw = invocation["color"]?.stringValue, let color = GroupColor(rawValue: raw) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.colorMustBeOneOf(GroupColor.allCases.map(\.rawValue).joined(separator: ", ")))
             }
             try edit(invocation, context) { .setGroupColor($0, color) }
         })
         for color in GroupColor.allCases {
-            registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+            registry.bind(ActionID(rawValue: "workspaceGroup.color.\(color.rawValue)"), requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
                 try edit(invocation, context) { .setGroupColor($0, color) }
             })
         }
-        registry.bind("workspaceGroup.rename", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.rename", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             let group = try context.group(invocation)
             let sidebar = try context.sidebar()
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
@@ -70,11 +70,11 @@ enum WorkspaceGroupHandlers {
                 sidebar.container.beginRename(group: sidebarID(group))
             }
         })
-        registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
-        registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
-        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .ungroup($0) } })
-        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
-        registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.profiles, daemon: home, run: { invocation in
+        registry.bind("workspaceGroup.moveUp", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: -1, context) })
+        registry.bind("workspaceGroup.moveDown", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, by: 1, context) })
+        registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .ungroup($0) } })
+        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
+        registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             // Destructive sibling of ungroup (old app semantics): closes the
             // members, then removes the group.
             let group = try context.group(invocation)
@@ -88,7 +88,10 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
 
         registry.bindUnavailable(["workspaceGroup.togglePin"], ActionFailure.needsDaemonCapability("workspace-group-pin-v1"))
-        registry.bindUnavailable(["workspaceGroup.markUnread"], ActionFailure.needsDaemonCapability("notification-mark-unread-v1"))
+        registry.bind("workspaceGroup.markUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
+            try context.require(DaemonCapabilities.shared.notificationMarkUnread)
+            WorkspaceUnreadMark.set(true, on: try members(invocation, context), machines: context.services.machines)
+        })
     }
 
     /// New workspace in the window's room, then into personal group `id`.
@@ -137,8 +140,12 @@ enum WorkspaceGroupHandlers {
     }
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        try WorkspaceMetadataHandlers.acknowledge(try members(invocation, context), context)
+    }
+
+    /// The workspaces of the targeted group.
+    private static func members(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [WorkspaceModel] {
         let id = try context.group(invocation).id
-        let members = context.workspaces(inPersonalGroup: id)
-        try WorkspaceMetadataHandlers.acknowledge(members, context)
+        return context.workspaces(inPersonalGroup: id)
     }
 }

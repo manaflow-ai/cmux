@@ -25,14 +25,23 @@ public struct DaemonLauncher: Sendable {
         /// second one that cannot take the session lock, and never connect.
         /// Defaults to the user's Darwin temp directory, which is fixed per user.
         public var runtimeBase: URL
+        /// `server ensure --terminal-reap-grace-seconds`: how long the owner
+        /// keeps a terminal with no tab before it ends it (`keep` exempts
+        /// one). cmux-tui reaps only when started with the option; the app
+        /// keeps a closed tab's terminal 30 s for Reopen Closed Tab and a
+        /// closed workspace, then ends it so closed tabs never leak PTYs.
+        /// An owner that is already running keeps the grace it started with.
+        public var terminalReapGraceSeconds: UInt32
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
-                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory()) {
+                    runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
+                    terminalReapGraceSeconds: UInt32 = 30) {
             self.binary = binary
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
             self.runtimeBase = runtimeBase
+            self.terminalReapGraceSeconds = terminalReapGraceSeconds
         }
     }
 
@@ -91,10 +100,10 @@ public struct DaemonLauncher: Sendable {
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         let fixedOverrides = overrides
         return DaemonLauncher(configuration: configuration, environment: {
-            DaemonLaunchTimings.mark("daemon.login_env_start")
+            DaemonLaunchTimings.shared.mark("daemon.login_env_start")
             let login = await cache.value()
-            DaemonLaunchTimings.mark("daemon.login_env_end")
-            return LoginEnvironment.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
+            DaemonLaunchTimings.shared.mark("daemon.login_env_end")
+            return LoginEnvironment.shared.daemonEnvironment(login: login, base: processEnvironment, overrides: fixedOverrides)
         })
     }
 
@@ -175,16 +184,22 @@ public struct DaemonLauncher: Sendable {
         }
         if let running = await runningOwner() { return running }
         let environment = await ensureEnvironment()
-        DaemonLaunchTimings.mark("daemon.ensure_start")
-        defer { DaemonLaunchTimings.mark("daemon.ensure_end") }
+        DaemonLaunchTimings.shared.mark("daemon.ensure_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.ensure_end") }
         let result = try await ProcessRunner.run(
             executable: configuration.binary,
-            arguments: ["--session", configuration.session, "--json", "server", "ensure"],
+            arguments: Self.ensureArguments(configuration),
             environment: environment,
             timeout: ensureTimeout,
             clock: clock
         )
         return try Self.parseEnsure(result)
+    }
+
+    /// The `server ensure` command line for `configuration`.
+    static func ensureArguments(_ configuration: Configuration) -> [String] {
+        ["--session", configuration.session, "--json", "server", "ensure",
+         "--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)]
     }
 
     /// `server status`: the running owner, or nil when none runs (or the
@@ -196,8 +211,8 @@ public struct DaemonLauncher: Sendable {
         if let configFile = configuration.configFile { environment["CMUX_TUI_CONFIG"] = configFile.path }
         environment["XDG_RUNTIME_DIR"] = nil
         environment["TMPDIR"] = configuration.runtimeBase.path
-        DaemonLaunchTimings.mark("daemon.status_start")
-        defer { DaemonLaunchTimings.mark("daemon.status_end") }
+        DaemonLaunchTimings.shared.mark("daemon.status_start")
+        defer { DaemonLaunchTimings.shared.mark("daemon.status_end") }
         guard let result = try? await ProcessRunner.run(
             executable: configuration.binary,
             arguments: ["--session", configuration.session, "--json", "server", "status"],
@@ -274,7 +289,7 @@ actor LoginEnvironmentCache {
 
     func value() async -> [String: String]? {
         if let task { return await task.value }
-        let task = Task { await LoginEnvironment.capture() }
+        let task = Task { await LoginEnvironment.shared.capture() }
         self.task = task
         return await task.value
     }

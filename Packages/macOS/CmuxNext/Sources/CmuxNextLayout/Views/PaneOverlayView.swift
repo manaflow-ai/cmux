@@ -67,14 +67,16 @@ final class PaneOverlayView: NSView {
 
     private var scale: CGFloat { window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2 }
 
-    override func layout() {
-        super.layout()
-        layoutLayers()
-    }
-
+    /// The layers follow the frame in the same call. The root sets this
+    /// view's frame from the layout pass (or animation frame) that places
+    /// the pane, and the plane may live in another window (the overlay above
+    /// Chromium pages) whose own layout pass runs later or, during a live
+    /// resize, not at all: a deferred `needsLayout` left the ring at its old
+    /// size for at least one frame of every resize.
     override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
         super.setFrameSize(newSize)
-        needsLayout = true
+        if changed { layoutLayers() }
     }
 
     override func viewDidChangeBackingProperties() {
@@ -97,6 +99,9 @@ final class PaneOverlayView: NSView {
 
     /// The rect the border and ring trace (for tests and `debug.layers`).
     var borderFrame: CGRect { border.frame }
+    /// The rect the focus ring and glow trace, in this view's coordinates
+    /// (for tests and `debug.layers`).
+    var ringFrame: CGRect { ring.frame }
     /// The border's line width in points and color override (for tests).
     var borderWidth: CGFloat { border.borderWidth }
     var borderColor: ThemeRGB? { borderStyle.color }
@@ -181,7 +186,7 @@ final class PaneOverlayView: NSView {
     }
 
     private func applyColors() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             let ringColor = focusRing.color?.nsColor ?? Palette.focusRing.withAlphaComponent(0.55)
             ring.borderColor = ringColor.cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * 0.6).cgColor

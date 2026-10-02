@@ -103,6 +103,24 @@ class SwiftPackageExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_cosmetic_binary_diagnostic_ignores_swiftpm_warning_error_text(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "warning: 'swift-crypto': skipping cache due to an error: The file “maintenance.lock” doesn’t exist.\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="GhosttyFixture", ghosttykit=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout)
+
+    def test_cosmetic_binary_diagnostic_still_rejects_source_error(self) -> None:
+        result = self.run_step(
+            "error: unexpected binary framework\n"
+            "Foo.swift:1:2: error: x\n"
+            "✔ Test run with 227 tests in 27 suites passed after 0.001 seconds.\n",
+            status=1, package="GhosttyFixture", ghosttykit=True,
+        )
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_binary_diagnostic_is_tolerated_only_for_ghosttykit_packages(self) -> None:
         result = self.run_step(
             "error: unexpected binary framework\n"

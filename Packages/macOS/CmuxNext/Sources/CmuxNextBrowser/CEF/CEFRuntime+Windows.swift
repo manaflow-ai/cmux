@@ -33,6 +33,13 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
     /// Chrome commands that would open a Chromium window, blocked by the shim.
     private(set) var blockedCommands: [Int32] = []
     private(set) var recent: [Entry] = []
+    /// The latest popup window steps (fork API 13), for `debug.cef`.
+    private(set) var popupWindows: [String] = []
+
+    mutating func notePopupWindow(_ event: String) {
+        popupWindows.append(event)
+        if popupWindows.count > 12 { popupWindows.removeFirst(popupWindows.count - 12) }
+    }
 
     mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision) {
         count += 1
@@ -66,7 +73,8 @@ extension CEFRuntime {
         case .openInNewTab(let url, let disposition):
             if let url = URL(string: url) {
                 // Not from inside Chromium's navigation: the App creates a tab.
-                Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition) }
+                let profile = storage.profile(forPath: request.profilePath)
+                Task { @MainActor [weak self] in self?.openURLWithoutWindow?(url, disposition, profile) }
             }
             return 0
         case .openOffTheRecord(let url):
@@ -183,6 +191,8 @@ public struct CEFWindowReport: Sendable {
     /// Tabs Chromium created that wait for a pane window.
     public var unplacedTabs: Int
     public var forkAPIVersion: Int
+    /// The latest popup window events (fork API 13).
+    public var popupWindows: [String] = []
 }
 
 extension CEFRuntime {
@@ -200,7 +210,8 @@ extension CEFRuntime {
             guardRecent: windowGuard.recent.map { "\($0.verdict) \($0.className) \"\($0.title)\"" },
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
             unplacedTabs: unplaced.count,
-            forkAPIVersion: Int(forkAPIVersion)
+            forkAPIVersion: Int(forkAPIVersion),
+            popupWindows: windowRequestLog.popupWindows
         )
     }
 }

@@ -56,21 +56,32 @@ impl Command {
 struct PrelaunchRequest {
     pane: Option<PaneId>,
     cwd: Option<String>,
+    /// The argv `shell_args` resolves to; the create adopts this host, so
+    /// it must run the same program.
+    argv: Option<Vec<String>>,
     env: Vec<(String, String)>,
     size: Option<(u16, u16)>,
 }
 
 impl PrelaunchRequest {
     fn of(command: &Command) -> Option<Self> {
-        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id: None, .. } = command else {
+        let Command::NewTab { pane, cwd, env, cols, rows, terminal_id: None, shell_args, .. } =
+            command
+        else {
             return None;
         };
         // An invalid environment is reported by the create itself.
-        let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose().ok()?;
+        let env = env
+            .as_ref()
+            .map(crate::mux::validate_terminal_env)
+            .transpose()
+            .ok()?
+            .unwrap_or_default();
         Some(Self {
             pane: *pane,
             cwd: cwd.clone(),
-            env: env.unwrap_or_default(),
+            argv: shell_argv(&env, shell_args.clone()),
+            env,
             size: optional_surface_size(*cols, *rows),
         })
     }
@@ -78,7 +89,9 @@ impl PrelaunchRequest {
     fn launch(self, mux: &Arc<Mux>) -> Option<String> {
         // A failed prelaunch falls back to the create's own launch, which
         // reports the failure through the usual creation error path.
-        mux.prelaunch_tab_terminal(self.pane, self.cwd, self.env, self.size).ok().flatten()
+        mux.prelaunch_tab_terminal(self.pane, self.cwd, self.argv, self.env, self.size)
+            .ok()
+            .flatten()
     }
 }
 

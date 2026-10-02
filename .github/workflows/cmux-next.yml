@@ -8,42 +8,115 @@ name: cmux-next
 
 on:
   pull_request:
+    branches: [feat-cmux-next]
     paths:
+      - App/**
+      - Packages/macOS/**
+      - cmux.xcodeproj/**
+      - scripts/cmux-next/bundle-*.sh
+      - scripts/cmux-next/embed-cef.sh
+      - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       - Packages/Shared/**
       - Packages/iOS/**
+      - cmux-tui/**
+      - web/**
       - scripts/ghosttykit-checksums.txt
       - ghostty
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
+      - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/ensure-cef.sh
+      - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/cmux-tui.pin
+      - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
   push:
     branches: [main, feat-cmux-next]
     paths:
+      - App/**
+      - Packages/macOS/**
+      - cmux.xcodeproj/**
+      - scripts/cmux-next/bundle-*.sh
+      - scripts/cmux-next/embed-cef.sh
+      - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
       - Packages/Shared/**
       - Packages/iOS/**
+      - cmux-tui/**
+      - web/**
+      - scripts/ghosttykit-checksums.txt
+      - ghostty
+      - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
+      - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
+      - scripts/cmux-next/swift-test-with-hang-sampler.sh
+      - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/ensure-cef.sh
+      - scripts/cmux-next/build-cef-shim.sh
+      - scripts/cmux-next/cmux-tui.pin
+      - scripts/cmux-next/pin-cmux-tui.sh
+      - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  # The label the macOS jobs' runs-on picks (the same expression, kept in
+  # step): a glaeda-* label means a mini.
+  CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+
 concurrency:
-  group: cmux-next-${{ github.event.pull_request.number || github.ref }}
+  # Pushes and dispatches get a group of their own, as in the other side
+  # lanes: when the owned-pool rescue re-runs an older push run, it must not
+  # join a group where it would replace (cancel) the newest pending run.
+  group: cmux-next-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# The macOS jobs run as a side lane, like relay-tls.yml and reload-build.yml:
+# attempt 1 of a trusted run (a same-repository pull request, a push or a
+# dispatch) takes vars.CI_SIDE_LANE_RUNNER, the minis' glaeda-side-* label,
+# while owned pools are on (CI_PR_POOL_OWNED is 1). A fork pull request, any
+# re-run, or an unset variable takes Blacksmith. The checks job then uploads
+# the owned-pool-watch marker: ci-owned-pool-rescue.yml's sweeper on main
+# adopts the run (owned_pool_rescue.SIDE_WORKFLOW_PATHS) and re-runs a job a
+# mini leaves queued or refuses, and that attempt 2 lands on Blacksmith.
 jobs:
   checks:
-    name: cmux-next checks (god files, concurrency, l10n)
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    name: cmux-next checks (god files, concurrency, crash safety, l10n)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
+      # Fail-safe: without the marker the run is only not watched.
+      - name: Mark a run on the minis
+        id: marker
+        if: startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-')
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the owned-pool watch marker
+        if: ${{ steps.marker.outputs.path != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -54,12 +127,19 @@ jobs:
       - name: Main-thread concurrency
         run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
+      - name: Crash safety
+        run: scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
       - name: String tables (21 languages)
         run: scripts/cmux-next/check-l10n.sh "$GITHUB_WORKSPACE"
 
+      - name: Module resource bundles
+        run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+
   swift-test:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
     name: cmux-next swift test
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
     # dependencies) and the whole suite.
     timeout-minutes: 60
@@ -100,6 +180,160 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         run: swift build --build-tests
 
-      - name: Run package tests
+      - name: Compile string catalogs into the resource bundles
         working-directory: Packages/macOS/CmuxNext
-        run: swift test --skip-build
+        run: ../../../scripts/cmux-next/compile-string-catalogs.sh
+
+      # Samples and fails a run still going after 15 minutes, so a hang shows
+      # its stacks; each test step timeout stops it holding the runner regardless.
+      # Control tests use tight request deadlines and run in their own process so
+      # they do not compete with the other MainActor-isolated suites.
+      # The daemon integration tests use the pinned branch build of cmux-tui
+      # (scripts/cmux-next/cmux-tui.pin) when it is in the checkout, and fall
+      # back to the release client in ~/Library/Caches/cmux/cmux-tui-client.
+      # A mini has that cache (release clients lack the cmux-next daemon
+      # flags) and Blacksmith has none (the suite skipped), so the verdict
+      # depended on the runner. The pinned binary is public and sha256-checked.
+      - name: Fetch the pinned cmux-tui
+        timeout-minutes: 5
+        run: scripts/cmux-next/pin-cmux-tui.sh fetch
+
+      - name: Run package tests (excluding control deadline tests)
+        timeout-minutes: 20
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --skip CmuxNextControlTests
+
+      - name: Run control package tests
+        timeout-minutes: 20
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter CmuxNextControlTests
+
+  release-compile:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    name: cmux-next Release compile (Xcode 26)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # One-architecture Release (-O, whole-module) xcodebuild of CmuxNextApp
+    # with the nightly's Xcode. Debug `swift build` and Xcode 27 accept code
+    # that this rejects; without this job such code fails only the nightly.
+    timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Release compile
+        run: scripts/cmux-next/check-release-compile.sh "$RUNNER_TEMP/cmux-next-release-compile"
+
+      # On a mini, the CEF glue (CEF's C++ wrapper, the CEFShim dylib and the
+      # helper binary) is also compiled against the pinned Chromium engine
+      # (scripts/cmux-next/cef-manifest.json), the way the app's Embed CEF
+      # phase builds it, so a shim or manifest change the engine does not
+      # accept fails here and not in the nightly. ensure-cef.sh fills the
+      # mini's kept host cache (scripts/cmux-next/cef-cache-root.sh) from the private R2
+      # bucket with the read-only key, which only this step receives and only
+      # in same-repository runs, as in ci-macos.yml's admission; later runs
+      # read the cache. A runner's own ~/.secrets file is never a source.
+      # Blacksmith runs skip both steps: they keep no cache, so each run would
+      # pay the download and the wrapper compile. So the check is advisory: a
+      # re-run (Blacksmith) or a fork pull request does not repeat it.
+      - name: Fetch the Chromium engine
+        id: cef
+        if: startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-')
+        env:
+          CMUX_CEF_R2_ACCOUNT_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCOUNT_ID || '' }}
+          CMUX_CEF_R2_ACCESS_KEY_ID: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_ACCESS_KEY_ID || '' }}
+          CMUX_CEF_R2_SECRET_ACCESS_KEY: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.CMUX_CEF_R2_SECRET_ACCESS_KEY || '' }}
+          CMUX_CEF_R2_ENV_FILE: /dev/null
+        run: |
+          set -euo pipefail
+          if cef_dir="$(env -u GH_TOKEN -u GITHUB_TOKEN scripts/cmux-next/ensure-cef.sh --optional)" && [[ -n "$cef_dir" ]]; then
+            echo "Chromium engine at $cef_dir"
+            echo "dir=$cef_dir" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Chromium engine artifact not readable on this runner; skipping the CEF shim compile"
+          fi
+
+      - name: Compile the CEF shim against the pinned engine
+        if: steps.cef.outputs.dir != ''
+        env:
+          CEF_DIR: ${{ steps.cef.outputs.dir }}
+        run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
+
+  cmux-scheme-compile:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' }}
+    name: cmux app scheme compile (Debug)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
+    # Debug arm64 xcodebuild of the cmux app scheme: the app host and every
+    # local package it links (CmuxControlSocket, CmuxCore, ...), which the
+    # CmuxNext jobs above never compile. A main merge once left
+    # CmuxControlSocket extending deleted types and only fleet dev builds
+    # failed. On a mini the DerivedData is kept per runner, so a run compiles
+    # what changed; Blacksmith builds it cold.
+    timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: |
+          ws="${GITHUB_WORKSPACE:-$PWD}"
+          rm -f "$ws/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download pre-built GhosttyKit.xcframework
+        run: |
+          set -euo pipefail
+          GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Fetch the pinned cmux-tui
+        timeout-minutes: 5
+        run: scripts/cmux-next/pin-cmux-tui.sh fetch
+
+      - name: Install Rust (diff sidecar)
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Compile the cmux scheme
+        run: |
+          set -euo pipefail
+          if [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]]; then
+            derived_data="$HOME/Library/Caches/cmux-next-ci/cmux-scheme/${RUNNER_NAME:-runner}"
+            # Nothing on the mini reclaims this cache (glaeda-disk keeps it), so cap
+            # it: a cold build leaves about 5 GiB; past 12 GiB start over.
+            if [[ -d "$derived_data" ]] && (( $(du -sg "$derived_data" | cut -f1) > 12 )); then
+              echo "kept DerivedData over 12 GiB; building cold"
+              rm -rf -- "$derived_data"
+            fi
+          else
+            derived_data="$RUNNER_TEMP/cmux-scheme-compile"
+          fi
+          scripts/cmux-next/check-cmux-scheme-compile.sh "$derived_data"

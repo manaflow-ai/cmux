@@ -98,11 +98,16 @@ final class ControlSnapshotPublisher {
         // read waiting on its write barrier wakes (CompatWriteBarrier).
         topology.daemonSequence = services.daemon.store.appliedSequence
         let machines = services.machines
-        // Workspaces on Cloud and SSH machines, so their public ids resolve
-        // and the CLI sees every workspace a window lists.
+        // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
+        topology.sessions = ControlSessions.sessions(machines: machines)
         for daemon in machines.remoteDaemons where daemon.store.isLoaded {
+            let session = ControlSessions.key(daemon)
+            topology.sessionSequences[session] = daemon.store.appliedSequence
             topology.workspaces += daemon.store.workspaces.map { model in
-                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in services.paneController(for: pane)?.selectedTab?.id }
+                var info = ControlTopologyMapper.workspace(from: model) { [services] pane in
+                    services.paneController(for: pane)?.selectedTab?.id
+                }
+                info.sessionID = session
                 info.machine = daemon.machineID
                 return info
             }

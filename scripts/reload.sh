@@ -2212,6 +2212,11 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ "$PROD_AUTH" -eq 1 ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_ENVIRONMENT=production)
   fi
+  # cmux-next Debug builds load the agent pane from this loopback Vite dev
+  # server instead of the bundled page (webviews/src/agent-session/acpmux/README.md).
+  if [[ -n "${CMUX_NEXT_AGENT_PANE_DEV_URL:-}" ]]; then
+    TAG_LAUNCH_ENV+=(CMUX_NEXT_AGENT_PANE_DEV_URL="$CMUX_NEXT_AGENT_PANE_DEV_URL")
+  fi
   if [[ -n "$AUTH_CREDENTIALS_FILE" ]]; then
     TAG_LAUNCH_ENV+=(CMUX_AUTH_CREDENTIALS_FILE="$AUTH_CREDENTIALS_FILE")
   fi

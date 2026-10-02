@@ -45,6 +45,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
@@ -84,13 +85,14 @@ pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
-    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
-    ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
-    RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
-    SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge, TabGroupDestination,
-    TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions, TreeDecorations,
-    TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange, WorkspaceMutationResult,
-    WorkspacePlacement, ZoomMode, ZoomState,
+    Mux, MuxEvent, NotificationEvent, NotificationLevel, NotificationSource,
+    ProviderWorkspaceAuthority, ProviderWorkspaceAuthorityStatus,
+    ProviderWorkspaceAuthorityUpdateError, ResourceNotification, RunPlacement, ScreenDestination,
+    ScreenGroupOutcome, ScreenMoveOutcome, ScreenSpec, SidebarPluginOptions, SidebarPluginStatus,
+    SurfaceNotification, SurfaceResizeReporter, TabDirectory, TabDragOutcome, TabDropEdge,
+    TabGroupDestination, TabGroupOutcome, TabNotificationAck, TabPinChange, TerminalSpawnOptions,
+    TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceGroupChange,
+    WorkspaceMutationResult, WorkspacePlacement, ZoomMode, ZoomState,
 };
 pub use mux::{
     DEFAULT_TERMINAL_REAP_GRACE, IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper,

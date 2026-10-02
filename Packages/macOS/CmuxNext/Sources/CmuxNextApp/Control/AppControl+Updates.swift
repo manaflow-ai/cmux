@@ -19,7 +19,7 @@ extension AppControl {
                 return .followUp {
                     let outcome: (done: Bool, failure: String?)
                     do {
-                        outcome = (true, try await ControlDeadline.run(method: call.method, deadline: answerBy) { await probe.value })
+                        outcome = (true, try await ControlDeadline.shared.run(method: call.method, deadline: answerBy) { await probe.value })
                     } catch {
                         outcome = (false, nil)
                     }

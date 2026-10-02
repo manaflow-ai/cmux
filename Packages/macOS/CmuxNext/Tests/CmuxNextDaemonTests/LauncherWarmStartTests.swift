@@ -8,8 +8,8 @@ import Testing
 /// environment only matters when `server ensure` spawns a new owner.
 @Suite struct LauncherWarmStartTests {
     /// A stand-in cmux-tui: `server status` answers with `statusJSON` (or
-    /// exits 3, like a missing owner), `server ensure` logs itself and
-    /// answers "started".
+    /// exits 3, like a missing owner), `server ensure` (with its options)
+    /// logs itself and answers "started".
     final class Flag: Sendable {
         private let value = Mutex(false)
         func set() { value.withLock { $0 = true } }
@@ -23,9 +23,10 @@ import Testing
         let started = #"{"generation":"g2","message":"local server started","pid":4343,"session":"s","socket":"/tmp/s.sock","status":"started"}"#
         let script = """
         #!/bin/sh
-        for arg in "$@"; do last="$arg"; done
-        echo "$last" >> '\(log.path)'
-        case "$last" in
+        action=""; previous=""
+        for arg in "$@"; do [ "$previous" = server ] && action="$arg"; previous="$arg"; done
+        echo "$action" >> '\(log.path)'
+        case "$action" in
           status) \(isRunning ? "echo '\(running)'; exit 0" : "echo '{\"code\":\"server.unavailable\"}'; exit 3") ;;
           ensure) echo '\(started)'; exit 0 ;;
         esac

@@ -17,7 +17,9 @@ import CmuxNextSettings
 /// `move` (pointer motion with no button, for hover: tab and workspace
 /// hover cards), `hover` (tracking-area owners get entered, moved and
 /// exited at once, `DebugHover`: the tab strip's hover reveal), or `scroll`
-/// (`dx`,`dy` pixels); `button`: `left`
+/// (`dx`,`dy` pixels); a `drag` takes `press: false` (no mouse-down: it
+/// continues a drag left open) and `release: false` (no mouse-up: the drag
+/// stays open for `debug.tab_drag` and screenshots); `button`: `left`
 /// (default), `right`;
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`.
 enum DebugMouse {
@@ -48,13 +50,13 @@ enum DebugMouse {
         case "drag":
             let target = NSPoint(x: params["to_x"]?.doubleValue ?? point.x, y: params["to_y"]?.doubleValue ?? point.y)
             let steps = min(max(params["steps"]?.intValue ?? 12, 1), 200)
-            events = [mouse(down, at: point, in: window, flags: flags, clicks: 1)]
+            events = params["press"]?.boolValue == false ? [] : [mouse(down, at: point, in: window, flags: flags, clicks: 1)]
             for step in 1...steps {
                 let t = Double(step) / Double(steps)
                 let at = NSPoint(x: point.x + (target.x - point.x) * t, y: point.y + (target.y - point.y) * t)
                 events.append(mouse(dragged, at: at, in: window, flags: flags, clicks: 1))
             }
-            events.append(mouse(up, at: target, in: window, flags: flags, clicks: 1))
+            if params["release"]?.boolValue != false { events.append(mouse(up, at: target, in: window, flags: flags, clicks: 1)) }
         case "move":
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
@@ -69,6 +71,8 @@ enum DebugMouse {
         }
         let posted = events.compactMap { $0 }
         guard posted.count == events.count else { return .object(["error": .string("could not synthesize events")]) }
+        // Agent input: never the user choosing the app (no-activate guard).
+        SyntheticInput.register(posted)
         for event in posted { NSApp.postEvent(event, atStart: false) }
         return .object([
             "window": .string(controller.state.id),

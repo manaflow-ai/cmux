@@ -28,6 +28,8 @@ final class OmniboxSuggestionPanel {
 
     func show(_ suggestions: [BrowserSuggestion], highlighted: Int?, below anchor: NSView, in window: NSWindow) {
         let panel = panel ?? makePanel()
+        // The card takes the omnibar's theme scope (its room or workspace).
+        panel.adoptThemeScope(of: anchor)
         rows.forEach { $0.removeFromSuperview() }
         rows = suggestions.enumerated().map { index, suggestion in
             let row = SuggestionRowView(suggestion: suggestion)
@@ -65,7 +67,6 @@ final class OmniboxSuggestionPanel {
             row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
         }
 
-        panel.appearance = window.effectiveAppearance
         panel.setFrame(frame, display: true)
         content.needsLayout = true
         if panel.parent !== window {
@@ -101,7 +102,6 @@ final class OmniboxSuggestionPanel {
             backing: .buffered,
             defer: true
         )
-        ThemeStore.shared.adopt(window)
         window.isOpaque = false
         window.backgroundColor = .clear
         // The card draws its own shadow so none falls on the seam with the bar.
@@ -163,7 +163,7 @@ final class SuggestionCardView: NSView {
     }
 
     private func refresh() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             card.layer?.backgroundColor = OmnibarStyle.cardFill.cgColor
         }
     }

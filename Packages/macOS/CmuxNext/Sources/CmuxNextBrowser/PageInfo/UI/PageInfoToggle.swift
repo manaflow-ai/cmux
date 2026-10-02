@@ -59,7 +59,7 @@ final class PageInfoToggle: NSView {
         let diameter = size.height - inset * 2
         knob.frame = CGRect(x: isOn ? size.width - inset - diameter : inset, y: inset, width: diameter, height: diameter)
         knob.cornerRadius = diameter / 2
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             track.backgroundColor = (isOn ? PageInfoStyle.text : PageInfoStyle.pressed).cgColor
             knob.backgroundColor = (isOn ? PageInfoStyle.background : PageInfoStyle.secondaryText).cgColor
         }

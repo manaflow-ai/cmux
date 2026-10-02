@@ -59,4 +59,22 @@ struct WorkspaceBlueprintTests {
         #expect(!WorkspaceIconValue.isValid("not a symbol"))
         #expect(!WorkspaceIconValue.isValid(""))
     }
+
+    /// Coordinator decision 2026-09-30: Duplicate Workspace copies each
+    /// browser tab's browser profile.
+    @MainActor @Test func captureKeepsEachBrowserTabsProfile() throws {
+        let work = "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+        let tabs = [
+            #"{"kind":"browser","name":"","surface":9,"dead":false,"browser_renderer":"frontend","browser_engine":"cef","url":"https://a.test/","browser_profile_id":"\#(work)"}"#,
+            #"{"kind":"browser","name":"","surface":10,"dead":false,"browser_renderer":"frontend","browser_engine":"webkit","url":"https://b.test/"}"#,
+        ]
+        let store = DaemonStore()
+        store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: tabs.joined(separator: ",")))
+        let workspace = try #require(store.workspaces.first)
+        let blueprint = WorkspaceBlueprint(workspace)
+        #expect(blueprint.screens.first?.columns.first?.root == .pane([
+            .browser(url: "https://a.test/", engine: .cef, profile: work),
+            .browser(url: "https://b.test/", engine: .webkit, profile: nil),
+        ]))
+    }
 }

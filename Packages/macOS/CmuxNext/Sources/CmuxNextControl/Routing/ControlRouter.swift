@@ -170,7 +170,7 @@ public final class ControlRouter: Sendable {
                     // Same bound as a v2 request (architecture.md 5a).
                     let reply: String?
                     do {
-                        reply = try await ControlDeadline.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
+                        reply = try await ControlDeadline.shared.run(method: "v1 \(trimmed.split(separator: " ").first ?? "")",
                                                               deadline: .now + configuration.requestDeadline) { await handler(trimmed) }
                     } catch let error as ControlError {
                         return "ERROR: \(error.message)"
@@ -208,7 +208,7 @@ public final class ControlRouter: Sendable {
         }
         var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
-        let limit = method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
+        let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
         let deadline = ContinuousClock.now + limit
         let progress = ControlCallProgress()
         do {
@@ -233,7 +233,7 @@ public final class ControlRouter: Sendable {
             return try body(call)
         case .async(let body):
             if !method.claimsProgress { _ = call.progress.begin() }
-            return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+            return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                  startsTerminal: call.startsTerminal) { try await body(call) }
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
@@ -246,7 +246,7 @@ public final class ControlRouter: Sendable {
             case .value(let value):
                 return value
             case .followUp(let work):
-                return try await ControlDeadline.run(method: call.method, deadline: call.deadline,
+                return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
                                                      startsTerminal: call.startsTerminal, work)
             }
         }

@@ -23,6 +23,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         UnsafeMutableRawPointer?, Int32, Int32, Int32, Int32, Int32, Int32, Int32, Int32,
         UnsafePointer<CChar>?, UnsafePointer<CChar>?
     ) -> Int32
+    /// `cmux_shim_focus_request_fn`: ctx, browser, source -> 1 allow.
+    typealias FocusRequestFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32) -> Int32
 
     let abiIDFn: @convention(c) () -> UnsafePointer<CChar>?
     let load: @convention(c) (UnsafePointer<CChar>?, UnsafeMutablePointer<CChar>?, Int) -> Int32
@@ -42,6 +44,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let tabAdd: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let tabActivate: @convention(c) (Int32) -> Int32
+    let tabNavigationEntries: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let tabGoToEntry: @convention(c) (Int32, Int32) -> Int32
     let tabWindowID: @convention(c) (Int32) -> Int32
 
     let loadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Void
@@ -101,6 +105,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let shutdown: @convention(c) () -> Void
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
+    let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).
     let foreignBrowserCount: @convention(c) () -> Int32
 
@@ -109,6 +115,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setContentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32) -> Int32
     let visitCookies: @convention(c) (Int32, Int32) -> Int32
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// Browser import: cookies into a profile's request context.
+    let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -131,6 +139,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let popupWindowBounds: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?,
                                            UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?) -> Int32
     let popupWindowAttach: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32) -> Int32
+    // Side panel header (fork API 13).
+    let sidePanelState: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
+    let sidePanelPress: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
 
     enum LoadError: Error, Equatable {
         case open(String)
@@ -180,6 +191,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         createWindow = try r("cmux_shim_create_window")
         tabAdd = try r("cmux_shim_tab_add")
         tabActivate = try r("cmux_shim_tab_activate")
+        tabNavigationEntries = try r("cmux_shim_tab_navigation_entries")
+        tabGoToEntry = try r("cmux_shim_tab_go_to_entry")
         tabWindowID = try r("cmux_shim_tab_window_id")
         loadURL = try r("cmux_shim_load_url")
         goBack = try r("cmux_shim_go_back")
@@ -223,11 +236,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
         setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
+        importCookies = try r("cmux_shim_import_cookies")
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
@@ -243,6 +258,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setPopupWindowsEnabled = try r("cmux_shim_set_popup_windows_enabled")
         popupWindowBounds = try r("cmux_shim_popup_window_bounds")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
+        sidePanelState = try r("cmux_shim_side_panel_state")
+        sidePanelPress = try r("cmux_shim_side_panel_press")
     }
 
     /// Returns a string the shim allocated itself (`cmux_shim_ssl_status`)

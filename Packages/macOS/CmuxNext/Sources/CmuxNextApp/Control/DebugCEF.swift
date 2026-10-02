@@ -56,6 +56,11 @@ enum DebugCEF {
                     "title": tab.state.title.map { .string($0) } ?? .null,
                     "open": .bool(state.isOpen), "dock": .string(state.dock.rawValue),
                 ]
+                if let panel = tab.sidePanelDiagnostic {
+                    object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
+                                                    "controls": .array(panel.controls.map { .string($0) }), "frame": rect(panel.frame),
+                                                    "chromium_focusable": panel.chromiumFocusable.map { .number(Double($0)) } ?? .null])
+                }
                 if let frames = tab.devToolsDiagnosticFrames {
                     object["page_frame"] = rect(frames.page)
                     object["devtools_frame"] = frames.devTools.map(rect) ?? .null
@@ -72,6 +77,16 @@ enum DebugCEF {
         return out
     }
 
+    /// Runs `control` on the first shown Chromium tab with a side panel.
+    static func pressSidePanel(_ control: String, services: AppServices) {
+        for controller in services.windows.controllers {
+            for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
+                guard case .browser(let entry)? = pane.currentContent, let tab = entry.tab as? CEFTab else { continue }
+                if tab.pressSidePanelForDebug(control) { return }
+            }
+        }
+    }
+
     /// Chromium never opens a window of its own: `chromium_windows` must be
     /// empty; `guard_blocked` counts windows the app hid after they showed.
     private static func windows(_ report: CEFWindowReport) -> JSONValue {
@@ -86,6 +101,7 @@ enum DebugCEF {
             "guard_recent": .array(report.guardRecent.map { .string($0) }),
             "unplaced_tabs": .number(Double(report.unplacedTabs)),
             "fork_api": .number(Double(report.forkAPIVersion)),
+            "popup_windows": .array(report.popupWindows.map { .string($0) }),
         ])
     }
 

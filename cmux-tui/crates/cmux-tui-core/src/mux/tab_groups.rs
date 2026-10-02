@@ -458,7 +458,15 @@ impl Mux {
                     .get(&group_id)
                     .cloned()
                     .ok_or_else(|| state_commit::state_not_found("tab_group", &group_id))?;
-                let added = tabs(state)?;
+                // First occurrence only: a repeated surface would be spliced
+                // into the pane's tab order twice and committed as the
+                // durable order.
+                let mut added = Vec::new();
+                for surface in tabs(state)? {
+                    if !added.contains(&surface) {
+                        added.push(surface);
+                    }
+                }
                 let pane =
                     pane_by_public_id(state, &record.pane_id).context("tab group pane is gone")?;
                 for surface in &added {
@@ -1128,8 +1136,10 @@ mod tests {
             ("", "cyan", true)
         );
 
-        mux.add_tabs_to_tab_group("g1", &[t3], None).unwrap();
+        // A repeated surface joins once and appears once in the tab order.
+        mux.add_tabs_to_tab_group("g1", &[t3, t3], None).unwrap();
         assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t2, t4, t3])]);
+        assert_eq!(tabs(&mux, pane), vec![t1, t2, t4, t3]);
         mux.remove_tabs_from_tab_group(&[t2], None).unwrap();
         assert_eq!(tabs(&mux, pane), vec![t1, t4, t3, t2]);
         assert_eq!(runs(&mux, pane), vec![("g1".to_string(), vec![t4, t3])]);

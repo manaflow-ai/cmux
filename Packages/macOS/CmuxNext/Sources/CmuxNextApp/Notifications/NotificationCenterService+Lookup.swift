@@ -6,10 +6,11 @@ import CmuxNextSettings
 
 /// Tab lookups, the dock badge and the pane attention marks.
 extension NotificationCenterService {
-    /// The tab `resolved` types into: a terminal or a page (with its bars).
+    /// The tab `resolved` types into: a terminal, a page (with its bars) or an agent chat.
     static func contentTab(_ resolved: FocusState.Resolved) -> String? {
         switch resolved {
-        case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab): tab
+        case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab),
+             .agentPage(_, let tab): tab
         default: nil
         }
     }
@@ -20,6 +21,14 @@ extension NotificationCenterService {
         guard let services, let window = CmuxApplication.accessibilityWindow(for: window) else { return nil }
         let controller = services.windows.controllers.first { $0.window === window }
         return controller.flatMap { Self.contentTab($0.focus.state.resolved) }
+    }
+
+    /// `window`'s focus is a terminal (not a page, address bar, or find bar).
+    func isTerminalFocused(in window: NSWindow?) -> Bool {
+        guard let services, let window = CmuxApplication.accessibilityWindow(for: window),
+              let controller = services.windows.controllers.first(where: { $0.window === window }) else { return false }
+        if case .terminal = controller.focus.state.resolved { return true }
+        return false
     }
 
     /// The tab is the focused content of the key window while cmux is active.
@@ -47,8 +56,14 @@ extension NotificationCenterService {
         return LocatedTab(tab: tab, pane: pane, workspace: workspace)
     }
 
+    /// Each workspace adds its unread tab count, or 1 when that count is 0
+    /// and the workspace is marked unread by hand: a mark adds nothing to a
+    /// workspace that already has unread tabs (roughly the old app's count).
     static func unreadCount(_ store: DaemonStore?) -> Int {
-        store?.workspaces.reduce(0) { $0 + $1.unreadCount } ?? 0
+        store?.workspaces.reduce(0) { total, workspace in
+            let count = workspace.unreadCount
+            return total + (count == 0 && workspace.markedUnread ? 1 : count)
+        } ?? 0
     }
 
     /// Sets the Dock tile's unread count. Compares with the label it set

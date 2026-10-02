@@ -63,6 +63,8 @@ extension CEFTab {
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
         case .keyUnhandled(_, let keyCode):
             if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .takeFocus(_, let forward):
+            emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive:
@@ -88,8 +90,9 @@ extension CEFTab {
             favicon = nil
             return
         }
+        let profile = profileID
         faviconTask = Task { [weak self] in
-            let image = await BrowserFaviconLoader.shared.favicon(at: url)
+            let image = await BrowserFaviconLoader.shared.favicon(at: url, profile: profile)
             guard !Task.isCancelled else { return }
             self?.favicon = image
         }
@@ -153,7 +156,13 @@ extension CEFTab {
     public var extensionStore: BrowserExtensionStore { runtime.extensionStore(for: profileID) }
 
     public func runExtensionAction(_ id: String, anchor: CGRect) {
-        guard let browserID, let shim = runtime.shim else { return }
+        guard let browserID else {
+            // The click came before the page's browser exists (right after
+            // launch): run it from `attach(browser:)`.
+            pendingExtensionAction = (id, anchor)
+            return
+        }
+        guard let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.

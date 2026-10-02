@@ -2,12 +2,15 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The connection opens `session.events` after connecting, routes its lines
-/// with the raw events, cancels it on a daemon without state resources, and
-/// sends state mutations with idempotency keys.
+/// The connection opens `session.events` after connecting to a daemon whose
+/// `identify` advertises `state-resources-v1`, routes its lines with the raw
+/// events, opens none on a daemon without it, and sends state mutations with
+/// idempotency keys.
 @Suite(.timeLimit(.minutes(1))) struct SessionEventsConnectionTests {
-    static func server(snapshot: String, _ log: PlacementTests.Log) throws -> FakeDaemonServer {
-        try FakeDaemonServer(handler: ConnectionTests.handshake { request, _ in
+    static func server(snapshot: String, state: Bool = true, _ log: PlacementTests.Log) throws -> FakeDaemonServer {
+        let identify = ConnectionTests.identify.replacingOccurrences(
+            of: #""attach-initial-size"]"#, with: #""attach-initial-size","state-resources-v1"]"#)
+        let handle = ConnectionTests.handshake { request, _ in
             guard request["protocol"]?.stringValue == "cmux.protocol/2" else { return [] }
             log.append(request)
             let id = request["id"]?.stringValue ?? ""
@@ -23,6 +26,11 @@ import Testing
             default:
                 return [#"{"protocol":"cmux.protocol/2","type":"response","id":"\#(id)","ok":true,"result":{"value":{"id":"tgrp_new"},"generation":"g","revision":"9","replayed":false}}"#]
             }
+        }
+        return try FakeDaemonServer(handler: { request in
+            guard state, request["cmd"]?.stringValue == "identify" else { return handle(request) }
+            let id = request["id"]?.intValue ?? 0
+            return [#"{"id":\#(id),"ok":true,"data":\#(identify.replacingOccurrences(of: "GEN", with: "GEN"))}"#]
         })
     }
 
@@ -60,24 +68,15 @@ import Testing
         await connection.close()
     }
 
-    @Test func aDaemonWithoutStateGetsItsStreamCancelled() async throws {
-        let old = SessionStateTests.item(#"{"kind":"snapshot","cursor":{"generation":"g","revision":"1"},"snapshot":{"workspaces":[],"cursor":{"generation":"g","revision":"1"}}}"#)
+    @Test func aDaemonWithoutTheCapabilityGetsNoStream() async throws {
         let log = PlacementTests.Log()
-        let server = try Self.server(snapshot: old, log)
+        let server = try Self.server(snapshot: SessionStateTests.snapshot, state: false, log)
         defer { server.stop() }
         let connection = try await Self.connect(server)
-        #expect(try await Self.firstSessionItem(connection) == .unsupported)
-        // The cancel is sent from the actor right after the item is routed.
-        var operations: [String] = []
-        for _ in 0..<500 {
-            operations = log.all.compactMap { $0["operation"]?.stringValue }
-            if operations.count >= 2 { break }
-            try await Task.sleep(for: .milliseconds(10)) // test-only bounded wait
-        }
-        #expect(operations == ["session.events", "stream.cancel"])
-        let cancel = try #require(log.all.last.flatMap { PlacementTests.object($0["params"]) })
-        let open = try #require(log.all.first.flatMap { PlacementTests.object($0["params"]) })
-        #expect(cancel["stream"] == open["stream_id"])
+        // A later request on the same connection: the stream would have been
+        // opened before it (right after the handshake).
+        try await connection.setTabPinned(ResourceID(rawValue: "tab_a"), true)
+        #expect(log.all.compactMap { $0["operation"]?.stringValue } == ["tab.pin"])
         await connection.close()
     }
 

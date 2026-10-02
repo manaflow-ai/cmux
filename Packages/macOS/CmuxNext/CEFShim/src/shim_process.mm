@@ -180,6 +180,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_observer, "cmux_tab_set_observer");
   CMUX_BIND(tab_add, "cmux_tab_add");
   CMUX_BIND(tab_activate, "cmux_tab_activate");
+  CMUX_BIND(tab_go_to_offset, "cmux_tab_go_to_offset");
   CMUX_BIND(tab_window_id, "cmux_tab_window_id");
   CMUX_BIND(ext_actions, "cmux_ext_actions");
   CMUX_BIND(ext_action_run, "cmux_ext_action_run");
@@ -212,6 +213,9 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_popup_windows_enabled, "cmux_set_popup_windows_enabled");
   CMUX_BIND(popup_window_bounds, "cmux_popup_window_bounds");
   CMUX_BIND(popup_window_attach, "cmux_popup_window_attach");
+  CMUX_BIND(side_panel_watch, "cmux_side_panel_watch");
+  CMUX_BIND(side_panel_state, "cmux_side_panel_state");
+  CMUX_BIND(side_panel_press, "cmux_side_panel_press");
 #undef CMUX_BIND
 }
 

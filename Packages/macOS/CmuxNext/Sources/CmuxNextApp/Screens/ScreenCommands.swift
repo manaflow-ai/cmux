@@ -35,16 +35,12 @@ enum ScreenCommands {
         guard let connection = daemon.connection else { return }
         let handle = workspace.handle
         let intent = content?.beginFocusIntent()
-        let state = daemon.store.servesStateResources
-        let extended = !state && daemon.supports(DaemonCapabilities.screenMetadata)
+        let extended = daemon.supports(DaemonCapabilities.shared.screenMetadata)
         let options = SpawnOptions(cwd: cwd, workspace: workspace.key)
         Task {
             do {
                 let surface: SurfaceID
-                if state, !spec.isEmpty {
-                    surface = try await connection.newScreen(in: handle).surface
-                    try await applySpec(spec, toScreenOf: surface, daemon: daemon, connection: connection)
-                } else if extended {
+                if extended {
                     surface = try await connection.newScreen(in: handle, spec: spec, options: options).surface
                 } else {
                     surface = try await connection.newScreen(in: handle).surface

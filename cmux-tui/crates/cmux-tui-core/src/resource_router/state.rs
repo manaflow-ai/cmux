@@ -196,6 +196,7 @@ pub(super) fn dispatch(
                 color: nullable_string(fields, "color"),
                 icon: nullable_string(fields, "icon"),
                 title: nullable_string(fields, "title"),
+                ..WorkspacePresentationUpdate::default()
             };
             let commit = mux
                 .state_update_workspace(
@@ -408,47 +409,15 @@ pub(super) fn dispatch(
         | Op::ScreenMove
         | Op::ScreenGroupCreate
         | Op::ScreenGroupAddScreens
-        | Op::ScreenGroupRemoveScreens => {
-            let change = screen_change(operation, selectors, fields)?;
-            let request_strip = strip_request(&request)?;
-            let commit = mux
-                .state_screen_change(
-                    &request_strip.mutation,
-                    &request_strip.operation,
-                    &request_strip.fingerprint,
-                    request_strip.expected_revision,
-                    change,
-                )
-                .map_err(state_error)?;
-            patch_result(mux, commit)
-        }
-        Op::ScreenGroupUpdate | Op::ScreenGroupUngroup => {
-            ensure_session(mux, selectors)?;
-            let group = string(fields, "screen_group").unwrap_or_default();
-            let update = (operation == Op::ScreenGroupUpdate).then(|| {
-                (
-                    string(fields, "name"),
-                    string(fields, "color"),
-                    fields.get("collapsed").and_then(Value::as_bool),
-                )
-            });
-            if update.is_some() {
-                require_any(fields, &["name", "color", "collapsed"])?;
+        | Op::ScreenGroupRemoveScreens
+        | Op::ScreenGroupUpdate
+        | Op::ScreenGroupUngroup => {
+            if matches!(operation, Op::ScreenGroupUpdate | Op::ScreenGroupUngroup) {
+                ensure_session(mux, selectors)?;
             }
-            let name = if operation == Op::ScreenGroupUpdate {
-                "screen_group.update"
-            } else {
-                "screen_group.ungroup"
-            };
-            let commit = mux
-                .state_screen_group_rows(
-                    &mutation(&request)?,
-                    name,
-                    expected_revision(fields)?,
-                    &group,
-                    update,
-                )
-                .map_err(state_error)?;
+            let change = screen_change(operation, selectors, fields)?;
+            let commit =
+                mux.state_screen_change(strip_request(&request)?, change).map_err(state_error)?;
             state_result(mux, commit)
         }
         Op::ScreenGroupList => {
@@ -643,6 +612,18 @@ fn screen_change(
             group: string(fields, "screen_group").unwrap_or_default(),
             screens: strings(fields, "screens"),
         },
+        Op::ScreenGroupUpdate => {
+            require_any(fields, &["name", "color", "collapsed"])?;
+            ScreenChange::GroupUpdate {
+                group: string(fields, "screen_group").unwrap_or_default(),
+                name: string(fields, "name"),
+                color: string(fields, "color"),
+                collapsed: fields.get("collapsed").and_then(Value::as_bool),
+            }
+        }
+        Op::ScreenGroupUngroup => {
+            ScreenChange::GroupUngroup { group: string(fields, "screen_group").unwrap_or_default() }
+        }
         _ => ScreenChange::GroupRemove { screens: strings(fields, "screens") },
     })
 }

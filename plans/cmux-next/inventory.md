@@ -24,7 +24,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | toggleFullScreen | Toggle Full Screen | ⌃⌘F | PKM | KSS:91, CV:7644, cmuxApp:1215 |
 | quit | Quit cmux | ⌘Q | KM | KSS:92, cmuxApp:565 |
 | showHideAllWindows | Show/Hide All Windows (global) | ⌃⌥⌘. | K | KSS:87 |
-| globalSearch | Search All Windows… | ⌥⌘F | KM | KSS:88, MenuBarExtraController:28 |
+| globalSearch | Search All Windows… | ⌥⌘F | PKM | KSS:88, MenuBarExtraController:28 |
 | commandPalette | Command Palette… | ⇧⌘P | KM | KSS:103, cmuxApp:956 |
 | commandPaletteNext / Previous | Palette: Next / Previous | ⌃N / ⌃P | K | KSS:104-105 |
 | goToWorkspace | Go to Workspace… | ⌘P | KM | KSS:102, cmuxApp:951 |
@@ -111,7 +111,8 @@ Registry rule for the new palette: one row below = one registered action with a 
 
 | id | title | default | src | file |
 |---|---|---|---|---|
-| newSurface | New Tab (Terminal) | ⌘T | PKC | KSS:152, CV:7596, TIV |
+| newSurface | New Tab (Terminal) | none in cmux-next (⌘T is `newTab.sameKind`) | PKC | KSS:152, CV:7596, TIV |
+| newTab.sameKind (cmux-next) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
 | openBrowser | New Tab (Browser) | ⇧⌘L | PKC | KSS:202, CV:7605, TIV |
 | closeTab | Close Tab | ⌘W | PKM | KSS:144, CV:7618 |
 | closeOtherTabsInPane | Close Other Tabs | ⌥⌘T | KMC | KSS:145, TIV |
@@ -214,7 +215,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 |---|---|---|---|---|
 | newCloudWorkspace | New Cloud Workspace | ⇧⌘Y | KMC | KSS:97 |
 | newCloudMachine | New Cloud Machine… | ⌘Y | PKMC | KSS:98 |
-| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90 |
+| palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |
@@ -346,7 +347,7 @@ DELETE = replaced by cmux-tui or obsolete. REWRITE = new code needed, old code i
 | CmuxSettings | 15,749 | – | KEEP-AS-LIBRARY | JSONC editor, config store, shortcut `when` clauses, socket settings, allowlists. |
 | CmuxRemoteSession | 11,462 | tests | DELETE | Remote tmux mirror and bootstrap. Replaced by cmux-tui cmux-remote. |
 | CmuxGit | 11,459 | – | KEEP-AS-LIBRARY | Git metadata and refs parsing. |
-| CmuxTerminalCore | 10,742 | – | SPLIT | KEEP `Config/` + `ConfigDiscovery/` (Ghostty config), prompt detection. DELETE surface callbacks and copy mode (cmux-tui copy mode). |
+| CmuxTerminalCore | 10,742 | – | SPLIT | KEEP `Config/` + `ConfigDiscovery/` (Ghostty config), prompt detection. DELETE surface callbacks. Copy mode moved to `CmuxNextCopyMode` (key table) and `TerminalSurfaceView+CopyMode` (Ghostty keyboard-copy API); cmux-tui has none. |
 | CmuxWorkspaces | 8,895 | 1 file | DELETE | Workspace model, reorder, groups, focus history, `SessionSnapshotRepository`. All of it is cmux-tui state now. |
 | CmuxSudoBroker | 7,467 | – | KEEP-AS-LIBRARY | Self-contained. |
 | CmuxRemoteWorkspace | 6,719 | – | DELETE | Proxy tunnel, PTY bridge, CLI relay. Replaced by cmux-remote. |

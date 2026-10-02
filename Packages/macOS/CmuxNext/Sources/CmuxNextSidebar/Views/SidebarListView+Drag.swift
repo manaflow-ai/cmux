@@ -14,6 +14,9 @@ extension SidebarListView {
         /// Keys hidden while dragging (the lifted rows).
         let hiddenKeys: Set<SidebarRowKey>
         let grabOffsetY: CGFloat
+        /// Press x from the row's leading edge; with `grabOffsetY`, the
+        /// point a window-drag hand-off keeps under the pointer.
+        var grabOffsetX: CGFloat = 0
         let gapHeight: CGFloat
         let lift: DragLiftView
         var target: DropTarget?
@@ -80,6 +83,7 @@ extension SidebarListView {
             lift: lift,
             target: origin
         )
+        drag.grabOffsetX = press.point.x - rowFrame.minX
         self.drag = drag
         suppressed.formUnion(hidden)
         setHovered(nil)

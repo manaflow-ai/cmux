@@ -742,6 +742,8 @@ fn validate_ssh_user(user: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use crate::test_exec::write_executable;
     use std::io::{BufRead, BufReader};
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -774,10 +776,7 @@ mod tests {
 
         fn script(&self, name: &str, body: &str) -> PathBuf {
             let path = self.path.join(name);
-            fs::write(&path, format!("#!/bin/sh\nset -eu\n{body}\n"))
-                .expect("write provider test script");
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o700))
-                .expect("make provider test script executable");
+            write_executable(&path, format!("#!/bin/sh\nset -eu\n{body}\n"));
             path
         }
     }

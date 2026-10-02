@@ -12,7 +12,6 @@ final class PageInfoPanel: ActiveAppKeyPanel {
 
     init() {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView], backing: .buffered, defer: true)
-        ThemeStore.shared.adopt(self)
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
@@ -57,13 +56,25 @@ final class PageInfoCardView: NSView {
         glass.contentView = body
         body.wantsLayer = true
         addSubview(glass)
-        shadow = {
+        applyColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    /// Shadow and glass tint of the bubble's theme scope (the panel adopts
+    /// the omnibar's scope when it opens).
+    private func applyColors() {
+        performWithTheme {
             let shadow = NSShadow()
             shadow.shadowColor = Palette.shadow.withAlphaComponent(0.24)
             shadow.shadowBlurRadius = PageInfoStyle.shadowMargin * 0.6
             shadow.shadowOffset = NSSize(width: 0, height: -2)
-            return shadow
-        }()
+            self.shadow = shadow
+            glass.tintColor = Palette.glassTint
+        }
     }
 
     @available(*, unavailable)

@@ -44,6 +44,8 @@ public final class TabModel: Identifiable {
     /// The terminal's OSC 9;4 progress as the daemon parses it, mounted or
     /// not (`TerminalSnapshot.extra.progress`).
     public internal(set) var progress: TerminalProgressReport?
+    /// The terminal a remote-terminal tab references (on another session).
+    public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
@@ -80,6 +82,7 @@ public final class TabModel: Identifiable {
         faviconURL = s.faviconURL
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
+        remote = s.remote
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -108,6 +111,7 @@ public final class TabModel: Identifiable {
         if faviconURL != s.faviconURL { faviconURL = s.faviconURL }
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
+        if remote != s.remote { remote = s.remote }
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.

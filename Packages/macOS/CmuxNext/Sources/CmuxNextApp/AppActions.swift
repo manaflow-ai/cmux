@@ -15,12 +15,15 @@ enum AppActions {
         let registry = services.registry
         let context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context)
+        HistoryHandlers.bind(into: registry, context: context)
+        BookmarkHandlers.bind(into: registry, context: context)
         WorkspaceHandlers.bind(into: registry, context: context)
         WorkspaceVerbHandlers.bind(into: registry, context: context)
         WorkspaceStructureHandlers.bind(into: registry, context: context)
         WorkspaceMetadataHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         RoomHandlers.bind(into: registry, context: context)
+        ThemeHandlers.bind(into: registry, context: context)
         WindowMembershipHandlers.bind(into: registry, context: context)
         SidebarHandlers.bind(into: registry, context: context)
         SettingsHandlers.bind(into: registry, context: context)
@@ -33,13 +36,17 @@ enum AppActions {
         ColumnHandlers.bind(into: registry, context: context)
         ScreenHandlers.bind(into: registry, context: context)
         TerminalHandlers.bind(into: registry, context: context)
+        FindInDirectoryHandlers.bind(into: registry, context: context)
+        GlobalSearchHandlers.bind(into: registry, context: context)
         BrowserHandlers.bind(into: registry, context: context)
         PageInfoHandlers.bind(into: registry, context: context)
         ExtensionHandlers.bind(into: registry, context: context)
+        BrowserProfileHandlers.bind(into: registry, context: context)
         OpenInHandlers.bind(into: registry, context: context)
         NotificationHandlers.bind(into: registry, context: context)
         AgentHandlers.bind(into: registry, context: context)
         CloudHandlers.bind(into: registry, context: context)
+        AccountsHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
         context.observeRefusals()
@@ -53,15 +60,21 @@ enum AppActions {
 
     private static func bindApp(_ services: AppServices) {
         let registry = services.registry
-        // Terminate from a run-loop callout, not from inside the caller's
-        // main-queue job (control socket, palette): terminateLater spins a
-        // nested run loop, and the save Task could never get the main queue.
-        registry.bind("quit") {
-            RunLoop.main.perform(inModes: [.common]) {
-                SheetDismissal.endAll()
-                NSApp.terminate(nil)
+        // Quit and the local terminals (QuitCoordinator): a keyboard, menu
+        // or Dock quit may ask; a scripted run (control socket, CLI) never
+        // waits on the sheet and takes --keep-sessions / --end-sessions /
+        // --end-everything.
+        registry.bind("quit", invoke: { invocation in
+            do {
+                let origin = try QuitPolicy.origin(for: invocation, scripted: registry.isCapturingRefusal)
+                services.quit.requestQuit(origin)
+            } catch {
+                registry.refuse(QuitArgumentConflict.reason)
             }
-        }
+        })
+        registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
+        registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
+        registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
         registry.bind("newWindow") { services.windows.newWindow() }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {

@@ -20,16 +20,24 @@ final class TabDragGhostPanel {
     private let thumbLayer = CALayer()
     private let cardSize: CGSize
     private let panelSize: CGSize
+    private let tabSize: CGSize
+    /// Where the pointer holds the tab (y up, in a `tabSize` tab); the
+    /// ghost scales about that point.
+    private let grabOffset: CGPoint
     static let pad: CGFloat = 32
     static let inset: CGFloat = 6
 
-    init(tabImage: CGImage?, tabSize: CGSize, aspect: CGFloat?, scale: CGFloat) {
+    init(tabImage: CGImage?, tabSize: CGSize, grabOffset: CGPoint, aspect: CGFloat?, scale: CGFloat) {
+        self.tabSize = tabSize
+        self.grabOffset = grabOffset
         cardSize = TabDragGeometry.cardSize(tabSize: tabSize, aspect: aspect, inset: Self.inset)
         panelSize = CGSize(width: max(cardSize.width, tabSize.width * 1.6, 320) + Self.pad * 2,
                            height: max(cardSize.height, tabSize.height * 1.6) + Self.pad * 2)
         panel = NSPanel(contentRect: NSRect(origin: .zero, size: panelSize), styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
-        ThemeStore.shared.adopt(panel)
+        // A drag can cross windows of different rooms; the ghost keeps the
+        // app theme (Ghostty config).
+        ThemeScope.app.adopt(panel)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
@@ -61,7 +69,7 @@ final class TabDragGhostPanel {
         tabLayer.contents = tabImage
         tabLayer.contentsGravity = .resize
         tabLayer.contentsScale = scale
-        tabLayer.shadowColor = Palette.shadow.cgColor
+        tabLayer.shadowColor = ThemeScope.app.perform { Palette.shadow.cgColor }
         tabLayer.shadowOpacity = 0.28
         tabLayer.shadowRadius = 10
         tabLayer.shadowOffset = CGSize(width: 0, height: -3)
@@ -91,20 +99,27 @@ final class TabDragGhostPanel {
         FrameClient(owner: owner, view: root, onFrame: onFrame)
     }
 
-    /// Lays the panel and its layers out for one motion frame.
+    /// The ghost's screen geometry for `motion`.
+    func layout(_ motion: TabDragGhostMotion) -> TabDragGhostLayout {
+        TabDragGhostLayout(motion: motion, cardSize: cardSize, inset: Self.inset, grabOffset: grabOffset, tabSize: tabSize)
+    }
+
+    /// Lays the panel and its layers out for one motion frame
+    /// (`TabDragGhostLayout`): the card unfolds around the tab image, which
+    /// never moves under the pointer, and a shrink pivots on the grabbed
+    /// point.
     func render(_ motion: TabDragGhostMotion) {
-        let tab = motion.presentedRect
-        let c = motion.presentedCardness
+        let layout = layout(motion)
+        let tab = layout.tab
+        let c = layout.cardness
         let origin = CGPoint(x: (tab.minX - Self.pad).rounded(), y: (tab.maxY + Self.pad - panelSize.height).rounded())
         panel.setFrameOrigin(origin)
         panel.alphaValue = motion.presentedOpacity
 
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let tabLocal = CGRect(x: tab.minX - origin.x, y: tab.minY - origin.y, width: tab.width, height: tab.height)
-        let card = CGRect(x: tabLocal.minX - Self.inset, y: tabLocal.maxY + Self.inset - cardSize.height,
-                          width: cardSize.width, height: cardSize.height)
-        let current = Self.lerp(tabLocal, card, c)
+        let tabLocal = tab.offsetBy(dx: -origin.x, dy: -origin.y)
+        let current = layout.card.offsetBy(dx: -origin.x, dy: -origin.y)
         glass.frame = current
         glass.alphaValue = c
         let thumbHeight = max(0, current.height - tab.height - Self.inset * 3)
@@ -113,22 +128,18 @@ final class TabDragGhostPanel {
         thumbLayer.opacity = Float(c)
         tabLayer.frame = tabLocal
         tabLayer.shadowOpacity = Float(0.28 * (1 - c))
-        let s = motion.presentedScale
+        let s = layout.scale
         if s != 1 {
-            let center = CGPoint(x: current.midX, y: current.midY)
-            var transform = CATransform3DMakeTranslation(center.x, center.y, 0)
+            // The root layer's anchor is (0, 0) (AppKit), so the pivot is explicit.
+            let pivot = CGPoint(x: layout.pivot.x - origin.x, y: layout.pivot.y - origin.y)
+            var transform = CATransform3DMakeTranslation(pivot.x, pivot.y, 0)
             transform = CATransform3DScale(transform, s, s, 1)
-            transform = CATransform3DTranslate(transform, -center.x, -center.y, 0)
+            transform = CATransform3DTranslate(transform, -pivot.x, -pivot.y, 0)
             root.layer?.sublayerTransform = transform
         } else {
             root.layer?.sublayerTransform = CATransform3DIdentity
         }
         CATransaction.commit()
-    }
-
-    private static func lerp(_ a: CGRect, _ b: CGRect, _ t: CGFloat) -> CGRect {
-        CGRect(x: a.minX + (b.minX - a.minX) * t, y: a.minY + (b.minY - a.minY) * t,
-               width: a.width + (b.width - a.width) * t, height: a.height + (b.height - a.height) * t)
     }
 }
 

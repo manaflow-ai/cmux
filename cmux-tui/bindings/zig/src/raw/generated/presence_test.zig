@@ -21,6 +21,7 @@ fn expectExplicitNullRejected(
 test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ClosePaneRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseScreenRequest, "end_terminals");
+    try expectExplicitNullRejected(protocol.CloseScreenGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabGroupRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseTabsRequest, "end_terminals");
     try expectExplicitNullRejected(protocol.CloseWorkspaceRequest, "end_terminals");
@@ -33,6 +34,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ImportSessionOrganizationRequest, "workspaces");
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
+    try expectExplicitNullRejected(protocol.MoveScreenRequest, "new_workspace");
+    try expectExplicitNullRejected(protocol.MoveScreenGroupRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.NewPaneRequest, "keep");
     try expectExplicitNullRejected(protocol.NewPaneRightRequest, "keep");
     try expectExplicitNullRejected(protocol.NewTabRequest, "keep");
@@ -51,6 +54,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
     try expectExplicitNullRejected(protocol.DetachedEvent, "view");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "attempts");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_height");
@@ -59,6 +63,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "remaining");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "retry_exhausted");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "summary");
+    try expectExplicitNullRejected(protocol.NotificationEvent, "source");
     try expectExplicitNullRejected(protocol.OutputEvent, "colors");
     try expectExplicitNullRejected(protocol.OverflowEvent, "scope");
     try expectExplicitNullRejected(protocol.OverflowEvent, "surface");
@@ -103,6 +108,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.NotificationMarker, "source");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_row");
     try expectExplicitNullRejected(protocol.RenderGraphics, "images");

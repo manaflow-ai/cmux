@@ -6,8 +6,8 @@ nonisolated extension ActionCatalog {
             ActionDescriptor(
                 id: "palette.newAgentChat",
                 title: String(localized: "action.palette.newAgentChat", defaultValue: "New Agent Chat", bundle: .module),
-                keywords: ["agent", "chat", "ai"], category: .agents, symbol: "bubble.left.and.text.bubble.right",
-                surfaces: [.palette], cliName: "agent new-chat"
+                keywords: ["agent", "chat", "ai", "acpmux"], category: .agents, symbol: "bubble.left.and.text.bubble.right",
+                surfaces: [.palette, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "palette.openTerminalChatView",

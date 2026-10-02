@@ -824,7 +824,8 @@ USAGE
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
     [--room <room>] [--collapse|--expand]
-  cmux workspace group <group> delete|move --index <n>
+  cmux workspace group <group> delete
+  cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
 

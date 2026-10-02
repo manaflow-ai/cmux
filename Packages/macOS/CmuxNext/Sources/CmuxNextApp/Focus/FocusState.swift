@@ -92,6 +92,8 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         case findBar(pane: String, tab: String)
         /// The page's docked DevTools has the keyboard.
         case devTools(pane: String, tab: String)
+        /// An agent chat tab's page has the keyboard.
+        case agentPage(pane: String, tab: String)
         /// A focused pane with no content to type into (empty, loading).
         case emptyPane(pane: String)
         case sidebar
@@ -103,7 +105,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var pane: String? {
             switch self {
             case .terminal(let pane, _), .browserPage(let pane, _), .addressBar(let pane, _), .findBar(let pane, _),
-                 .devTools(let pane, _): pane
+                 .devTools(let pane, _), .agentPage(let pane, _): pane
             case .emptyPane(let pane): pane
             default: nil
             }
@@ -112,7 +114,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
         var tab: String? {
             switch self {
             case .terminal(_, let tab), .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab),
-                 .devTools(_, let tab): tab
+                 .devTools(_, let tab), .agentPage(_, let tab): tab
             default: nil
             }
         }
@@ -140,6 +142,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case .addressBar: "addressBar"
             case .findBar: "findBar"
             case .devTools: "devTools"
+            case .agentPage: "agentPage"
             case .emptyPane: "emptyPane"
             case .sidebar: "sidebar"
             case .sidebarField: "sidebarField"
@@ -207,6 +210,7 @@ nonisolated struct FocusState: Hashable, Sendable, Codable {
             case (.browser, .devTools): return .devTools(pane: pane, tab: tab.id)
             case (.browser, _): return .browserPage(pane: pane, tab: tab.id)
             case (.terminal, _): return .terminal(pane: pane, tab: tab.id)
+            case (.agent, _): return .agentPage(pane: pane, tab: tab.id)
             case (.other, _): return .emptyPane(pane: pane)
             }
         }

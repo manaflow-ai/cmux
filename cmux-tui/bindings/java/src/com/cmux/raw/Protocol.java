@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "16b0cbbce9b2cda10369f6a7b3aa64e1f950fef885ef7efd434dd222663ac474";
+    public static final String IR_SHA256 = "45d5f5eee71a41e566a469983f04b4e23ebc018dbd440ee24c7a1f25ad540f43";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -45,6 +45,7 @@ public final class Protocol {
             case "render-state" -> RenderStateEvent.fromWire(value);
             case "resized" -> ResizedEvent.fromWire(value);
             case "screen-added" -> ScreenAddedEvent.fromWire(value);
+            case "screen-changed" -> ScreenChangedEvent.fromWire(value);
             case "screen-closed" -> ScreenClosedEvent.fromWire(value);
             case "screen-renamed" -> ScreenRenamedEvent.fromWire(value);
             case "scroll-changed" -> ScrollChangedEvent.fromWire(value);

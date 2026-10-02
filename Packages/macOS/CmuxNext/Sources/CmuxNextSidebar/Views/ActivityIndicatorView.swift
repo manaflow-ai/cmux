@@ -86,18 +86,20 @@ final class ActivityIndicatorView: NSView {
     }
 
     override func updateLayer() {
-        switch activity {
-        case .running:
-            shape.strokeColor = resolvedCGColor(Palette.textSecondary)
-            shape.fillColor = nil
-        case .needsInput:
-            shape.strokeColor = nil
-            shape.fillColor = resolvedCGColor(Palette.attention)
-        case .error:
-            shape.strokeColor = nil
-            shape.fillColor = resolvedCGColor(Palette.danger)
-        case .idle:
-            break
+        performWithTheme {
+            switch activity {
+            case .running:
+                shape.strokeColor = Palette.textSecondary.cgColor
+                shape.fillColor = nil
+            case .needsInput:
+                shape.strokeColor = nil
+                shape.fillColor = Palette.attention.cgColor
+            case .error:
+                shape.strokeColor = nil
+                shape.fillColor = Palette.danger.cgColor
+            case .idle:
+                break
+            }
         }
     }
 

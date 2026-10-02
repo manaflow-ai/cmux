@@ -5,9 +5,10 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// Reopen Closed Tab, Reopen Closed Screen, and Recently Closed read the
-/// daemon's closed history and reopen through `closed.reopen` when the
-/// daemon serves it; the app's own trackers record nothing for that daemon.
+/// Reopen Closed Tab, Reopen Closed Screen, and the history lists (Recently
+/// Closed…, `history.list`) read the daemon's closed history and reopen
+/// through `closed.reopen` when the daemon serves it; the app's own trackers
+/// record nothing for that daemon.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct DaemonClosedHistoryTests {
     nonisolated static let state = #"""
     {"closed":[
@@ -57,18 +58,16 @@ import Testing
         #expect(daemon.params(of: "closed.reopen")?["closed"] == .string("closed_screen"))
     }
 
-    @Test func recentlyClosedIsAvailableAndReopensTheNamedItem() async throws {
+    @Test func theHistoryListsTheDaemonsClosedItemsAndReopensThem() async throws {
         let daemon = try StateDaemon(state: Self.state, reply: Self.reopenReply)
         defer { daemon.stop() }
         let services = try await services(daemon)
         defer { services.daemon.shutdownConnection() }
-        #expect(services.registry.unavailableReason(for: "recentlyClosed") == nil)
-        await run(services, "recentlyClosed", ActionInvocation(arguments: ["closed": .string("closed_ws")]))
+        let closed = services.history.closedEntries()
+        #expect(Set(closed.map(\.title)) == ["logs", "build", "old"])
+        let workspace = try #require(closed.first { $0.title == "old" })
+        HistoryRestorer(services: services).open(workspace)
+        try await waitUntil { daemon.params(of: "closed.reopen")?["closed"] == .string("closed_ws") }
         #expect(daemon.params(of: "closed.reopen")?["closed"] == .string("closed_ws"))
-    }
-
-    @Test func recentlyClosedIsUnavailableWithoutTheDaemonHistory() {
-        let services = ActionBindingCoverageTests.boundServices()
-        #expect(services.registry.unavailableReason(for: "recentlyClosed") != nil)
     }
 }

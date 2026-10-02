@@ -49,13 +49,16 @@ final class EventInbox: Sendable {
         }
     }
 
-    /// While collapsed: keep lifecycle events and one echo per transaction
+    /// While collapsed: keep lifecycle and bookmark events and one echo per transaction
     /// (as a `tree-changed` carrying it), drop the rest.
     private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
         switch envelope.event {
         case .connected, .disconnected, .daemonShutdown, .sessionState:
             // Session state is not refetched by the snapshot the collapse
             // triggers, so its items are kept in order.
+            state.events.append(envelope)
+        case .bookmarksChanged:
+            // Not part of the tree snapshot a resync refetches.
             state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }

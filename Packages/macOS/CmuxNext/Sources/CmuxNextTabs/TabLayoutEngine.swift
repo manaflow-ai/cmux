@@ -1,7 +1,8 @@
 public import CoreGraphics
 
 /// Pure tab geometry. The view diffs successive results and animates between them.
-public enum TabLayoutEngine {
+public struct TabLayoutEngine {
+    public init() {}
     /// Lays out `items` in order.
     ///
     /// - Parameter closingModeWidth: Chrome's deferred relayout. While the user

@@ -6,6 +6,7 @@ import CmuxNextDesign
 final class SiteDataWindow: PageInfoWindow {
     private let send: (PageInfoCommand) -> Void
     private let list = NSStackView()
+    private var scrollFit: ScrollFitElasticity?
 
     init(site: PageInfoSite, send: @escaping (PageInfoCommand) -> Void) {
         self.send = send
@@ -24,6 +25,7 @@ final class SiteDataWindow: PageInfoWindow {
         document.translatesAutoresizingMaskIntoConstraints = false
         document.addSubview(list)
         scroll.documentView = document
+        scrollFit = ScrollFitElasticity(scrollView: scroll)
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
         let subtitle = PageInfoStyle.label(PageInfoStrings.siteDataSubtitle, font: PageInfoStyle.captionFont,

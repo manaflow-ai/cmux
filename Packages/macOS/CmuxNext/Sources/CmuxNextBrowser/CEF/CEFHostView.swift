@@ -34,7 +34,7 @@ final class CEFHostView: NSView {
     /// Until Chromium's page window shows its first frame, the page area is
     /// the theme color, never white (`PageBackground`).
     private func updateBackground() {
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = Palette.pageBackground.cgColor
         }
     }
@@ -75,7 +75,7 @@ final class CEFHostView: NSView {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         windowObserver = nil
         guard let window else { return }
-        windowObserver = NotificationCenter.default.addObserver(forName: BrowserChildWindowPages.needsUpdate, object: window, queue: .main) { [weak self] _ in
+        windowObserver = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.postGeometryChange() }
         }
     }
@@ -111,9 +111,15 @@ final class CEFTabContentView: NSView {
     // Not flipped, like CEFHostView, so occlusion rects in this view's
     // coordinates are also valid in the host view that fills it.
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        tab?.pageThemeDidChange()
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         guard let tab else { return }
+        tab.pageThemeDidChange()
         if window != nil {
             tab.contentDidAppear(in: self)
         } else {
@@ -139,7 +145,9 @@ final class CEFTabContentView: NSView {
         let devToolsHost = tab?.devToolsViews?.host
         for subview in subviews {
             let frame: CGRect
-            if subview === devToolsHost {
+            if subview is SidePanelHeaderView {
+                frame = tab?.sidePanelHeaderFrame ?? .zero
+            } else if subview === devToolsHost {
                 frame = frames.devTools
             } else if subview is CEFDevToolsDivider {
                 frame = frames.grab

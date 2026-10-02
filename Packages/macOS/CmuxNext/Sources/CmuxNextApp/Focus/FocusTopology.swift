@@ -6,6 +6,8 @@ nonisolated struct FocusTopology: Hashable, Sendable, Codable {
     enum Kind: String, Hashable, Sendable, Codable {
         case terminal
         case browser
+        /// An agent chat tab: the acpmux React pane's web view.
+        case agent
         /// A tab kind the app shows no content for.
         case other
     }

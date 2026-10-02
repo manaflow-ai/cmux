@@ -15,7 +15,9 @@ final class CEFDevToolsWindow: NSPanel {
     /// The title bar's close button: the tab closes DevTools.
     var onClose: (() -> Void)?
 
-    init(frame: CGRect) {
+    /// `owner` is the cmux window the page shows in: DevTools takes its
+    /// theme scope (room) for the title bar's light or dark appearance.
+    init(frame: CGRect, owner: NSWindow? = nil) {
         super.init(contentRect: frame, styleMask: [.titled, .closable, .resizable, .miniaturizable],
                    backing: .buffered, defer: false)
         isReleasedWhenClosed = false
@@ -28,7 +30,7 @@ final class CEFDevToolsWindow: NSPanel {
         contentView = NSView(frame: CGRect(origin: .zero, size: frame.size))
         contentView?.wantsLayer = true
         setAccessibilityIdentifier("browser.devtools.window")
-        ThemeStore.shared.adopt(self)
+        (owner?.themeScope ?? .app).adopt(self)
         // The initializer places the rect relative to the main screen; set
         // the global frame so the window opens over the cmux window's screen.
         setFrame(frame, display: false)

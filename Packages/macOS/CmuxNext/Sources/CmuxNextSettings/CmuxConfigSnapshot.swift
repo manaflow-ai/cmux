@@ -11,7 +11,7 @@ public struct SettingsDiagnostic: Sendable, Hashable, CustomStringConvertible {
         case invalidValue
         case unknownAction
         case unknownMetric
-        /// A two-stroke chord; the registry cannot dispatch chords yet.
+        /// A chord whose first key has neither Command nor Control.
         case unsupportedChord
         /// Two actions claim the same shortcut in the same context.
         case shortcutConflict
@@ -57,6 +57,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
+    /// `browser.showBookmarksBar`; off when unset (Chrome's default).
+    public var browserShowBookmarksBar = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.remoteLocalhost` and `browser.remoteLocalhostWorkspaces`.
@@ -73,6 +75,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
+    /// `app.quitBehavior`; "ask" when unset or invalid.
+    public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     public var diagnostics: [SettingsDiagnostic]
@@ -105,6 +109,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabPage, newTabPageDiagnostic) = BrowserNewTabPage.parse(root)
         snapshot.browserNewTabPage = newTabPage
         if let newTabPageDiagnostic { snapshot.diagnostics.append(newTabPageDiagnostic) }
+        let (showBar, showBarDiagnostic) = BookmarksBarSetting.parse(root)
+        snapshot.browserShowBookmarksBar = showBar
+        if let showBarDiagnostic { snapshot.diagnostics.append(showBarDiagnostic) }
         let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
         snapshot.browserHibernation = hibernation
         snapshot.diagnostics += hibernationDiagnostics
@@ -126,6 +133,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
+        let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
+        snapshot.quitBehavior = quitBehavior
+        if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
 
         if let appearance = root["appearance"] {

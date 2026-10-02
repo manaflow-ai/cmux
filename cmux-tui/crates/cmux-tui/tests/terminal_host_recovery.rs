@@ -3610,6 +3610,94 @@ fn tree_terminal_ids(socket: &Path) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// A close replies once its commit is durable. It never waits for the host's
+/// termination receipt: that receipt travels behind the terminal's output on
+/// the host stream, and waiting for it inline held the reply (and the
+/// terminal's runtime lock) for the full two-second control timeout whenever
+/// the stream was slow, which made 100 sequential closes take over 15 s.
+#[test]
+fn close_terminal_replies_without_waiting_for_the_host_termination_receipt() {
+    let mut harness = RecoveryHarness::start_unstarted("close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let (terminal_id, incarnation) = run_cat_workspace(&harness.socket, 1, "close-ack-late");
+    wait_for_host_records(&harness.host_root(), 1);
+
+    let started = Instant::now();
+    let closed = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 2,
+            "cmd": "close-terminal",
+            "terminal_id": &terminal_id,
+            "terminal_incarnation": &incarnation,
+        }),
+    );
+    let replied_in = started.elapsed();
+    assert_eq!(closed["terminal_id"].as_str(), Some(terminal_id.as_str()), "{closed}");
+    // The control timeout the old inline wait spent is two seconds; the
+    // reply itself needs one durable commit.
+    assert!(
+        replied_in < Duration::from_secs(2),
+        "close-terminal waited {replied_in:?} for the host's termination receipt"
+    );
+    assert!(!tree_terminal_ids(&harness.socket).contains(&terminal_id));
+    wait_for_no_host_records(&harness.host_root());
+}
+
+/// Ending many terminals never waits for each host's termination receipt:
+/// the host-close pool asks every host to end and then waits for the durable
+/// exit receipts. With eight pool workers and receipts that arrive late, a
+/// receipt wait per host serialized the batch (the close_tabs 100-terminal
+/// test took 4.2 s on macOS, run 36769176794).
+#[test]
+fn batch_close_ends_hosts_without_waiting_for_termination_receipts() {
+    const COUNT: usize = 48;
+    let mut harness = RecoveryHarness::start_unstarted("batch-close-ack-late");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_TERMINATE_ACK_DELAY_MS", "3000");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let mut surfaces = Vec::with_capacity(COUNT);
+    for index in 0..COUNT {
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id": index + 1,
+                "cmd": "run",
+                "argv": ["/bin/cat"],
+                "new_workspace": true,
+                "name": format!("batch-ack-{index}"),
+            }),
+        );
+        surfaces.push(created["surface"].as_u64().unwrap());
+    }
+    wait_for_host_records(&harness.host_root(), COUNT);
+
+    let started = Instant::now();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 1_000,
+            "cmd": "close-tabs",
+            "surfaces": surfaces,
+            "end_terminals": true,
+        }),
+    );
+    wait_for_no_host_records_within(&harness.host_root(), test_timeout(Duration::from_secs(10)));
+    let hosts_in = started.elapsed();
+    // 48 hosts on eight workers: waiting for each late receipt (up to the 2 s
+    // control timeout) takes at least 12 s. Ending 48 hosts in parallel costs
+    // their exit-receipt fsyncs, a few seconds on a CI Linux VM (16 hosts took
+    // 3.1 s in run 36779722840).
+    assert!(
+        hosts_in < Duration::from_secs(8),
+        "ending {COUNT} hosts waited for their termination receipts: {hosts_in:?}"
+    );
+}
+
 /// A close commits and updates the tree before its host exits, and many
 /// closes end their hosts in parallel instead of one after another.
 #[test]
@@ -3656,13 +3744,23 @@ fn closing_one_hundred_terminals_updates_the_tree_at_once_and_ends_every_host() 
         "closed {COUNT} terminals: replies {closed_in:?}, tree {tree_in:?}, hosts {hosts_in:?}"
     );
     // Each reply waits only for its durable commit (one fsync plus a full
-    // resource projection), never for a host exit.
-    assert!(closed_in < test_timeout(Duration::from_secs(15)), "closes took {closed_in:?}");
-    // Hosts were signaled as each close committed and end in parallel.
-    let hosts_after_last_reply = hosts_in.saturating_sub(closed_in);
+    // resource projection, 10-35 ms on hosted Linux), never for the host's
+    // termination receipt or exit. 100 replies take about 1.7 s there; a
+    // reply that waited for a receipt stalled up to 2 s each (8.5-10 s in
+    // runs 36711759589 and 36736552304).
+    assert!(closed_in < test_timeout(Duration::from_secs(5)), "closes took {closed_in:?}");
+    // Hosts were signaled as each close committed and end in parallel, so
+    // all of them end within the cost of ending 100 hosts at once: about 400
+    // fsyncs (see close_tabs_ends_one_hundred_terminals_in_one_commit), about
+    // 1 s on a Mac and several seconds on a CI Linux VM. Ending them one
+    // after another costs a multiple of that. The old bound (3 s after the
+    // last reply) held only while the replies themselves were slow enough to
+    // hide the teardown.
+    let host_bound = if cfg!(target_os = "macos") { 3 } else { 10 };
     assert!(
-        hosts_after_last_reply < test_timeout(Duration::from_secs(3)),
-        "host exits trailed the last close by {hosts_after_last_reply:?}"
+        hosts_in < closed_in + test_timeout(Duration::from_secs(host_bound)),
+        "host exits trailed the last close by {:?}",
+        hosts_in.saturating_sub(closed_in)
     );
 }
 
@@ -3994,6 +4092,161 @@ fn placement_commands_start_terminals_with_the_caller_id_in_env() {
         let screen = wait_for_screen(&harness.socket, surface, &marker);
         assert!(screen.contains(&marker), "{command}: {screen}");
     }
+}
+
+/// Agent hooks and the `cmux` CLI inside a terminal address it through
+/// `CMUX_TUI_TERMINAL_ID` and `CMUX_TUI_SOCKET`. A new tab and a split get
+/// their own public terminal id, a tab moved to another workspace keeps it
+/// (the CLI resolves the caller's workspace from the terminal), and so does a
+/// host the daemon adopts after a restart.
+#[test]
+fn every_terminal_names_itself_and_its_daemon_in_env() {
+    let mut harness = RecoveryHarness::start("own-env");
+    let socket = harness.socket.display().to_string();
+    let (anchor, _) = run_cat_workspace(&harness.socket, 1, "anchor");
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": anchor}),
+    );
+    let (_, _, pane) = tab_placement(&harness.socket, resolved["surface"].as_u64().unwrap());
+    let created = [
+        ("new-tab", serde_json::json!({"id": 3, "cmd": "new-tab", "pane": pane})),
+        ("split", serde_json::json!({"id": 4, "cmd": "split", "pane": pane, "dir": "down"})),
+    ]
+    .map(|(command, value)| {
+        let created = request(&harness.socket, value);
+        let surface = created["surface"].as_u64().unwrap();
+        let id = own_terminal_env(&harness.socket, surface, &socket, command);
+        assert_eq!(tab_placement(&harness.socket, surface).0, id, "{command}");
+        (command, created["terminal_id"].as_str().unwrap().to_string(), id)
+    });
+    assert_ne!(created[0].2, created[1].2, "two terminals share an id");
+
+    let target = request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 5,
+            "cmd": "run",
+            "argv": ["/bin/cat"],
+            "new_workspace": true,
+            "name": "target",
+        }),
+    )["workspace"]
+        .as_u64()
+        .unwrap();
+    let moved = request(
+        &harness.socket,
+        serde_json::json!({"id": 6, "cmd": "resolve-terminal", "terminal_id": created[0].1}),
+    )["surface"]
+        .as_u64()
+        .unwrap();
+    request(
+        &harness.socket,
+        serde_json::json!({
+            "id": 7,
+            "cmd": "move-tab-to-workspace",
+            "surface": moved,
+            "workspace": target,
+        }),
+    );
+    let (id, workspace, _) = tab_placement(&harness.socket, moved);
+    assert_eq!(workspace, target, "the tab did not move");
+    assert_eq!(id, created[0].2, "a move changed the terminal's public id");
+    assert_eq!(own_terminal_env(&harness.socket, moved, &socket, "moved"), id);
+
+    harness.sigkill();
+    harness.restart();
+    for (command, host_id, id) in &created {
+        let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
+        let surface = loop {
+            let resolved = request(
+                &harness.socket,
+                serde_json::json!({"id": 8, "cmd": "resolve-terminal", "terminal_id": host_id}),
+            );
+            if resolved["lifecycle"] == "running"
+                && let Some(surface) = resolved["surface"].as_u64()
+            {
+                break surface;
+            }
+            assert!(Instant::now() < deadline, "{command}: the restarted daemon did not adopt it");
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        assert_eq!(
+            &tab_placement(&harness.socket, surface).0,
+            id,
+            "{command}: adoption changed the id"
+        );
+        let listed = resource_request(
+            &harness.socket,
+            &format!("own-env-list-{command}"),
+            "terminal.list",
+            serde_json::json!({"machine":"current","session":"current"}),
+            None,
+        );
+        assert!(
+            listed.as_array().unwrap().iter().any(|terminal| terminal["id"] == id.as_str()),
+            "{command}: {id} is not in terminal.list: {listed}"
+        );
+        let step = format!("{command}-adopted");
+        assert_eq!(&own_terminal_env(&harness.socket, surface, &socket, &step), id, "{command}");
+    }
+}
+
+/// The tab's public terminal id, its workspace, and its pane.
+fn tab_placement(socket: &Path, surface: u64) -> (String, u64, u64) {
+    let tree = request(socket, serde_json::json!({"id": 9_001, "cmd": "list-workspaces"}));
+    for workspace in tree["workspaces"].as_array().into_iter().flatten() {
+        let panes = workspace["screens"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|screen| screen["panes"].as_array().into_iter().flatten());
+        for pane in panes {
+            let Some(tab) = pane["tabs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tab| tab["surface"].as_u64() == Some(surface))
+            else {
+                continue;
+            };
+            return (
+                tab["terminal_resource_id"].as_str().unwrap_or_default().to_string(),
+                workspace["id"].as_u64().unwrap(),
+                pane["id"].as_u64().unwrap(),
+            );
+        }
+    }
+    panic!("surface {surface} is in no pane: {tree}");
+}
+
+/// Has the shell in `surface` print its `CMUX_TUI_TERMINAL_ID` and compare
+/// its `CMUX_TUI_SOCKET` with `expected_socket`; returns the id. `step` keeps
+/// each read's markers apart from earlier output on the same screen.
+fn own_terminal_env(socket: &Path, surface: u64, expected_socket: &str, step: &str) -> String {
+    // The echoed command line shows `%s` and `$((1+1))`; only the output
+    // carries the id and `2`, so the typed line never matches a marker.
+    let text = format!(
+        "printf '{step}=%s\\n' \"$CMUX_TUI_TERMINAL_ID\"; \
+         [ \"$CMUX_TUI_SOCKET\" = '{expected_socket}' ] && echo \"{step}-socket=$((1+1))\"\n"
+    );
+    request(
+        socket,
+        serde_json::json!({"id": 9_002, "cmd": "send", "surface": surface, "text": text}),
+    );
+    let socket_marker = format!("{step}-socket=2");
+    let screen = wait_for_screen(socket, surface, &socket_marker);
+    assert!(
+        screen.contains(&socket_marker),
+        "{step}: CMUX_TUI_SOCKET is not {expected_socket}: {screen}"
+    );
+    let marker = format!("{step}=");
+    screen
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix(marker.as_str()))
+        .find(|id| id.starts_with("term_"))
+        .map(str::to_string)
+        .unwrap_or_else(|| panic!("{step}: CMUX_TUI_TERMINAL_ID is not set: {screen}"))
 }
 
 /// `shutdown-daemon` with `end_terminals` ends every host before the daemon
@@ -5331,4 +5584,71 @@ fn adopted_template_terminal_is_restored_in_place_after_a_daemon_restart() {
     );
     let surface = resolved["data"]["surface"].as_u64().unwrap();
     assert!(wait_for_screen(&harness.socket, surface, &parked.marker).contains(&parked.marker));
+}
+
+/// A receipted write is acknowledged by the host after the PTY write, but the
+/// acknowledgement travels on the same stream as the terminal's output. The
+/// daemon must hand it to the waiting writer when the frame arrives, not
+/// after it has applied every output frame queued ahead of it: a slow output
+/// backlog otherwise makes the write time out as indeterminate (the flake in
+/// noun_first_cli_covers_resources_output_errors_and_private_raw_escape).
+/// The test seam delays applying each output frame by 400 ms.
+#[test]
+fn receipted_input_is_acknowledged_behind_an_output_backlog() {
+    let mut harness = RecoveryHarness::start_unstarted("input-ack-backlog");
+    let mut command = harness.daemon_command();
+    command.env("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS", "400");
+    harness.child = Some(command.spawn().unwrap());
+    wait_for_socket(&harness.socket);
+    let created = resource_request(
+        &harness.socket,
+        "ack-backlog-workspace",
+        "workspace.create",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "name":"Input ack backlog",
+            "initial_content":"empty",
+        }),
+        Some("ack-backlog-workspace"),
+    );
+    let workspace = created["value"]["workspace_id"].as_str().unwrap();
+    // Twenty separate output bursts (8 s of delayed apply), then a reader.
+    let script = "i=0; while [ $i -lt 20 ]; do echo burst$i; i=$((i+1)); sleep 0.05; done; \
+                  echo bursts-done; read line; echo got-$line";
+    let run = resource_request(
+        &harness.socket,
+        "ack-backlog-run",
+        "workspace.run",
+        serde_json::json!({
+            "machine":"current",
+            "session":"current",
+            "workspace":workspace,
+            "argv":["/bin/sh","-c",script],
+        }),
+        Some("ack-backlog-run"),
+    );
+    let terminal = run["value"]["terminal_id"].as_str().unwrap().to_string();
+    // Let the bursts reach the daemon's host stream before writing.
+    std::thread::sleep(Duration::from_millis(1_500));
+    let started = Instant::now();
+    let write = request_response(
+        &harness.socket,
+        serde_json::json!({
+            "protocol":"cmux.protocol/2",
+            "type":"request",
+            "id":"ack-backlog-write",
+            "operation":"terminal.input.write",
+            "idempotency_key":"ack-backlog-write",
+            "params":{
+                "machine":"current",
+                "session":"current",
+                "terminal":terminal,
+                "text":"ok\n",
+            },
+        }),
+    );
+    let elapsed = started.elapsed();
+    assert_eq!(write["ok"], true, "receipted write behind an output backlog failed: {write}");
+    assert!(elapsed < Duration::from_secs(2), "write waited {elapsed:?} for its receipt");
 }

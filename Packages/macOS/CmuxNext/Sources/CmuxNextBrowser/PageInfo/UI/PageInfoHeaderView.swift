@@ -64,7 +64,6 @@ final class PageInfoIconButton: NSButton {
         imagePosition = .imageOnly
         focusRingType = .none
         image = PageInfoStyle.symbol(symbol, size: PageInfoStyle.iconSize - 2, weight: .medium)
-        contentTintColor = PageInfoStyle.secondaryText
         toolTip = label
         setAccessibilityLabel(label)
         wantsLayer = true
@@ -88,11 +87,26 @@ final class PageInfoIconButton: NSButton {
         tracking = area
     }
 
-    override func mouseEntered(with event: NSEvent) { setFill(PageInfoStyle.hover) }
-    override func mouseExited(with event: NSEvent) { setFill(.clear) }
+    private var isHovering = false { didSet { applyColors() } }
 
-    private func setFill(_ color: NSColor) {
-        effectiveAppearance.performAsCurrentDrawingAppearance { layer?.backgroundColor = color.cgColor }
+    override func mouseEntered(with event: NSEvent) { isHovering = true }
+    override func mouseExited(with event: NSEvent) { isHovering = false }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyColors()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyColors()
+    }
+
+    private func applyColors() {
+        performWithTheme {
+            layer?.backgroundColor = (isHovering ? PageInfoStyle.hover : .clear).cgColor
+            contentTintColor = PageInfoStyle.secondaryText
+        }
     }
 }
 

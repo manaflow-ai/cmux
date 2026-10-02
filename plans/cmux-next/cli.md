@@ -113,6 +113,21 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
   timing flakes (`session_shutdown_exits_an_interactive_detached_owner_client`,
   `closing_one_hundred_terminals…`).
 
+On the merge of `feat-cmux-next` (2026-10-01):
+
+- Screen metadata, order and screen groups have one storage, `feat-cmux-next`'s
+  (`screen_presentation`, `screen_groups` keyed by workspace key, `screen_group_members`,
+  `saved_screen_groups`), and one commit path (`mux/state_screens.rs`) that the raw
+  `screen-metadata-v1`/`screen-groups-v1` commands and the v2 `screen.update`,
+  `screen.move` and `screen_group.*` operations share. A registry written by the
+  state-resources daemon (`screen_state`, groups by public workspace id) moves into it
+  at open. Every screen commit restates changed screens and groups on `session.events`.
+- The daemon advertises `state-resources-v1` in `identify`; the app opens `session.events`
+  and takes the v2 paths only then (`DaemonStore.servesStateResources`), with no probe.
+- `cmux history list|search` and `cmux bookmark list|search` read the app's
+  `history.list`/`bookmark.list`; the incoming bookmark, history, theme, browser profile,
+  accounts and remote actions are marked for the CLI.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
@@ -133,3 +148,8 @@ On `feat-cmux-next-cli-state` (state-ownership.md step D, CLI part):
    resolver passes unknown ids through so objects the snapshot has not seen yet work.
 9. `current` means the session's focused object, not the caller's terminal; the caller's
    own terminal is `$CMUX_TUI_TERMINAL_ID`.
+10. `cmux agent message` (the Swift CLI's agent inbox, delivered through Claude and Codex
+    hooks) has no port: it needs a daemon v2 message operation, a Rust verb and hook
+    entries in `agent_hook_install.rs`.
+11. `send`/`read-screen` on a remote-terminal tab need the daemon side of
+    `remote-terminal-tabs-v1`, which is not in cmux-tui yet.

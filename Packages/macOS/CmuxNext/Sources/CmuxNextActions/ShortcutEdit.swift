@@ -47,7 +47,7 @@ extension ActionRegistry {
         let id = canonicalID(for: id)
         if descriptor(for: id)?.shortcutFamily != nil { return .refused(.editsNumberedFamily) }
         guard !shortcut.modifiers.isDisjoint(with: [.command, .control]) else { return .refused(.needsModifier) }
-        if let name = SystemReservedShortcuts.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
+        if let name = SystemReservedShortcuts.shared.table[shortcut] { return .refused(.reservedByMacOS(name: name)) }
         let index = currentShortcutIndex()
         let scope = descriptor(for: id)?.requires ?? []
         let sameScope = { (owner: ActionID) in (self.descriptor(for: owner)?.requires ?? []) == scope }

@@ -80,10 +80,10 @@ use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
     LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
-    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
-    ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceRenderFrame,
-    TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
-    WorkspaceMutation, ZoomMode, assign_short_ids,
+    Node, NotificationLevel, NotificationSource, PairingDecision, PaneId, RenderAttachFrame,
+    RenderAttachStream, Rgb, ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId,
+    SurfaceKind, SurfaceRenderFrame, TerminalColors, TreeDecorations, TreeDelta, TreeDeltaKind,
+    ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode, assign_short_ids,
 };
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
@@ -94,7 +94,13 @@ mod loopback_forward;
 pub use loopback_forward::{
     AuditReporter as LoopbackAuditReporter, LOOPBACK_FORWARD_CAPABILITY, LoopbackForwardPolicy,
 };
+mod browser_profiles;
+mod launch_snapshot;
 mod personal;
+pub use launch_snapshot::{
+    LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
+    start_launch_snapshot_writer_with,
+};
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -123,6 +129,12 @@ pub const VIEW_ATTACHMENT_DETACH_CAPABILITY: &str = "view-attachment-detach-v1";
 /// sub-views on `resize-attached-view`, client identity on `set-client-info`,
 /// and `reason`/`by` on `detached`.
 pub const SHARED_SIZING_CAPABILITY: &str = "shared-sizing-v1";
+/// A client that lists this in `set-client-info` survives losing its own
+/// view of a terminal: `detach-client` naming that view's participant
+/// detaches the view only (event `detached` with `scope:"view"`) and keeps
+/// the connection and its relay sub-views; `reattach-view` restores it. The
+/// daemon advertises it in `identify`.
+pub const SIZING_VIEW_DETACH_CAPABILITY: &str = "sizing-view-detach-v1";
 pub const TERMINAL_COLOR_OVERRIDES_CAPABILITY: &str = "terminal-color-overrides-v1";
 /// Byte viewers that write their own sequences after a replay advertise this
 /// to receive the replay's incomplete sequence as a separate `pending` field.
@@ -173,6 +185,12 @@ pub const WORKSPACE_GROUPS_CAPABILITY: &str = "workspace-groups-v1";
 /// Durable workspace presentation: `set-workspace-metadata`, the
 /// `color`/`icon`/`title` workspace fields, and `workspace-changed` deltas.
 pub const WORKSPACE_METADATA_CAPABILITY: &str = "workspace-metadata-v1";
+/// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and the
+/// `pinned` workspace field.
+pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
+/// The manual workspace unread mark: `marked_unread` on
+/// `set-workspace-metadata` and the `marked_unread` workspace field.
+pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
 /// Tab metadata in the raw tree: `set-tab-pinned` with pinned-first order,
 /// `Tab.pinned`, `Tab.cwd`, `Tab.git_branch`, `Tab.git_detached`, and the
 /// `tab-changed` delta.
@@ -204,6 +222,39 @@ pub const SESSION_IDENTITY_CAPABILITY: &str = "session-identity-v1";
 /// the session registry, personal groups and order, `list-personal`, and the
 /// `personal-changed` event (plans/cmux-next/data-model.md section 3).
 pub const PROFILES_CAPABILITY: &str = "profiles-v1";
+/// Per-terminal themes in the home session's personal state:
+/// `set-personal-terminal` and `list-personal.terminals`.
+pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
+/// Browser profile records in personal state: `browser_profiles` in
+/// `list-personal` and the `*-browser-profile` commands
+/// (plans/cmux-next/data-model.md section 5).
+pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
+/// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
+/// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
+/// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
+/// and `screen-changed` deltas.
+pub const SCREEN_METADATA_CAPABILITY: &str = "screen-metadata-v1";
+/// Chrome-style screen groups: the `*-screen-group` commands, saved screen
+/// groups, and `Workspace.screen_groups`.
+pub const SCREEN_GROUPS_CAPABILITY: &str = "screen-groups-v1";
+/// `launch_snapshot_path` in `identify`: a read-only file with the last
+/// settled tree and frontend projections, for drawing before connecting.
+pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
+/// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
+/// `create-terminal`: arguments for the terminal's shell.
+pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
+/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
+/// `daemon`) on `notify`, the `notification` event, the tab marker and
+/// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
+/// every terminal's output as `terminal`.
+pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
+/// The `cmux.protocol/2` state resources (plans/cmux-next/state-ownership.md
+/// steps A and B): workspace metadata, tab pins and tab groups, personal
+/// workspace groups, rooms and saved tab groups, screen metadata, order and
+/// screen groups, closed history, ephemeral workspaces, and workspace
+/// status, progress and log, with `extra.state` on session snapshots and
+/// `state_upsert`/`state_delete` changes on `session.events`.
+pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -308,6 +359,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEW_ATTACHMENT_LEASE_CAPABILITY,
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
+        SIZING_VIEW_DETACH_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
         CREATION_RECEIPTS_CAPABILITY,
@@ -326,6 +378,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
         WORKSPACE_GROUPS_CAPABILITY,
         WORKSPACE_METADATA_CAPABILITY,
+        WORKSPACE_PIN_CAPABILITY,
+        NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         TAB_DRAG_CAPABILITY,
@@ -336,6 +390,14 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        PERSONAL_TERMINALS_CAPABILITY,
+        BROWSER_PROFILES_CAPABILITY,
+        SCREEN_METADATA_CAPABILITY,
+        SCREEN_GROUPS_CAPABILITY,
+        NOTIFICATION_SOURCE_CAPABILITY,
+        TERMINAL_SHELL_ARGS_CAPABILITY,
+        LAUNCH_SNAPSHOT_CAPABILITY,
+        STATE_RESOURCES_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -814,6 +876,9 @@ struct ClientIdentityWire {
     device_kind: Option<String>,
     #[serde(default)]
     device_name: Option<String>,
+    /// Stable per-install device id; tells two devices of one user apart.
+    #[serde(default)]
+    device_id: Option<String>,
 }
 
 impl ClientIdentityWire {
@@ -822,6 +887,7 @@ impl ClientIdentityWire {
             && self.display_name.is_none()
             && self.device_kind.is_none()
             && self.device_name.is_none()
+            && self.device_id.is_none()
     }
 
     fn into_identity(self) -> ClientSizingIdentity {
@@ -833,6 +899,7 @@ impl ClientIdentityWire {
                 .as_deref()
                 .map_or(TerminalDeviceKind::Unknown, TerminalDeviceKind::parse),
             device_name: self.device_name.map(clamp_client_label),
+            device_id: self.device_id.map(clamp_client_label),
         }
     }
 }
@@ -876,6 +943,24 @@ fn detached_event_json(surface: SurfaceId, notice: &DetachNotice, view: Option<&
         event["view"] = json!(view);
     }
     event
+}
+
+/// The connection's own view that a `detach-client` target names, when that
+/// connection opted into [`SIZING_VIEW_DETACH_CAPABILITY`]: the view leaves
+/// and the connection stays. `None` keeps the whole-client kick.
+fn own_view_detach_target(
+    mux: &Mux,
+    target: &DetachClientTarget,
+    surface: Option<SurfaceId>,
+) -> Option<(u64, SurfaceId)> {
+    let DetachClientTarget::Participant(participant) = target else { return None };
+    let (client, placement, view) = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant)?,
+        None => mux.terminal_participant_member(participant)?,
+    };
+    (view.is_none()
+        && mux.control_clients.supports_capability(client, SIZING_VIEW_DETACH_CAPABILITY))
+    .then_some((client, placement))
 }
 
 fn size_state_event_json(
@@ -972,6 +1057,8 @@ enum Command {
         device_kind: Option<String>,
         #[serde(default)]
         device_name: Option<String>,
+        #[serde(default)]
+        device_id: Option<String>,
     },
     ListClients,
     /// Read the machine-level model spend readout hosted by this daemon.
@@ -1016,6 +1103,17 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
+        /// Resolves a participant id on this terminal only (participant ids
+        /// are per terminal).
+        #[serde(default)]
+        surface: Option<SurfaceId>,
+    },
+    /// Restore the caller's own view of a terminal after a view detach.
+    /// `counts:false` reattaches as a viewer.
+    ReattachView {
+        surface: SurfaceId,
+        #[serde(default)]
+        counts: Option<bool>,
     },
     /// Set the shared sizing policy of one terminal (override) or the default
     /// of one workspace. `policy:null` clears it.
@@ -1175,6 +1273,10 @@ enum Command {
         level: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
+        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or
+        /// `daemon`.
+        #[serde(default)]
+        source: Option<String>,
     },
     ListAgents {
         #[serde(default)]
@@ -1265,6 +1367,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
@@ -1431,6 +1537,10 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         argv: Option<Vec<String>>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
         #[serde(default)]
         command: Option<String>,
         #[serde(default)]
@@ -1462,6 +1572,100 @@ enum Command {
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
+        #[serde(default)]
+        cwd: Option<String>,
+        /// The new screen's name (`name` would name its terminal).
+        #[serde(default)]
+        screen_name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        pinned: Option<bool>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        group: Option<String>,
+    },
+    /// Set or clear a screen's color and icon (JSON null clears).
+    SetScreenMetadata {
+        screen: ScreenId,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    SetScreenPinned {
+        screen: ScreenId,
+        pinned: bool,
+    },
+    /// Move a screen within its workspace, into another one, or into a new one.
+    MoveScreen {
+        screen: ScreenId,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    CreateScreenGroup {
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+    },
+    UpdateScreenGroup {
+        group: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        collapsed: Option<bool>,
+    },
+    AddScreensToScreenGroup {
+        group: String,
+        screens: Vec<ScreenId>,
+        #[serde(default)]
+        index: Option<usize>,
+    },
+    RemoveScreensFromScreenGroup {
+        screens: Vec<ScreenId>,
+    },
+    MoveScreenGroup {
+        group: String,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
+        #[serde(default)]
+        new_workspace: bool,
+    },
+    UngroupScreenGroup {
+        group: String,
+    },
+    CloseScreenGroup {
+        group: String,
+        #[serde(default)]
+        end_terminals: bool,
+    },
+    ListSavedScreenGroups,
+    SaveScreenGroup {
+        group: String,
+    },
+    UnsaveScreenGroup {
+        group: String,
+    },
+    DeleteSavedScreenGroup {
+        saved: String,
+    },
+    ReopenSavedScreenGroup {
+        saved: String,
+        #[serde(default)]
+        workspace: Option<WorkspaceId>,
     },
     NewPane {
         pane: PaneId,
@@ -1480,6 +1684,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     NewPaneRight {
         pane: PaneId,
@@ -1500,6 +1708,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     Split {
         pane: PaneId,
@@ -1520,6 +1732,10 @@ enum Command {
         /// Caller-chosen terminal host id (`terminal-placement-env-v1`).
         #[serde(default)]
         terminal_id: Option<String>,
+        /// `terminal-shell-args-v1`: arguments for the terminal's shell (its
+        /// `SHELL` in `env`, else the daemon's default shell).
+        #[serde(default)]
+        shell_args: Option<Vec<String>>,
     },
     SetRatio {
         pane: PaneId,
@@ -1761,7 +1977,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin
+    /// and manual unread mark.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -1773,11 +1990,51 @@ enum Command {
         icon: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         title: Option<Option<String>>,
+        #[serde(default)]
+        pinned: Option<bool>,
+        #[serde(default)]
+        marked_unread: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
+    /// Create a browser profile (`browser-profiles-v1`). A caller-chosen
+    /// `browser_profile` id makes a retry return the stored record.
+    CreateBrowserProfile {
+        name: String,
+        #[serde(default)]
+        browser_profile: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+        #[serde(default)]
+        icon: Option<String>,
+        #[serde(default)]
+        index: Option<usize>,
+        #[serde(default)]
+        source: Option<Value>,
+    },
+    /// Update a browser profile. An absent field is unchanged; JSON null
+    /// clears it.
+    UpdateBrowserProfile {
+        browser_profile: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        color: Option<Option<String>>,
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
+    },
+    /// Move a browser profile to an insertion index among browser profiles.
+    MoveBrowserProfile {
+        browser_profile: String,
+        index: usize,
+    },
+    /// Delete a browser profile (not `default`); clears the workspace and
+    /// room defaults that name it.
+    DeleteBrowserProfile {
+        browser_profile: String,
+    },
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -1913,6 +2170,13 @@ enum Command {
         browser_profile_id: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         theme: Option<Option<String>>,
+    },
+    /// Set or clear (null) the own theme of a session-qualified terminal.
+    SetPersonalTerminal {
+        session_id: String,
+        terminal_key: String,
+        #[serde(default)]
+        theme: Option<String>,
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
@@ -2214,6 +2478,7 @@ impl Command {
             | Self::DetachAttachedView { surface, .. }
             | Self::SetSizeCounts { surface, .. }
             | Self::GetSizeState { surface }
+            | Self::ReattachView { surface, .. }
             | Self::NoteSizeActivity { surface, .. }
             | Self::ScrollSurface { surface, .. } => Some(*surface),
             Self::AttachSurface { surface, .. }
@@ -2378,6 +2643,21 @@ fn pane_tab_group_json(run: &crate::mux::PaneTabGroup, pane: Option<PaneId>) -> 
         value["pane"] = json!(pane);
     }
     value
+}
+
+fn screen_group_outcome_json(outcome: &crate::ScreenGroupOutcome) -> Value {
+    json!({
+        "group": outcome.group.as_ref().map(|group| json!({
+            "id": group.id,
+            "name": group.name,
+            "color": group.color,
+            "collapsed": group.collapsed,
+            "saved_id": group.saved_id,
+        })),
+        "workspace": outcome.workspace,
+        "key": outcome.key,
+        "screens": outcome.members,
+    })
 }
 
 fn tab_group_outcome_json(outcome: &crate::TabGroupOutcome) -> Value {
@@ -5210,6 +5490,7 @@ impl ClientRegistry {
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
+                    || capability == SIZING_VIEW_DETACH_CAPABILITY
                     || capability == TERMINAL_COLOR_OVERRIDES_CAPABILITY
                     || capability == TERMINAL_PENDING_SEQUENCE_CAPABILITY
                     || capability == CREATION_RECEIPTS_CAPABILITY
@@ -5237,6 +5518,9 @@ impl ClientRegistry {
         }
         if identity.device_name.is_some() {
             current.device_name = identity.device_name;
+        }
+        if identity.device_id.is_some() {
+            current.device_id = identity.device_id;
         }
     }
 
@@ -6978,17 +7262,39 @@ fn complete_daemon_shutdown_after_ack(
     requester_notice_sent
 }
 
+/// Detaches `owner`'s own view of `placement` and tells it with
+/// `detached {scope:"view"}`; its connection and relay sub-views stay.
+fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDetachActor) {
+    mux.detach_terminal_own_view(placement, owner);
+    let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
+    let mut event = detached_event_json(placement, &notice, None);
+    event["scope"] = json!("view");
+    mux.control_clients.send_surface_event(owner, placement, None, &event);
+}
+
 /// Disconnects one shared-sizing participant on behalf of `requester` (the
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
-/// sub-view leaves alone and its relay forwards the notice; any other
-/// participant's whole client is kicked with `disconnected-by`.
+/// sub-view leaves alone and its relay forwards the notice; the own view of
+/// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
+/// client stays; any other participant's whole client is kicked with
+/// `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
     participant: &str,
+    surface: Option<SurfaceId>,
 ) -> anyhow::Result<()> {
     let by = detach_actor(mux, requester, None);
-    let Some((client, placement, view)) = mux.terminal_participant_member(participant) else {
+    let target = DetachClientTarget::Participant(participant.to_string());
+    if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+        detach_own_view(mux, owner, placement, by);
+        return Ok(());
+    }
+    let member = match surface {
+        Some(surface) => mux.terminal_participant_member_on(surface, participant),
+        None => mux.terminal_participant_member(participant),
+    };
+    let Some((client, placement, view)) = member else {
         anyhow::bail!("unknown participant {participant}");
     };
     if let Some(view) = view {
@@ -10653,7 +10959,10 @@ fn handle_request_with_cancellation(
     }
 
     let detach_self = match &cmd {
-        Command::DetachClient { client: target, by } if target.whole_client() == Some(client) => {
+        Command::DetachClient { client: target, by, surface }
+            if target.whole_client() == Some(client)
+                && own_view_detach_target(mux, target, *surface).is_none() =>
+        {
             Some(detach_actor(mux, client, by.clone()))
         }
         _ => None,
@@ -11304,6 +11613,7 @@ fn pane_json(
                         "notification": n.notification,
                         "unread": n.unread,
                         "level": n.level.as_str(),
+                        "source": n.source.as_str(),
                     })
                 }),
                 "name": surface.and_then(|s| s.name()),
@@ -11322,16 +11632,22 @@ fn screen_json(
     state: &State,
     screen: &Screen,
     active: bool,
+    group: Option<&str>,
     short_ids: &HashMap<u64, String>,
     notifications: &TreeDecorations,
 ) -> Value {
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
+    let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
     let mut value = json!({
         "id": screen.id,
         "resource_id": screen.public_id,
         "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
         "name": screen.name,
+        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
+        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
+        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
+        "group": group,
         "active": active,
         "active_pane": screen.active_pane,
         "zoomed_pane": screen.zoomed_pane,
@@ -11404,6 +11720,14 @@ fn workspace_json(
     notifications: &TreeDecorations,
 ) -> Value {
     let presentation = notifications.presentation.workspace(&workspace.key);
+    let screen_groups =
+        crate::mux::workspace_screen_groups(workspace, &notifications.presentation.screens);
+    let group_of = |screen: ScreenId| {
+        screen_groups
+            .iter()
+            .find(|run| run.members.contains(&screen))
+            .map(|run| run.group.id.as_str())
+    };
     json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
@@ -11414,6 +11738,8 @@ fn workspace_json(
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
+        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
+        "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
@@ -11421,10 +11747,25 @@ fn workspace_json(
                 state,
                 screen,
                 screen_index == workspace.active_screen,
+                group_of(screen.id),
                 short_ids,
                 notifications,
             )
         }).collect::<Vec<_>>(),
+        "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
+    })
+}
+
+fn screen_group_run_json(run: &crate::mux::WorkspaceScreenGroup) -> Value {
+    json!({
+        "id": run.group.id,
+        "name": run.group.name,
+        "color": run.group.color,
+        "collapsed": run.group.collapsed,
+        "saved_id": run.group.saved_id,
+        "start": run.start,
+        "count": run.members.len(),
+        "screens": run.members,
     })
 }
 
@@ -11471,15 +11812,16 @@ pub(crate) fn tree_entity_json(
         | TreeDeltaKind::WorkspaceRenamed
         | TreeDeltaKind::WorkspaceMoved
         | TreeDeltaKind::WorkspaceChanged => unreachable!("workspace deltas returned above"),
-        TreeDeltaKind::ScreenAdded | TreeDeltaKind::ScreenClosed | TreeDeltaKind::ScreenRenamed => {
-            workspaces
-                .iter()
-                .flat_map(|workspace| {
-                    workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
-                })
-                .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
-                .cloned()
-        }
+        TreeDeltaKind::ScreenAdded
+        | TreeDeltaKind::ScreenClosed
+        | TreeDeltaKind::ScreenRenamed
+        | TreeDeltaKind::ScreenChanged => workspaces
+            .iter()
+            .flat_map(|workspace| {
+                workspace.get("screens").and_then(Value::as_array).into_iter().flatten()
+            })
+            .find(|screen| screen.get("id").and_then(Value::as_u64) == Some(id))
+            .cloned(),
         TreeDeltaKind::PaneAdded | TreeDeltaKind::PaneClosed => workspaces
             .iter()
             .flat_map(|workspace| {
@@ -12940,6 +13282,7 @@ fn handle_command_with_cancellation(
                 "terminal_revision": mux.terminal_registry_snapshot()?.revision,
                 "daemon_handoff": 1,
                 "lifecycle_ready": mux.server_lifecycle_ready(),
+                "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
@@ -12983,8 +13326,10 @@ fn handle_command_with_cancellation(
             display_name,
             device_kind,
             device_name,
+            device_id,
         } => {
-            let identity = ClientIdentityWire { user_id, display_name, device_kind, device_name };
+            let identity =
+                ClientIdentityWire { user_id, display_name, device_kind, device_name, device_id };
             let identity_changed = !identity.is_empty();
             let (name, kind) = mux.control_clients.set_info(client, name, kind, capabilities)?;
             if identity_changed {
@@ -13117,11 +13462,19 @@ fn handle_command_with_cancellation(
             }
             Ok(json!({}))
         }
-        Command::DetachClient { client: target, by } => {
+        Command::DetachClient { client: target, by, surface } => {
             let by = detach_actor(mux, client, by);
+            if let Some((owner, placement)) = own_view_detach_target(mux, &target, surface) {
+                // The view leaves; the connection, its stream and its relay
+                // sub-views stay (docs/shared-terminal-sizing.md).
+                detach_own_view(mux, owner, placement, by);
+                return Ok(json!({"scope": "view"}));
+            }
             if let DetachClientTarget::Participant(participant) = &target
-                && let Some((relay, placement, Some(view))) =
-                    mux.terminal_participant_member(participant)
+                && let Some((relay, placement, Some(view))) = match surface {
+                    Some(surface) => mux.terminal_participant_member_on(surface, participant),
+                    None => mux.terminal_participant_member(participant),
+                }
             {
                 // A relay sub-view leaves alone; its relay stays attached and
                 // forwards the notice to that leaf only.
@@ -13222,6 +13575,14 @@ fn handle_command_with_cancellation(
                 .ok_or_else(|| anyhow::anyhow!("unknown participant {participant}"))?;
             Ok(json!({"participant": participant, "changed": changed}))
         }
+        Command::ReattachView { surface, counts } => {
+            get_surface(mux, surface)?;
+            let participant = mux.reattach_terminal_own_view(surface, client, counts)?;
+            let state = mux
+                .terminal_size_state(surface)
+                .ok_or_else(|| anyhow::anyhow!("surface {surface} is not a terminal"))?;
+            Ok(json!({"participant": participant, "state": state}))
+        }
         Command::GetSizeState { surface } => {
             get_surface(mux, surface)?;
             let state = mux
@@ -13247,15 +13608,7 @@ fn handle_command_with_cancellation(
             mux.emit(MuxEvent::WindowTitleRequested(String::new()));
             Ok(json!({}))
         }
-        Command::ListWorkspaces => {
-            let notifications = mux.tree_decorations();
-            let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
-            let (registry_id, generation) = mux.registry_identity();
-            workspaces["registry_id"] = json!(registry_id);
-            workspaces["generation"] = json!(generation);
-            workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
-            Ok(workspaces)
-        }
+        Command::ListWorkspaces => list_workspaces_reply(mux),
         Command::GetFrontendProjection { frontend, scope, subject_key } => {
             let projection = mux.get_frontend_projection(&frontend, &scope, &subject_key)?;
             Ok(match projection {
@@ -13531,15 +13884,20 @@ fn handle_command_with_cancellation(
             Ok(json!({ "text": text, "mode": mode }))
         }
         Command::Ids { kind } => mux.with_state(|state| ids_json(state, kind.as_deref())),
-        Command::Notify { title, body, level, surface } => {
+        Command::Notify { title, body, level, surface, source } => {
             if title.is_empty() {
                 anyhow::bail!("title is required");
             }
             let level = parse_notification_level(level.as_deref().unwrap_or("info"))?;
+            let source = match source.as_deref() {
+                None => NotificationSource::Cli,
+                Some(source) => NotificationSource::parse(source)
+                    .ok_or_else(|| anyhow::anyhow!("bad source {source}"))?,
+            };
             if let Some(surface) = surface {
                 get_surface(mux, surface)?;
             }
-            let notification = mux.post_notification(title, body, level, surface)?;
+            let notification = mux.post_notification_from(title, body, level, surface, source)?;
             Ok(json!({ "notification": notification }))
         }
         Command::ListAgents { surface, state } => {
@@ -13662,8 +14020,8 @@ fn handle_command_with_cancellation(
             mux.set_terminal_keep(&terminal_id, keep)?;
             Ok(json!({ "terminal_id": terminal_id, "keep": keep }))
         }
-        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -13928,6 +14286,7 @@ fn handle_command_with_cancellation(
             workspace,
             key,
             argv,
+            shell_args,
             command,
             cwd,
             name,
@@ -13946,12 +14305,15 @@ fn handle_command_with_cancellation(
             if argv.is_some() && command.is_some() {
                 anyhow::bail!("argv and command are mutually exclusive");
             }
+            if shell_args.is_some() && (argv.is_some() || command.is_some()) {
+                anyhow::bail!("shell_args cannot be combined with argv or command");
+            }
             let argv = match (argv, command) {
                 (Some(argv), None) if !argv.is_empty() => Some(argv),
                 (None, Some(command)) if !command.is_empty() => {
                     Some(vec![platform::default_shell(), "-lc".to_string(), command])
                 }
-                (None, None) => None,
+                (None, None) => shell_argv(&env, shell_args),
                 _ => anyhow::bail!("argv or command must be non-empty when provided"),
             };
             let size = paired_surface_size("create-terminal", cols, rows)?;
@@ -14036,18 +14398,159 @@ fn handle_command_with_cancellation(
                 }))
             }
         }
-        Command::NewScreen { workspace, cols, rows } => {
-            let surface = mux.new_screen(workspace, optional_surface_size(cols, rows))?;
-            Ok(json!({ "surface": surface.id }))
+        Command::NewScreen {
+            workspace,
+            cols,
+            rows,
+            cwd,
+            screen_name,
+            color,
+            icon,
+            pinned,
+            index,
+            group,
+        } => {
+            let spec = crate::ScreenSpec { name: screen_name, color, icon, pinned, index, group };
+            let (surface, screen) =
+                mux.new_screen_with_spec(workspace, cwd, optional_surface_size(cols, rows), spec)?;
+            Ok(json!({ "surface": surface.id, "screen": screen }))
         }
-        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::SetScreenMetadata { screen, color, icon } => {
+            let changed = mux.set_screen_metadata(screen, color, icon)?;
+            let presentation = mux.presentation_snapshot();
+            let record = mux
+                .with_state(|state| {
+                    state
+                        .workspaces
+                        .iter()
+                        .flat_map(|w| w.screens.iter())
+                        .find(|s| s.id == screen)
+                        .map(|s| {
+                            presentation
+                                .screens
+                                .screen(s.public_id.as_str())
+                                .cloned()
+                                .unwrap_or_default()
+                        })
+                })
+                .unwrap_or_default();
+            Ok(
+                json!({"screen": screen, "color": record.color, "icon": record.icon, "changed": changed}),
+            )
+        }
+        Command::SetScreenPinned { screen, pinned } => {
+            let (changed, index) = mux.set_screen_pinned(screen, pinned)?;
+            Ok(json!({"screen": screen, "pinned": pinned, "index": index, "changed": changed}))
+        }
+        Command::MoveScreen { screen, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            let outcome = mux.move_screen(screen, destination)?;
+            Ok(json!({
+                "screen": outcome.screen,
+                "workspace": outcome.workspace,
+                "key": outcome.key,
+                "index": outcome.index,
+            }))
+        }
+        Command::CreateScreenGroup { screens, name, color } => {
+            Ok(screen_group_outcome_json(&mux.create_screen_group(&screens, name, color)?))
+        }
+        Command::UpdateScreenGroup { group, name, color, collapsed } => {
+            Ok(screen_group_outcome_json(&mux.update_screen_group(&group, name, color, collapsed)?))
+        }
+        Command::AddScreensToScreenGroup { group, screens, index } => Ok(
+            screen_group_outcome_json(&mux.add_screens_to_screen_group(&group, &screens, index)?),
+        ),
+        Command::RemoveScreensFromScreenGroup { screens } => {
+            let groups = mux.remove_screens_from_screen_group(&screens)?;
+            Ok(json!({ "screens": screens, "groups": groups }))
+        }
+        Command::MoveScreenGroup { group, index, workspace, new_workspace } => {
+            let destination = if new_workspace {
+                crate::ScreenDestination::NewWorkspace
+            } else {
+                crate::ScreenDestination::Workspace { workspace, index }
+            };
+            Ok(screen_group_outcome_json(&mux.move_screen_group(&group, destination)?))
+        }
+        Command::UngroupScreenGroup { group } => {
+            let screens = mux.ungroup_screen_group(&group)?;
+            Ok(json!({ "group": group, "screens": screens }))
+        }
+        Command::CloseScreenGroup { group, end_terminals } => {
+            let closed = mux.close_screen_group(&group, end_terminals)?;
+            Ok(json!({ "group": group, "closed": closed }))
+        }
+        Command::ListSavedScreenGroups => {
+            let presentation = mux.presentation_snapshot();
+            let groups = presentation
+                .saved_screen_groups
+                .iter()
+                .map(|saved| {
+                    let open = presentation
+                        .screens
+                        .groups
+                        .values()
+                        .find(|group| group.saved_id.as_deref() == Some(saved.id.as_str()))
+                        .map(|group| group.id.clone());
+                    json!({
+                        "id": saved.id,
+                        "name": saved.name,
+                        "color": saved.color,
+                        "profile_id": saved.profile_id,
+                        "members": saved.members,
+                        "updated_at_ms": saved.updated_at_ms,
+                        "open_group": open,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(json!({ "groups": groups }))
+        }
+        Command::SaveScreenGroup { group } => {
+            let saved = mux.save_screen_group(&group)?;
+            let mut value = screen_group_outcome_json(&mux.screen_group_outcome_public(&group));
+            value["saved"] = json!(saved);
+            Ok(value)
+        }
+        Command::UnsaveScreenGroup { group } => {
+            mux.unsave_screen_group(&group)?;
+            Ok(screen_group_outcome_json(&mux.screen_group_outcome_public(&group)))
+        }
+        Command::DeleteSavedScreenGroup { saved } => {
+            mux.delete_saved_screen_group(&saved)?;
+            Ok(json!({}))
+        }
+        Command::ReopenSavedScreenGroup { saved, workspace } => {
+            let workspace = match workspace {
+                Some(workspace) => workspace,
+                None => mux
+                    .with_state(|state| state.workspaces.get(state.active_workspace).map(|w| w.id))
+                    .context("no workspace to reopen the screen group into")?,
+            };
+            Ok(screen_group_outcome_json(&mux.reopen_saved_screen_group(&saved, workspace)?))
+        }
+        Command::NewPane { pane, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.new_pane_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::NewPaneRight { pane, width, cols, rows, cwd, env, keep, terminal_id } => {
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+        Command::NewPaneRight {
+            pane,
+            width,
+            cols,
+            rows,
+            cwd,
+            env,
+            keep,
+            terminal_id,
+            shell_args,
+        } => {
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface = mux.new_pane_right_with_options(
                 pane,
                 width.unwrap_or(crate::DEFAULT_VIEWPORT_PANE_WIDTH),
@@ -14056,9 +14559,9 @@ fn handle_command_with_cancellation(
             )?;
             placed_terminal_result(mux, &surface, keep)
         }
-        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id } => {
+        Command::Split { pane, dir, cols, rows, cwd, env, keep, terminal_id, shell_args } => {
             let dir = parse_split_dir(&dir)?;
-            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id)?;
+            let spawn = placement_spawn_options(cwd, env.as_ref(), terminal_id, shell_args)?;
             let surface =
                 mux.split_with_options(pane, dir, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
@@ -14396,6 +14899,7 @@ fn handle_command_with_cancellation(
                             "terminal_id": row.terminal_id,
                             "surface": row.surface,
                             "created_at_ms": row.created_at_ms,
+                            "source": row.source.as_str(),
                             "acknowledged": acknowledged,
                         })
                     })
@@ -14434,13 +14938,24 @@ fn handle_command_with_cancellation(
                 "generation": generation,
             }))
         }
-        Command::SetWorkspaceMetadata { workspace, key, color, icon, title, mutation } => {
+        Command::SetWorkspaceMetadata {
+            workspace,
+            key,
+            color,
+            icon,
+            title,
+            pinned,
+            marked_unread,
+            mutation,
+        } => {
             let workspace_mutation = workspace_mutation(&mutation)?;
             let update = crate::workspace_registry::WorkspacePresentationUpdate {
                 group: None,
                 color,
                 icon,
                 title,
+                pinned,
+                marked_unread,
             };
             let result = mux.set_workspace_metadata(
                 workspace,
@@ -14459,6 +14974,8 @@ fn handle_command_with_cancellation(
                 "color": record.color,
                 "icon": record.icon,
                 "title": record.title,
+                "pinned": record.pinned,
+                "marked_unread": record.marked_unread,
                 "workspace_revision": result.revision,
                 "changed": result.changed,
                 "replayed": result.replayed,
@@ -14467,6 +14984,32 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::ListPersonal => personal::list(mux),
+        Command::CreateBrowserProfile { name, browser_profile, color, icon, index, source } => {
+            browser_profiles::create(
+                mux,
+                crate::workspace_registry::BrowserProfileInput {
+                    id: browser_profile,
+                    name,
+                    color,
+                    icon,
+                    index,
+                    source,
+                },
+            )
+        }
+        Command::UpdateBrowserProfile { browser_profile, name, color, icon } => {
+            browser_profiles::update(
+                mux,
+                &browser_profile,
+                crate::workspace_registry::BrowserProfileUpdate { name, color, icon },
+            )
+        }
+        Command::MoveBrowserProfile { browser_profile, index } => {
+            browser_profiles::move_to(mux, &browser_profile, index)
+        }
+        Command::DeleteBrowserProfile { browser_profile } => {
+            browser_profiles::delete(mux, &browser_profile)
+        }
         Command::CreateProfile {
             name,
             profile,
@@ -14591,6 +15134,9 @@ fn handle_command_with_cancellation(
                 theme,
             },
         ),
+        Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
+            personal::set_terminal(mux, &session_id, &terminal_key, theme.as_deref())
+        }
         Command::ListWorkspaceGroups => {
             Ok(json!({ "groups": workspace_groups_json(&mux.presentation_snapshot()) }))
         }
@@ -15707,13 +16253,43 @@ fn handle_command_with_cancellation(
 }
 
 /// Validate the start options of a placement command.
+/// The `list-workspaces` reply: the tree plus the registry identity it
+/// belongs to. The launch snapshot stores the same value.
+fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    let notifications = mux.tree_decorations();
+    let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
+    let (registry_id, generation) = mux.registry_identity();
+    workspaces["registry_id"] = json!(registry_id);
+    workspaces["generation"] = json!(generation);
+    workspaces["terminal_revision"] = json!(mux.terminal_registry_snapshot()?.revision);
+    Ok(workspaces)
+}
+
 fn placement_spawn_options(
     cwd: Option<String>,
     env: Option<&BTreeMap<String, String>>,
     terminal_id: Option<String>,
+    shell_args: Option<Vec<String>>,
 ) -> anyhow::Result<crate::TerminalSpawnOptions> {
     let env = env.map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
-    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id })
+    let argv = shell_argv(&env, shell_args);
+    Ok(crate::TerminalSpawnOptions { cwd, env, terminal_id, argv })
+}
+
+/// `terminal-shell-args-v1`: the shell the terminal would run with no
+/// arguments, given `shell_args`, so a frontend can pass the argv Ghostty's
+/// shell integration needs (bash `--posix` with `ENV`, nushell `--execute`).
+/// The shell is the terminal's own `SHELL` from its `env` (the frontend
+/// chose the arguments for it), else the daemon's default shell. None or an
+/// empty list keeps the plain default shell.
+fn shell_argv(env: &[(String, String)], shell_args: Option<Vec<String>>) -> Option<Vec<String>> {
+    let shell_args = shell_args.filter(|arguments| !arguments.is_empty())?;
+    let shell = env
+        .iter()
+        .find(|(key, value)| key == "SHELL" && !value.is_empty())
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(platform::default_shell);
+    Some(std::iter::once(shell).chain(shell_args).collect())
 }
 
 /// The reply of a placement command: the new view and the terminal it
@@ -15803,6 +16379,7 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "body": notification.body,
             "level": notification.level.as_str(),
             "surface": notification.surface,
+            "source": notification.source.as_str(),
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -15949,6 +16526,14 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/personal_terminal_tests.rs"]
+mod personal_terminal_tests;
+
+#[cfg(test)]
+#[path = "server/browser_profile_tests.rs"]
+mod browser_profile_tests;
 
 #[cfg(test)]
 mod tests {
@@ -19694,6 +20279,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -21815,7 +22401,11 @@ mod tests {
         handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap();
@@ -21827,7 +22417,11 @@ mod tests {
         let error = handle_command(
             &mux,
             initiator,
-            Command::DetachClient { client: DetachClientTarget::Client(target), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(target),
+                by: None,
+                surface: None,
+            },
             &initiator_writer,
         )
         .unwrap_err();
@@ -22078,6 +22672,132 @@ mod tests {
         assert!(error.to_string().contains("unknown participant"));
     }
 
+    /// docs/shared-terminal-sizing.md: disconnecting a relay Mac's own view
+    /// (for example from the phone it relays) detaches that view only. The
+    /// connection, its byte stream and the phones it relays stay; Reattach
+    /// restores the view without reconnecting.
+    #[test]
+    fn detaching_a_relay_macs_own_view_keeps_its_connection_and_phones() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        mux.pin_latest_size_policy_for_test(surface.id);
+        let (writer, outbound) = captured_writer();
+        let relay = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "set-client-info", "kind": "mac",
+                "capabilities": [SHARED_SIZING_CAPABILITY, SIZING_VIEW_DETACH_CAPABILITY],
+                "user_id": "u1", "display_name": "Maya", "device_kind": "mac",
+                "device_name": "Maya's MacBook Pro", "device_id": "laptop",
+            })),
+            &writer,
+        )
+        .unwrap();
+        attach_test_view(&mux, relay, surface.id, &writer);
+        mux.resize_surface_for_client(surface.id, relay, 150, 42).unwrap();
+        handle_command(
+            &mux,
+            relay,
+            json_command(json!({
+                "cmd": "resize-attached-view", "surface": surface.id, "view": "mobile:p1",
+                "identity": {"user_id": "u1", "device_kind": "iphone", "device_id": "p1"},
+                "cols": 54, "rows": 26,
+            })),
+            &writer,
+        )
+        .unwrap();
+        let mac = format!("c{relay}");
+        let phone = format!("c{relay}/mobile:p1");
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert_eq!(state.participant(&mac).unwrap().priority_key, "u1/mac/laptop");
+        assert_eq!(surface.size(), (150, 42));
+        drain_json(&outbound);
+
+        // The phone asks its own Mac to disconnect the Mac: the Mac forwards
+        // detach-client for its own participant, scoped to this terminal.
+        assert!(handle_message(
+            &mux,
+            relay,
+            &json!({
+                "id": 1, "cmd": "detach-client", "client": mac, "surface": surface.id,
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"},
+            })
+            .to_string(),
+            &writer,
+        ));
+        assert!(mux.control_clients.contains(relay), "the relay connection stays");
+        let events = drain_json(&outbound);
+        let detached = events.iter().find(|event| event["event"] == "detached").unwrap();
+        assert_eq!(
+            *detached,
+            json!({
+                "event": "detached", "surface": surface.id, "reason": "disconnected-by",
+                "by": {"display_name": "Maya", "device_name": "Maya's iPhone"}, "scope": "view",
+            })
+        );
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        assert!(state.participant(&mac).is_none());
+        assert!(state.participant(&phone).unwrap().counts, "the phone no longer defers");
+        assert_eq!(state.owners, [phone]);
+        assert_eq!(surface.size(), (54, 26));
+
+        // The detached view's own reports and activity do not count.
+        mux.resize_surface_for_client(surface.id, relay, 160, 50).unwrap();
+        assert!(mux.terminal_size_state(surface.id).unwrap().participant(&mac).is_none());
+        assert_eq!(surface.size(), (54, 26));
+
+        // Reattach as a viewer: back without reconnecting, not counting.
+        let reattached = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id, "counts": false})),
+            &writer,
+        )
+        .unwrap();
+        assert_eq!(reattached["participant"], mac);
+        let state = mux.terminal_size_state(surface.id).unwrap();
+        let row = state.participant(&mac).unwrap();
+        assert_eq!(row.participant.counts_override, Some(false));
+        assert_eq!(
+            row.participant.viewport,
+            Some(crate::sizing_policy::TerminalGridSize::new(160, 50))
+        );
+        assert_eq!(surface.size(), (54, 26));
+        let again = handle_command(
+            &mux,
+            relay,
+            json_command(json!({"cmd": "reattach-view", "surface": surface.id})),
+            &writer,
+        )
+        .unwrap_err();
+        assert!(again.to_string().contains("not detached"));
+    }
+
+    /// A client that did not opt into view detach is still kicked whole, the
+    /// tmux `detach-client` behavior older Macs and TUIs expect.
+    #[test]
+    fn detach_client_kicks_a_client_without_view_detach() {
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let kicker_writer = test_writer();
+        let kicker = mux.control_clients.register(ClientTransport::Unix, kicker_writer.clone());
+        let target_writer = test_writer();
+        let target = mux.control_clients.register(ClientTransport::Unix, target_writer.clone());
+        attach_test_view(&mux, target, surface.id, &target_writer);
+        handle_command(
+            &mux,
+            kicker,
+            json_command(json!({
+                "cmd": "detach-client", "client": format!("c{target}"), "surface": surface.id,
+            })),
+            &kicker_writer,
+        )
+        .unwrap();
+        assert!(!mux.control_clients.contains(target));
+    }
+
     #[test]
     fn relay_forwarded_input_counts_as_the_phone_sub_view_activity() {
         let mux = test_mux();
@@ -22150,7 +22870,11 @@ mod tests {
         let error = handle_command(
             &mux,
             client,
-            Command::DetachClient { client: DetachClientTarget::Client(0), by: None },
+            Command::DetachClient {
+                client: DetachClientTarget::Client(0),
+                by: None,
+                surface: None,
+            },
             &writer,
         )
         .unwrap_err();
@@ -22780,6 +23504,7 @@ mod tests {
                     workspace: Some(workspace),
                     key: None,
                     argv: None,
+                    shell_args: None,
                     command: None,
                     cwd: None,
                     name: None,
@@ -22809,6 +23534,7 @@ mod tests {
             workspace: Some(workspace),
             key: None,
             argv: None,
+            shell_args: None,
             command: None,
             cwd: None,
             name: Some("raw terminal".to_string()),
@@ -22886,6 +23612,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -22991,6 +23718,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -23082,6 +23810,7 @@ mod tests {
                     display_name: None,
                     device_kind: None,
                     device_name: None,
+                    device_id: None,
                 },
                 writer,
             )
@@ -23544,6 +24273,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -23608,6 +24338,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &owner_writer,
         )
@@ -23658,6 +24389,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &late_writer,
         )
@@ -23905,6 +24637,110 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_set_workspace_metadata_pins_and_unpins_a_workspace() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&WORKSPACE_PIN_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let entry = |mux: &Arc<Mux>| {
+            let tree = run_json_command(mux, json!({"cmd":"list-workspaces"})).unwrap();
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["key"] == json!(workspace.key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(entry(&mux)["pinned"], false);
+        let events = mux.subscribe();
+        let pin = json!({
+            "cmd":"set-workspace-metadata",
+            "key": workspace.key,
+            "pinned": true,
+            "origin":"cmux-next",
+            "mutation_id":"pin-1",
+        });
+        let pinned = run_json_command(&mux, pin.clone()).unwrap();
+        assert_eq!(pinned["pinned"], true);
+        assert_eq!(pinned["changed"], true);
+        assert_eq!(pinned["replayed"], false);
+        let delta = std::iter::from_fn(|| events.try_recv().ok())
+            .find_map(|event| match event {
+                MuxEvent::TreeDelta(delta) if delta.kind == TreeDeltaKind::WorkspaceChanged => {
+                    Some(delta)
+                }
+                _ => None,
+            })
+            .expect("workspace-changed delta");
+        assert_eq!(delta.entity["pinned"], true);
+        assert_eq!(entry(&mux)["pinned"], true);
+        let replayed = run_json_command(&mux, pin).unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["workspace_revision"], pinned["workspace_revision"]);
+        // An absent `pinned` keeps the pin while other fields change.
+        let titled = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"title":"Build"}),
+        )
+        .unwrap();
+        assert_eq!(titled["pinned"], true);
+        let unpinned = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"pinned":false}),
+        )
+        .unwrap();
+        assert_eq!(unpinned["pinned"], false);
+        assert_eq!(unpinned["title"], "Build");
+        assert_eq!(entry(&mux)["pinned"], false);
+    }
+
+    #[test]
+    fn cmux_next_set_workspace_metadata_marks_a_workspace_unread() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&NOTIFICATION_MARK_UNREAD_CAPABILITY));
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let entry = |mux: &Arc<Mux>| {
+            let tree = run_json_command(mux, json!({"cmd":"list-workspaces"})).unwrap();
+            tree["workspaces"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|entry| entry["key"] == json!(workspace.key))
+                .cloned()
+                .unwrap()
+        };
+        assert_eq!(entry(&mux)["marked_unread"], false);
+        let mark = json!({
+            "cmd":"set-workspace-metadata",
+            "key": workspace.key,
+            "marked_unread": true,
+            "origin":"cmux-next",
+            "mutation_id":"mark-unread-1",
+        });
+        let marked = run_json_command(&mux, mark.clone()).unwrap();
+        assert_eq!(marked["marked_unread"], true);
+        assert_eq!(marked["changed"], true);
+        assert_eq!(entry(&mux)["marked_unread"], true);
+        assert_eq!(run_json_command(&mux, mark).unwrap()["replayed"], true);
+        // The mark is independent of the pin and of notifications.
+        let pinned = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"pinned":true}),
+        )
+        .unwrap();
+        assert_eq!(pinned["marked_unread"], true);
+        assert_eq!(entry(&mux)["unread_count"], 0);
+        let cleared = run_json_command(
+            &mux,
+            json!({"cmd":"set-workspace-metadata","key":workspace.key,"marked_unread":false}),
+        )
+        .unwrap();
+        assert_eq!(cleared["marked_unread"], false);
+        assert_eq!(cleared["pinned"], true);
+        assert_eq!(entry(&mux)["marked_unread"], false);
+    }
+
+    #[test]
     fn cmux_next_set_tab_pinned_reports_pinned_first_order_over_the_wire() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&TAB_METADATA_CAPABILITY));
@@ -24094,6 +24930,80 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_screen_commands_over_the_wire() {
+        let mux = test_mux();
+        assert!(advertised_capabilities(false).contains(&SCREEN_METADATA_CAPABILITY));
+        assert!(advertised_capabilities(false).contains(&SCREEN_GROUPS_CAPABILITY));
+        mux.new_workspace(None, None).unwrap();
+        let workspace = mux.with_state(|state| state.workspaces[0].id);
+        let first = mux.with_state(|state| state.workspaces[0].screens[0].id);
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-screen","workspace":workspace,"screen_name":"logs","color":"green",
+                   "icon":"🚀","index":0,"name":"tail"}),
+        )
+        .unwrap();
+        let screen = created["screen"].as_u64().unwrap();
+        assert!(created["surface"].is_u64());
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let screens = &tree["workspaces"][0]["screens"];
+        assert_eq!(screens[0]["id"], screen);
+        assert_eq!(screens[0]["name"], "logs");
+        assert_eq!(screens[0]["color"], "green");
+        assert_eq!(screens[0]["icon"], "🚀");
+        assert_eq!(screens[0]["pinned"], false);
+        assert_eq!(screens[1]["group"], Value::Null);
+        assert_eq!(tree["workspaces"][0]["screen_groups"], json!([]));
+
+        let meta = run_json_command(
+            &mux,
+            json!({"cmd":"set-screen-metadata","screen":screen,"color":null,"icon":"server.rack"}),
+        )
+        .unwrap();
+        assert_eq!(meta, json!({"screen":screen,"color":null,"icon":"server.rack","changed":true}));
+        let pinned =
+            run_json_command(&mux, json!({"cmd":"set-screen-pinned","screen":first,"pinned":true}))
+                .unwrap();
+        assert_eq!(pinned["index"], 0);
+        let moved =
+            run_json_command(&mux, json!({"cmd":"move-screen","screen":screen,"index":0})).unwrap();
+        // Pinned screens stay first.
+        assert_eq!(moved["index"], 1);
+
+        let grouped = run_json_command(
+            &mux,
+            json!({"cmd":"create-screen-group","screens":[screen],"name":"Build","color":"orange"}),
+        )
+        .unwrap();
+        let group = grouped["group"]["id"].as_str().unwrap().to_string();
+        assert!(group.starts_with("sgrp_"));
+        assert_eq!(grouped["screens"], json!([screen]));
+        run_json_command(&mux, json!({"cmd":"update-screen-group","group":group,"collapsed":true}))
+            .unwrap();
+        let saved =
+            run_json_command(&mux, json!({"cmd":"save-screen-group","group":group})).unwrap();
+        assert!(saved["saved"].as_str().unwrap().starts_with("ssaved_"));
+        let listed = run_json_command(&mux, json!({"cmd":"list-saved-screen-groups"})).unwrap();
+        assert_eq!(listed["groups"][0]["name"], "Build");
+        assert_eq!(listed["groups"][0]["open_group"], json!(group));
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["collapsed"], true);
+        assert_eq!(tree["workspaces"][0]["screen_groups"][0]["screens"], json!([screen]));
+        assert_eq!(tree["workspaces"][0]["screens"][1]["group"], json!(group));
+        let ungrouped =
+            run_json_command(&mux, json!({"cmd":"ungroup-screen-group","group":group})).unwrap();
+        assert_eq!(ungrouped["screens"], json!([screen]));
+        assert!(run_json_command(&mux, json!({"cmd":"close-screen-group","group":group})).is_err());
+        let moved = run_json_command(
+            &mux,
+            json!({"cmd":"move-screen","screen":screen,"new_workspace":true}),
+        )
+        .unwrap();
+        assert_ne!(moved["workspace"], workspace);
+        assert!(moved["key"].is_string());
+    }
+
+    #[test]
     fn cmux_next_close_tabs_and_end_terminals_over_the_wire() {
         let mux = test_mux();
         assert!(advertised_capabilities(false).contains(&BATCH_CLOSE_CAPABILITY));
@@ -24198,6 +25108,102 @@ mod tests {
         )
         .unwrap();
         assert_eq!(pairs, vec![("A".into(), "1".into()), ("B".into(), "2".into())]);
+    }
+
+    /// The argv the created terminal was spawned with (the in-process test
+    /// runtime records it instead of running it).
+    fn spawned_argv(mux: &Arc<Mux>, created: &Value) -> Vec<String> {
+        let surface = created["surface"].as_u64().expect("created surface");
+        mux.surface(surface).and_then(|surface| surface.spawn_argv()).expect("terminal surface")
+    }
+
+    #[test]
+    fn cmux_next_shell_args_start_the_terminals_shell_with_arguments() {
+        // A frontend passes Ghostty's shell-integration argv (bash --posix,
+        // nushell --execute) for the shell it put in the terminal's SHELL.
+        assert!(advertised_capabilities(false).contains(&TERMINAL_SHELL_ARGS_CAPABILITY));
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let commands = [
+            ("new-tab", json!({})),
+            ("split", json!({"dir":"right"})),
+            ("new-pane", json!({})),
+            ("new-pane-right", json!({"width":0.5})),
+        ];
+        for (command, extra) in commands {
+            let mut request = json!({
+                "cmd":command,
+                "pane":pane,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/opt/homebrew/bin/bash"},
+                "shell_args":["--posix"],
+            });
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            let created = run_json_command(&mux, request).unwrap();
+            assert_eq!(
+                spawned_argv(&mux, &created),
+                vec!["/opt/homebrew/bin/bash".to_string(), "--posix".to_string()],
+                "{command}"
+            );
+        }
+
+        let key = mux.with_state(|state| state.workspaces[0].key.clone());
+        let created = run_json_command(
+            &mux,
+            json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "cols":60,
+                "rows":8,
+                "env":{"SHELL":"/opt/homebrew/bin/nu"},
+                "shell_args":["--execute", "use ghostty *"],
+                "origin":"test",
+                "mutation_id":"shell-args-create",
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            spawned_argv(&mux, &created),
+            vec![
+                "/opt/homebrew/bin/nu".to_string(),
+                "--execute".to_string(),
+                "use ghostty *".to_string()
+            ]
+        );
+        for conflicting in [json!({"argv":["/bin/sh"]}), json!({"command":"true"})] {
+            let mut request = json!({
+                "cmd":"create-terminal",
+                "key":key,
+                "shell_args":["-l"],
+                "origin":"test",
+                "mutation_id":"shell-args-conflict",
+            });
+            for (field, value) in conflicting.as_object().unwrap() {
+                request[field] = value.clone();
+            }
+            assert!(run_json_command(&mux, request).is_err(), "{conflicting}");
+        }
+    }
+
+    #[test]
+    fn cmux_next_shell_args_without_a_shell_env_use_the_default_shell() {
+        let mux = test_mux();
+        let first = mux.new_workspace(None, Some((60, 8))).unwrap().id;
+        let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+        let created = run_json_command(
+            &mux,
+            json!({"cmd":"new-tab","pane":pane,"cols":60,"rows":8,"shell_args":["-l"]}),
+        )
+        .unwrap();
+        assert_eq!(spawned_argv(&mux, &created), vec![platform::default_shell(), "-l".to_string()]);
+        // No shell_args (or an empty list) keeps the plain default shell.
+        let plain =
+            run_json_command(&mux, json!({"cmd":"new-tab","pane":pane,"shell_args":[]})).unwrap();
+        assert_eq!(spawned_argv(&mux, &plain), vec![platform::default_shell()]);
     }
 
     #[test]
@@ -24347,6 +25353,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -24365,6 +25372,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -24380,6 +25388,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25598,6 +26607,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25845,6 +26855,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -25916,6 +26927,7 @@ mod tests {
                 display_name: None,
                 device_kind: None,
                 device_name: None,
+                device_id: None,
             },
             &writer,
         )
@@ -26537,6 +27549,7 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            STATE_RESOURCES_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
@@ -26895,6 +27908,96 @@ mod tests {
     fn window_title_osc_uses_osc_0_and_2_and_strips_controls() {
         assert_eq!(window_title_osc("hello").as_slice(), b"\x1b]0;hello\x07\x1b]2;hello\x07");
         assert_eq!(window_title_osc("a\x1bb\x07c").as_slice(), b"\x1b]0;a b c\x07\x1b]2;a b c\x07");
+    }
+
+    #[test]
+    fn cmux_next_notify_accepts_a_source_and_reports_it_on_the_wire() {
+        assert!(advertised_capabilities(false).contains(&NOTIFICATION_SOURCE_CAPABILITY));
+        let mux = test_mux();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let events = mux.subscribe();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"hook","body":"","surface":surface.id,"source":"agent"}),
+        )
+        .unwrap();
+        run_json_command(
+            &mux,
+            json!({"cmd":"notify","title":"cli","body":"","surface":surface.id}),
+        )
+        .unwrap();
+        let notes = events
+            .try_iter()
+            .filter(|event| matches!(event, MuxEvent::Notification(_)))
+            .map(|event| subscribed_event_json(&event))
+            .collect::<Vec<_>>();
+        assert_eq!(notes.len(), 2, "{notes:?}");
+        assert_eq!(notes[0]["title"], "hook");
+        assert_eq!(notes[0]["source"], "agent");
+        assert_eq!(notes[1]["title"], "cli");
+        assert_eq!(notes[1]["source"], "cli", "notify defaults to the cli source");
+
+        let tree = run_json_command(&mux, json!({"cmd":"list-workspaces"})).unwrap();
+        let tab = tree["workspaces"][0]["screens"][0]["panes"][0]["tabs"][0].clone();
+        assert_eq!(tab["surface"], json!(surface.id));
+        assert_eq!(tab["notification"]["source"], "cli", "{tab}");
+
+        for source in ["daemon", "terminal"] {
+            run_json_command(
+                &mux,
+                json!({"cmd":"notify","title":source,"body":"","surface":surface.id,"source":source}),
+            )
+            .unwrap();
+        }
+        assert!(
+            run_json_command(&mux, json!({"cmd":"notify","title":"x","body":"","source":"bogus"}))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cmux_next_terminal_osc_notifications_post_from_unattached_terminals() {
+        // No client attaches: the daemon parses the program's output itself,
+        // as for a terminal in a hidden tab or a background workspace. The
+        // pauses keep each sequence outside the 1 s rate limit.
+        let mux = Mux::new(
+            "terminal-osc-notifications-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "printf '\\033]9;nine\\007'; sleep 1.3; \
+                     printf '\\033]777;notify;seven;body\\007'; sleep 1.3; \
+                     printf '\\033]99;;kitty\\033\\\\'; exec cat"
+                        .to_string(),
+                ]),
+                ..SurfaceOptions::default()
+            },
+        );
+        let events = mux.subscribe();
+        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut notes = Vec::new();
+        while notes.len() < 3 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            assert!(!remaining.is_zero(), "terminal notifications missing: {notes:?}");
+            if let Ok(MuxEvent::Notification(note)) = events.recv_timeout(remaining) {
+                notes.push(note);
+            }
+        }
+        let summary = notes
+            .iter()
+            .map(|note| (note.title.as_str(), note.body.as_str(), note.source, note.surface))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summary,
+            vec![
+                ("nine", "", NotificationSource::Terminal, Some(surface.id)),
+                ("seven", "body", NotificationSource::Terminal, Some(surface.id)),
+                ("kitty", "", NotificationSource::Terminal, Some(surface.id)),
+            ]
+        );
+        mux.shutdown();
     }
 
     #[test]

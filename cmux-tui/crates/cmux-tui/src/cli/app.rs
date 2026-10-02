@@ -23,12 +23,15 @@ use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
 
 /// Scopes that belong to the app, whatever follows.
-pub(super) const APP_SCOPES: &[&str] = &["app", "action", "settings", "window", "events"];
+pub(super) const APP_SCOPES: &[&str] =
+    &["app", "action", "settings", "window", "events", "history", "bookmark"];
 
-/// Control-plane requests answer within the app's own 2 s deadline; a run
-/// that waits for its work may wait for a terminal to start (6 s).
+/// Control-plane requests answer within the app's own 2 s deadline. A run
+/// that waits for its work may wait for a terminal to start (6 s) or for a
+/// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
+/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
-const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(10);
+const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
 /// A `busy` app that says the run never started is asked again this many
 /// times, after the delay it names (`retry_after_ms`, else this default).
@@ -116,6 +119,27 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
             call("settings.unset", json!({ "path": path }))
         }
+        // The app's durable page, location, closed and agent history
+        // (plans/cmux-next/history.md): `history list|search`.
+        ("history", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["kind", "range", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["kind", "range"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("history.list", Value::Object(params))
+        }
+        // Bookmarks of a browser profile (plans/cmux-next/bookmarks.md).
+        ("bookmark", Some(verb @ ("list" | "search"))) => {
+            let (text, tail) = read_text(verb, &rest[1..], scope)?;
+            let options = Options::parse(tail, &["folder", "profile", "limit"], &[])?;
+            let mut params = read_query(&options, text, &["folder", "profile"]);
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
+            }
+            call("bookmark.list", Value::Object(params))
+        }
         ("events", _) => {
             let options = Options::parse(rest, &["after", "name", "category"], &["no-heartbeats"])?;
             let mut params = Map::new();
@@ -149,6 +173,46 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         }
     };
     Ok(Some(command))
+}
+
+/// The text of a `search <text>` read (none for `list`) and the options
+/// after it.
+fn read_text<'a>(
+    verb: &str,
+    args: &'a [String],
+    scope: &str,
+) -> Result<(Option<&'a String>, &'a [String]), UsageError> {
+    if verb == "list" {
+        return Ok((None, args));
+    }
+    let messages = &crate::localization::catalog().app_control;
+    match args.split_first() {
+        Some((text, tail)) if !text.starts_with("--") => Ok((Some(text), tail)),
+        _ => Err(UsageError::new(messages.scope_usage.replace("{scope}", scope))),
+    }
+}
+
+/// The params of a `list` or `search` read: the named options and the text.
+fn read_query(options: &Options, text: Option<&String>, keys: &[&str]) -> Map<String, Value> {
+    let mut params = Map::new();
+    for key in keys {
+        if let Some(value) = options.value(key) {
+            params.insert((*key).into(), json!(value));
+        }
+    }
+    if let Some(text) = text {
+        params.insert("text".into(), json!(text));
+    }
+    params
+}
+
+fn parse_limit(value: &str, scope: &str) -> Result<u64, UsageError> {
+    let messages = &crate::localization::catalog().app_control;
+    value
+        .parse::<u64>()
+        .ok()
+        .filter(|limit| *limit > 0)
+        .ok_or_else(|| UsageError::new(messages.scope_usage.replace("{scope}", scope)))
 }
 
 /// `cmux browser <tab_…|page> <verb> …`: page commands for a browser tab the
@@ -618,6 +682,26 @@ mod tests {
     fn non_app_scopes_are_left_to_the_resource_grammar() {
         assert_eq!(parse(&args(&["workspace", "list"])).unwrap(), None);
         assert_eq!(parse(&args(&[])).unwrap(), None);
+    }
+
+    #[test]
+    fn history_and_bookmark_reads_call_the_app_and_other_words_run_actions() {
+        let (method, params) = call(
+            parse(&args(&["history", "search", "cmux", "--kind", "page", "--limit", "5"]))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(method, "history.list");
+        assert_eq!(params, json!({ "text": "cmux", "kind": "page", "limit": 5 }));
+        let (method, params) =
+            call(parse(&args(&["bookmark", "list", "--folder", "Work"])).unwrap().unwrap());
+        assert_eq!(method, "bookmark.list");
+        assert_eq!(params, json!({ "folder": "Work" }));
+        assert!(parse(&args(&["history", "search"])).is_err());
+        assert!(parse(&args(&["bookmark", "list", "--limit", "0"])).is_err());
+        let (method, params) = call(parse(&args(&["history", "reopen"])).unwrap().unwrap());
+        assert_eq!(method, "action.run");
+        assert_eq!(params["action"], "history reopen");
     }
 
     #[test]

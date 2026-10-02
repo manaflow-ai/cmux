@@ -63,8 +63,8 @@ final class MachineRegistry {
     /// state (`profiles-v1`), workspace groups and saved tab groups.
     func compatibility(of daemon: DaemonService) -> DaemonCompatibility? {
         guard !daemon.isLocal else { return daemon.compatibility }
-        var notNeeded = Set(DaemonCapabilities.homeOnly)
-        if local.supports(DaemonCapabilities.profiles) { notNeeded.formUnion(DaemonCapabilities.personalOnHome) }
+        var notNeeded = Set(DaemonCapabilities.shared.homeOnly)
+        if local.supports(DaemonCapabilities.shared.profiles) { notNeeded.formUnion(DaemonCapabilities.shared.personalOnHome) }
         return daemon.compatibility(notNeeded: notNeeded)
     }
 

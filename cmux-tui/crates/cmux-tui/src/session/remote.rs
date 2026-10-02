@@ -17,9 +17,9 @@ use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
     BrowserFrame, BrowserFrameUpdate, BrowserSource, BrowserStatus, ClearHistoryDelivery,
     ClearHistoryFailure, GraphicsStatus, GuardedMouseEncode, MuxEvent, MuxEventBroadcaster,
-    MuxEventReceiver, NotificationEvent, NotificationLevel, PairingChallenge, PointerSemanticProbe,
-    PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId, SurfaceKind,
-    TerminalPointerSnapshot,
+    MuxEventReceiver, NotificationEvent, NotificationLevel, NotificationSource, PairingChallenge,
+    PointerSemanticProbe, PointerSnapshotProbe, REMOTE_SESSION_MESSAGE_MAX_BYTES, Rgb, SurfaceId,
+    SurfaceKind, TerminalPointerSnapshot,
     platform::transport,
     server::{
         CLEAR_HISTORY_CAPABILITY, CLEAR_HISTORY_KEY_CAPABILITY, CREATION_RECEIPTS_CAPABILITY,
@@ -2066,9 +2066,12 @@ impl RemoteSession {
             // Join shared sizing as a terminal client named after this host,
             // like the Mac and iPhone (docs/shared-terminal-sizing.md).
             negotiated.push(SHARED_SIZING_CAPABILITY);
+            // One cmux-tui install per host, so the host name is also the
+            // stable device id that keeps two hosts' priority keys apart.
+            let host = local_hostname().unwrap_or_else(|| "cmux-tui".to_string());
             client_info["device_kind"] = json!("tui");
-            client_info["device_name"] =
-                json!(local_hostname().unwrap_or_else(|| "cmux-tui".to_string()));
+            client_info["device_name"] = json!(host);
+            client_info["device_id"] = json!(host);
         }
         // Replays are applied with colors written after them, so the
         // daemon's incomplete sequence must arrive separately.
@@ -2632,6 +2635,11 @@ impl RemoteSession {
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
                     level,
                     surface: surface_id(),
+                    source: value
+                        .get("source")
+                        .and_then(Value::as_str)
+                        .and_then(NotificationSource::parse)
+                        .unwrap_or(NotificationSource::Daemon),
                 }));
             }
             Some("overflow") => {

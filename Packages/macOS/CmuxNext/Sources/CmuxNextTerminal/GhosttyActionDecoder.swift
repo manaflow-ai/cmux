@@ -65,12 +65,9 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_PWD:
             return .pwd(payload.pwd.pwd.map { String(cString: $0) } ?? "")
         case GHOSTTY_ACTION_RING_BELL: return .ringBell
-        case GHOSTTY_ACTION_DESKTOP_NOTIFICATION:
-            let note = payload.desktop_notification
-            return .desktopNotification(
-                title: note.title.map { String(cString: $0) } ?? "",
-                body: note.body.map { String(cString: $0) } ?? ""
-            )
+        // GHOSTTY_ACTION_DESKTOP_NOTIFICATION stays unhandled: the daemon
+        // parses OSC 9/777/99 from every terminal's output, shown or not,
+        // and posts it with source `terminal` (notification-source-v1).
         case GHOSTTY_ACTION_OPEN_URL:
             let open = payload.open_url
             guard let url = string(open.url, length: Int(open.len)) else { return nil }

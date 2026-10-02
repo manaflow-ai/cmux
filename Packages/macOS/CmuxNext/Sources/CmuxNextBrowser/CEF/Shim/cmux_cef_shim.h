@@ -94,6 +94,9 @@ typedef enum {
   // cmux_shim_omnibox_input CHANGED, s1 = extension id, s2 = JSON
   // [{"content","description","deletable","styles":[{"offset","style"}]}].
   CMUX_SHIM_OMNIBOX_SUGGESTIONS = 30,
+  // Focus left the page (CefFocusHandler::OnTakeFocus): Tab past the last
+  // element (a = 1) or Shift-Tab past the first (a = 0).
+  CMUX_SHIM_TAKE_FOCUS = 31,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -142,6 +145,12 @@ typedef int (*cmux_shim_window_request_fn)(void* ctx,
                                            int height,
                                            const char* url,
                                            const char* profile_path);
+// Main thread, when Chromium asks to focus a page (CefFocusHandler::
+// OnSetFocus; source = cef_focus_source_t, 0 navigation, 1 system). CEF
+// asks after every navigation it starts (a new browser's first load,
+// cmux_shim_load_url); cmux_shim_set_focus(id, 1) asks as system inside
+// that call. Return 1 to let the page take focus, 0 to refuse.
+typedef int (*cmux_shim_focus_request_fn)(void* ctx, int browser_id, int source);
 
 
 // SHA-256 (64 lowercase hex digits) of this header as the shim was built.
@@ -218,6 +227,13 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
+// Chrome's Back/Forward menus. JSON {"current": index, "entries": [{"url",
+// "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown
+// browser. Works on every fork.
+CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id);
+// One history navigation to the entry `offset` from the current one
+// (negative = back). 1 when it went; 0 on forks before API 14.
+CMUX_SHIM_EXPORT int cmux_shim_tab_go_to_entry(int browser_id, int offset);
 CMUX_SHIM_EXPORT int cmux_shim_tab_window_id(int browser_id);
 
 CMUX_SHIM_EXPORT void cmux_shim_load_url(int browser_id, const char* url);
@@ -226,6 +242,8 @@ CMUX_SHIM_EXPORT void cmux_shim_go_forward(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_reload(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_stop(int browser_id);
 CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
+// Without a handler every focus request wins (CEF's default).
+CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
@@ -299,6 +317,15 @@ CMUX_SHIM_EXPORT int cmux_shim_popup_window_bounds(int window_id, int* x, int* y
 // later run loop turn than its event.
 CMUX_SHIM_EXPORT int cmux_shim_popup_window_attach(int window_id, void* parent_view, int width, int height);
 
+// Side panel header (fork API 13). The side panel stays Chromium's; the
+// host draws its header over Chromium's header area. The fork's tab event
+// CMUX_SIDE_PANEL_CHANGED = 12 reports changes. State JSON (cef_cmux.h,
+// cmux_side_panel_state), freed with cmux_shim_free; NULL on older forks.
+CMUX_SHIM_EXPORT char* cmux_shim_side_panel_state(int browser_id);
+// control: "close", "pin", "open_in_new_tab", "more_info". Runs Chromium's
+// own control; 0 when it is not shown.
+CMUX_SHIM_EXPORT int cmux_shim_side_panel_press(int browser_id, const char* control);
+
 // Extension install and permission prompts (fork API 12). result: 0 abort,
 // 1 accept, 2 cancel, 3 accept withholding host permissions. Returns 0 when
 // the prompt is unknown.
@@ -345,6 +372,15 @@ CMUX_SHIM_EXPORT int cmux_shim_visit_cookies(int browser_id, int reply);
 // Deletes the host and domain cookies of url named name (every name when
 // name is NULL or ""). REPLY with `reply` follows, a = deleted count.
 CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const char* url, const char* name);
+// Browser import: writes cookies into the request context of
+// profile_cache_path (a persistent profile; an off-the-record key returns 0),
+// creating the context when no tab opened it yet. json = [{"url","name",
+// "value","domain","path","secure","httponly","same_site" (cef_cookie_same_site_t),
+// "has_expires","expires","creation","last_access" (decimal strings,
+// microseconds since 1601)}]. REPLY with `reply` and browser 0 follows once
+// every cookie was handled: a = written, s1 = {"written","rejected"}.
+// Returns 0 when nothing was started (bad path or JSON).
+CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.

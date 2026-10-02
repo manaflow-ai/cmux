@@ -99,7 +99,9 @@ final class SidebarBridge {
     static func sections(_ machines: MachineRegistry, members: [String],
                          profile: ProfileID) -> [SidebarRowSection] {
         let visible = WindowProfiles.visible(members, profile: profile, machines: machines)
-        return SidebarMembership.filter(sections(machines, profile: profile), members: Set(visible))
+        let pinned = Set(machines.daemons.flatMap { $0.store.workspaces.filter(\.pinned).map(\.id) })
+        let filtered = SidebarMembership.filter(sections(machines, profile: profile), members: Set(visible))
+        return SidebarMembership.pinnedFirst(filtered, pinned: pinned)
     }
 
     /// The profile bar of the local daemon's profiles (empty when it has
@@ -116,17 +118,17 @@ final class SidebarBridge {
     /// `profile` (all of them on a machine without that profile).
     static func sections(_ machines: MachineRegistry, profile: ProfileID) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
-        var sections = SidebarMapping.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
+        var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                showsUnread: showsUnread)
         for session in machines.cloud {
             let header = machine(for: session.daemon, name: session.machine.title, kind: .cloud, live: session.machine.status.isLive,
                                  compatibility: machines.compatibility(of: session.daemon))
-            sections += SidebarMapping.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
+            sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread)
         }
         for session in machines.ssh {
-            sections += SidebarMapping.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
+            sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines))
         }
         return sections

@@ -20,6 +20,18 @@ extension AppServices {
         }
     }
 
+    /// Keyboard focus left page `key` (Tab past its last element, Shift-Tab
+    /// past its first): its omnibar takes it, as Chrome's toolbar does.
+    /// Only while the page has the keyboard: a late report never moves
+    /// focus the user put elsewhere.
+    func focusAddressBarAfterPage(_ key: String) {
+        for controller in windows.controllers {
+            guard case .browserPage(_, let tab) = controller.focus.state.resolved, tab == key else { continue }
+            controller.focus.send(.focusTarget(.addressBar, source: .keyboard))
+            return
+        }
+    }
+
     /// The chrome of page `key` gives the keyboard back to the page: its
     /// window's coordinator targets the page content (WebKit or Chromium).
     func returnFocusToPage(_ key: String) {

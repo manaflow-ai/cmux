@@ -108,6 +108,8 @@ final class PaneContentView: NSView, PaneContentChrome {
             view.autoresizingMask = [.width, .height]
             contentHost.addSubview(view)
         }
+        // A terminal's theme scope inherits this pane's workspace theme.
+        view?.reparentRootedThemeScope()
         // Another pane may own `previous` now and have taken its callback.
         if let previous, previous !== view, previous.superview == nil {
             (previous as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
@@ -147,10 +149,16 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The content background, or nothing in a translucent window, where
     /// the window root paints the one sheet (`WindowBackdrop`).
     func themeDidChange() {
-        let tokens = ThemeStore.shared.tokens
+        let tokens = themeTokens
         let paints = WindowBackdrop(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur).panesPaintBackground
-        effectiveAppearance.performAsCurrentDrawingAppearance {
+        performWithTheme {
             layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
         }
     }
+}
+
+// A terminal or page edge inside the titlebar band never moves the window;
+// the strip, hit before this view, answers for its own empty space.
+extension PaneContentView: TitlebarPressDeciding {
+    func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress { .staysPut }
 }

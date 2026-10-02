@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSettingsWindow
 import CmuxNextTerminal
@@ -12,7 +13,7 @@ import Foundation
 /// is created on first show and released when it closes.
 @MainActor
 final class SettingsWindowService: SettingsWindowHost {
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private var controller: SettingsWindowController?
 
     init(services: AppServices) {
@@ -30,6 +31,8 @@ final class SettingsWindowService: SettingsWindowHost {
             controller.onClose = { [weak self] in self?.controller = nil }
             self.controller = controller
         }
+        // Settings draws in the theme of the window it was opened from.
+        controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
         controller?.present(section: section)
     }
 
@@ -37,7 +40,7 @@ final class SettingsWindowService: SettingsWindowHost {
 
     var rooms: [SettingsListRow]? {
         let local = services.machines.local
-        guard local.supports(DaemonCapabilities.profiles) else { return nil }
+        guard local.supports(DaemonCapabilities.shared.profiles) else { return nil }
         let current = services.windows.active?.state.profileID ?? .defaultProfile
         return local.store.profiles.sorted { $0.index < $1.index }.map { room in
             SettingsListRow(id: room.id.rawValue, title: room.name, subtitle: nil,
@@ -69,4 +72,11 @@ final class SettingsWindowService: SettingsWindowHost {
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
 
     var shortcutEditor: (any ShortcutRecorderEditing)? { services.paletteShortcutEditor }
+
+    var browserProfiles: [SettingsBrowserProfileRow] {
+        services.browserProfiles.ordered.map { record in
+            SettingsBrowserProfileRow(id: record.id, name: record.name, color: record.color, icon: record.icon,
+                                      isDefault: record.isDefault, source: record.source?["display_name"])
+        }
+    }
 }

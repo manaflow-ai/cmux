@@ -5,7 +5,7 @@ import Foundation
 
 /// How this process was launched. Identity (bundle, tag, control socket)
 /// comes from the app bundle only (`LaunchIdentity`); inherited `CMUX_*`
-/// variables were stripped in `CmuxNextApp.main` before this is read.
+/// variables were stripped in `CmuxNextApp.shared.main` before this is read.
 struct AppEnvironment: Sendable {
     let launch: LaunchIdentity
     /// `CMUX_NEXT_NO_ACTIVATE=1`: never take focus from the user's frontmost
@@ -20,7 +20,7 @@ struct AppEnvironment: Sendable {
     var marksRun = false
     /// What every local terminal of this app gets on top of its filtered
     /// login environment: the launch identity (`LaunchIdentity`) and the
-    /// terminal identity Ghostty gives its shells (`TerminalEnvironment.ghostty`),
+    /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
     /// per-terminal `env` match. Resolved once per launch.
@@ -53,7 +53,7 @@ struct AppEnvironment: Sendable {
     func terminalEnvironmentProvider() -> @Sendable () async -> [String: String] {
         let resources = ghosttyResources
         let binary = ghosttyBinary
-        return TerminalEnvironment.shared(overrides: terminalEnvironment, integration: {
+        return TerminalEnvironment.instance.shared(overrides: terminalEnvironment, integration: {
             await MainActor.run {
                 Self.shellIntegration(GhosttyRuntime.shared.shellIntegrationSettings, resources: resources, binary: binary)
             }
@@ -74,7 +74,7 @@ struct AppEnvironment: Sendable {
     }
 
     static func terminalEnvironment(launch: LaunchIdentity, environment: [String: String]) -> [String: String] {
-        let ghostty = TerminalEnvironment.ghostty(
+        let ghostty = TerminalEnvironment.instance.ghostty(
             resourcesDirectory: GhosttyRuntime.resourcesDirectory(environment: environment),
             version: GhosttyRuntime.version
         )

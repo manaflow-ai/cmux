@@ -86,6 +86,12 @@ class NotificationLevel(str, Enum):
     WARNING = 'warning'
     ERROR = 'error'
 
+class NotificationSource(str, Enum):
+    CLI = 'cli'
+    TERMINAL = 'terminal'
+    AGENT = 'agent'
+    DAEMON = 'daemon'
+
 class PaneDirection(str, Enum):
     LEFT = 'left'
     RIGHT = 'right'
@@ -583,6 +589,7 @@ class IdentifyResult:
     build_commit: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], MissingType] = field(default=MISSING)
     ghostty_commit: Union[str, None, MissingType] = field(default=MISSING)
+    launch_snapshot_path: Union[str, None, MissingType] = field(default=MISSING)
     lifecycle_ready: Union[bool, MissingType] = field(default=MISSING)
     machine_name: Union[str, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
@@ -751,6 +758,7 @@ class NotificationMarker:
     level: NotificationLevel
     notification: Id
     unread: bool
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -806,6 +814,13 @@ class ReadScrollbackResult:
     rows: List[RenderRow]
     start: int
     total: int
+
+
+@dataclass(frozen=True)
+class ReattachViewResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ReattachViewResult'
+    participant: str
+    state: SizeState
 
 
 @dataclass(frozen=True)
@@ -1129,6 +1144,7 @@ class SizeParticipant:
     __cmux_schema_path__: ClassVar[str] = 'types/SizeParticipant'
     counts: bool
     counts_override: Union[bool, None]
+    device_id: Union[str, None]
     device_kind: SizeDeviceKind
     device_name: Union[str, None]
     display_name: Union[str, None]
@@ -1162,6 +1178,7 @@ class SizeState:
 @dataclass(frozen=True)
 class SizingIdentity:
     __cmux_schema_path__: ClassVar[str] = 'types/SizingIdentity'
+    device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
@@ -1430,6 +1447,14 @@ class AckTabNotificationsRequest:
 
 
 @dataclass(frozen=True)
+class AddScreensToScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/add-screens-to-screen-group/request'
+    group: str
+    screens: List[Id]
+    index: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class AddTabsToTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/add-tabs-to-tab-group/request'
     group: str
@@ -1619,6 +1644,13 @@ class CloseScreenRequest:
 
 
 @dataclass(frozen=True)
+class CloseScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/close-screen-group/request'
+    group: str
+    end_terminals: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CloseSurfaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/close-surface/request'
     surface: Id
@@ -1674,6 +1706,17 @@ class CopyRequest:
 
 
 @dataclass(frozen=True)
+class CreateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-browser-profile/request'
+    name: str
+    browser_profile: Union[str, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    source: Union[JsonValue, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class CreatePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/create-personal-group/request'
     name: str
@@ -1697,6 +1740,14 @@ class CreateProfileRequest:
     index: Union[int, None, MissingType] = field(default=MISSING)
     profile: Union[str, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class CreateScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/create-screen-group/request'
+    screens: List[Id]
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1746,6 +1797,7 @@ class CreateTerminalRequest:
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -1770,6 +1822,12 @@ class CreateWorkspaceGroupRequest:
 
 
 @dataclass(frozen=True)
+class DeleteBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-browser-profile/request'
+    browser_profile: str
+
+
+@dataclass(frozen=True)
 class DeletePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-personal-group/request'
     group: str
@@ -1780,6 +1838,12 @@ class DeleteProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/delete-profile/request'
     profile: str
     move_to: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class DeleteSavedScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/delete-saved-screen-group/request'
+    saved: str
 
 
 @dataclass(frozen=True)
@@ -1806,6 +1870,7 @@ class DetachAttachedViewRequest:
 class DetachClientRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/detach-client/request'
     client: DetachClientTarget
+    surface: Union[Id, None, MissingType] = field(default=MISSING)
     by: Union[SizeDetachActor, None, MissingType] = field(default=MISSING)
 
 
@@ -1919,6 +1984,12 @@ class ListPersonalRequest:
 
 
 @dataclass(frozen=True)
+class ListSavedScreenGroupsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/list-saved-screen-groups/request'
+    pass
+
+
+@dataclass(frozen=True)
 class ListSavedTabGroupsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/list-saved-tab-groups/request'
     pass
@@ -1981,6 +2052,13 @@ class MintTerminalRendererByTerminalRequest:
 
 
 @dataclass(frozen=True)
+class MoveBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-browser-profile/request'
+    browser_profile: str
+    index: int
+
+
+@dataclass(frozen=True)
 class MovePersonalGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-personal-group/request'
     group: str
@@ -1992,6 +2070,24 @@ class MoveProfileRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/move-profile/request'
     index: int
     profile: str
+
+
+@dataclass(frozen=True)
+class MoveScreenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-screen/request'
+    screen: Id
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    new_workspace: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class MoveScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/move-screen-group/request'
+    group: str
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    new_workspace: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2156,6 +2252,7 @@ class NewPaneRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2168,6 +2265,7 @@ class NewPaneRightRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
 
@@ -2175,8 +2273,15 @@ class NewPaneRightRequest:
 class NewScreenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/new-screen/request'
     workspace: Union[Id, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    group: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    index: Union[int, None, MissingType] = field(default=MISSING)
+    pinned: Union[bool, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    screen_name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2188,6 +2293,7 @@ class NewTabRequest:
     rows: Union[int, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
     terminal_id: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2213,6 +2319,7 @@ class NotifyRequest:
     body: str
     level: Union[NotificationLevel, None, MissingType] = field(default=MISSING)
     surface: Union[Id, None, MissingType] = field(default=MISSING)
+    source: Union[NotificationSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2310,6 +2417,13 @@ class ReadScrollbackRequest:
 
 
 @dataclass(frozen=True)
+class ReattachViewRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/reattach-view/request'
+    surface: Id
+    counts: Union[bool, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class RegisterBrowserProviderRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/register-browser-provider/request'
     authentication: BrowserProviderAuthentication
@@ -2344,6 +2458,12 @@ class ReloadConfigResult:
     __cmux_schema_path__: ClassVar[str] = 'commands/reload-config/result'
     path: Union[str, None]
     reloaded: Literal[True]
+
+
+@dataclass(frozen=True)
+class RemoveScreensFromScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/remove-screens-from-screen-group/request'
+    screens: List[Id]
 
 
 @dataclass(frozen=True)
@@ -2393,6 +2513,13 @@ class RenameWorkspaceRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ReopenSavedScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/reopen-saved-screen-group/request'
+    saved: str
+    workspace: Union[Id, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2457,6 +2584,12 @@ class RunRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SaveScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/save-screen-group/request'
+    group: str
 
 
 @dataclass(frozen=True)
@@ -2529,6 +2662,7 @@ class SetClientInfoRequest:
     name: Union[str, None, MissingType] = field(default=MISSING)
     kind: Union[str, None, MissingType] = field(default=MISSING)
     capabilities: Union[List[str], None, MissingType] = field(default=MISSING)
+    device_id: Union[str, None, MissingType] = field(default=MISSING)
     device_kind: Union[str, None, MissingType] = field(default=MISSING)
     device_name: Union[str, None, MissingType] = field(default=MISSING)
     display_name: Union[str, None, MissingType] = field(default=MISSING)
@@ -2559,6 +2693,14 @@ class SetDefaultColorsRequest:
 
 
 @dataclass(frozen=True)
+class SetPersonalTerminalRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-terminal/request'
+    session_id: str
+    terminal_key: str
+    theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetPersonalWorkspaceRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-personal-workspace/request'
     session_id: str
@@ -2582,6 +2724,21 @@ class SetRatioRequest:
     pane: Id
     dir: SplitDirection
     ratio: float
+
+
+@dataclass(frozen=True)
+class SetScreenMetadataRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-screen-metadata/request'
+    screen: Id
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetScreenPinnedRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-screen-pinned/request'
+    screen: Id
+    pinned: bool
 
 
 @dataclass(frozen=True)
@@ -2657,8 +2814,10 @@ class SetWorkspaceMetadataRequest:
     expected_revision: Union[int, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
     key: Union[str, None, MissingType] = field(default=MISSING)
+    marked_unread: Union[bool, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)
+    pinned: Union[bool, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2690,6 +2849,7 @@ class SplitRequest:
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     keep: Union[bool, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2728,6 +2888,12 @@ class UndoLayoutRequest:
 
 
 @dataclass(frozen=True)
+class UngroupScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ungroup-screen-group/request'
+    group: str
+
+
+@dataclass(frozen=True)
 class UngroupTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ungroup-tab-group/request'
     group: str
@@ -2747,9 +2913,24 @@ class UnregisterBrowserProviderRequest:
 
 
 @dataclass(frozen=True)
+class UnsaveScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/unsave-screen-group/request'
+    group: str
+
+
+@dataclass(frozen=True)
 class UnsaveTabGroupRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/unsave-tab-group/request'
     group: str
+
+
+@dataclass(frozen=True)
+class UpdateBrowserProfileRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-browser-profile/request'
+    browser_profile: str
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2782,6 +2963,15 @@ class UpdateProfileRequest:
     icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class UpdateScreenGroupRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/update-screen-group/request'
+    group: str
+    collapsed: Union[bool, None, MissingType] = field(default=MISSING)
+    color: Union[str, None, MissingType] = field(default=MISSING)
+    name: Union[str, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -2960,6 +3150,7 @@ class DetachedEvent(EventBase):
     event: Literal['detached']
     by: Union[SizeDetachActor, MissingType] = field(default=MISSING)
     reason: Union[DetachReason, MissingType] = field(default=MISSING)
+    scope: Union[str, MissingType] = field(default=MISSING)
     view: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -3036,6 +3227,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    source: Union[NotificationSource, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3166,6 +3358,17 @@ class ScreenAddedEvent(EventBase):
     entity: Screen
     event: Literal['screen-added']
     index: int
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class ScreenChangedEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/screen-changed/payload'
+    screen: Id
+    workspace: Id
+    entity: Screen
+    event: Literal['screen-changed']
+    index: Union[int, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -3468,7 +3671,7 @@ PaneRef = Any
 TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, PersonalChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, SizeStateEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -3487,6 +3690,7 @@ __all__ = [
     'DetachReason',
     'FrontendFocusTarget',
     'NotificationLevel',
+    'NotificationSource',
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',
@@ -3560,6 +3764,7 @@ __all__ = [
     'ProviderWorkspaceMutationResult',
     'ReadScreenResult',
     'ReadScrollbackResult',
+    'ReattachViewResult',
     'RenderCursor',
     'RenderGraphicImage',
     'RenderGraphicPlacement',
@@ -3619,6 +3824,7 @@ __all__ = [
     'WorkspaceMutationResult',
     'ZoomPaneResult',
     'AckTabNotificationsRequest',
+    'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
@@ -3642,21 +3848,26 @@ __all__ = [
     'ClosePaneRequest',
     'CloseProviderManagedWorkspaceRequest',
     'CloseScreenRequest',
+    'CloseScreenGroupRequest',
     'CloseSurfaceRequest',
     'CloseTabGroupRequest',
     'CloseTabsRequest',
     'CloseTerminalRequest',
     'CloseWorkspaceRequest',
     'CopyRequest',
+    'CreateBrowserProfileRequest',
     'CreatePersonalGroupRequest',
     'CreateProfileRequest',
+    'CreateScreenGroupRequest',
     'CreateSurfaceWithReceiptRequest',
     'CreateTabGroupRequest',
     'CreateTerminalRequest',
     'CreateWorkspaceRequest',
     'CreateWorkspaceGroupRequest',
+    'DeleteBrowserProfileRequest',
     'DeletePersonalGroupRequest',
     'DeleteProfileRequest',
+    'DeleteSavedScreenGroupRequest',
     'DeleteSavedTabGroupRequest',
     'DeleteWorkspaceGroupRequest',
     'DetachAttachedViewRequest',
@@ -3678,6 +3889,7 @@ __all__ = [
     'ListClientsRequest',
     'ListNotificationsRequest',
     'ListPersonalRequest',
+    'ListSavedScreenGroupsRequest',
     'ListSavedTabGroupsRequest',
     'ListTabGroupsRequest',
     'ListTerminalsRequest',
@@ -3688,8 +3900,11 @@ __all__ = [
     'MarkWorkspacesProviderManagedRequest',
     'MintTerminalRendererRequest',
     'MintTerminalRendererByTerminalRequest',
+    'MoveBrowserProfileRequest',
     'MovePersonalGroupRequest',
     'MoveProfileRequest',
+    'MoveScreenRequest',
+    'MoveScreenGroupRequest',
     'MoveTabRequest',
     'MoveTabGroupRequest',
     'MoveTabGroupToColumnRequest',
@@ -3723,17 +3938,20 @@ __all__ = [
     'PutSessionRequest',
     'ReadScreenRequest',
     'ReadScrollbackRequest',
+    'ReattachViewRequest',
     'RegisterBrowserProviderRequest',
     'ReleaseAttachedViewSizeRequest',
     'ReleaseSurfaceSizeRequest',
     'ReloadConfigRequest',
     'ReloadConfigResult',
+    'RemoveScreensFromScreenGroupRequest',
     'RemoveTabsFromTabGroupRequest',
     'RenamePaneRequest',
     'RenameProviderManagedWorkspaceRequest',
     'RenameScreenRequest',
     'RenameSurfaceRequest',
     'RenameWorkspaceRequest',
+    'ReopenSavedScreenGroupRequest',
     'ReopenSavedTabGroupRequest',
     'ReportAgentRequest',
     'ReportFocusRequest',
@@ -3741,6 +3959,7 @@ __all__ = [
     'ResizeSurfaceRequest',
     'ResolveTerminalRequest',
     'RunRequest',
+    'SaveScreenGroupRequest',
     'SaveTabGroupRequest',
     'ScrollSurfaceRequest',
     'SelectScreenRequest',
@@ -3753,9 +3972,12 @@ __all__ = [
     'SetClientInfoRequest',
     'SetClientSizingRequest',
     'SetDefaultColorsRequest',
+    'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',
     'SetRatioRequest',
+    'SetScreenMetadataRequest',
+    'SetScreenPinnedRequest',
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
@@ -3773,13 +3995,17 @@ __all__ = [
     'TerminalEventsRequest',
     'TerminalResourcesRequest',
     'UndoLayoutRequest',
+    'UngroupScreenGroupRequest',
     'UngroupTabGroupRequest',
     'UnpinWorkspaceRequest',
     'UnregisterBrowserProviderRequest',
+    'UnsaveScreenGroupRequest',
     'UnsaveTabGroupRequest',
+    'UpdateBrowserProfileRequest',
     'UpdateFrontendBrowserTabRequest',
     'UpdatePersonalGroupRequest',
     'UpdateProfileRequest',
+    'UpdateScreenGroupRequest',
     'UpdateTabGroupRequest',
     'UpdateWorkspaceGroupRequest',
     'UrlOpenRequest',
@@ -3818,6 +4044,7 @@ __all__ = [
     'RenderStateEvent',
     'ResizedEvent',
     'ScreenAddedEvent',
+    'ScreenChangedEvent',
     'ScreenClosedEvent',
     'ScreenRenamedEvent',
     'ScrollChangedEvent',

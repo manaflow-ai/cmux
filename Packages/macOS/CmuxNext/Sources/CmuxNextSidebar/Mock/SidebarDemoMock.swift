@@ -3,7 +3,8 @@ import Foundation
 
 /// Single-machine demo: 12 workspaces, 5 of them in two groups, two with
 /// live agent status. Used for visual checks of the default density.
-public enum SidebarDemoMock {
+public struct SidebarDemoMock {
+    public init() {}
     public static func makeModel() -> SidebarModel {
         let model = SidebarModel(sections: makeSections(), activeWorkspaceID: WorkspaceID("demo-3"))
         return model

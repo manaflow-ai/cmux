@@ -129,7 +129,7 @@ extension SidebarBridge {
     /// personal order, else after this window's last one.
     private func personalIndex(for position: DropPosition, moving ids: [SidebarWorkspaceID], in sections: [SidebarRowSection]) -> Int? {
         let scoped = sections.filter { $0.id == position.section }
-        guard let local = WorkspaceOrdering.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
+        guard let local = WorkspaceOrdering.shared.rootIndex(for: position, moving: ids, in: scoped) else { return nil }
         let moved = Set(qualified(ids).map { "\($0.session)/\($0.key)" })
         let key = { (id: String) in WindowProfiles.qualified(id, machines: self.services.machines).map { "\($0.session)/\($0.key)" } }
         let localOrder = scoped.flatMap(\.workspaces).compactMap { key($0.id.rawValue) }.filter { !moved.contains($0) }

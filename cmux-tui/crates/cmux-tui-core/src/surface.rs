@@ -6,6 +6,8 @@
 //! VT operations.
 
 mod directory;
+#[cfg(unix)]
+mod host_frames;
 use directory::PublishedDirectory;
 
 use std::borrow::Cow;
@@ -1570,9 +1572,16 @@ impl Drop for ReaderCompletionGuard {
 impl PtyTerminalRuntime {
     /// Feed raw child output to the generic terminal metadata parser. The
     /// parser has no knowledge of agents or plugins and keeps only bounded
-    /// terminal protocol state.
-    fn observe_terminal_output(&self, bytes: &[u8]) {
-        self.terminal_metadata.lock().unwrap().observe_output(bytes);
+    /// terminal protocol state. Returns the desktop notifications (OSC 9,
+    /// OSC 777, OSC 99) the output asked for that pass Ghostty's rate limit;
+    /// the caller posts them after it releases the terminal lock.
+    fn observe_terminal_output(
+        &self,
+        bytes: &[u8],
+    ) -> Vec<crate::terminal_metadata::TerminalNotification> {
+        let mut metadata = self.terminal_metadata.lock().unwrap();
+        metadata.observe_output(bytes);
+        metadata.take_admitted_notifications(Instant::now())
     }
 
     fn terminal_osc_progress(&self) -> String {
@@ -2630,11 +2639,16 @@ impl Surface {
         };
         let pty = cmux_pty::open(initial_geometry.pty_size()?)?;
 
-        let argv = opts
-            .command
-            .clone()
-            .filter(|argv| !argv.is_empty())
-            .unwrap_or_else(|| vec![platform::default_shell()]);
+        let launch = match opts.command.clone().filter(|argv| !argv.is_empty()) {
+            Some(argv) => {
+                crate::shell_integration::ShellLaunch { command: argv, env: opts.extra_env.clone() }
+            }
+            None => crate::shell_integration::integrate_default_shell(
+                vec![platform::default_shell()],
+                opts.extra_env.clone(),
+            ),
+        };
+        let argv = launch.command;
         let mut cmd = PtyCommand::new(&argv[0]);
         cmd.args(argv[1..].iter().cloned());
         cmd.env("TERM", &opts.term);
@@ -2644,7 +2658,7 @@ impl Surface {
         // (launchd, ssh, cron strip COLORTERM). Set before extra_env so a
         // caller can still override it.
         cmd.env("COLORTERM", "truecolor");
-        for (k, v) in &opts.extra_env {
+        for (k, v) in &launch.env {
             cmd.env(k, v);
         }
         let cwd = opts.cwd.clone().or_else(platform::default_terminal_cwd);
@@ -2845,6 +2859,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let terminal_notifications;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2860,7 +2875,7 @@ impl Surface {
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity");
                             let normalized = term.vt_write_with_normalized(&buf[..n]);
-                            pty.observe_terminal_output(&buf[..n]);
+                            terminal_notifications = pty.observe_terminal_output(&buf[..n]);
                             let cursor_changed = term
                                 .cursor_activity()
                                 .expect("valid local terminals expose cursor activity")
@@ -2919,6 +2934,11 @@ impl Surface {
                             && let Some(mux) = mux.upgrade()
                         {
                             mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                        }
+                        if !terminal_notifications.is_empty()
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.post_terminal_notifications(surface.id, terminal_notifications);
                         }
                         let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
                         if !responses.is_empty() {
@@ -3336,12 +3356,21 @@ impl Surface {
                 let mut smart_renderer = smart_renderer;
                 let mut applied_color_revision = initial_color_revision;
                 let mut applied_cursor_activity = initial_cursor_activity;
+                // Test seam: slows applying each output frame so tests can
+                // build an output backlog ahead of a targeted host response.
+                let output_apply_delay = std::env::var("CMUX_TUI_TEST_HOSTED_OUTPUT_APPLY_DELAY_MS")
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(|ms| Duration::from_millis(ms.min(5_000)));
                 // One backoff across consecutive losses: a host that accepts
                 // and then drops at once (or keeps asking for a resync) used
                 // to be reconnected with no delay and no limit, because each
                 // loss started a fresh backoff. It resets only after a
                 // connection stayed up for TERMINAL_HOST_HEALTHY_CONNECTION.
                 let mut flap_backoff = TerminalHostReconnectBackoff::default();
+                // Spaces back-to-back resyncs of a live host without spending
+                // the failure budget that decides whether a real loss fails.
+                let mut resync_backoff = TerminalHostReconnectBackoff::default();
                 // `None` until the first reconnect: the first loss of a
                 // connection keeps its immediate reconnect.
                 let mut connected_at: Option<Instant> = None;
@@ -3356,6 +3385,17 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
+                    // `reader` moves into the demultiplexer; a reconnect
+                    // assigns the replacement before `continue 'connection`.
+                    let frames = match host_frames::HostFrames::spawn(
+                        format!("surface-{id}-host-frames"),
+                        reader,
+                        control_responses.clone(),
+                        protocol_version,
+                    ) {
+                        Ok(frames) => frames,
+                        Err(_) => break 'connection,
+                    };
                     'host_stream: loop {
                         if journal_update.is_none() {
                             journal_target = pty.journal_target();
@@ -3366,12 +3406,9 @@ impl Surface {
                                 break;
                             }
                         }
-                        let frame = match crate::terminal_host_protocol::read_frame(
-                            &mut reader,
-                            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        ) {
-                            Ok(Some(frame)) => frame,
-                            Ok(None) | Err(_) => break,
+                        let frame = match frames.recv() {
+                            host_frames::HostFrame::Frame(frame) => frame,
+                            host_frames::HostFrame::End => break,
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
@@ -3415,6 +3452,9 @@ impl Surface {
                         match transition {
                             transition @ (HostedTransition::Output(_)
                             | HostedTransition::OutputWithColors { .. }) => {
+                                if let Some(delay) = output_apply_delay {
+                                    std::thread::sleep(delay);
+                                }
                                 let (output, colors) = match transition {
                                     HostedTransition::Output(output) => (output, None),
                                     HostedTransition::OutputWithColors { output, colors } => {
@@ -3424,6 +3464,7 @@ impl Surface {
                                 };
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
+                                let terminal_notifications;
                                 let defaults = mux
                                     .upgrade()
                                     .map(|mux| mux.default_colors())
@@ -3438,7 +3479,7 @@ impl Surface {
                                     let journal_enabled = journal_update.is_some();
                                     let before = terminal_scroll_position(&term);
                                     let normalized = term.vt_write_with_normalized(&output);
-                                    pty.observe_terminal_output(&output);
+                                    terminal_notifications = pty.observe_terminal_output(&output);
                                     let output = match normalized {
                                         Cow::Borrowed(_) => output,
                                         Cow::Owned(normalized) => normalized,
@@ -3531,6 +3572,14 @@ impl Surface {
                                     && let Some(mux) = mux.upgrade()
                                 {
                                     mux.emit_terminal_scroll(surface.id, offset, at_bottom);
+                                }
+                                if !terminal_notifications.is_empty()
+                                    && let Some(mux) = mux.upgrade()
+                                {
+                                    mux.post_terminal_notifications(
+                                        surface.id,
+                                        terminal_notifications,
+                                    );
                                 }
                             }
                             HostedTransition::Resized { cols, rows, cell_pixels } => {
@@ -3739,12 +3788,12 @@ impl Surface {
                         .is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION)
                     {
                         flap_backoff = TerminalHostReconnectBackoff::default();
+                        resync_backoff = TerminalHostReconnectBackoff::default();
                     } else if resync_requested {
                         // A live host's resync never fails the terminal, but
                         // back-to-back resyncs are spaced.
-                        std::thread::sleep(
-                            flap_backoff.next_delay().unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY),
-                        );
+                        let delay = resync_backoff.next_delay();
+                        std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
                     } else if !flap_backoff.wait_or_fail(pty) {
                         return;
                     }
@@ -5078,7 +5127,7 @@ impl Surface {
         let pty = self.as_pty()?;
         let mut term = pty.term.lock().unwrap();
         term.vt_write(bytes);
-        pty.observe_terminal_output(bytes);
+        let _ = pty.observe_terminal_output(bytes);
         pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
         pty.stream_progress.notify();
         Some(())
@@ -5986,9 +6035,23 @@ impl Surface {
         self.as_pty().and_then(|pty| pty.exit.lock().unwrap().clone())
     }
 
+    /// Whether [`Self::begin_host_termination`] would signal a terminal host
+    /// (`Some`) rather than report a local runtime (`None`). It only reads
+    /// the runtime kind; it never waits for the host.
+    #[cfg(unix)]
+    pub(crate) fn has_host_termination(&self) -> bool {
+        let Some(pty) = self.as_pty() else { return false };
+        if pty.host_identity.is_none() || pty.host_exit_record_path.is_none() {
+            return false;
+        }
+        !matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Local { .. })
+    }
+
     /// Ask a hosted terminal to exit through its existing owner connection,
-    /// without waiting. Local terminals return `None` and keep their existing
-    /// kill path. Pass the result to [`Self::wait_for_host_exit`].
+    /// without waiting for a receipt or the exit. Local terminals return
+    /// `None` and keep their existing kill path. Pass the result to
+    /// [`Self::wait_for_host_exit`], whose durable exit receipt is the
+    /// authoritative completion.
     #[cfg(unix)]
     pub(crate) fn begin_host_termination(&self) -> anyhow::Result<Option<HostTermination>> {
         let Some(pty) = self.as_pty() else { return Ok(None) };
@@ -5996,10 +6059,10 @@ impl Surface {
         let Some(path) = pty.host_exit_record_path.clone() else { return Ok(None) };
         let observed = pty.stream_progress.revision();
         let already_exited = {
-            let mut runtime = pty.runtime.lock().unwrap();
-            match &mut *runtime {
+            let runtime = pty.runtime.lock().unwrap();
+            match &*runtime {
                 PtyRuntime::Hosted(host) => {
-                    host.terminate().map_err(|error| {
+                    host.request_termination().map_err(|error| {
                         anyhow::anyhow!("send terminal-host termination: {error}")
                     })?;
                     false
@@ -8458,6 +8521,141 @@ mod tests {
             assert!(Instant::now() < deadline, "child never printed COLORTERM: {text:?}");
             std::thread::sleep(Duration::from_millis(5));
         }
+    }
+
+    /// A shell program on PATH that shell integration supports, if any.
+    #[cfg(unix)]
+    fn find_integrated_shell(name: &str) -> Option<String> {
+        let path = std::env::var_os("PATH")?;
+        std::env::split_paths(&path)
+            .map(|dir| dir.join(name))
+            .filter(|candidate| {
+                // Apple's /bin/bash 3.2 cannot run the bash injection.
+                !(cfg!(target_os = "macos") && candidate == std::path::Path::new("/bin/bash"))
+            })
+            .find(|candidate| candidate.is_file())
+            .map(|candidate| candidate.to_string_lossy().into_owned())
+    }
+
+    #[cfg(unix)]
+    fn wait_for_viewport(
+        surface: &Surface,
+        what: &str,
+        mut ready: impl FnMut(&str, bool) -> bool,
+    ) -> String {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let (text, at_prompt) = surface
+                .try_with_terminal(|terminal| {
+                    let text = terminal.viewport_text();
+                    (text, terminal.cursor_is_at_prompt())
+                })
+                .unwrap();
+            let text = text.unwrap();
+            if ready(&text, at_prompt) {
+                return text;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}: {text:?}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The default shell runs with Ghostty's shell integration, so its prompt
+    /// carries OSC 133 marks. Without them, a partial output line before the
+    /// prompt (zsh PROMPT_SP, or any output without a trailing newline) is
+    /// reflowed together with the prompt on every resize, and each SIGWINCH
+    /// redraw leaves fragments of the previous prompt behind. This is the
+    /// resize artifact seen in Cloud terminals.
+    #[cfg(unix)]
+    #[test]
+    fn default_shell_prompt_survives_rapid_resizes_after_a_partial_line() {
+        let mut ran = 0;
+        for (index, shell) in ["zsh", "bash"].into_iter().enumerate() {
+            let Some(program) = find_integrated_shell(shell) else { continue };
+            let home = std::env::temp_dir().join(format!(
+                "cmux-tui-prompt-resize-{}-{shell}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&home).unwrap();
+            std::fs::write(home.join(".zshenv"), "setopt NO_GLOBAL_RCS\n").unwrap();
+            std::fs::write(home.join(".zshrc"), "PS1='prompt> '\nsetopt PROMPT_CR PROMPT_SP\n")
+                .unwrap();
+            std::fs::write(home.join(".bashrc"), "PS1='prompt> '\n").unwrap();
+            let launch = crate::shell_integration::integrate_default_shell(
+                vec![program],
+                vec![
+                    ("HOME".into(), home.to_string_lossy().into_owned()),
+                    ("ZDOTDIR".into(), home.to_string_lossy().into_owned()),
+                    ("HISTFILE".into(), home.join("history").to_string_lossy().into_owned()),
+                ],
+            );
+            let mux = Mux::new_for_test("prompt-resize", SurfaceOptions::default());
+            let surface = Surface::spawn(
+                160 + index as SurfaceId,
+                SurfaceOptions {
+                    command: Some(launch.command),
+                    extra_env: launch.env,
+                    cols: 60,
+                    rows: 20,
+                    ..SurfaceOptions::default()
+                },
+                Arc::downgrade(&mux),
+            )
+            .unwrap();
+            wait_for_viewport(&surface, "the first prompt", |text, _| text.contains("prompt>"));
+            // Output without a trailing newline, then unsubmitted input.
+            surface.write_bytes(b"printf ghtly\r").unwrap();
+            wait_for_viewport(&surface, "the prompt after the partial line", |text, _| {
+                text.matches("prompt>").count() >= 2
+            });
+            surface.write_bytes(b"nightly").unwrap();
+            wait_for_viewport(&surface, "typed input", |text, _| text.contains("prompt> nightly"));
+            for step in 0..40u16 {
+                let cols = if step % 2 == 0 { 60 - step } else { 30 + step };
+                surface.resize(cols, 20).unwrap();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            surface.resize(60, 20).unwrap();
+            // Wait for the shell's post-resize redraws to settle: the prompt
+            // text already matched before the resizes started.
+            let mut previous = String::new();
+            let mut stable_reads = 0;
+            let text = wait_for_viewport(&surface, "the settled prompt", |text, _| {
+                if text == previous {
+                    stable_reads += 1;
+                } else {
+                    previous = text.to_string();
+                    stable_reads = 0;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                stable_reads >= 5 && text.contains("prompt> nightly")
+            });
+            let at_prompt =
+                surface.try_with_terminal(|terminal| terminal.cursor_is_at_prompt()).unwrap();
+            assert_eq!(
+                text.matches("nightly").count(),
+                1,
+                "{shell}: resizing left prompt fragments behind: {text:?}"
+            );
+            assert_eq!(
+                text.matches("prompt>").count(),
+                2,
+                "{shell}: resizing duplicated the prompt: {text:?}"
+            );
+            assert!(
+                text.lines().any(|line| line.starts_with("ghtly")),
+                "{shell}: resizing erased the partial output line: {text:?}"
+            );
+            assert!(at_prompt, "{shell}: the terminal never saw an OSC 133 prompt mark: {text:?}");
+            drop(surface);
+            let _ = std::fs::remove_dir_all(&home);
+            ran += 1;
+        }
+        assert!(ran > 0, "neither zsh nor bash is installed");
     }
 
     /// The embedded ghostty-vt terminal always parses 24-bit SGR and the

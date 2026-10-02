@@ -5,6 +5,7 @@ extension SettingsSchema {
         let engine = SettingsText.text("settings.group.engine", "Engine")
         let memory = SettingsText.text("settings.group.memory", "Memory")
         let remote = SettingsText.text("settings.group.remote", "Remote Machines")
+        let bookmarks = SettingsText.text("settings.group.bookmarks", "Bookmarks")
         return [
             SettingDescriptor(
                 BrowserDefaultEngine.configPath, section: .browser, group: engine,
@@ -21,6 +22,12 @@ extension SettingsSchema {
                 title: SettingsText.text("settings.browser.newTabPage", "New Tab Page"),
                 help: SettingsText.text("settings.browser.newTabPage.help", "An address such as https://example.com. Empty opens a blank page."),
                 kind: .url, default: .string(BrowserNewTabPage.fallback), keywords: ["home", "start page", "url"]
+            ),
+            SettingDescriptor(
+                BookmarksBarSetting.configPath, section: .browser, group: bookmarks,
+                title: SettingsText.text("settings.browser.showBookmarksBar", "Show Bookmarks Bar"),
+                help: SettingsText.text("settings.browser.showBookmarksBar.help", "A row of bookmarks under each browser toolbar."),
+                kind: .toggle, default: .bool(false), keywords: ["bookmarks", "favorites", "bar"]
             ),
             SettingDescriptor(
                 BrowserHibernationSetting.configPath, section: .browser, group: memory,

@@ -49,15 +49,13 @@ public actor DaemonConnection {
         /// supports `terminal-env-v1` and the caller passed none. Nil sends none.
         public var terminalEnvironment: (@Sendable () async -> [String: String])?
         /// Opens `session.events` after each connect for the daemon's state
-        /// resources (`DaemonStore.sessionState`). The app turns it on; off
-        /// by default so a client that does not mirror the state (mobile
-        /// compat, tests) sends nothing extra.
+        /// resources (`DaemonStore.sessionState`); off sends nothing extra.
         public var sessionEvents: Bool
 
         public init(
             clientName: String = "cmux-next",
-            requiredCapabilities: [String] = DaemonCapabilities.required,
-            advertisedCapabilities: [String] = DaemonCapabilities.advertised,
+            requiredCapabilities: [String] = DaemonCapabilities.shared.required,
+            advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
             treeEvents: TreeEventMode = .deltas,
             retry: RetryPolicy = .reconnect,
             healthyAfter: Duration = .seconds(10),
@@ -65,7 +63,7 @@ public actor DaemonConnection {
             requestTimeout: Duration? = DaemonConnection.defaultRequestTimeout,
             snapshotTimeout: Duration? = .seconds(10),
             spawnTimeout: Duration? = DaemonConnection.defaultSpawnTimeout,
-            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.shared(),
+            terminalEnvironment: (@Sendable () async -> [String: String])? = TerminalEnvironment.instance.shared(),
             sessionEvents: Bool = false
         ) {
             self.clientName = clientName
@@ -175,6 +173,12 @@ public actor DaemonConnection {
         guard R.self is any TerminalSpawningRequest.Type else {
             return try await self.request(request, timeout: configuration.requestTimeout)
         }
+        var request = request
+        if identity?.supports(DaemonCapabilities.shared.terminalShellArgs) == true,
+           let carrier = request as? any ShellIntegrationArgumentCarrying,
+           let integrated = carrier.addingShellIntegrationArguments() as? R {
+            request = integrated
+        }
         do {
             return try await self.request(request, timeout: configuration.spawnTimeout)
         } catch DaemonError.timedOut(let what) {
@@ -214,9 +218,7 @@ public actor DaemonConnection {
     }
 
     /// Delivers an event the connection itself produced, after those routed so far.
-    func yieldEvent(_ envelope: DaemonEventEnvelope) {
-        continuation.yield(envelope)
-    }
+    func yieldEvent(_ envelope: DaemonEventEnvelope) { continuation.yield(envelope) }
 
     /// `list-workspaces` plus the sequence of the last event it supersedes.
     public func snapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
@@ -225,14 +227,14 @@ public actor DaemonConnection {
             try WireCoding.encodeRequest(ListWorkspacesRequest(), id: id)
         }
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
-        if identity?.supports(DaemonCapabilities.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
+        if identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true, tree.savedTabGroups.isEmpty {
             // Saved groups are not part of `list-workspaces`. Their changes
             // emit `tree-changed`, which triggers this snapshot again.
             tree.savedTabGroups = try await Self.perform(ListSavedTabGroupsRequest(), on: transport,
                                                          timeout: configuration.requestTimeout).savedGroups
             tree.linkSavedTabGroups()
         }
-        if identity?.supports(DaemonCapabilities.profiles) == true {
+        if identity?.supports(DaemonCapabilities.shared.profiles) == true {
             // Personal state is its own read; its changes emit
             // `personal-changed`, which triggers this snapshot again.
             tree.personal = try await Self.perform(ListPersonalRequest(), on: transport, timeout: configuration.requestTimeout)

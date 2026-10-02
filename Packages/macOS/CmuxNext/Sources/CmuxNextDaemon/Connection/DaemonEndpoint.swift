@@ -16,8 +16,9 @@ public struct DaemonEndpoint: Hashable, Sendable {
 }
 
 /// Capabilities the GUI relies on (plans/cmux-next/cmux-tui-contract.md 2.2).
-public enum DaemonCapabilities {
-    public static let required: [String] = [
+public struct DaemonCapabilities: Sendable {
+    public static let shared = Self()
+    public let required: [String] = [
         "workspace-registry-v1",
         "viewport-splits-v1",
         "viewport-column-resize-v1",
@@ -30,75 +31,107 @@ public enum DaemonCapabilities {
     /// Additive protocol 12 capabilities from cmux-tui PR 15518
     /// (cmux-tui/spec/commands.md). The GUI hides the matching features when
     /// a daemon lacks them (`DaemonIdentity.supports`).
-    public static let workspaceGroups = "workspace-groups-v1"
-    public static let workspaceMetadata = "workspace-metadata-v1"
-    public static let tabMetadata = "tab-metadata-v1"
-    public static let frontendBrowserTabs = "frontend-browser-tabs-v1"
-    public static let tabDrag = "tab-drag-v1"
-    public static let notificationAck = "notification-ack-v1"
-    public static let tabGroups = "tab-groups-v1"
-    public static let savedTabGroups = "saved-tab-groups-v1"
-    /// Screen color, icon, pin, and order. Served by the v2 state
-    /// resources (`screen.update`, `screen.move`), so `DaemonStore.supports`
-    /// reports it with `stateResources`.
-    public static let screenMetadata = "screen-metadata-v1"
-    /// Screen groups (`screen_group.*`), reported with `stateResources`.
-    /// Saved screen groups and group moves across workspaces have no daemon
-    /// operation yet (`savedScreenGroups`).
-    public static let screenGroups = "screen-groups-v1"
-    /// Saved screen groups and moving a screen or screen group to another
-    /// position or workspace as a whole: no daemon serves them yet.
-    public static let savedScreenGroups = "saved-screen-groups-v1"
+    public let workspaceGroups = "workspace-groups-v1"
+    public let workspaceMetadata = "workspace-metadata-v1"
+    public let tabMetadata = "tab-metadata-v1"
+    public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    public let tabDrag = "tab-drag-v1"
+    public let notificationAck = "notification-ack-v1"
+    public let tabGroups = "tab-groups-v1"
+    public let savedTabGroups = "saved-tab-groups-v1"
+    /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
+    public let workspacePin = "workspace-pin-v1"
+    /// The manual workspace unread mark: `marked_unread` on
+    /// `set-workspace-metadata` and workspaces.
+    public let notificationMarkUnread = "notification-mark-unread-v1"
+    /// Screen color, icon, pin, and order (`set-screen-metadata`,
+    /// `set-screen-pinned`, `move-screen`; `screen.update` and `screen.move`
+    /// with `stateResources`, over the same storage).
+    public let screenMetadata = "screen-metadata-v1"
+    /// Screen groups and saved screen groups (`screen_group.*` with
+    /// `stateResources`).
+    public let screenGroups = "screen-groups-v1"
     /// The state resources over `cmux.protocol/2` (state-ownership.md steps
     /// A and B): closed history, ephemeral workspaces, workspace status,
     /// screen metadata and groups, tab records, terminal progress, and the
-    /// v2 state mutations. The daemon does not advertise it in `identify`;
-    /// `DaemonStore` reports it once `session.events` delivers a snapshot
-    /// listing state resources (`servesStateResources`).
-    public static let stateResources = "state-resources-v1"
-    /// Capabilities the state resources provide.
-    public static let providedByStateResources: Set<String> = [stateResources, screenMetadata, screenGroups]
+    /// v2 state mutations, mirrored through `session.events`. The daemon
+    /// advertises it in `identify` (`DaemonStore.servesStateResources`).
+    public let stateResources = "state-resources-v1"
     /// Per-terminal `env` on `new-tab`, `split`, `create-terminal`; `cwd` on `split`.
-    public static let terminalEnv = "terminal-env-v1"
+    public let terminalEnv = "terminal-env-v1"
     /// Caller-chosen `terminal_id` on `new-tab`, `split`, `new-pane`, and
     /// `new-pane-right`; `cwd`/`env` on the last two (cmux-tui PR 15600).
-    public static let terminalPlacementEnv = "terminal-placement-env-v1"
+    public let terminalPlacementEnv = "terminal-placement-env-v1"
     /// The owner ends a terminal with no tab after a grace period unless it
     /// is kept: `keep` on creation, `set-terminal-keep`, and
     /// `shutdown-daemon end_terminals` (cmux-tui PR 15600).
-    public static let terminalReap = "terminal-reap-v1"
+    public let terminalReap = "terminal-reap-v1"
     /// `close-tabs` and `end_terminals` on the container closes: many tabs and
     /// the terminals they end close in one daemon commit.
-    public static let batchClose = "batch-close-v1"
+    public let batchClose = "batch-close-v1"
     /// Browser tabs reach the machine's loopback services over a dedicated
     /// connection (`LoopbackForwardClient`, plans/cmux-next/remote-localhost.md).
-    public static let loopbackForward = "loopback-forward-v1"
+    public let loopbackForward = "loopback-forward-v1"
+    /// `source` on notifications (cli, terminal, agent, daemon), and OSC 9,
+    /// OSC 777 and OSC 99 parsed by the daemon from every terminal's output
+    /// (plans/cmux-next/notifications.md).
+    public let notificationSource = "notification-source-v1"
+    /// `shell_args` on the terminal-creating commands, so bash and nushell
+    /// get Ghostty's argv-based shell integration (`GhosttyShellIntegration`).
+    public let terminalShellArgs = "terminal-shell-args-v1"
+    /// `launch_snapshot_path` in `identify`: the daemon's last settled tree
+    /// and window records, read before connecting (`LaunchSnapshot`).
+    public let launchSnapshot = "launch-snapshot-v1"
     /// Profiles (plans/cmux-next/data-model.md): the `*-profile` commands,
     /// `move-workspace-to-profile`, `profiles` in `list-workspaces`, and a
     /// `profile` field on workspaces, groups and saved tab groups.
-    public static let profiles = "profiles-v1"
+    public let profiles = "profiles-v1"
+    /// `identify.session_id` and `identify.machine_name` (data-model.md 1.1);
+    /// informational, the app falls back to `registry_id` and its own names.
+    public let sessionIdentity = "session-identity-v1"
+    /// Remote-terminal tabs in a home layout: `new-remote-terminal-tab`,
+    /// `update-remote-terminal-tab`, `remote-terminal-snapshot`, tab kind
+    /// `remote-terminal` with `remote` (data-model.md 1.2b, 1.4, 1.5), and
+    /// `terminal_resource_id` in the `set-terminal-keep` result.
+    public let remoteTerminalTabs = "remote-terminal-tabs-v1"
+    /// `create-terminal {detached: true}`: a kept terminal with no tab.
+    public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
     /// (plans/cmux-next/data-model.md): a remote daemon never needs these.
-    public static let homeOnly: [String] = [profiles]
+    /// Per-terminal themes in personal state (`set-personal-terminal`).
+    public let personalTerminals = "personal-terminals-v1"
+    /// Browser profile records in personal state (plans/cmux-next/data-model.md 5).
+    public let browserProfiles = "browser-profiles-v1"
+    /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
+    public let bookmarks = "bookmarks-v1"
+    public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
-    public static let personalOnHome: [String] = [workspaceGroups, savedTabGroups]
-    public static let optional: [String] = [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
+    public var personalOnHome: [String] { [workspaceGroups, savedTabGroups] }
+    /// A replay taken inside an escape sequence carries the unfinished bytes
+    /// in `pending` (main PR 15533). Without it, cmux-tui ends a view's attach
+    /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
+    /// every restored terminal), and the view freezes.
+    public let terminalPendingSequence = "terminal-pending-sequence-v1"
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward]
+                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
+                                            terminalShellArgs, launchSnapshot, workspacePin, notificationMarkUnread,
+                                            stateResources] }
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
     /// but they are not in `optional` (the pinned daemon must serve every
     /// `optional` capability, BranchDaemonTests). The pin commit that brings
     /// one moves it into `optional`.
-    public static let awaitingPin: [String] = [profiles, savedScreenGroups]
+    public var awaitingPin: [String] { [remoteTerminalTabs, detachedTerminals, bookmarks] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
-    public static let advertised: [String] = required + optional + awaitingPin + [
+    public var advertised: [String] { required + optional + awaitingPin + [
         "attach-identity-v1",
         "creation-receipts-v1",
         "creation-attempt-keys-v1",
         "terminal-color-overrides-v1",
-    ]
+    ] }
 }

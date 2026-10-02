@@ -51,6 +51,8 @@ public enum DaemonEvent: Sendable, Hashable {
     // Registries and clients.
     case frontendProjectionChanged(ProjectionChange)
     case terminalRegistryChanged(revision: UInt64)
+    /// A browser profile's bookmarks changed (`bookmarks-v1`): refetch them.
+    case bookmarksChanged(browserProfileID: String, revision: UInt64)
     /// `client-attached/changed/detached/list-invalidated`.
     case client(name: String, payload: JSONValue)
     /// The subscription ended because this client fell behind. The connection

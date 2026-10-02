@@ -39,6 +39,8 @@ final class AppControl {
         self.service = service
         registerSyncBarrier(service.router, daemon: services.daemon)
         let probe = frameProbe
+        service.router.register(HistoryControl.methods(services: services))
+        service.router.register(BookmarkControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
             // Measured animation spans (plans/cmux-next/motion.md).
@@ -50,11 +52,22 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
             },
+            // Room, workspace and terminal theme scopes.
+            .mainActor("debug.themes") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugThemes.report(services: services))
+            },
             // Window membership and the window invariants (no window
             // without a workspace).
             .mainActor("debug.windows") { [weak services] _ in
                 guard let services, let windows = services.windows else { return .value(.null) }
-                return .value(WindowInvariants.report(windows))
+                guard case .object(var report) = WindowInvariants.report(windows) else { return .value(.null) }
+                // Every workspace the app closed or kept after it lost its
+                // last pane, with the cause (EmptyWorkspaceRepair).
+                report["emptied_workspaces"] = .array((services.emptyWorkspaces?.decisions ?? []).map {
+                    .object(["key": .string($0.key.rawValue), "cause": .string(String(describing: $0.cause))])
+                })
+                return .value(.object(report))
             },
             // Omnibar state machine vs its field editor (focus.md section 7).
             .mainActor("debug.omnibar") { [weak services] call in
@@ -76,9 +89,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugScreens.report(services: services))
             },
-            .mainActor("debug.surfaces") { [weak services] _ in
+            // `text: true` adds each terminal mirror's viewport text.
+            .mainActor("debug.surfaces") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(SurfaceDiagnosticsReport.make(services))
+                return .value(SurfaceDiagnosticsReport.make(services, includeText: call.params["text"]?.boolValue == true))
             },
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -88,8 +102,10 @@ final class AppControl {
             // Idle wakeups: ledger, display-link clients, process CPU (idle-wakeups.md).
             .async("debug.wakeups") { call in await DebugWakeups.report(call.params) },
             // Chromium start: trigger (tab or warm reason), timings, footprint.
-            .mainActor("debug.cef") { [weak services] _ in
+            .mainActor("debug.cef") { [weak services] call in
                 guard let services else { return .value(.null) }
+                // {"side_panel": "<control>"} runs a side panel header control first.
+                if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 return .value(DebugCEF.report(services))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
@@ -147,7 +163,14 @@ final class AppControl {
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
             },
-            .mainActor("debug.menu") { call in .value(DebugExtensions.menu(call.params)) },
+            // React agent pane: synthetic transcript, fling and frame/typing
+            // timing through the page's cmuxAcpmuxDebug, WebContent pid.
+            .async("debug.agent_pane") { [weak services] call in
+                await DebugAgentPane.handle(call.params, services)
+            }.withDeadline(.fixed(DebugAgentPane.deadline)),
+            .mainActor("debug.menu") { [weak services] call in
+                .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
+            },
             .mainActor("debug.onboarding") { [weak services] call in
                 .value(services.map { DebugOnboarding.run(call.params, services: $0) } ?? .null)
             },
@@ -165,6 +188,10 @@ final class AppControl {
             },
             .mainActor("debug.extensions.popup") { [weak services] call in
                 .value(services.map { DebugExtensionToolbar.popup(call.params, $0) } ?? .null)
+            },
+            // The quit sheet (Quit and the local terminals).
+            .mainActor("debug.quit") { [weak services] call in
+                .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
             },
             .mainActor("debug.extensions.prompt") { [weak services] call in
                 .value(services.map { DebugExtensionPrompts.run(call.params, $0) } ?? .null)

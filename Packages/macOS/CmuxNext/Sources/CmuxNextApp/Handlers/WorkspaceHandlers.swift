@@ -9,7 +9,7 @@ import CmuxNextDaemon
 enum WorkspaceHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("openFolder", run: { _ in openFolder(context) })
-        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
+        registry.bind("newBrowserWorkspace", requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.services.activeDaemon, run: { _ in try newBrowserWorkspace(context) })
         registry.bind("nextSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: 1) })
         registry.bind("prevSidebarTabInGroup", run: { invocation in try selectInGroup(context, invocation, offset: -1) })
         registry.bind("palette.closeOtherWorkspaces", run: { invocation in
@@ -86,7 +86,7 @@ enum WorkspaceHandlers {
 
     /// A workspace whose only tab is a blank browser tab.
     private static func newBrowserWorkspace(_ context: AppActionContext) throws {
-        try context.require(DaemonCapabilities.frontendBrowserTabs)
+        try context.require(DaemonCapabilities.shared.frontendBrowserTabs)
         let browserTabs = context.services.cache.browserTabs!
         guard case .open(let choice) = browserTabs.resolve(requested: nil) else { return }
         let fallbacks = browserTabs.fallbacks
@@ -124,7 +124,7 @@ enum WorkspaceHandlers {
     static func close(_ workspaces: [WorkspaceModel], _ context: AppActionContext) {
         for workspace in workspaces {
             guard let key = workspace.key else { continue }
-            let terminals = WorkspaceClose.terminals(of: workspace, on: context.services.activeDaemon)
+            let terminals = WorkspaceClose.closing(workspace, on: context.services.activeDaemon)
             context.services.activeDaemon.send("close-workspace") { try await WorkspaceClose.close(key, terminals: terminals, on: $0) }
         }
     }

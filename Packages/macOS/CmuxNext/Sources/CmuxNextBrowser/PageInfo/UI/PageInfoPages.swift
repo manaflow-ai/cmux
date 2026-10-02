@@ -92,11 +92,11 @@ import CmuxNextDesign
 
     private func identityRow(for kind: PageInfoSiteKind) -> NSView {
         let (symbol, text): (String, String) = switch kind {
-        case .file: (PageInfoIndicator.Symbol.file, PageInfoStrings.filePage)
-        case .extensionPage: (PageInfoIndicator.Symbol.extensionPage, PageInfoStrings.extensionPage)
-        case .viewSource: (PageInfoIndicator.Symbol.product, PageInfoStrings.viewSourcePage)
-        case .devTools: (PageInfoIndicator.Symbol.product, PageInfoStrings.devToolsPage)
-        case .internalPage, .empty, .web: (PageInfoIndicator.Symbol.product, PageInfoStrings.internalPage)
+        case .file: (PageInfoIndicator.fileSymbol, PageInfoStrings.filePage)
+        case .extensionPage: (PageInfoIndicator.extensionPageSymbol, PageInfoStrings.extensionPage)
+        case .viewSource: (PageInfoIndicator.productSymbol, PageInfoStrings.viewSourcePage)
+        case .devTools: (PageInfoIndicator.productSymbol, PageInfoStrings.devToolsPage)
+        case .internalPage, .empty, .web: (PageInfoIndicator.productSymbol, PageInfoStrings.internalPage)
         }
         return PageInfoRowView(symbol: symbol, title: text, interactive: false)
     }

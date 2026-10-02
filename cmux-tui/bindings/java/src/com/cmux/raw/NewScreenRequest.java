@@ -12,32 +12,81 @@ import java.util.Objects;
 
 /** Immutable new-screen request. Protocol v5; authority: control. */
 public final class NewScreenRequest implements WireValue {
+    private final Field<String> color;
     private final Field<Integer> cols;
+    private final Field<String> cwd;
+    private final Field<String> group;
+    private final Field<String> icon;
+    private final Field<UInt64> index;
+    private final Field<Boolean> pinned;
     private final Field<Integer> rows;
+    private final Field<String> screenName;
     private final Field<UInt64> workspace;
 
     private NewScreenRequest(Builder builder) {
+        this.color = builder.color;
         this.cols = builder.cols;
+        this.cwd = builder.cwd;
+        this.group = builder.group;
+        this.icon = builder.icon;
+        this.index = builder.index;
+        this.pinned = builder.pinned;
         this.rows = builder.rows;
+        this.screenName = builder.screenName;
         this.workspace = builder.workspace;
     }
 
     public static Builder builder() { return new Builder(); }
 
+    public Field<String> color() { return color; }
     public Field<Integer> cols() { return cols; }
+    public Field<String> cwd() { return cwd; }
+    public Field<String> group() { return group; }
+    public Field<String> icon() { return icon; }
+    public Field<UInt64> index() { return index; }
+    public Field<Boolean> pinned() { return pinned; }
     public Field<Integer> rows() { return rows; }
+    public Field<String> screenName() { return screenName; }
     public Field<UInt64> workspace() { return workspace; }
 
     public static NewScreenRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewScreenRequest");
         Builder builder = builder();
+        Object rawColor = Wire.optional(object, "color");
+        if (!Wire.isMissing(rawColor)) {
+            builder.color(rawColor == null ? null : Wire.string(rawColor, "NewScreenRequest.color"));
+        }
         Object rawCols = Wire.optional(object, "cols");
         if (!Wire.isMissing(rawCols)) {
             builder.cols(rawCols == null ? null : Wire.uint16(rawCols, "NewScreenRequest.cols"));
         }
+        Object rawCwd = Wire.optional(object, "cwd");
+        if (!Wire.isMissing(rawCwd)) {
+            builder.cwd(rawCwd == null ? null : Wire.string(rawCwd, "NewScreenRequest.cwd"));
+        }
+        Object rawGroup = Wire.optional(object, "group");
+        if (!Wire.isMissing(rawGroup)) {
+            builder.group(rawGroup == null ? null : Wire.string(rawGroup, "NewScreenRequest.group"));
+        }
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(rawIcon == null ? null : Wire.string(rawIcon, "NewScreenRequest.icon"));
+        }
+        Object rawIndex = Wire.optional(object, "index");
+        if (!Wire.isMissing(rawIndex)) {
+            builder.index(rawIndex == null ? null : Wire.uint64(rawIndex, "NewScreenRequest.index"));
+        }
+        Object rawPinned = Wire.optional(object, "pinned");
+        if (!Wire.isMissing(rawPinned)) {
+            builder.pinned(rawPinned == null ? null : Wire.bool(rawPinned, "NewScreenRequest.pinned"));
+        }
         Object rawRows = Wire.optional(object, "rows");
         if (!Wire.isMissing(rawRows)) {
             builder.rows(rawRows == null ? null : Wire.uint16(rawRows, "NewScreenRequest.rows"));
+        }
+        Object rawScreenName = Wire.optional(object, "screen_name");
+        if (!Wire.isMissing(rawScreenName)) {
+            builder.screenName(rawScreenName == null ? null : Wire.string(rawScreenName, "NewScreenRequest.screen_name"));
         }
         Object rawWorkspace = Wire.optional(object, "workspace");
         if (!Wire.isMissing(rawWorkspace)) {
@@ -49,8 +98,15 @@ public final class NewScreenRequest implements WireValue {
     @Override
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
+        Wire.put(object, "color", color);
         Wire.put(object, "cols", cols);
+        Wire.put(object, "cwd", cwd);
+        Wire.put(object, "group", group);
+        Wire.put(object, "icon", icon);
+        Wire.put(object, "index", index);
+        Wire.put(object, "pinned", pinned);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "screen_name", screenName);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -58,26 +114,61 @@ public final class NewScreenRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewScreenRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(rows, that.rows) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(color, that.color) && Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(group, that.group) && Objects.equals(icon, that.icon) && Objects.equals(index, that.index) && Objects.equals(pinned, that.pinned) && Objects.equals(rows, that.rows) && Objects.equals(screenName, that.screenName) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, rows, workspace); }
+    public int hashCode() { return Objects.hash(color, cols, cwd, group, icon, index, pinned, rows, screenName, workspace); }
 
     @Override
     public String toString() { return "NewScreenRequest" + toWire(); }
 
     public static final class Builder {
+        private Field<String> color = Field.omitted();
         private Field<Integer> cols = Field.omitted();
+        private Field<String> cwd = Field.omitted();
+        private Field<String> group = Field.omitted();
+        private Field<String> icon = Field.omitted();
+        private Field<UInt64> index = Field.omitted();
+        private Field<Boolean> pinned = Field.omitted();
         private Field<Integer> rows = Field.omitted();
+        private Field<String> screenName = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
+        public Builder color(String value) {
+            this.color = Field.ofNullable(value);
+            return this;
+        }
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
             return this;
         }
+        public Builder cwd(String value) {
+            this.cwd = Field.ofNullable(value);
+            return this;
+        }
+        public Builder group(String value) {
+            this.group = Field.ofNullable(value);
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.ofNullable(value);
+            return this;
+        }
+        public Builder index(UInt64 value) {
+            this.index = Field.ofNullable(value);
+            return this;
+        }
+        public Builder pinned(Boolean value) {
+            this.pinned = Field.ofNullable(value);
+            return this;
+        }
         public Builder rows(Integer value) {
             this.rows = Field.ofNullable(value);
+            return this;
+        }
+        public Builder screenName(String value) {
+            this.screenName = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

@@ -11,6 +11,7 @@
 #include "include/cef_client.h"
 #include "include/cef_context_menu_handler.h"
 #include "include/cef_request_context.h"
+#include "include/cef_resource_request_handler.h"
 #include "include/cef_unresponsive_process_callback.h"
 #include "cmux_cef_shim.h"  // Sources/CmuxNextBrowser/CEF/Shim
 
@@ -23,6 +24,8 @@ struct ForkApi {
   void (*set_observer)(void (*)(void*, int, int, int, int), void*) = nullptr;
   int (*tab_add)(int, const char*, int, int) = nullptr;
   int (*tab_activate)(int) = nullptr;
+  // API version 14: one history step to an entry (Back/Forward menus).
+  int (*tab_go_to_offset)(int, int) = nullptr;
   int (*tab_window_id)(int) = nullptr;
   char* (*ext_actions)(int, int) = nullptr;
   int (*ext_action_run)(int, const char*, int, int) = nullptr;
@@ -61,6 +64,10 @@ struct ForkApi {
   void (*set_popup_windows_enabled)(int) = nullptr;
   int (*popup_window_bounds)(int, int*, int*, int*, int*) = nullptr;
   int (*popup_window_attach)(int, void*, int, int) = nullptr;
+  // API version 13: the side panel header for the host.
+  void (*side_panel_watch)(int) = nullptr;
+  char* (*side_panel_state)(int) = nullptr;
+  int (*side_panel_press)(int, const char*) = nullptr;
 };
 
 struct Host {
@@ -70,6 +77,7 @@ struct Host {
   cmux_shim_key_fn key = nullptr;
   cmux_shim_key_fn devtools_key = nullptr;
   cmux_shim_window_request_fn window_request = nullptr;
+  cmux_shim_focus_request_fn focus_request = nullptr;
 };
 
 ForkApi& fork_api();
@@ -154,6 +162,10 @@ std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url
 // without <title> with its URL, "chrome://newtab" or "about:blank"), so the
 // host shows its own "New Tab"; else `title`.
 std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title);
+// The request handler that adds the store's browser headers to requests to
+// the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
+CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
+bool IsWebStoreURL(const std::string& url);
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

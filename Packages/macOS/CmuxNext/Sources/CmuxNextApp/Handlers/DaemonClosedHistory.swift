@@ -7,9 +7,10 @@ import Foundation
 /// (`closed-history-v1`, state-ownership.md 2). One shared path for Reopen
 /// Closed Tab, Reopen Closed Screen, and Recently Closed: read the newest
 /// item from the mirrored history (`DaemonStore.closedItems`), reopen it
-/// with `closed.reopen`, and show what came back. Daemons that predate the
-/// history keep the app's own trackers (`ClosedTabTracker`,
-/// `ClosedScreenHistory`), which skip daemons that serve it.
+/// with `closed.reopen`, and show what came back. The history lists
+/// (Recently Closed…, `history.list`, the history page) show these items
+/// beside the app's own trackers (`ClosedTabTracker`, `ClosedScreenHistory`),
+/// which skip daemons that serve the history.
 @MainActor
 enum DaemonClosedHistory {
     struct Entry {
@@ -22,6 +23,14 @@ enum DaemonClosedHistory {
         services.machines.daemons.filter(\.store.servesStateResources).flatMap { daemon in
             daemon.store.closedItems.filter { kinds.contains($0.kind) }.map { Entry(item: $0, daemon: daemon) }
         }.sorted { $0.item.closedAtMs > $1.item.closedAtMs }
+    }
+
+    /// The id a history list gives a daemon-recorded item (`HistoryService`).
+    static func historyID(_ id: String) -> String { "daemon:" + id }
+
+    /// The daemon item id of a history list id, nil for the app's trackers.
+    static func daemonID(fromHistoryID id: String) -> String? {
+        id.hasPrefix("daemon:") ? String(id.dropFirst("daemon:".count)) : nil
     }
 
     /// True when some connected daemon records closed history.

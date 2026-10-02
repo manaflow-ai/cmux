@@ -48,6 +48,7 @@ struct BrowserRecordStateTests {
     @Test func zoomIsRestoredAndSavedToTheTabRecord() async throws {
         let services = ActionBindingCoverageTests.boundServices()
         let store = services.daemon.store
+        store.noteHandshake(DaemonIdentity(capabilities: [DaemonCapabilities.shared.stateResources], generation: "g1"))
         let tab = #"{"kind":"browser","name":"","surface":9,"dead":false,"browser_renderer":"frontend","browser_engine":"cef","url":"https://a.test/","tab_resource_id":"tab_b"}"#
         store.apply(snapshot: try BrowserRecordMoveTests.tree(pane: 3, tab: tab))
         var state = SessionStateMirror()

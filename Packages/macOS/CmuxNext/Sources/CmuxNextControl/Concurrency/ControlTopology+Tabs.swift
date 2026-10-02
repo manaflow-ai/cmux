@@ -40,6 +40,10 @@ public struct ControlTabInfo: Sendable, Hashable {
     public var hasUnread: Bool
     public var tabGroupID: String?
     public var agentState: String?
+    /// A remote-terminal tab's terminal: its session (`registry_id`) and
+    /// host terminal id there (data-model.md 1.2b).
+    public var remoteSessionID: String?
+    public var remoteTerminalID: String?
 
     public init(id: String, surface: String, kind: String, title: String, name: String? = nil, terminalID: String? = nil,
                 columns: Int? = nil, rows: Int? = nil, cwd: String? = nil, url: String? = nil, gitBranch: String? = nil,

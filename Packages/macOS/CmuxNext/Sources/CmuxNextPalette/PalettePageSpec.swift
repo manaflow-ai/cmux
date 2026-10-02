@@ -9,6 +9,11 @@ public struct PalettePageSpec {
     public var providers: [any PaletteProvider]
     /// Show a Recent section for an empty query.
     public var showsRecent: Bool
+    /// The highlighted row (hover, else selection) changed to this item.
+    public var onHighlight: (@MainActor (PaletteItem?) -> Void)?
+    /// The page was left (popped, replaced or the palette closed) without
+    /// running one of its closing commands.
+    public var onLeave: (@MainActor () -> Void)?
 
     public init(
         id: String,
@@ -16,7 +21,9 @@ public struct PalettePageSpec {
         placeholder: String,
         symbol: String = "command",
         providers: [any PaletteProvider],
-        showsRecent: Bool = false
+        showsRecent: Bool = false,
+        onHighlight: (@MainActor (PaletteItem?) -> Void)? = nil,
+        onLeave: (@MainActor () -> Void)? = nil
     ) {
         self.id = id
         self.title = title
@@ -24,6 +31,8 @@ public struct PalettePageSpec {
         self.symbol = symbol
         self.providers = providers
         self.showsRecent = showsRecent
+        self.onHighlight = onHighlight
+        self.onLeave = onLeave
     }
 }
 

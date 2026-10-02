@@ -98,6 +98,7 @@ extension PaletteController {
         if shortcutRecorder.editor != nil { provider.editShortcut = { [weak self] in self?.shortcutRecorder.begin($0) } }
         provider.targets = sources.targets
         provider.capturedTargets = capturedTargets
+        provider.argumentPreview = sources.argumentPreview
         provider.effectOverrides["palette.searchShortcuts"] = { [weak self] in
             self.map { .push($0.keyboardShortcutsPage()) }
         }
@@ -106,6 +107,9 @@ extension PaletteController {
         }
         provider.effectOverrides["palette.goToTab"] = { [weak self] in
             self?.tabsPage().map { .push($0) }
+        }
+        for (id, make) in sources.actionPages {
+            provider.effectOverrides[id] = { make().map { .push($0) } }
         }
         provider.effectOverrides["palette.terminalOpenDirectory"] = { [weak self] in
             self?.openInPage().map { .push($0) }

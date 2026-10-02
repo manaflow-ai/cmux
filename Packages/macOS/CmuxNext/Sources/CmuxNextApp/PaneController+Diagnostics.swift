@@ -105,9 +105,13 @@ extension PaneController {
         var ownPages = 0
         var kind = "none"
         switch content {
+        case .agent:
+            kind = "agent"
         case .terminal(let entry):
             kind = "terminal"
             terminal = entry.session.diagnostics
+        case .placeholder:
+            kind = "remote-placeholder"
         case .browser(let entry):
             kind = "browser"
             if let reporting = entry.tab as? any BrowserContentVisibilityReporting {

@@ -52,7 +52,6 @@ public final class TabStripView: NSView {
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
-
     // MARK: Views
 
     var glassView: NSGlassEffectView?
@@ -135,10 +134,7 @@ public final class TabStripView: NSView {
     /// End-of-tracking observer of the menu the strip returned last.
     var menuEndObserver: (any NSObjectProtocol)?
 
-    struct Press {
-        var id: TabID
-        var start: CGPoint
-    }
+    struct Press { var id: TabID; var start: CGPoint }
 
     struct Drag {
         var id: TabID
@@ -149,6 +145,7 @@ public final class TabStripView: NSView {
         var lastPoint: CGPoint
         var originalGroup: TabGroupID?
         var targetGroup: TabGroupID?
+        var grabY: CGFloat = 0 // press y in the clip; with grabOffset, the grabbed point the hand-off keeps
     }
 
     var press: Press?
@@ -168,7 +165,6 @@ public final class TabStripView: NSView {
     /// Group the phantom gap belongs to (a dropped tab would join it).
     var dropPlaceholderGroup: TabGroupID?
     static let placeholderID = TabID("__cmux.tabs.drop-placeholder__")
-
     // MARK: - Init
 
     public init(model: TabStripModel, background: Background = .none) {
@@ -176,6 +172,7 @@ public final class TabStripView: NSView {
         super.init(frame: CGRect(x: 0, y: 0, width: 600, height: Self.preferredHeight))
         wantsLayer = true
         layerContentsRedrawPolicy = .never
+        hoverCard.themeAnchor = self
 
         switch background {
         case .none:
@@ -274,19 +271,19 @@ public final class TabStripView: NSView {
         applyFrames()
     }
 
-    /// Layers do not inherit the view's appearance or scale; push both.
+    /// Layers do not inherit theme scope or scale; push both (re-applies colors).
     func applyAppearance() {
-        let appearance = effectiveAppearance
+        let scope = themeScope
         let scale = window?.backingScaleFactor ?? 2
         for cell in cells.values {
-            cell.appearance = appearance
+            cell.themeScope = scope
             cell.scale = scale
         }
         for chip in groups.chips.values {
-            chip.appearance = appearance
+            chip.themeScope = scope
             chip.scale = scale
         }
-        for band in groups.bands.values { band.appearance = appearance }
+        for band in groups.bands.values { band.themeScope = scope }
     }
 
     func startObserving() {

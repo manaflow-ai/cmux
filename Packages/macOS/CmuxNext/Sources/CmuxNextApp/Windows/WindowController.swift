@@ -28,6 +28,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
+    /// The room theme: the whole window (sidebar, chrome, and every
+    /// workspace without its own theme).
+    let themeScope = ThemeScope(level: .room)
+    private var roomObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
 
@@ -47,21 +51,24 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isMovableByWindowBackground = false
-        window.backgroundColor = Palette.windowBackground
-        ThemeStore.shared.adopt(window)
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
+        // Backdrop first: changing it while AppKit installs the content
+        // view puts the content above the titlebar (see WindowRootView).
+        root.applyBackdrop(to: window)
         window.contentView = root
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         super.init(window: window)
+        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)
         focus.applier = focusApplier
         focus.send(.appActive(NSApp.isActive))
         observeWorkspace()
+        observeRoom()
     }
 
     @available(*, unavailable)
@@ -74,6 +81,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         badgeObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
+        roomObservation?.cancel()
         content?.teardown()
         content = nil
         parked.forEach { $0.teardown() }
@@ -82,6 +90,20 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     // MARK: Workspace
+
+    /// The window recolors when it switches room.
+    private func observeRoom() {
+        let state = state
+        roomObservation = Task { [weak self] in
+            for await _ in Observations({ state.profileID }) {
+                guard let self else { return }
+                services.themes.windowDidChange(self)
+            }
+        }
+    }
+
+    /// The shown workspace and the parked ones, each with its theme scope.
+    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -169,6 +191,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // One synchronous swap: the old view leaves (its panes stay mounted,
         // paused) and the new one draws in the same frame.
         root.show(controller.contentView)
+        services.themes.contentDidShow(controller)
         trimParked()
         startupObservation?.cancel()
         startupObservation = nil
@@ -257,7 +280,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
-        IncognitoCloseConfirmation.confirm(windows: [state.id], quitting: false, sheetOn: sender, services) { [weak self, weak sender] ok in
+        IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
             guard ok, let self else { return }
             closeConfirmed = true
             sender?.close()
@@ -283,9 +306,36 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
+    /// In an agent screenshot launch every frame stays on the test screen
+    /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+        super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
+
+    /// The window's one titlebar decision (`TitlebarDragPolicy`): a left
+    /// mouse-down in the band is delivered as usual, then moves the window
+    /// (or runs the double-click action) only when the policy says so.
+    override func sendEvent(_ event: NSEvent) {
+        guard event.type == .leftMouseDown, TitlebarDragPolicy.decide(at: event.locationInWindow, in: self) == .movesWindow else {
+            return super.sendEvent(event)
+        }
+        super.sendEvent(event)
+        WindowTitlebar.handleMouseDown(event, in: self)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if let keyRouter, let focus, keyRouter.routeContentKeyEquivalent(event, focus: focus.state) { return true }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// The Chromium fork adds each page window as a child ordered above
+    /// everything, the overlay panel included. Lift the overlay (and the app
+    /// panels above it) in the same call, before the window server shows a
+    /// frame with the page over the focus ring; the notifications that
+    /// follow the page would come a frame late.
+    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
     }
 
     // MARK: OverlayPlaneHosting
@@ -293,7 +343,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     func adoptPlane(_ plane: OverlayPlane) { overlayLayer.adopt(plane) }
     func releasePlane(_ plane: OverlayPlane) { overlayLayer.release(plane) }
     func interactiveOverlayRectsDidChange(_ plane: OverlayPlane) { overlayLayer.interactiveRectsDidChange() }
-    func planeDidLayout(_ plane: OverlayPlane) { overlayLayer.planeDidLayout() }
+    func planeDidLayout(_ plane: OverlayPlane) { overlayLayer.planeDidLayout(plane) }
     func paneShapesDidChange(_ plane: OverlayPlane) { overlayLayer.paneShapesDidChange() }
 
     // MARK: BrowserWindowOcclusionProviding
