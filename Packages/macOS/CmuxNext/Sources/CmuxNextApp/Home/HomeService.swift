@@ -87,7 +87,12 @@ final class HomeService {
             do {
                 let list = try await ConversationClient(connection).list()
                 guard let self, !Task.isCancelled else { return }
-                conversations = list
+                // Keep any head an event already moved past the listed revision.
+                let current = Dictionary(conversations.map { ($0.id, $0) }, uniquingKeysWith: { $1 })
+                conversations = list.map { listed in
+                    guard let known = current[listed.id], known.rev > listed.rev else { return listed }
+                    return known
+                }
             } catch {
                 self?.logger.error("conversation-list: \(String(describing: error), privacy: .public)")
             }
@@ -118,6 +123,7 @@ final class HomeService {
         }
         var summary = conversations[index]
         guard event.rev > summary.rev else { return }
+        if event.rev > summary.rev + 1, let connection { reloadList(connection) }
         summary.rev = event.rev
         switch event.change {
         case .message(let message):
@@ -187,7 +193,7 @@ final class HomeService {
             do {
                 let result = try await ConversationClient(connection).op(request)
                 session?.acknowledge(send.clientMsgID, result: result)
-            } catch DaemonError.command(_, let message, _) {
+            } catch DaemonError.command(_, let message, let code) where code == "conversation_rejected" {
                 session?.reject(send.clientMsgID, reason: message)
             } catch {
                 self?.logger.info("conversation-op deferred to the next connection: \(String(describing: error), privacy: .public)")

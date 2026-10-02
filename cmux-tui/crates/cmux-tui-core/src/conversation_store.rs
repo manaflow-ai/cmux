@@ -355,11 +355,12 @@ impl ConversationStore {
             let result = serde_json::from_str(&result).context("conversation ledger is corrupt")?;
             return Ok(OpOutcome { result, replayed: true });
         }
-        if op.is_send() {
-            let window = cmux_conversation::BUDGET_WINDOW as u32;
+        if let Op::MessageSend { parts, .. } = op {
+            // Work cards are not counted, so read past them to the window's turns.
+            let window = (cmux_conversation::BUDGET_WINDOW * 4) as u32;
             let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
             recent.reverse();
-            cmux_conversation::check_agent_budget(&head, actor, &recent, now_ms)
+            cmux_conversation::check_agent_budget(&head, actor, parts, &recent, now_ms)
                 .map_err(rejected)?;
         }
         let target = match op.target_message_id() {

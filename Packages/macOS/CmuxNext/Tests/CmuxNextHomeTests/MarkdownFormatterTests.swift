@@ -86,4 +86,14 @@ import Testing
             #expect(rendered.count <= text.count * 4 + 4, "\(text)")
         }
     }
+
+    /// Hostile input (64 KiB of unclosed markers) stays linear.
+    @Test func unclosedMarkersStayFast() {
+        for marker in ["[", "*", "`", "_", "**"] {
+            let text = String(repeating: marker, count: 65_536 / marker.count)
+            let start = ContinuousClock.now
+            _ = MarkdownInline.runs(Substring(text))
+            #expect(ContinuousClock.now - start < .seconds(2), "\(marker)")
+        }
+    }
 }

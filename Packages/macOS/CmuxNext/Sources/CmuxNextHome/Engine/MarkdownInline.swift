@@ -18,15 +18,23 @@ nonisolated enum MarkdownInline {
             if !plain.isEmpty { runs.append(Run(text: plain, style: [])) }
             plain = ""
         }
+        /// Markers with no occurrence after some position: a later search starts
+        /// further right and cannot succeed either, so scans stay linear overall.
+        var absentFrom: [String: Int] = [:]
         /// Index of the next `marker` at or after `start`, if any.
         func find(_ marker: [Character], from start: Int) -> Int? {
-            guard start < chars.count else { return nil }
+            let key = String(marker)
+            if let absent = absentFrom[key], start >= absent { return nil }
             var j = start
-            while j + marker.count <= chars.count {
+            outer: while j + marker.count <= chars.count {
                 if chars[j] == "\\" { j += 2; continue }
-                if Array(chars[j..<(j + marker.count)]) == marker { return j }
-                j += 1
+                for (offset, character) in marker.enumerated() where chars[j + offset] != character {
+                    j += 1
+                    continue outer
+                }
+                return j
             }
+            absentFrom[key] = min(absentFrom[key] ?? start, start)
             return nil
         }
         func styled(_ start: Int, _ end: Int, _ style: MarkdownFormatter.Style) {

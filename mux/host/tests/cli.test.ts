@@ -32,12 +32,15 @@ test("mux host starts the acpmux daemon, answers a message, and a second launch 
   const bin = join(dir, "acpmux-bin");
   writeFileSync(bin, `#!/bin/sh\nexec ${process.execPath} ${join(import.meta.dir, "fakes/fake-acpmux-main.ts")} "$@"\n`);
   chmodSync(bin, 0o755);
+  const tokenFile = join(dir, "agent-token");
+  writeFileSync(tokenFile, "cli-token\n", { mode: 0o600 });
   const env = {
     PATH: "/usr/bin:/bin",
     HOME: dir,
     ACPMUX_HOME: acpmuxHome,
     ACPMUX_SOCKET: join(acpmuxHome, "acpmux.sock"),
     ACPMUX_BIN: bin,
+    MUX_AGENT_TOKEN_FILE: tokenFile,
   };
   const argv = [process.execPath, main, "host", "--daemon-socket", daemon.path, "--mux-home", join(dir, "home")];
   const first = Bun.spawn(argv, { env, stdout: "pipe", stderr: "pipe" });
@@ -50,6 +53,8 @@ test("mux host starts the acpmux daemon, answers a message, and a second launch 
     }
   });
   await daemon.until(() => daemon.conversationIds.length === 1 && daemon.subscriberCount === 1);
+  await daemon.until(() => daemon.bindings.length === 1);
+  expect(daemon.bindings[0]).toEqual({ participant: AGENT_MUX, token: "cli-token" });
   const [conv] = daemon.conversationIds;
   daemon.send(conv, USER_LOCAL, "hi from the app");
   await daemon.until(() => daemon.messages(conv).some((m) => m.author === AGENT_MUX));

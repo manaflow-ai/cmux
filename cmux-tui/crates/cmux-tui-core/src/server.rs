@@ -7199,6 +7199,7 @@ fn disconnect_client_with_notice(
         mux.remove_size_client_from_attached_surfaces(client, record.attached.keys().copied());
         record
     };
+    mux.unbind_conversation_principal(client);
     // Provider capabilities are valid only for the control connection that
     // published them. Release before announcing detachment so waiters can
     // never observe a stale target after the owning client is gone.

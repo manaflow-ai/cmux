@@ -96,6 +96,12 @@ async function runHost(): Promise<void> {
   const passthrough = ["CMUX_SOCKET_PATH", "ACPMUX_SOCKET", "ACPMUX_HOME", "ACPMUX_BIN", "CMUX_MCP_COMMAND", "MUX_COMPACT_HARNESS", "MUX_COMPACT_MODEL", "MUX_WAKE_BUDGET"];
   const sessionEnv: Record<string, string> = { MUX_HOME: home, MUX_SESSION_NAME: "mux", CMUX_DAEMON_SOCKET: daemonSocket };
   for (const key of passthrough) if (process.env[key]) sessionEnv[key] = process.env[key]!;
+  if (!readAgentToken(process.env.MUX_AGENT_TOKEN_FILE)) {
+    // Without the token the owner stamps the host as the user and refuses every
+    // agent_mux write; the app starts the host with MUX_AGENT_TOKEN_FILE.
+    console.error("mux host: MUX_AGENT_TOKEN_FILE is missing or empty; start the host from cmux");
+    process.exit(2);
+  }
   const host = new MuxHost({
     daemonSocket,
     acpmuxSocket,
@@ -106,7 +112,7 @@ async function runHost(): Promise<void> {
     self,
     sessionEnv,
     mcpServers: cmuxMcpServers(),
-    agentToken: readAgentToken(process.env.MUX_AGENT_TOKEN_FILE),
+    agentToken: () => readAgentToken(process.env.MUX_AGENT_TOKEN_FILE),
     startAcpmux: process.env.ACPMUX_BIN
       ? async () => {
           await ensureAcpmuxDaemon(process.env, acpmuxSocket, (line) => console.error(`mux host: ${line}`));

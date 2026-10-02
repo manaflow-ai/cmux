@@ -4,7 +4,7 @@
 //! cannot loop. Pure: the host passes the newest messages and the clock.
 
 use crate::reducer::Reject;
-use crate::types::{ConversationHead, Message, ParticipantKind};
+use crate::types::{ConversationHead, Message, Part, ParticipantKind};
 
 /// Most agent messages after the last human message.
 pub const MAX_AGENT_TURNS: usize = 4;
@@ -14,29 +14,33 @@ pub const MIN_AGENT_GAP_MS: u64 = 2_000;
 /// human message or the full budget).
 pub const BUDGET_WINDOW: usize = MAX_AGENT_TURNS + 1;
 
-/// Checks a `message.send` by `actor`. `recent` holds the newest messages of the
-/// conversation, newest first (at least [`BUDGET_WINDOW`] when that many exist).
-/// Humans are never limited.
+/// Checks a `message.send` of `parts` by `actor`. `recent` holds the newest
+/// messages of the conversation, newest first (at least [`BUDGET_WINDOW`] when
+/// that many exist). Humans are never limited, and messages with no text (work
+/// cards an orchestrator posts for its children) are neither limited nor counted.
 pub fn check_agent_budget(
     head: &ConversationHead,
     actor: &str,
+    parts: &[Part],
     recent: &[Message],
     now_ms: u64,
 ) -> Result<(), Reject> {
     let agent = ParticipantKind::Agent;
     let is_agent = |id: &str| head.participant(id).is_some_and(|p| p.kind == agent);
-    if !is_agent(actor) {
+    let has_text = |parts: &[Part]| parts.iter().any(|part| matches!(part, Part::Text { .. }));
+    if !is_agent(actor) || !has_text(parts) {
         return Ok(());
     }
-    let agent_turns = recent.iter().take_while(|message| is_agent(&message.author)).count();
+    let mut turns = recent.iter().filter(|message| has_text(&message.parts));
+    let agent_turns = turns.clone().take_while(|message| is_agent(&message.author)).count();
     if agent_turns >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
     }
-    let too_soon = recent
-        .iter()
+    // A clock that moved back (now before the last agent message) never blocks.
+    let too_soon = turns
         .find(|message| is_agent(&message.author))
         .and_then(|message| parse_rfc3339_millis(&message.created_at))
-        .is_some_and(|at| now_ms < at.saturating_add(MIN_AGENT_GAP_MS));
+        .is_some_and(|at| now_ms >= at && now_ms < at.saturating_add(MIN_AGENT_GAP_MS));
     if too_soon {
         return Err(Reject::AgentRate);
     }
@@ -112,6 +116,10 @@ mod tests {
         }
     }
 
+    fn text() -> Vec<Part> {
+        vec![Part::Text { text: "x".to_string(), runs: None }]
+    }
+
     fn message(seq: u64, author: &str, at_ms: u64) -> Message {
         Message {
             id: format!("msg_{seq}"),
@@ -144,18 +152,21 @@ mod tests {
         let mut newest_first = vec![message(1, "user_local", base)];
         for turn in 0..MAX_AGENT_TURNS {
             let at = base + 10_000 * (turn as u64 + 1);
-            assert_eq!(check_agent_budget(&head, "agent_mux", &newest_first, at), Ok(()));
+            assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &newest_first, at), Ok(()));
             let author = if turn % 2 == 0 { "agent_mux" } else { "agent_other" };
             newest_first.insert(0, message(turn as u64 + 2, author, at));
         }
         let later = base + 1_000_000;
         assert_eq!(
-            check_agent_budget(&head, "agent_mux", &newest_first, later),
+            check_agent_budget(&head, "agent_mux", &text(), &newest_first, later),
             Err(Reject::AgentBudget)
         );
-        assert_eq!(check_agent_budget(&head, "user_local", &newest_first, later), Ok(()));
+        assert_eq!(check_agent_budget(&head, "user_local", &text(), &newest_first, later), Ok(()));
         newest_first.insert(0, message(10, "user_local", later));
-        assert_eq!(check_agent_budget(&head, "agent_mux", &newest_first, later + 1), Ok(()));
+        assert_eq!(
+            check_agent_budget(&head, "agent_mux", &text(), &newest_first, later + 1),
+            Ok(())
+        );
     }
 
     #[test]
@@ -165,10 +176,33 @@ mod tests {
         let recent = vec![message(2, "agent_mux", base), message(1, "user_local", base - 5_000)];
         let early = base + MIN_AGENT_GAP_MS - 1;
         assert_eq!(
-            check_agent_budget(&head, "agent_other", &recent, early),
+            check_agent_budget(&head, "agent_other", &text(), &recent, early),
             Err(Reject::AgentRate)
         );
         let on_time = base + MIN_AGENT_GAP_MS;
-        assert_eq!(check_agent_budget(&head, "agent_other", &recent, on_time), Ok(()));
+        assert_eq!(check_agent_budget(&head, "agent_other", &text(), &recent, on_time), Ok(()));
+    }
+
+    #[test]
+    fn conversation_budget_skips_work_cards_and_a_clock_that_moved_back() {
+        let head = head();
+        let base = 1_790_000_000_000;
+        let card = vec![Part::Work {
+            session: "child".to_string(),
+            host: None,
+            status: crate::types::WorkStatus::Running,
+            preview: None,
+        }];
+        let mut recent = vec![message(1, "user_local", base)];
+        for seq in 2..8 {
+            let mut work = message(seq, "agent_mux", base + seq * 10);
+            work.parts = card.clone();
+            recent.insert(0, work);
+        }
+        assert_eq!(check_agent_budget(&head, "agent_mux", &card, &recent, base + 100), Ok(()));
+        assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &recent, base + 100), Ok(()));
+        let replied =
+            vec![message(9, "agent_mux", base + 60_000), message(1, "user_local", base)];
+        assert_eq!(check_agent_budget(&head, "agent_mux", &text(), &replied, base + 1_000), Ok(()));
     }
 }

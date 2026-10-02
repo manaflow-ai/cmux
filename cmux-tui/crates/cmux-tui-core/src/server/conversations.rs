@@ -235,6 +235,8 @@ pub(super) fn agent_token(
         "only the local user mints agent tokens"
     );
     let token = mux.with_conversations(|store| store.mint_agent_token(&params.participant))?;
+    // A replaced token also ends the connections bound with the old one.
+    mux.unbind_conversation_participant(&params.participant);
     Ok(json!({"participant": params.participant, "token": token}))
 }
 

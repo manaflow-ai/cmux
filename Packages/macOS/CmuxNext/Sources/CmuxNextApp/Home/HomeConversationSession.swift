@@ -30,6 +30,10 @@ final class HomeConversationSession {
     @ObservationIgnored private var observers: [UInt64: (Change) -> Void] = [:]
     @ObservationIgnored private var nextObserver: UInt64 = 0
     @ObservationIgnored private var loading: Task<Void, Never>?
+    /// Events that arrived while a snapshot was loading; applied after it when
+    /// newer than the snapshot (so a change committed during the read is kept).
+    @ObservationIgnored private var buffered: [ConversationEvent] = []
+    @ObservationIgnored private var isLoading = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     init(id: String) {
@@ -55,17 +59,28 @@ final class HomeConversationSession {
     /// arrive meanwhile with a revision at or below the snapshot are stale.
     func load(from connection: DaemonConnection, tail: Int = 200, then resend: (@MainActor () -> Void)? = nil) {
         loading?.cancel()
+        isLoading = true
         let id = id
         // task-owner: one conversation-snapshot read; ends with its reply
         loading = Task { [weak self] in
             do {
                 let snapshot = try await ConversationClient(connection).snapshot(id, tail: tail)
                 guard let self, !Task.isCancelled else { return }
-                if mirror == nil { mirror = ConversationMirror(snapshot: snapshot) } else { mirror?.reset(snapshot) }
+                isLoading = false
+                // Never move back to an older revision than the mirror already has.
+                if mirror.map({ $0.rev <= snapshot.conversation.rev }) ?? true {
+                    if mirror == nil { mirror = ConversationMirror(snapshot: snapshot) } else { mirror?.reset(snapshot) }
+                    typing.removeAll()
+                }
+                let pending = buffered
+                buffered.removeAll()
+                for event in pending where event.rev > (mirror?.rev ?? 0) { _ = apply(event) }
                 if let mirror { log.settle(against: mirror) }
                 emit(.reset)
                 resend?()
             } catch {
+                self?.isLoading = false
+                self?.buffered.removeAll()
                 self?.logger.error("conversation-snapshot \(id, privacy: .public): \(String(describing: error), privacy: .public)")
             }
         }
@@ -74,6 +89,10 @@ final class HomeConversationSession {
     /// Applies one owner event. Returns false when it showed a gap (the
     /// caller reloads the snapshot).
     func apply(_ event: ConversationEvent) -> Bool {
+        if isLoading || mirror == nil {
+            if buffered.count < 1024 { buffered.append(event) }
+            return true
+        }
         guard var current = mirror else { return true }
         let outcome = current.apply(event)
         mirror = current
@@ -104,14 +123,10 @@ final class HomeConversationSession {
         if log.add(send) { emit(.pendingChanged) }
     }
 
+    /// The owner's reply settles the intent only; the mirror is written by the
+    /// owner's events alone. The pending bubble stays until the mirror reaches
+    /// the acknowledged revision, so it never blinks out or shows twice.
     func acknowledge(_ clientMsgID: String, result: ConversationOpResult) {
-        // The reply is the owner's committed change: it may write the mirror
-        // when it is the next revision, so the bubble never blinks out
-        // between the reply and the event.
-        if var current = mirror, current.apply(rev: result.rev, change: result.change) != .gap {
-            mirror = current
-            if case .message(let message) = result.change, !result.replayed { emit(.appended([message])) }
-        }
         log.acknowledge(clientMsgID, rev: result.rev)
         if let mirror { log.settle(against: mirror) }
         emit(.pendingChanged)

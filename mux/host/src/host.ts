@@ -67,7 +67,7 @@ export interface HostOptions {
    * after creating the default conversation, the connection binds as agent_mux so
    * the owner stamps the mux's writes. Absent in tests against the fake daemon.
    */
-  agentToken?: string;
+  agentToken?: string | (() => string | undefined);
   /** Makes the acpmux socket reachable before each connect (starts the daemon from ACPMUX_BIN). */
   startAcpmux?: () => Promise<void>;
   log?: (line: string) => void;
@@ -210,7 +210,9 @@ export class MuxHost {
         participants: this.defaultParticipants(),
       });
       this.remember(conversation);
-      if (this.options.agentToken) await daemon.bind(AGENT_MUX, this.options.agentToken);
+      // Read at every connect: the app mints a new token on each launch.
+      const token = typeof this.options.agentToken === "function" ? this.options.agentToken() : this.options.agentToken;
+      if (token) await daemon.bind(AGENT_MUX, token);
       if (this.state.data.defaultConversation !== conversation.id) {
         this.state.data.defaultConversation = conversation.id;
         this.state.save();
@@ -519,6 +521,7 @@ export class MuxHost {
     const outbox = this.state.data.outbox;
     while (outbox.length > 0) {
       const entry = outbox[0];
+      if (entry.notBefore && Date.now() < entry.notBefore) return; // its one-shot timer flushes it
       const op = this.resolveOp(entry);
       if (op) {
         try {
@@ -537,11 +540,19 @@ export class MuxHost {
           // The owner's agent turn budget: a reply sent inside the minimum gap is
           // retried once, after the gap, by a one-shot timer; anything else
           // (including agent_budget) is dropped, so a reject never loops.
+          // The binding was lost (the app replaced the token): reconnect, which
+          // binds again with the current token, and keep the entry.
+          if (error.message.includes("actor_mismatch")) {
+            this.log(`op ${entry.idempotency_key}: binding lost; reconnecting to bind again`);
+            daemon.close();
+            return;
+          }
           if (error.message.includes("agent_rate") && !entry.rateRetried) {
             entry.rateRetried = true;
+            entry.notBefore = Date.now() + AGENT_GAP_RETRY_MS;
             this.state.save();
             this.log(`op ${entry.idempotency_key} inside the agent gap; retrying once after it`);
-            const timer = setTimeout(() => void this.effects.run(() => this.flushOutbox()), AGENT_GAP_RETRY_MS);
+            const timer = setTimeout(() => void this.effects.run(() => this.flushOutbox()), AGENT_GAP_RETRY_MS + 50);
             timer.unref?.();
             return;
           }

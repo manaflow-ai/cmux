@@ -47,16 +47,18 @@ impl Mux {
     }
 
     /// Binds `client` to agent `participant` for the rest of the connection.
-    /// Client ids only grow, so the oldest binding goes first when the map is
-    /// full (a binding outliving its connection names an id nobody reuses).
     pub(crate) fn bind_conversation_principal(&self, client: u64, participant: String) {
-        let mut bindings = self.conversations.bindings.lock().unwrap();
-        if bindings.len() >= MAX_BINDINGS && !bindings.contains_key(&client) {
-            bindings.pop_first();
-        }
-        bindings.insert(client, participant);
+        self.conversations.bindings.lock().unwrap().insert(client, participant);
+    }
+
+    /// Ends `client`'s binding when its connection ends.
+    pub(crate) fn unbind_conversation_principal(&self, client: u64) {
+        self.conversations.bindings.lock().unwrap().remove(&client);
+    }
+
+    /// Ends every binding of `participant` (its token was replaced).
+    pub(crate) fn unbind_conversation_participant(&self, participant: &str) {
+        self.conversations.bindings.lock().unwrap().retain(|_, bound| bound != participant);
     }
 }
 
-/// Most connection bindings kept at once.
-const MAX_BINDINGS: usize = 4096;
