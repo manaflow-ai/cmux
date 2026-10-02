@@ -141,6 +141,7 @@ extension Workspace {
         guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
             return nil
         }
+        guard admitsSplitSpacePreflight(splitting: paneId, orientation: orientation) else { return nil }
 
         let customPanel = CustomSidebarPanel(workspace: self, name: name, fileURL: fileURL)
         panels[customPanel.id] = customPanel
@@ -168,6 +169,7 @@ extension Workspace {
             panels.removeValue(forKey: customPanel.id)
             panelTitles.removeValue(forKey: customPanel.id)
             removeSurfaceMapping(forSurfaceId: newTab.id)
+            customPanel.close()
             return nil
         }
 

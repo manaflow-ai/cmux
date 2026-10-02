@@ -1,6 +1,9 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { shellQuote } from "./drivers/cmuxTuiDaemon";
+import { vmPromptName } from "./promptName";
+
+export { vmPromptName };
 
 export type GuestPromptIdentity = {
   readonly machineId: string;
@@ -15,12 +18,9 @@ export function vmPromptIdentity(row: {
   readonly displayName: string | null;
   readonly updatedAt: Date;
 }): GuestPromptIdentity {
-  const slug = (value: string) => value.normalize("NFKD").toLowerCase()
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-").slice(0, 63).replace(/^-+|-+$/g, "");
   return {
     machineId: row.id,
-    name: slug(row.displayName ?? "") || slug(row.slug ?? "") || "cmux",
+    name: vmPromptName(row),
     revision: row.updatedAt.getTime(),
   };
 }
@@ -32,6 +32,10 @@ const assetPath = (relativePath: string) =>
   fileURLToPath(new URL(relativePath, import.meta.url).toString());
 const bashrc = readFileSync(assetPath("./images/devbox/cmux-bashrc"), "utf8");
 const prompt = readFileSync(assetPath("./images/devbox/cmux-prompt.bash"), "utf8");
+export const guestPromptInstallFiles = {
+  "prompt.bash": prompt,
+  bashrc,
+} as const;
 
 // Runs on lifecycle operations, never during shell startup or prompt drawing.
 // A lock serializes competing attaches/renames. Atomic replacement gives every

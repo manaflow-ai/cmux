@@ -1,25 +1,34 @@
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Observation
 
 struct MachineSizeOption: Equatable, Sendable {
     let memoryMb: Int
     let diskMb: Int
+    let vcpus: Int
 
-    init?(memoryMb: Int) {
+    /// `servedVcpus` is the server's `limits.vcpusByMemoryMb` entry for this
+    /// size. The table's vCPUs mirror `VM_IMAGE_SIZES`
+    /// (web/services/vms/images/sizes.ts) only for a control plane that
+    /// predates that field.
+    init?(memoryMb: Int, servedVcpus: Int? = nil) {
+        let vcpus = servedVcpus.flatMap { $0 > 0 ? $0 : nil }
         switch memoryMb {
-        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384)
-        case 8192: self.init(memoryMb: memoryMb, diskMb: 32768)
-        case 16384: self.init(memoryMb: memoryMb, diskMb: 65536)
-        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304)
-        case 32768: self.init(memoryMb: memoryMb, diskMb: 131072)
-        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072)
+        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384, vcpus: vcpus ?? 2)
+        case 8192: self.init(memoryMb: memoryMb, diskMb: 32768, vcpus: vcpus ?? 4)
+        case 16384: self.init(memoryMb: memoryMb, diskMb: 65536, vcpus: vcpus ?? 8)
+        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304, vcpus: vcpus ?? 12)
+        case 32768: self.init(memoryMb: memoryMb, diskMb: 131072, vcpus: vcpus ?? 16)
+        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072, vcpus: vcpus ?? 32)
         default: return nil
         }
     }
 
-    private init(memoryMb: Int, diskMb: Int) {
+    private init(memoryMb: Int, diskMb: Int, vcpus: Int) {
         self.memoryMb = memoryMb
         self.diskMb = diskMb
+        self.vcpus = vcpus
     }
 
     /// The localized RAM value shown as the selected picker title.
@@ -49,7 +58,8 @@ struct MachineSizeOption: Equatable, Sendable {
     /// The localized, compact row title shown in the size menu.
     var menuTitle: String {
         String(
-            format: String(localized: "machines.new.size.menu", defaultValue: "%1$d GB RAM · %2$d GB disk"),
+            format: String(localized: "machines.new.size.menu.vcpu", defaultValue: "%1$d vCPU · %2$d GB RAM · %3$d GB disk"),
+            vcpus,
             memoryMb / 1024,
             diskMb / 1024
         )
@@ -90,23 +100,23 @@ final class NewMachineModel {
 
     /// The base-image sizes the backend exposes, in ascending memory order.
     /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
+    /// 24/96, or 32/128 GB of memory/disk. The server's list trims
     /// this set for plan limits. The 128 MiB BusyBox image is intentionally
     /// not a coding-machine option because it has no baked dev tools.
-    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
+    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768]
     static let planMachineMemoryMb = 8192
     /// The pre-ladder backend default. It is used only when the server omits
     /// `limits.memoryOptionsMb`, so the client does not send an unsupported
     /// `--size` flag during a rolling upgrade.
     static let legacyPlanMachineMemoryMb = 20480
-    /// The plan that sells the ladder's 32 GB and 64 GB rows
+    /// The plan that sells the ladder's 16, 24, and 32 GB rows
     /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
     nonisolated static let maxPlanId = "max"
     /// The largest machine every plan except Max may start
     /// (`PLAN_MAX_MEMORY_MB` on the server).
-    nonisolated static let standardPlanMaxMemoryMb = 24576
+    nonisolated static let standardPlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder, every other plan (and an unknown plan) stops at 24 GB.
+    /// whole ladder, every other plan (and an unknown plan) stops at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
@@ -151,6 +161,8 @@ final class NewMachineModel {
     /// The plan that sells the locked sizes; nil when nothing is locked.
     private(set) var memoryUpgradePlanId: String?
     private(set) var memoryUpgradePlansByMb: [String: String]?
+    /// The server's vCPUs per size; nil from an older control plane.
+    private(set) var vcpusByMemoryMb: [String: Int]?
     /// The server advertised a ladder, but every size is locked for this plan.
     /// Creation must stay disabled until the server returns an allowed size.
     private(set) var hasNoAllowedMemoryOptions = false
@@ -173,8 +185,58 @@ final class NewMachineModel {
     /// Set by the presenter: called once when the sheet should close.
     var onFinished: (@MainActor (Outcome) -> Void)?
 
+    /// Whether the control plane answered the network preset catalog. The
+    /// Network section is editable only once it has: a server that does not
+    /// know network policy would ignore it and give the machine full internet.
+    enum NetworkAvailability: Equatable {
+        case loading
+        case available
+        case unavailable
+    }
+
+    /// The outbound network choice for `vm new`. Base has no network choice.
+    let network = CloudNetworkPolicyEditorModel()
+    private(set) var networkAvailability: NetworkAvailability = .loading
+
+    var supportsNetworkPolicy: Bool { mode == .newMachine }
+
+    func applyNetworkCatalog(_ catalog: CloudNetworkPresetCatalog?) {
+        guard let catalog else {
+            networkAvailability = .unavailable
+            return
+        }
+        network.setCatalog(catalog)
+        networkAvailability = .available
+    }
+
+    /// The policy the create sends; nil keeps the server default. Only sent
+    /// once the server proved it understands policies, and never when the
+    /// person left it at the default (full internet, nothing listed).
+    var requestedNetworkPolicy: CloudNetworkPolicy? {
+        guard supportsNetworkPolicy, networkAvailability == .available, network.policy != .default else { return nil }
+        return network.policy
+    }
+
+    /// "Keep coding agents up to date": the create sends `--agent-updates
+    /// latest`. On by default; the sheet remembers a user who unchecks it.
+    var keepsAgentsUpdated: Bool
+    var supportsAgentUpdates: Bool { mode == .newMachine }
+
+    /// Remembers the last submitted "Keep coding agents up to date" choice.
+    nonisolated static let keepsAgentsUpdatedDefaultsKey = "cloud.newMachine.keepsAgentsUpdated"
+
+    /// Shown under the toggle when the chosen network policy blocks a host
+    /// the updates reach (the catalog's `agentUpdateDomains`). Only once the
+    /// policy is editable, since until then the machine gets full internet.
+    var agentUpdatesNetworkNote: String? {
+        guard supportsAgentUpdates, keepsAgentsUpdated, networkAvailability == .available,
+              let catalog = network.catalog else { return nil }
+        return CloudAgentUpdates.latest.networkNote(for: network.policy, catalog: catalog)
+    }
+
     private let submit: Submit
     private let selectionWindowID: UUID?
+    private let defaults: UserDefaults
 
     func upgradePlan(for memoryMb: Int) -> String? {
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
@@ -201,15 +263,23 @@ final class NewMachineModel {
     }
 
     func applyPage(_ page: VMListPage) {
-        guard let limits = page.limits else { return }
+        applyPlan(activeCount: page.vms.count, limits: page.limits)
+    }
+
+    /// Replaces the plan in place (a background refresh of the cached plan).
+    /// The selected size survives unless the new plan no longer allows it.
+    func applyPlan(activeCount: Int, limits: VMPlanLimits?) {
+        guard let limits else { return }
         let updated = NewMachineModel(
             mode: mode,
-            plan: MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits),
+            plan: MachineSnapshotBuilder.planSnapshot(activeCount: activeCount, limits: limits),
             memoryOptionsMb: limits.memoryOptionsMb,
             lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
             memoryUpgradePlanId: limits.memoryUpgradePlanId,
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
+            vcpusByMemoryMb: limits.vcpusByMemoryMb,
             selectionWindowID: selectionWindowID,
+            defaults: defaults,
             submit: submit
         )
         plan = updated.plan
@@ -217,6 +287,7 @@ final class NewMachineModel {
         lockedMemoryOptionsMb = updated.lockedMemoryOptionsMb
         memoryUpgradePlanId = updated.memoryUpgradePlanId
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
+        vcpusByMemoryMb = updated.vcpusByMemoryMb
         hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
     }
@@ -233,10 +304,15 @@ final class NewMachineModel {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         selectionWindowID: UUID? = nil,
+        defaults: UserDefaults = .standard,
         submit: @escaping Submit
     ) {
+        self.defaults = defaults
+        self.keepsAgentsUpdated = defaults.object(forKey: Self.keepsAgentsUpdatedDefaultsKey) as? Bool ?? true
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
         self.plan = plan
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
@@ -310,7 +386,12 @@ final class NewMachineModel {
     /// Sizes the plan cannot start, ascending; the sheet lists them disabled.
     var lockedMemoryOptions: [Int] { lockedMemoryOptionsMb }
 
-    var selectedSize: MachineSizeOption? { MachineSizeOption(memoryMb: memoryMb) }
+    var selectedSize: MachineSizeOption? { sizeOption(memoryMb: memoryMb) }
+
+    /// A ladder size labeled with the server's vCPUs when it sent them.
+    func sizeOption(memoryMb: Int) -> MachineSizeOption? {
+        MachineSizeOption(memoryMb: memoryMb, servedVcpus: vcpusByMemoryMb?[String(memoryMb)])
+    }
 
     /// "Max" for the plan that unlocks the locked sizes; nil when nothing is locked.
     var memoryUpgradePlanName: String? {
@@ -342,7 +423,7 @@ final class NewMachineModel {
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
 
-    /// "32 GB and 64 GB machines need cmux Max."; nil when nothing is locked
+    /// "16 GB, 24 GB, and 32 GB machines need cmux Max."; nil when nothing is locked
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
@@ -359,7 +440,7 @@ final class NewMachineModel {
         return String(format: format, memoryUpgradePlanNames)
     }
 
-    /// "1 of 1 machine" from the panel's meter; nil when the plan is unknown.
+    /// The sheet's plan usage, "0 of 1 machine in use"; nil when the plan is unknown.
     /// Uncapped plans read "2 machines in use".
     var planMeterText: String? {
         guard let plan else { return nil }
@@ -409,6 +490,9 @@ final class NewMachineModel {
         case .newMachine:
             arguments = ["vm", "new", Self.machineKind.cliFlag]
             if supportsSize { arguments += ["--size", String(memoryMb)] }
+            if let policy = requestedNetworkPolicy { arguments += ["--network-policy", policy.jsonString] }
+            // Off sends nothing, so a server without the setting sees the old request.
+            if keepsAgentsUpdated { arguments += ["--agent-updates", CloudAgentUpdates.latest.rawValue] }
             arguments += ["--focus", "false"]
         case .base(let workspaceID):
             arguments = [
@@ -447,6 +531,7 @@ final class NewMachineModel {
             )
             return
         }
+        if supportsAgentUpdates { defaults.set(keepsAgentsUpdated, forKey: Self.keepsAgentsUpdatedDefaultsKey) }
         finish(.submitted)
     }
 

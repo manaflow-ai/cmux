@@ -33,6 +33,8 @@ const runVmWorkflow = mock(async () => {
   throw new Error("unauthenticated VM routes must not reach the VM workflow");
 });
 const createVm = mock(() => ({ workflow: "create" }));
+const enrollVmTunnel = mock(() => ({ workflow: "enroll-tunnel" }));
+const readVmTunnel = mock(() => ({ workflow: "read-tunnel" }));
 const openBaseVm = mock(() => ({ workflow: "base.open" }));
 const resetBaseVm = mock(() => ({ workflow: "base.reset" }));
 const listUserVms = mock(() => ({ workflow: "list" }));
@@ -72,6 +74,7 @@ const VM_ENV_KEYS = [
 const originalEnv = Object.fromEntries(
   VM_ENV_KEYS.map((key) => [key, process.env[key]]),
 ) as Record<(typeof VM_ENV_KEYS)[number], string | undefined>;
+const originalFetch = globalThis.fetch;
 
 // Capture the real implementations BY VALUE before mocking. bun's
 // mock.module can mutate an already-loaded module namespace in place, so a
@@ -80,6 +83,8 @@ const originalEnv = Object.fromEntries(
 // keep pointing at the originals under either registry semantics.
 const workflowsModule = await import("../services/vms/workflows");
 const realCreateVm = workflowsModule.createVm;
+const realEnrollVmTunnel = workflowsModule.enrollVmTunnel;
+const realReadVmTunnel = workflowsModule.readVmTunnel;
 const realDestroyVm = workflowsModule.destroyVm;
 const realExecVm = workflowsModule.execVm;
 const realForkVm = workflowsModule.forkVm;
@@ -128,6 +133,11 @@ mock.module("../app/lib/stack", () => ({
 }));
 
 mock.module("../services/vms/workflows", () => ({
+  ...workflowsModule,
+  enrollVmTunnel: ((...args: Parameters<typeof realEnrollVmTunnel>) =>
+    useWorkflowStubs ? callMock(enrollVmTunnel, args) : realEnrollVmTunnel(...args)) as typeof realEnrollVmTunnel,
+  readVmTunnel: ((...args: Parameters<typeof realReadVmTunnel>) =>
+    useWorkflowStubs ? callMock(readVmTunnel, args) : realReadVmTunnel(...args)) as typeof realReadVmTunnel,
   VmWorkflowLive: realVmWorkflowLive,
   createVm: ((...args: Parameters<typeof realCreateVm>) =>
     useWorkflowStubs ? callMock(createVm, args) : realCreateVm(...args)) as typeof realCreateVm,
@@ -218,6 +228,7 @@ const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
 const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
+const { POST: tunnelPOST, GET: tunnelGET } = await import("../app/api/vm/tunnel/route");
 const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
 const {
   VmAccountDeletionInProgressError,
@@ -237,11 +248,15 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  // POST /api/vm now awaits the provider connection probe. Keep this route
+  // suite deterministic and local while still exercising that await.
+  globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
 });
 
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  globalThis.fetch = originalFetch;
 });
 
 beforeEach(() => {
@@ -258,6 +273,8 @@ beforeEach(() => {
     },
   );
   createVm.mockClear();
+  enrollVmTunnel.mockClear();
+  readVmTunnel.mockClear();
   openBaseVm.mockClear();
   resetBaseVm.mockClear();
   destroyVm.mockClear();
@@ -459,7 +476,7 @@ describe("VM REST auth", () => {
     }]);
     getUser.mockResolvedValue({
       id: "user-1",
-      displayName: null,
+      displayName: "Ada Lovelace",
       primaryEmail: "user@example.com",
       selectedTeam: {
         id: "team-1",
@@ -472,6 +489,10 @@ describe("VM REST auth", () => {
       provider: "freestyle",
       image: "snapshot-test",
       createdAt: 1_777_000_000_000,
+      createdByUserId: "user-1",
+      addressIpv4: "10.16.0.9",
+      addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
 
     const response = await POST(
@@ -501,13 +522,22 @@ describe("VM REST auth", () => {
         persistentHome: false,
         attachTransports: ["cmux-remote"],
       },
+      // The author the list would show for this machine. A client that appends
+      // the create response to its list must not end up with one unattributed
+      // row among attributed ones, and the caller's own name comes from the
+      // session rather than a snapshot read.
+      createdBy: { userId: "user-1", displayName: "Ada Lovelace" },
+      // New Machine dials the baked daemon from these two fields instead of
+      // re-reading the fleet and calling POST /attach-endpoint.
+      address: { ipv4: "10.16.0.9", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingCustomerType: "team",
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       provider: "freestyle",
       image: "snapshot-test",
       imageVersion: null,
@@ -516,6 +546,232 @@ describe("VM REST auth", () => {
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
+  });
+
+  test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
+    const listTeams = mock(async () => [
+      { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+      { id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } },
+    ]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+    runVmWorkflow.mockResolvedValue([{
+      providerVmId: "provider-vm-team-1", provider: "freestyle",
+      image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
+    }]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm", {
+      headers: auth === "native" ? {
+        authorization: "Bearer access-token", "x-stack-refresh-token": "refresh-token",
+      } : {},
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      limits: { planId: "team", maxActiveVms: 20, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+      vms: [{ freeAccessExpiresAt: null }],
+    });
+    expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([undefined, "team-1"])("hydrates an ID-only selected team with bounded auth (requested %s)", async (requestedTeamId) => {
+    const listTeams = mock(async () => [{
+      id: "team-1", displayName: "Paid team",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+    }]);
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId, subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4,
+      selectedTeamId: "team-1",
+      teams: [{ id: "team-1", displayName: "Paid team", billingPlanId: "team", billingSeats: 4 }],
+    });
+    expect(listTeams).toHaveBeenCalledWith({ query: "team-1", limit: 100 });
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("hydrates the ID-only selected team even when bounded auth requests another team", async () => {
+    const listTeams = mock(async (options?: { query?: string }) => options?.query === "team-other"
+      ? [{ id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : [{ id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId: "team-other",
+      subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4 });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { query: "team-other", limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { query: "team-1", limit: 100 });
+  });
+
+  test("paginates complete membership when hydrating an ID-only selected team", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => options?.cursor === "page-2"
+      ? [{ id: "team-second", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : Object.assign([{ id: "team-1", clientReadOnlyMetadata: { cmuxPlan: "team" } }], { nextCursor: "page-2" }));
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user?.teamIds).toEqual(["team-1", "team-second"]);
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 100 });
+  });
+
+  test("falls back to the user plan when complete team pagination is incomplete", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => Object.assign([
+      {
+        id: options?.cursor ? "team-other" : "team-first",
+        clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+      },
+    ], { nextCursor: "stuck" }));
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1",
+      billingPlanId: "free",
+      billingSeats: null,
+    });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "stuck", limit: 100 });
+  });
+
+  test("does not borrow another paid team's details when the selected team is absent from the lookup", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams: async () => [{ id: "team-other", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }],
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "free", billingSeats: null });
+  });
+
+  test("tunnel POST and GET forward the complete fresh membership, not only the selected team", async () => {
+    const user = authedStackUser();
+    getUser.mockResolvedValue({
+      ...user,
+      listTeams: async () => [{ id: "team-1", clientReadOnlyMetadata: {} }, { id: "team-2", clientReadOnlyMetadata: {} }],
+    });
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(enrollInput.teamIds).toEqual(["team-1", "team-2"]);
+    expect(enrollInput.teamIdsComplete).toBe(true);
+    const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
+    expect(read.status).toBe(200);
+    const readInput = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(readInput.teamIds).toEqual(["team-1", "team-2"]);
+    expect(readInput.teamIdsComplete).toBe(true);
+  });
+
+  test("tunnel POST marks the team list incomplete when the fresh membership listing fails", async () => {
+    let listCalls = 0;
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      listTeams: async () => {
+        listCalls += 1;
+        throw new Error("stack unavailable");
+      },
+    });
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    expect(listCalls).toBeGreaterThan(0);
+    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
+    expect(enrollInput.teamIds).toEqual(["team-1"]);
+    expect(enrollInput.teamIdsComplete).toBe(false);
+  });
+
+  test("tunnel POST and GET forward authenticated team membership", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
+      networks: [], created: false, rotated: false,
+    });
+    const payload = Buffer.from(JSON.stringify({ refresh_token_id: "session-test", iat: 1_700_000_000 })).toString("base64url");
+    const headers = { authorization: `Bearer access-token.${payload}.test`, "x-stack-refresh-token": "refresh-token" };
+    const authedUser = await verifyRequest(new Request("https://cmux.test/api/vm/tunnel", { headers }));
+    expect(authedUser?.teamIds).toEqual(["team-1"]);
+    const posted = await tunnelPOST(new Request("https://cmux.test/api/vm/tunnel", {
+      method: "POST", headers,
+      body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
+    }));
+    expect(posted.status).toBe(200);
+    const enrollCalls = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((enrollCalls[0]?.[0] as { teamIds?: readonly string[] } | undefined)?.teamIds).toEqual(authedUser?.teamIds);
+    const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
+    expect(read.status).toBe(200);
+    const readCalls = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((readCalls[0]?.[0] as { teamIds?: readonly string[] } | undefined)?.teamIds).toEqual(authedUser?.teamIds);
+  });
+
+  test("passes the team directory only for capable create clients", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({ providerVmId: "provider-vm-1", provider: "freestyle", image: "snapshot-test", createdAt: 1_777_000_000_000, addressIpv4: "10.16.0.9", addressIpv6: null, cmuxTuiContract: "snapshot-v2" });
+    const capable = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test", "x-cmux-private-network-routing": "team-networks" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+    }));
+    expect(capable.status).toBe(200);
+    const createCalls = (createVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const capableInput = createCalls[0]?.[0] as { teamDirectory?: { listMemberIds?: unknown } } | undefined;
+    expect(typeof capableInput?.teamDirectory?.listMemberIds).toBe("function");
+    createVm.mockClear();
+    const legacy = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers: { origin: "https://cmux.test" },
+      body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+    }));
+    expect(legacy.status).toBe(200);
+    const legacyCalls = (createVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const legacyInput = legacyCalls[0]?.[0] as { teamDirectory?: unknown } | undefined;
+    expect(legacyInput?.teamDirectory).toBeUndefined();
   });
 
   test("rejects an unknown `kind` on create and base open before touching workflows", async () => {
@@ -697,7 +953,7 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingTeamId: "team-1",
       billingPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
     }));
   });
 
@@ -791,12 +1047,12 @@ describe("VM REST auth", () => {
       upgradePlanId: "max",
       upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_memory_limit",
       memoryMb: 32768,
-      maxMemoryMb: 24576,
+      maxMemoryMb: 8192,
     });
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
-  test("starts a 64 GB machine on Max", async () => {
+  test("starts a 32 GB machine on Max", async () => {
     getUser.mockResolvedValue(stackUserForPlan("max"));
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-max",
@@ -810,12 +1066,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 65536 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 32768 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 65536 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 32768 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -1259,6 +1515,31 @@ describe("VM REST auth", () => {
     });
   });
 
+  test("every listed machine names the account that made it", async () => {
+    // The point of the field: a team list is scoped by owner team, so without
+    // an author a shared account is a pile of generated three-word names with
+    // no way to tell whose is whose. The caller's own name comes from the
+    // session; a teammate with no recorded name publishes their id and a null
+    // name, never the id in place of a name.
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      id: "user-1",
+      displayName: "Ada Lovelace",
+    });
+    runVmWorkflow.mockResolvedValue([
+      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1", cmuxTuiContract: "snapshot-v2" },
+      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2", cmuxTuiContract: null },
+    ]);
+    const response = await GET(new Request("https://cmux.test/api/vm"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      vms: [
+        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" }, cmuxTuiContract: "snapshot-v2" },
+        { id: "theirs", createdBy: { userId: "user-2", displayName: null }, cmuxTuiContract: null },
+      ],
+    });
+  });
+
   test("every listed machine carries its provider's capabilities (no driver forks)", async () => {
     // The app hides Checkpoint/Fork when these are false instead of offering verbs
     // that can only answer 502 "not implemented". Freestyle snapshots and
@@ -1502,6 +1783,90 @@ describe("VM REST auth", () => {
     }));
   });
 
+  test("honors a JSON body team id on the Base routes too", async () => {
+    // The same body-supplied team the test above exercises on POST /api/vm.
+    // Stack hands back only the selected team unless a team was requested at
+    // verify time, and the header and query reader never sees the JSON body, so
+    // a provisioning route that skips the re-verify refuses a genuine member of
+    // team-2 with vm_billing_team_not_found.
+    const listTeams = mock(async () => [
+      { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+      { id: "team-2", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+    ]);
+    getUser.mockResolvedValue({
+      id: "user-1",
+      displayName: null,
+      primaryEmail: "user@example.com",
+      selectedTeam: { id: "team-1", clientReadOnlyMetadata: { cmuxVmPlan: "pro" } },
+      listTeams,
+    });
+
+    for (const [operation, route, workflow] of [
+      ["open", baseOpenRoute, openBaseVm],
+      ["reset", baseResetRoute, resetBaseVm],
+    ] as const) {
+      runVmWorkflow.mockResolvedValue({
+        providerVmId: `provider-vm-base-${operation}`,
+        provider: "freestyle",
+        image: "sh-never-listed",
+        imageVersion: null,
+        status: "running",
+        createdAt: 1_777_000_000_000,
+        baseId: "base-test",
+        baseName: "Base",
+        generation: 1,
+      });
+      const response = await route.POST(
+        new Request(`https://cmux.test/api/vm/base/${operation}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer access-token",
+            "x-stack-refresh-token": "refresh-token",
+          },
+          body: JSON.stringify({ kind: "base", teamId: "team-2" }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      expect(workflow).toHaveBeenCalledWith(expect.objectContaining({
+        billingCustomerType: "team",
+        billingTeamId: "team-2",
+      }));
+    }
+  });
+
+  test("rejects a body team id the caller does not belong to on the Base routes", async () => {
+    // The re-verify widens the team list; it does not decide membership. That
+    // decision stays in resolveBillingContext, which searches the refreshed
+    // user's teams. So the body path has to refuse a non-member exactly like
+    // the header path does on POST /api/vm, and has to refuse it before the
+    // workflow runs.
+    getUser.mockResolvedValue(authedStackUser());
+
+    for (const [operation, route, workflow] of [
+      ["open", baseOpenRoute, openBaseVm],
+      ["reset", baseResetRoute, resetBaseVm],
+    ] as const) {
+      const response = await route.POST(
+        new Request(`https://cmux.test/api/vm/base/${operation}`, {
+          method: "POST",
+          headers: {
+            authorization: "Bearer access-token",
+            "x-stack-refresh-token": "refresh-token",
+          },
+          body: JSON.stringify({ kind: "base", teamId: "team-other" }),
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      const payload = await response.json();
+      expect(payload).toMatchObject({ error: "vm_billing_team_not_found" });
+      expectNoCloudVmImplementationLeaks(payload);
+      expect(workflow).not.toHaveBeenCalled();
+    }
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("rejects blank team ids before reaching workflows", async () => {
     getUser.mockResolvedValue(authedStackUser());
     const requests = [
@@ -1673,7 +2038,7 @@ describe("VM REST auth", () => {
       billingCustomerType: "team",
       billingTeamId: "team-2",
       billingPlanId: "team",
-      maxActiveVms: 200,
+      maxActiveVms: 20,
     }));
     expect(runVmWorkflow).toHaveBeenCalled();
   });
@@ -1776,7 +2141,8 @@ describe("VM REST auth", () => {
       context,
     );
     expect(response.status).toBe(200);
-    expect(openVmCmuxRemote).toHaveBeenCalledWith({
+    const { deferAfterResponse, ...attachInput } = (openVmCmuxRemote.mock.calls[0] as unknown[])[0] as Record<string, unknown>;
+    expect(attachInput).toEqual({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
@@ -1784,8 +2150,11 @@ describe("VM REST auth", () => {
       deviceFingerprint: "fp-device-1",
       clientCapabilities: ["direct-ws-user-agent"],
       callerPlanId: "pro",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
+      modelPlane: expect.objectContaining({}),
     });
+    // An opted-in machine's agent-update exec runs after the response.
+    expect(typeof deferAfterResponse).toBe("function");
     expect(openAttachEndpoint).not.toHaveBeenCalled();
     const payload = await response.json();
     expect(payload.transport).toBe("cmux-remote");
@@ -1895,6 +2264,7 @@ describe("VM REST auth", () => {
       slug: "giddy-cherry-emu",
       addressIpv4: "10.16.170.11",
       addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
     const response = await vmIdRoute.GET(
       new Request("https://cmux.test/api/vm/provider-vm-status"),
@@ -1907,6 +2277,36 @@ describe("VM REST auth", () => {
       kind: "desktop",
       capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
+    });
+  });
+
+  test("the machine detail read carries the author the list showed", async () => {
+    // The app merges a detail read into the row it already listed. Without
+    // this the merge overwrites a named author with nothing and the row flips
+    // to "Unknown" on click, which reads as a client bug.
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      id: "user-1",
+      displayName: "Ada Lovelace",
+    });
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-author",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      status: "running",
+      createdAt: 1_777_000_000_000,
+      createdByUserId: "user-1",
+    });
+    const response = await vmIdRoute.GET(
+      new Request("https://cmux.test/api/vm/provider-vm-author"),
+      { params: Promise.resolve({ id: "provider-vm-author" }) },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      id: "provider-vm-author",
+      createdBy: { userId: "user-1", displayName: "Ada Lovelace" },
     });
   });
 
@@ -1926,12 +2326,15 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm/provider-vm-team-1"),
       context,
     );
-    expect(getVm).toHaveBeenCalledWith({
+    // objectContaining, not an exact shape: the route also passes a model-plane
+    // revoker, which is a function and not worth pinning here. The file already
+    // uses this form for createVm.
+    expect(getVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
-    });
+    }));
 
     runVmWorkflow.mockResolvedValue(undefined);
     await DELETE(
@@ -1999,8 +2402,9 @@ describe("VM REST auth", () => {
       providerVmId: "provider-vm-team-1",
       callerPlanId: "pro",
       command: "true",
-      maxActiveVms: 50,
+      maxActiveVms: 5,
       timeoutMs: 30_000,
+      modelPlane: expect.objectContaining({}),
     });
   });
 

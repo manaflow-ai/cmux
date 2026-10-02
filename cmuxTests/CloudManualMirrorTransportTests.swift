@@ -1,3 +1,7 @@
+import CmuxCloud
+import CmuxCloudTui
+import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import Testing
 
@@ -12,6 +16,19 @@ import Testing
 /// it never invokes the ratatui renderer or inspects source text.
 @Suite
 struct CloudManualMirrorTransportTests {
+    @Test
+    func closingFixtureIsIdempotent() throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        fixture.close()
+        fixture.close()
+
+        let fd = Darwin.open("/dev/null", O_RDONLY)
+        #expect(fd >= 0)
+        fixture.close()
+        #expect(Darwin.fcntl(fd, F_GETFD) != -1)
+        Darwin.close(fd)
+    }
+
     @Test("Restored Cloud terminal failures render a copyable error")
     func restoredTerminalFailurePresentation() {
         let presentation = Workspace.cloudMaterializationFailurePresentation(
@@ -19,7 +36,8 @@ struct CloudManualMirrorTransportTests {
             reference: "operation=op trace=trace"
         )
 
-        #expect(presentation.title == "Cloud terminal could not start")
+        // The pane-centered failure card (9bf6cb8c94) uses the short title.
+        #expect(presentation.title == "Couldn’t open terminal")
         #expect(presentation.detail == "The Cloud terminal endpoint was unavailable.")
         #expect(!presentation.showsProgress)
         #expect(presentation.showsReconnectButton)
@@ -58,6 +76,34 @@ struct CloudManualMirrorTransportTests {
     }
 
     @Test
+    func replayFramesCarryTheDaemonParsersPendingSequence() throws {
+        let decoder = CloudTuiManualIOFrameDecoder()
+        let pending = Data("\u{1B}[1;3".utf8)
+        let snapshot = try #require(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(snapshot == .snapshot(
+            surfaceID: 17, columns: 80, rows: 24, bytes: Data("screen".utf8), pending: pending
+        ))
+        let resized = try #require(decoder.decode(try Self.line([
+            "event": "resized", "surface": 17, "cols": 100, "rows": 30,
+            "replay": Data("screen".utf8).base64EncodedString(),
+            "pending": pending.base64EncodedString(),
+        ])))
+        #expect(resized == .resized(
+            surfaceID: 17, columns: 100, rows: 30, bytes: Data("screen".utf8), pending: pending
+        ))
+        // A malformed pending sequence is a malformed replay, not an empty one.
+        #expect(decoder.decode(try Self.line([
+            "event": "vt-state", "surface": 17, "cols": 80, "rows": 24,
+            "data": Data("screen".utf8).base64EncodedString(),
+            "pending": 7,
+        ])) == nil)
+    }
+
+    @Test
     func attachFramesCarryTheSparseColorSidecarAsLocalOscBytes() throws {
         let decoder = CloudTuiManualIOFrameDecoder()
         let snapshot = try #require(decoder.decode(try Self.line([
@@ -76,7 +122,7 @@ struct CloudManualMirrorTransportTests {
                 "palette": ["1": "#112233", "300": "#000000", "9": "red", "15": "#ABCDEF"],
             ],
         ])))
-        guard case let .snapshot(surfaceID, _, _, bytes, colors) = snapshot else {
+        guard case let .snapshot(surfaceID, _, _, bytes, colors, _) = snapshot else {
             Issue.record("expected a snapshot frame, got \(snapshot)")
             return
         }
@@ -255,7 +301,7 @@ struct CloudManualMirrorTransportTests {
             ],
         ])
         let frame = try #require(CloudTuiManualIOFrameDecoder().decode(line))
-        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error) = frame else {
+        guard case let .response(requestID, ok, lease, capabilities, outcome, accepted, error, _) = frame else {
             Issue.record("expected a response frame")
             return
         }
@@ -607,7 +653,7 @@ struct CloudManualMirrorTransportTests {
         session.inputRouter.send(.bytes(Data("first".utf8)))
         session.reconnect(socketPath: fixture.socketPath)
         let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
-        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1"]]])
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": ["attach-identity-v1", "view-attachment-lease-v1", "terminal-pending-sequence-v1"]]])
         let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
         #expect(registration.cmd == "set-client-info")
         fixture.send(["id": registration.id, "ok": true, "data": [:]])
@@ -682,6 +728,7 @@ struct CloudManualMirrorTransportTests {
                     "view-attachment-lease-v1",
                     "view-attachment-detach-v1",
                     "attach-initial-size",
+                    "terminal-pending-sequence-v1",
                 ],
             ],
         ])

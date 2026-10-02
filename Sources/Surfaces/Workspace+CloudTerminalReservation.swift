@@ -1,7 +1,10 @@
+import CmuxCloud
 import Bonsplit
 import CmuxRemoteSession
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import Foundation
+import GhosttyKit
 
 /// Optimistic Cloud terminal creation: the pane appears the moment the user asks
 /// for it, the machine's terminal is created behind it, and the pane is adopted
@@ -13,6 +16,77 @@ import Foundation
 /// is shown inside the pane with Retry, never as a separate "starting" surface.
 @MainActor
 extension Workspace {
+    /// Indexes the optimistic panes reserved for terminals in one remote
+    /// workspace, by the exact terminal and tab each create receipt bound.
+    /// Device layout reconciliation builds this once per pass and uses the same
+    /// reservation for the pane it projects into and the pane it adopts, so the
+    /// terminal lands in its final pane instead of the focused tab first.
+    /// `cloudPendingCreations` is the only request-to-terminal record: an
+    /// unbound or sibling reservation never lends its pane or queued input to
+    /// another terminal.
+    func pendingCloudTerminalReservations(
+        remoteWorkspaceID: String
+    ) -> [CloudTerminalReservationKey: CloudTerminalPaneReservation] {
+        var index: [CloudTerminalReservationKey: CloudTerminalPaneReservation] = [:]
+        for reservation in cloudPendingCreations.values where reservation.remoteWorkspaceID == remoteWorkspaceID {
+            guard let resource = reservation.boundResourceID else { continue }
+            let key = CloudTerminalReservationKey(resource: resource, remoteTabID: reservation.remoteTabID)
+            if index[key] == nil { index[key] = reservation }
+        }
+        return index
+    }
+
+    /// Hands a device provider the native pane without requiring a Cloud
+    /// attachment object. Device mirrors share the optimistic reservation path,
+    /// but their attachment status has a different type from Cloud VMs.
+    func adoptPendingDeviceTerminalPane(
+        _ reservation: CloudTerminalPaneReservation,
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String,
+        resource: SurfaceResource
+    ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
+        guard reservation.machine == machine,
+              reservation.remoteWorkspaceID == remoteWorkspaceID,
+              reservation.boundResourceID == resource.id,
+              cloudPendingCreations[reservation.panelID] === reservation,
+              let panel = panels[reservation.panelID] as? TerminalPanel,
+              panel.surface.ioMode == .manualMirror else { return nil }
+        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        return (id, panel.id, panel.surface)
+    }
+
+    /// Binds a device create receipt to the reservation that owns its pane.
+    /// This identity is established before layout reconciliation can adopt the
+    /// pane, so a different terminal can never claim its queued input.
+    func bindPendingDeviceTerminal(
+        requestID: UUID,
+        remoteWorkspaceID: String,
+        resource: SurfaceResource
+    ) -> Bool {
+        guard let reservation = cloudPendingCreations.values.first(where: {
+            $0.requestID == requestID && $0.machine == resource.machine
+                && $0.remoteWorkspaceID == remoteWorkspaceID
+        }) else { return false }
+        let tabID = resource.remoteViews?.first(where: { $0.workspace.id == remoteWorkspaceID })?.tabID
+        reservation.bind(sourcePlacement: CloudTerminalSourcePlacement(
+            machine: reservation.machine,
+            resource: resource,
+            remoteWorkspaceID: remoteWorkspaceID,
+            remoteTabID: tabID,
+            pendingCreation: reservation.sourcePlacement.pendingCreation
+        ))
+        return true
+    }
+
+    /// A device may adopt this pane, and its router sends bytes only, so
+    /// Ghostty must encode Enter, arrows and the other named keys itself.
+    static func reservationKeyNameResolver(
+        for machine: SurfaceMachineID
+    ) -> (@MainActor @Sendable (ghostty_input_key_s) -> String?)? {
+        if machine.isDevice { return nil }
+        return { event in RemoteTmuxKeyName(inputEvent: event)?.value }
+    }
+
     func reserveRestoredCloudTerminalPane(
         snapshot: SessionPanelSnapshot,
         projection: SurfaceProjectionRecord,
@@ -23,7 +97,8 @@ extension Workspace {
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+            keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine),
+            allowsRemoteClipboardWrites: projection.resource.machine.cloudMachineID != nil
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         do {
@@ -38,6 +113,11 @@ extension Workspace {
                 workspaceID: id,
                 panelID: panelID,
                 machine: projection.resource.machine,
+                attachmentPlacement: SurfaceResourcePlacement(
+                    resource: projection.resource,
+                    remoteWorkspaceID: projection.remoteWorkspaceID,
+                    remoteTabID: projection.remoteTabID
+                ),
                 inputRelay: relay
             )
             return panelID
@@ -51,34 +131,40 @@ extension Workspace {
     func reserveCloudTerminalPane(
         machine: SurfaceMachineID,
         at destination: SurfaceDestination,
-        focus: Bool
+        focus: Bool,
+        sourcePlacement: CloudTerminalSourcePlacement? = nil,
+        attachmentPlacement: SurfaceResourcePlacement? = nil,
+        requestID: UUID? = nil
     ) -> CloudTerminalPaneReservation? {
         guard !isRetiredFromOwningTabManager,
+              sourcePlacement.map({ $0.machine == machine }) ?? true,
+              attachmentPlacement.map({ $0.resource.machine == machine }) ?? true,
               surfaceOwnershipPolicy.rejection(for: machine) == nil else { return nil }
         let relay = CloudOptimisticInputRelay()
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
-            keyNameResolver: { RemoteTmuxKeyName(inputEvent: $0)?.value }
+            keyNameResolver: Self.reservationKeyNameResolver(for: machine),
+            allowsRemoteClipboardWrites: machine.cloudMachineID != nil
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
-        let panelID: UUID
+        let reservation = CloudTerminalPaneReservation(
+            workspaceID: id, panelID: panel.id, machine: machine,
+            sourcePlacement: sourcePlacement, attachmentPlacement: attachmentPlacement,
+            inputRelay: relay, requestID: requestID
+        )
+        // Insertion can synchronously publish focus/selection. Establish Cloud
+        // identity first so a reentrant action cannot observe a local surface.
+        cloudPendingCreations[panel.id] = reservation
         do {
-            // Creation is asynchronous, but the pane is already usable as a
-            // terminal surface. Keep the tab strip quiet while the remote
-            // attachment resolves; failures are rendered in the pane itself.
-            panelID = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
+            _ = try insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
         } catch {
-            #if DEBUG
-            cmuxDebugLog("cloud.pane.reserveFailed machine=\(machine.rawValue) error=\(String(reflecting: error))")
-            #endif
+            cloudPendingCreations.removeValue(forKey: panel.id)
+            relay.discard()
+            panel.close()
             return nil
         }
-        // A focused creation is user input demand. Start its local manual
-        // renderer before remote creation; keep hidden/restored reservations
-        // on normal admission so a restore cannot eagerly allocate every pane.
+        guard cloudPendingCreations[panel.id] === reservation else { return nil }
         if focus { panel.surface.requestInputDemandSurfaceStartIfNeeded() }
-        let reservation = CloudTerminalPaneReservation(workspaceID: id, panelID: panelID, machine: machine, inputRelay: relay)
-        cloudPendingCreations[panelID] = reservation
         return reservation
     }
 
@@ -93,6 +179,7 @@ extension Workspace {
     ) -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface)? {
         guard !isRetiredFromOwningTabManager,
               cloudPendingCreations[reservation.panelID] === reservation,
+              attachment.machineID == reservation.machine.tuiMachineID,
               let panel = panels[reservation.panelID] as? TerminalPanel,
               panel.surface.ioMode == .manualMirror else { return nil }
         Self.bindCloudManualMirrorCallbacks(
@@ -112,12 +199,21 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        if let resource = SurfaceCatalog.shared.resource(forPanel: adoptedPanelID) {
+            reservation.creationReceipt.finish(.success(resource))
+        }
         reservation.retry = nil
         reservation.cancel = nil
         if adoptedPanelID != reservation.panelID {
+            // The user was in the reserved pane, so they follow the terminal it
+            // was waiting for rather than landing on a neighbor.
+            let handsOffFocus = focusedPanelId == reservation.panelID
             reservation.inputRelay.discard()
             SurfaceCatalog.shared.withProjectionEndReason(for: [reservation.panelID], reason: .replaced) {
                 _ = closePanel(reservation.panelID, force: true)
+            }
+            if handsOffFocus, panels[adoptedPanelID] != nil {
+                focusPanel(adoptedPanelID)
             }
         }
     }
@@ -126,6 +222,7 @@ extension Workspace {
     /// explain inside it, with Reconnect wired to the same request's retry.
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
+        reservation.creationReceipt.finish(.failure(error))
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -154,6 +251,7 @@ extension Workspace {
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
         reservation.inputRelay.discard()
+        reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
         reservation.cancel = nil
         reservation.retry = nil
@@ -167,6 +265,7 @@ extension Workspace {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
         reservation.inputRelay.discard()
+        reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
         reservation.cancel = nil
         reservation.retry = nil

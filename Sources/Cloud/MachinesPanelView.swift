@@ -1,56 +1,65 @@
-import CmuxCloudMachines
+import CmuxCloudBannerCore
+import CmuxCloud
 import AppKit
+import CmuxCloudMachines
 import CmuxSettings
+import CmuxSurfaceCatalogModel
 import SwiftUI
 
-enum CloudVMPanelAuthState: Equatable {
-    case checking
-    case signedOut
-    case signedIn
-
-    static func resolve(isAuthenticated: Bool, isWorkingOnAuth: Bool) -> Self {
-        if isAuthenticated { return .signedIn }
-        if isWorkingOnAuth { return .checking }
-        return .signedOut
-    }
-
-    /// Whether a native Cloud VM operation may start in this state.
-    var allowsAuthenticatedOperation: Bool {
-        self == .signedIn
-    }
-}
-
+/// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
+/// tree (machine → Workspaces → terminals, Ports, Displays, Terminals). Matches the
+/// Vault/Feed visual language — compact 13pt rows, full-width hover
+/// backgrounds, chrome-pill control bar. Outline rows receive immutable
+/// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
+/// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel: MachinesPanelViewModel
+    @StateObject var viewModel: MachinesPanelViewModel
+    @State private var devicesModel: DevicesPanelViewModel
+    @State private var discoveryManaged = ManagedDevicePolicy().isDeviceDiscoveryDisabled
+    @State private var incomingAccessManaged = ManagedDevicePolicy().isIncomingDeviceAccessDisabled
+    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
+    private var cloudBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
     @State private var expansionStore = CloudTreeExpansionStore()
+    /// The explicit Cloud VPN's state (`cmux vpn up`), shown as a banner while
+    /// it is starting, waiting for the extension approval, up, or failed.
     @State private var tunnelStatus = CloudTunnelStatusModel()
     @State private var devBackend = DevBackendStartup()
+    /// The main workspace selection is the authority for the tree projection.
+    /// Keep this request window-local so another window cannot move this tree.
+    @State private var selectionReveal: CloudTreeRevealRequest?
+    @State private var bannerDismissals: CloudBannerDismissalStore
+    /// The tree's visual preset; the debug gallery's "Use" buttons write this,
+    /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
-    @State private var bannerDismissals = CloudBannerDismissalStore(defaults: .standard)
     let chromeBackgroundColor: NSColor
     var tabManager: TabManager? = nil
-
+    let teamPickerPresentation: CloudTeamPickerPresentation?
 
     init(
         chromeBackgroundColor: NSColor,
-        defaultMachineStore: DefaultCloudMachineStore,
+        viewModel: MachinesPanelViewModel? = nil,
         machinePinStore: CloudMachinePinStore? = nil,
-        tabManager: TabManager? = nil
+        devicesModel: DevicesPanelViewModel? = nil,
+        tabManager: TabManager? = nil,
+        teamPickerPresentation: CloudTeamPickerPresentation? = nil
     ) {
         self.chromeBackgroundColor = chromeBackgroundColor
         self.tabManager = tabManager
-        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(
-            defaultMachineStore: defaultMachineStore, machinePinStore: machinePinStore
-        ))
-    }
-
-    init(chromeBackgroundColor: NSColor, machinePinStore: CloudMachinePinStore? = nil, tabManager: TabManager? = nil) {
-        self.init(
-            chromeBackgroundColor: chromeBackgroundColor,
-            defaultMachineStore: DefaultCloudMachineStore(defaults: .standard),
-            machinePinStore: machinePinStore,
-            tabManager: tabManager
+        self.teamPickerPresentation = teamPickerPresentation
+        _bannerDismissals = State(
+            initialValue: AppDelegate.shared?.cloudBannerDismissalStore
+                ?? CloudBannerDismissalStore(defaults: .standard)
         )
+        _viewModel = StateObject(wrappedValue: viewModel ?? MachinesPanelViewModel(
+            machinePinStore: machinePinStore,
+            localWorkspacesProvider: { [weak tabManager] in
+                guard let tabManager else { return [] }
+                return tabManager.tabs.map {
+                    CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == tabManager.selectedTabId)
+                }
+            }
+        ))
+        _devicesModel = State(initialValue: devicesModel ?? DevicesPanelViewModel())
     }
 
     private var accountFlow: HostAccountFlow? {
@@ -60,8 +69,67 @@ struct MachinesPanelView: View {
     private var authState: CloudVMPanelAuthState {
         CloudVMPanelAuthState.resolve(
             isAuthenticated: accountFlow?.isAuthenticated == true,
+            // Keep the embedded sign-in screen mounted while the browser is
+            // waiting for the callback. Only session restore/completion owns
+            // the panel-wide checking state.
             isWorkingOnAuth: accountFlow?.isCompletingSignIn == true
         )
+    }
+
+    private var includesDevices: Bool {
+        return DevicesFeature.isEnabled && (devicesModel.preferences?.discoveryEnabled ?? DevicesFeature.localOptIn(defaults: .standard))
+    }
+
+    private var includesCloud: Bool {
+        _ = cloudBetaEnabled
+        return CloudMachinesFeature.isEnabled
+    }
+
+    /// Keep every New Cloud Machine affordance on the same plan gate. A plan
+    /// that has not loaded yet stays available so the shared presenter can
+    /// resolve it; once loaded, a free plan at its ceiling shows its upgrade
+    /// guidance through the existing empty-state action instead.
+    private var canCreateCloudMachine: Bool {
+        guard includesCloud else { return false }
+        guard let plan = viewModel.plan else { return true }
+        return !plan.isAtLimit || plan.isPaidPlan
+    }
+
+    /// The panel replaces its cached tree as soon as a team mutation starts;
+    /// waiting for the scope observer would leave the previous team's rows
+    /// visible while the create or switch is still in flight.
+    private var isTeamChangePending: Bool {
+        accountFlow?.isSelectingTeam == true
+            || accountFlow?.isCreatingTeam == true
+            || viewModel.awaitingCatalogScope
+    }
+
+    private var teamScopeLoadingLabel: String {
+        if accountFlow?.isCreatingTeam == true {
+            return String(localized: "cloud.teamPicker.creating", defaultValue: "Creating team…")
+        }
+        return String(localized: "cloud.teamPicker.switching", defaultValue: "Switching teams…")
+    }
+
+    private var treeSource: CloudTreeMachineSource { .cloudWithDevicesSection }
+
+    private var selectedCloudIdentity: String? {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else { return nil }
+        return [machineID, workspace.cloudVMBinding?.remoteWorkspaceID ?? ""].joined(separator: "\u{1f}")
+    }
+
+    private var treeSnapshot: SurfaceCatalogSnapshot {
+        viewModel.visibleCatalog.applyingDeviceVisibility(
+            includesCloud: includesCloud,
+            includesDevices: includesDevices,
+            hiddenMacIDs: devicesModel.preferences?.hiddenMacIDs ?? []
+        )
+    }
+
+    private func refreshMachines() {
+        if includesCloud { viewModel.refresh(tree: true) }
+        if includesDevices { devicesModel.refresh() }
     }
 
     var body: some View {
@@ -76,23 +144,34 @@ struct MachinesPanelView: View {
             }
         }
         .onAppear { syncPolling(for: authState) }
+        .onAppear { refreshSelectionReveal() }
+        .onChange(of: selectedCloudIdentity) { _, _ in refreshSelectionReveal() }
+        .onChange(of: devicesModel.preferences?.discoveryEnabled) { _, _ in syncPolling(for: authState) }
+        .onChange(of: cloudBetaEnabled) { _, _ in syncPolling(for: authState) }
+        .onReceive(NotificationCenter.default.publisher(for: DeviceSurfaceProviderRegistry.revealDeviceNotification)) { _ in
+            devicesModel.consumePendingReveal()
+        }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
             viewModel.machinePinStore?.refreshScope()
         }
         // Pins are scoped per account and team; a switch re-reads the scope and
         // the fleet so the tree never shows another scope's pins.
-        .onChange(of: accountFlow?.selectedTeamID) { _, _ in
+        .onChange(of: accountFlow?.confirmedTeamID) { _, _ in
             viewModel.refreshAccountScope()
         }
         .onChange(of: accountFlow?.currentIdentity?.id) { _, _ in
             viewModel.refreshAccountScope()
         }
-        .onChange(of: viewModel.defaultMachineStore?.machineID) { _, id in
-            if let id { viewModel.setDefaultMachine(id: id) }
-        }
         .onDisappear {
             viewModel.stopPolling()
+        }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                discoveryManaged = policy.isDeviceDiscoveryDisabled
+                incomingAccessManaged = policy.isIncomingDeviceAccessDisabled
+            }
         }
         .task {
             await tunnelStatus.observe(AppDelegate.shared?.cloudTunnelCoordinator)
@@ -104,14 +183,48 @@ struct MachinesPanelView: View {
         .accessibilityIdentifier("CloudMachinesPanel")
     }
 
+    /// Project the selected workspace by stable machine/workspace identity.
+    /// Names are intentionally absent: duplicate workspace names are valid.
+    private func refreshSelectionReveal() {
+        guard let workspace = tabManager?.selectedWorkspace,
+              let machineID = workspace.cloudVMID else {
+            selectionReveal = nil
+            return
+        }
+        let machine = SurfaceMachineID.cloud(machineID)
+        let nodeID: String
+        if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
+           !remoteWorkspaceID.isEmpty {
+            nodeID = CloudTreeNodeBuilder.nodeID(workspace: remoteWorkspaceID, machine: machine)
+        } else {
+            nodeID = CloudTreeNodeBuilder.nodeID(machine: machine)
+        }
+        selectionReveal = CloudTreeRevealRequest(token: UUID(), nodeID: nodeID)
+    }
+
     @ViewBuilder
     private var authenticatedContent: some View {
-        controlBar
-        MachinesPanelBanners(
-            tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
-            bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
-        )
-        if let status = devBackend.status, !status.isReady {
+        if includesCloud {
+            controlBar
+            CloudNewMachineButton {
+                if canCreateCloudMachine {
+                    _ = AppDelegate.shared?.performNewCloudMachineAction(
+                        tabManager: tabManager,
+                        preferredWindow: tabManager?.window,
+                        debugSource: "cloudTree.newMachineButton"
+                    )
+                } else {
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
+                }
+            }
+        }
+        if includesCloud {
+            MachinesPanelBanners(
+                tunnelBanner: tunnelStatus.banner, plan: viewModel.plan,
+                bannerDismissals: bannerDismissals, chromeBackgroundColor: chromeBackgroundColor
+            )
+        }
+        if includesCloud, let status = devBackend.status, !status.isReady {
             VStack(spacing: 12) {
                 if status.isFailure {
                     Image(systemName: "exclamationmark.icloud")
@@ -129,91 +242,88 @@ struct MachinesPanelView: View {
             .padding(24)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .accessibilityIdentifier("CloudDevBackendStartup")
+        } else if isTeamChangePending {
+            teamScopeLoading
         } else {
             content
+            if includesCloud {
+                CloudRefreshMachinesButton(
+                    isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+                    action: refreshMachines
+                )
+            }
         }
+    }
+
+    private var teamScopeLoading: some View {
+        VStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(teamScopeLoadingLabel)
+                .cmuxFont(size: 12)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("CloudMachinesTeamLoading")
     }
     private func syncPolling(for state: CloudVMPanelAuthState) {
         switch state {
         case .signedIn:
-            viewModel.startPolling()
+            if includesCloud {
+                viewModel.startPolling()
+            } else {
+                viewModel.stopPolling()
+                viewModel.resetForAuthTransition()
+            }
+            if includesDevices { devicesModel.start() }
+            viewModel.readCatalog()
         case .checking, .signedOut:
             viewModel.stopPolling()
             viewModel.resetForAuthTransition()
         }
     }
 
-    private var controlBar: some View {
-        HStack(spacing: 6) {
-            Group {
-                if let operation = viewModel.activeOperation {
-                    HStack(spacing: 5) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text(operation)
-                            .cmuxFont(size: 11)
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                } else if let error = viewModel.lastErrorDescription, !viewModel.machines.isEmpty,
-                          !bannerDismissals.isDismissed(id: "machines.stale", signature: error) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
-                            .cmuxFont(size: 11)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundColor(.orange.opacity(0.9))
-                    .help(viewModel.lastErrorDescription ?? "")
-                    .cloudErrorCopyMenu(viewModel.lastErrorDescription)
-                    CloudBannerDismissButton {
-                        bannerDismissals.dismiss(id: "machines.stale", signature: error)
-                    }
-                } else if let treeError = viewModel.treeErrorDescription {
-                    // The message itself, not a generic label: a failed tree verb (New
-                    // Terminal Here, Open Shell, …) otherwise reads as a dead menu item,
-                    // with the only explanation hidden behind a hover tooltip.
-                    HStack(alignment: .firstTextBaseline, spacing: 5) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 10, weight: .semibold))
-                        Text(treeError)
-                            .cmuxFont(size: 11)
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                    }
-                    .foregroundColor(.orange.opacity(0.9))
-                    .help(treeError)
-                    .cloudErrorCopyMenu(treeError)
-                } else if let plan = viewModel.plan {
-                    MachinePlanMeter(plan: plan)
-                }
-            }
-            // Bar leading is 8pt; +4 puts the leading text at 12pt — the same
-            // column as the mode-bar pill glyphs (4pt bar + 8pt pill inset)
-            // and the Files header icon.
-            .padding(.leading, 4)
-            Spacer(minLength: 4)
-            cloudAgentMenu
-            MachinesChromeIconButton(
-                symbolName: "arrow.clockwise",
-                accessibilityLabel: String(localized: "machines.refresh", defaultValue: "Refresh Machines"),
-                isBusy: viewModel.isLoading
-            ) {
-                viewModel.refresh(tree: true)
-            }
-            MachinesChromeIconButton(
-                symbolName: "plus",
-                accessibilityLabel: String(localized: "machines.new", defaultValue: "New Machine"),
-                isBusy: false
-            ) {
-                requestNewMachine()
-            }
+    private var cloudStatus: some View {
+        MachinesCloudStatus(
+            listStatus: toolbarListStatus,
+            listError: viewModel.lastErrorDescription,
+            treeError: visibleTreeErrorDescription,
+            onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
+            onDismissTreeError: { error in
+                bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
+            },
+            performListStatusAction: performListStatusAction
+        )
+    }
+
+    private var visibleTreeErrorDescription: String? {
+        guard let error = viewModel.treeErrorDescription,
+              !bannerDismissals.isDismissed(id: "machines.tree-error", signature: error) else {
+            return nil
         }
-        .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+        return error
+    }
+
+    /// Only while cached machines stay on screen; a dismissed failure stays
+    /// hidden until its error changes.
+    private var toolbarListStatus: MachineListStatus? {
+        guard !viewModel.visibleMachines.isEmpty, let status = viewModel.listStatus else { return nil }
+        if case .failed = status, let error = viewModel.lastErrorDescription,
+           bannerDismissals.isDismissed(id: "machines.stale", signature: error) { return nil }
+        return status
+    }
+
+    /// The panel's complete header, including its persistent recovery status.
+    var controlBar: some View {
+        CloudTeamPickerHeader(
+            accountFlow: accountFlow,
+            presentation: teamPickerPresentation,
+            chromeBackgroundColor: chromeBackgroundColor,
+            isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
+            onRefresh: refreshMachines,
+            onNewMachine: requestNewMachine,
+            status: { cloudStatus }
+        )
     }
 
     @ViewBuilder
@@ -224,7 +334,17 @@ struct MachinesPanelView: View {
         // catalog previously left a blank panel for a signed-in account with
         // no machines, because the catalog's This Mac entry counted as a row
         // the tree never drew.
-        if CloudTreeNodeBuilder.isEmpty(machines: viewModel.machines, pendingCreates: viewModel.pendingCreates, snapshot: viewModel.catalog) {
+        if includesCloud && includesDevices && viewModel.visibleMachines.isEmpty, let status = viewModel.listStatus {
+            VStack(spacing: 0) {
+                MachinesListStatusNotice(status: status, perform: performListStatusAction)
+                machinesList
+            }
+        } else if CloudTreeNodeBuilder.isEmpty(
+            machines: includesCloud ? viewModel.visibleMachines : [],
+            pendingCreates: includesCloud ? viewModel.pendingCreates : [],
+            snapshot: treeSnapshot,
+            source: treeSource
+        ) {
             emptyState
         } else {
             machinesList
@@ -311,151 +431,6 @@ struct MachinesPanelView: View {
         }
     }
 
-    @ViewBuilder
-    private var unreachableState: some View {
-        Image(systemName: "cloud.slash")
-            .font(.system(size: 26, weight: .light))
-            .foregroundColor(.secondary.opacity(0.55))
-        Text(String(localized: "machines.unavailable.title", defaultValue: "Cloud is unreachable"))
-            .cmuxFont(size: 13)
-            .foregroundColor(.primary.opacity(0.85))
-        Text(String(
-            localized: "machines.unavailable.subtitle",
-            defaultValue: "Your machines are still there. cmux couldn\u{2019}t reach the Cloud service just now; it retries on its own."
-        ))
-        .cmuxFont(size: 12)
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
-        Button {
-            viewModel.refresh()
-        } label: {
-            Text(String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
-                .cmuxFont(size: 12)
-        }
-        .padding(.top, 2)
-    }
-
-    /// HTTP 401 from the Cloud service while the app still holds a session:
-    /// retrying can never fix it, so route straight to a fresh sign-in.
-    @ViewBuilder
-    private var sessionRejectedState: some View {
-        Image(systemName: "person.crop.circle.badge.exclamationmark")
-            .font(.system(size: 26, weight: .light))
-            .foregroundColor(.secondary.opacity(0.55))
-        Text(String(localized: "machines.sessionRejected.title", defaultValue: "Sign-in needs a refresh"))
-            .cmuxFont(size: 13, weight: .semibold)
-            .foregroundColor(.primary.opacity(0.85))
-        Text(String(
-            localized: "machines.sessionRejected.subtitle",
-            defaultValue: "The Cloud service no longer accepts this Mac\u{2019}s saved session. Sign out and sign back in to reconnect."
-        ))
-        .cmuxFont(size: 12)
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
-        Button {
-            signOutForFreshSignIn()
-        } label: {
-            Text(String(localized: "machines.sessionRejected.signInAgain", defaultValue: "Sign Out & Sign In Again"))
-                .cmuxFont(size: 12)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-        .padding(.top, 2)
-        .accessibilityIdentifier("CloudMachinesSessionRejectedSignInButton")
-    }
-
-    /// HTTP 402: the plan gates Cloud access, so the fix is an upgrade, not a
-    /// retry and not a sign-in.
-    @ViewBuilder
-    private var requiresProState: some View {
-        Image(systemName: "sparkles")
-            .font(.system(size: 26, weight: .light))
-            .foregroundColor(.secondary.opacity(0.55))
-        Text(String(localized: "machines.requiresPro.title", defaultValue: "Cloud machines need cmux Pro"))
-            .cmuxFont(size: 13, weight: .semibold)
-            .foregroundColor(.primary.opacity(0.85))
-        Text(String(
-            localized: "machines.requiresPro.subtitle",
-            defaultValue: "This account\u{2019}s plan doesn\u{2019}t include Cloud machine access. Upgrade to create and reconnect machines."
-        ))
-        .cmuxFont(size: 12)
-        .foregroundColor(.secondary)
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 24)
-        Button {
-            ProUpgradePresenter.present(source: .machinesPanelRequiresPro)
-        } label: {
-            Text(String(localized: "machines.requiresPro.upgrade", defaultValue: "Upgrade to Pro"))
-                .cmuxFont(size: 12)
-        }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.small)
-        .padding(.top, 2)
-        .accessibilityIdentifier("CloudMachinesRequiresProUpgradeButton")
-    }
-
-    /// Server-rejected sessions can only be fixed by re-authenticating; the
-    /// sign-out flips the pane to the sign-in gate, whose flow mints a fresh
-    /// session.
-    private func signOutForFreshSignIn() {
-        guard let accountFlow else { return }
-        Task { await accountFlow.signOut() }
-    }
-
-    /// Cloud-agent launcher: each agent entry opens a local terminal running
-    /// that agent preloaded with the cmux Cloud skill; Copy Cloud Prompt puts
-    /// the same kickoff prompt on the clipboard for any other terminal.
-    private var cloudAgentMenu: some View {
-        Menu {
-            ForEach(CloudAgentSkillLauncher.CodingAgent.allCases, id: \.rawValue) { agent in
-                Button(agent.displayName) {
-                    launchCloudAgent(agent)
-                }
-            }
-            Divider()
-            Button(String(localized: "machines.agent.copyPrompt", defaultValue: "Copy Cloud Prompt")) {
-                runCloudAgentAction { try CloudAgentSkillLauncher.copyPrompt() }
-            }
-        } label: {
-            Image(systemName: "sparkles")
-                .font(.system(size: 11, weight: .medium))
-                .frame(width: 22, height: 20)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 22, height: 20)
-        .foregroundColor(.secondary)
-        .help(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityLabel(String(localized: "machines.agent.menuLabel", defaultValue: "Open Cloud Agent"))
-        .accessibilityIdentifier("CloudMachinesAgentMenu")
-    }
-
-    private func runCloudAgentAction(_ action: () throws -> Void) {
-        do {
-            try action()
-        } catch {
-            viewModel.noteTreeFailure(error.localizedDescription)
-        }
-    }
-
-    private func launchCloudAgent(_ agent: CloudAgentSkillLauncher.CodingAgent) {
-        viewModel.beginOperation(String(
-            format: String(localized: "machines.agent.operation.starting", defaultValue: "Starting %@\u{2026}"),
-            agent.displayName
-        ))
-        Task { @MainActor [weak viewModel] in
-            do {
-                _ = try await CloudAgentSkillLauncher.openAgent(agent)
-            } catch {
-                viewModel?.noteTreeFailure(error.localizedDescription)
-            }
-            viewModel?.endOperation()
-        }
-    }
-
     private func requestNewMachine() {
         NewMachineSheetPresenter.shared.presentNewMachine(
             plan: viewModel.plan,
@@ -463,14 +438,14 @@ struct MachinesPanelView: View {
             lockedMemoryOptionsMb: viewModel.lockedMemoryOptionsMb,
             memoryUpgradePlanId: viewModel.memoryUpgradePlanId,
             memoryUpgradePlansByMb: viewModel.memoryUpgradePlansByMb,
-            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
+            vcpusByMemoryMb: viewModel.vcpusByMemoryMb,
+            preferredWindow: tabManager?.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
             coordinator: viewModel.createCoordinator
         )
     }
-    /// Builds the snapshot-bound Cloud tree and binds its row actions.
+    /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
         var machineActions = MachineRowActions.bound(
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in
                 viewModel?.endOperation()
                 viewModel?.refresh(tree: true)
@@ -481,36 +456,68 @@ struct MachinesPanelView: View {
         // Max-only size and wait for a server rejection.
         let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
         machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 3) / 4) }
-        machineActions.setDefault = { [weak viewModel] id in
-            viewModel?.setDefaultMachine(id: id)
-        }
-        machineActions.setPinned = { [weak viewModel] id, pinned in
-            viewModel?.setMachinePinned(pinned, id: id)
-        }
+        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
+        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
+        viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        let nodeActions = CloudTreeNodeActions.bound(
+        var nodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager?.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                tabManager?.selectedTabId = workspaceID
             },
-            onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { [weak viewModel] in viewModel?.refresh(tree: true) }, refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) }
+            refresh: { refreshMachines() },
+            refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
+            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
         )
+        nodeActions.needsDevicePairing = { [weak devicesModel] machine in
+            devicesModel?.needsPairing(machine) ?? false
+        }
+        nodeActions.hideDevice = { [weak devicesModel] machine in
+            guard let instance = machine.deviceInstance else { return }
+            Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
+        }
+        nodeActions.setDeviceDiscovery = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setDiscoveryEnabled(enabled) }
+        }
+        nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
+        }
+        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
+        nodeActions.newMachine = { [weak tabManager] in
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                tabManager: tabManager,
+                preferredWindow: tabManager?.window,
+                debugSource: "cloudTree.cloudMachinesSection"
+            )
+        }
         return CloudTreeOutlineView(
-            machines: viewModel.sidebarMachines,
-            pendingCreates: viewModel.pendingCreates, adoptedOperationIDs: viewModel.adoptedOperationIDs,
-            snapshot: viewModel.catalog,
+            machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
+            pendingCreates: includesCloud ? viewModel.pendingCreates : [],
+            adoptedOperationIDs: includesCloud ? viewModel.adoptedOperationIDs : [:],
+            snapshot: treeSnapshot,
             localWorkspaces: viewModel.localWorkspaces,
             unreadTerminalIDs: viewModel.unreadTerminalIDs,
             machineActions: machineActions,
             nodeActions: nodeActions,
             expansionStore: expansionStore, organizationStore: SurfaceCatalog.shared.sidebarOrganization, organizationState: SurfaceCatalog.shared.sidebarOrganization.state,
             style: CloudTreeStyle.preset(id: cloudTreeStyleID) ?? .defaultStyle,
-            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) }
+            onDragStateChange: { [weak viewModel] dragging in viewModel?.setTreeDragging(dragging) },
+            source: treeSource,
+            devicesSection: CloudTreeDevicesSection(
+                discoveryEnabled: includesDevices,
+                incomingAccessEnabled: devicesModel.preferences?.incomingAccessEnabled ?? false,
+                discoveryManaged: discoveryManaged,
+                incomingAccessManaged: incomingAccessManaged, available: DevicesFeature.isAvailable()
+            ),
+            showsCloudVPNWarning: tunnelStatus.status?.state == .off,
+            canCreateCloudMachine: canCreateCloudMachine,
+            cloudMachinesUsage: includesCloud ? viewModel.visibleUsage : nil,
+            reveal: devicesModel.revealRequest ?? selectionReveal,
+            creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
     }
@@ -519,19 +526,37 @@ struct MachinesPanelView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Spacer()
-            if viewModel.hasLoadedOnce, viewModel.lastErrorDescription != nil {
-                // The list failed to load: say the true thing instead of
-                // pretending the fleet is empty. A server-rejected session and
-                // a plan gate each get their real fix; only transient-shaped
-                // failures keep the retry-first "unreachable" copy.
-                switch viewModel.listProblem ?? .unreachable {
-                case .sessionRejected:
-                    sessionRejectedState
-                case .requiresPro:
-                    requiresProState
-                case .unreachable:
-                    unreachableState
+            if !includesCloud {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 30, weight: .light))
+                    .foregroundStyle(.secondary)
+                Text(String(localized: "devices.empty.title", defaultValue: "No other Macs yet"))
+                    .font(.callout.weight(.medium))
+                Text(String(localized: "devices.empty.help", defaultValue: "Sign in to cmux on another Mac and make it discoverable in Settings › Devices."))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+                Button(String(localized: "devices.settings", defaultValue: "Devices Settings…")) {
+                    SettingsWindowPresenter.show(navigationTarget: .computers)
                 }
+            } else if let status = viewModel.listStatus {
+                // Say the true thing instead of pretending the fleet is empty:
+                // offline, reconnecting, or the failure with its real fix.
+                MachinesListStatusEmptyState(status: status, perform: performListStatusAction)
+            } else if viewModel.awaitingCatalogScope {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(
+                        localized: "cloud.teamPicker.switching",
+                        defaultValue: "Switching teams…"
+                    ))
+                    .cmuxFont(size: 12)
+                    .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("CloudMachinesTeamLoading")
             } else if viewModel.hasLoadedOnce {
                 Image(systemName: "cloud")
                     .font(.system(size: 30, weight: .light))
@@ -558,7 +583,7 @@ struct MachinesPanelView: View {
                 .padding(.top, 2)
                 if let plan = viewModel.plan, !plan.isPaidPlan {
                     // The upgrade nudge under the create button: same Pro flow
-                    // as the meter's at-limit hint and the ＋ at the ceiling.
+                    // as the header count's at-limit tooltip and the ＋ at the ceiling.
                     Button {
                         ProUpgradePresenter.present(source: .machinesPanelUpgradeNudge)
                     } label: {
@@ -581,7 +606,6 @@ struct MachinesPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("CloudMachinesEmptyState")
-        .cloudErrorCopyMenu(viewModel.lastErrorDescription)
     }
 
     /// Free plans: "Upgrade to use more than 1 machine" — the ceiling plus the
@@ -607,10 +631,10 @@ struct MachinesPanelView: View {
         )
     }
 
-    /// Paid plans: "Your plan includes 50 machines" under the create button,
-    /// so the empty state answers "what do I get" before the meter shows a
-    /// count. The uncapped wording only appears when an operator lifted the
-    /// cap.
+    /// Paid plans: "Your plan includes 5 machines" under the create button,
+    /// so the empty state answers "what do I get" before the Cloud Machines
+    /// header shows a count. The uncapped wording only appears when an
+    /// operator lifted the cap.
     private func planIncludesLabel(_ plan: MachinePlanSnapshot) -> String {
         guard let maxActiveVms = plan.maxActiveVms else {
             return String(
@@ -628,135 +652,5 @@ struct MachinesPanelView: View {
             format: String(localized: "machines.empty.planIncludes", defaultValue: "Your plan includes %d machines"),
             maxActiveVms
         )
-    }
-}
-
-
-/// "2 of 3" plan meter. Turns into the upgrade hint when a free plan hits its
-/// machine ceiling — the moment of intent, and the only place we mention it.
-private struct MachinePlanMeter: View {
-    let plan: MachinePlanSnapshot
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Text(meterText)
-                .cmuxFont(size: 11, monospacedDigit: true)
-                .foregroundColor(plan.isAtLimit ? Color.orange : .secondary)
-            if plan.isAtLimit && !plan.isPaidPlan {
-                Text(String(localized: "machines.meter.upgrade", defaultValue: "Upgrade for more"))
-                    .cmuxFont(size: 11)
-                    .foregroundColor(.orange)
-            }
-        }
-        .help(meterHelp)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var meterText: String { plan.countLabel }
-
-    private var meterHelp: String {
-        if plan.isAtLimit && !plan.isPaidPlan, let maxActiveVms = plan.maxActiveVms {
-            if plan.isSingleMachinePlan {
-                return String(
-                    localized: "machines.meter.help.atLimit.single",
-                    defaultValue: "Your plan includes 1 machine. Upgrade to create more."
-                )
-            }
-            return String(
-                localized: "machines.meter.help.atLimit",
-                defaultValue: "Your plan includes %d machines. Upgrade to create more."
-            ).replacingOccurrences(of: "%d", with: String(maxActiveVms))
-        }
-        return String(
-            localized: "machines.meter.help",
-            defaultValue: "Machines on your plan. Sleeping machines cost nothing."
-        )
-    }
-}
-
-struct MachinesFreeAccessBanner: View {
-    let text: String
-    let isExpired: Bool
-    let windowDays: Int
-    let backgroundColor: NSColor
-    let onDismiss: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 5) {
-            Button {
-                ProUpgradePresenter.present(source: .machinesPanelTrialBanner)
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: isExpired ? "lock.fill" : "clock")
-                        .font(.system(size: 10, weight: .semibold))
-                    Text(text)
-                        .cmuxFont(size: 11, monospacedDigit: true)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    Text(String(localized: "machines.freeAccess.upgrade", defaultValue: "Upgrade"))
-                        .cmuxFont(size: 11)
-                        .underline(isHovered)
-                }
-            }
-            .buttonStyle(.plain)
-            .foregroundColor(isExpired ? Color.orange : .secondary)
-            .accessibilityLabel(text)
-            .layoutPriority(1)
-            CloudBannerDismissButton(action: onDismiss)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundColor(isExpired ? Color.orange : .secondary)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-        .background(Color(nsColor: backgroundColor))
-        .help(helpText)
-        .accessibilityIdentifier("CloudMachinesFreeAccessBanner")
-    }
-
-    private var helpText: String {
-        String(
-            format: String(
-                localized: "machines.freeAccess.help",
-                defaultValue: "Free plans keep a machine reachable for %d days after it is created. Upgrade to Pro to keep using it."
-            ),
-            windowDays
-        )
-    }
-}
-
-struct MachinesChromeIconButton: View {
-    let symbolName: String
-    let accessibilityLabel: String
-    let isBusy: Bool
-    let action: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            Group {
-                if isBusy {
-                    ProgressView()
-                        .controlSize(.mini)
-                } else {
-                    Image(systemName: symbolName)
-                        .font(.system(size: 11, weight: .medium))
-                }
-            }
-            .frame(width: 22, height: 20)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .foregroundColor(isHovered ? .primary : .secondary)
-        .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isHovered ? Color.primary.opacity(0.06) : Color.clear)
-        )
-        .onHover { isHovered = $0 }
-        .help(accessibilityLabel)
-        .accessibilityLabel(accessibilityLabel)
     }
 }

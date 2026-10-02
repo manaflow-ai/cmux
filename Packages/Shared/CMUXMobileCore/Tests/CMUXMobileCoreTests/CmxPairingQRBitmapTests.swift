@@ -7,7 +7,7 @@ import Testing
 @Suite struct CmxPairingQRBitmapTests {
     private let oneRoutePayload = "cmux-ios://attach?v=2&r=100.64.0.5:52341"
     private let twoRoutePayload =
-        "cmux-ios://attach?v=2&r=lawrences-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
+        "cmux-ios://attach?v=2&r=my-mac.tail1234.ts.net:52341&r=100.64.0.5:52341"
     private let irohPayload =
         "cmux-ios-dev://attach?v=3&i=\(String(repeating: "c", count: 64))"
 
@@ -102,12 +102,13 @@ import Testing
             expiresAt: Date().addingTimeInterval(600),
             authToken: "minted-but-never-in-the-qr"
         )
+        let pairingURLScheme = try #require(
+            CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
+        )
         let payload = try #require(CmxPairingQRCode().encode(
             ticket,
             routeDisclosureMode: .legacyPrivateNetworkCompatibility,
-            pairingURLScheme: try #require(
-                CmxPairingURLScheme(rawValue: "cmux-ios-dev.cmux.ios.longtag")
-            )
+            pairingURLScheme: pairingURLScheme
         ))
         let image = try #require(CmxPairingQRBitmap().makeImage(payload: payload))
         let modules = image.width - CmxPairingQRBitmap.quietZoneModules * 2

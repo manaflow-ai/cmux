@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileBilling
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,6 +34,11 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    /// App Store billing. Built and started once here, at launch, so the
+    /// StoreKit `Transaction.updates` listener delivers renewals, approved
+    /// Ask to Buy requests and purchases from other devices for the whole
+    /// process lifetime. Nil when the build has no API origin.
+    let billing: BillingModel?
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
     /// App-lifetime keyboard frame record, injected into the view tree via
@@ -41,9 +47,13 @@ final class AppCompositionRoot {
     /// for. Constructed here (not lazily in a view) so its record spans every
     /// host view lifetime.
     let keyboardFrameTracker = MobileKeyboardFrameTracker()
+    /// Holds session replay capture while a list scroll is in progress, so its
+    /// main-thread screen capture cannot land mid-fling.
+    let scrollInteractionReporter = MobileScrollInteractionReporter { isActive in
+        MobileCrashReporter.setReplayCapturePaused(isActive)
+    }
     private var pushReachabilityTask: Task<Void, Never>? = nil
-    /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
-    /// the shell store (dial ordering) and the Settings/onboarding UI.
+    /// The legacy connection-method choice used only by onboarding and migration UI.
     let connectionMethodStore: MobileConnectionMethodStore
     /// One-time BETA migration eligibility, snapshotted before launch writes.
     let autoConnectMigrationStore: MobileAutoConnectMigrationStore
@@ -153,6 +163,12 @@ final class AppCompositionRoot {
             diagnosticLog: diagnosticLog
         )
         self.analytics = analytics
+        let billing = MobileBillingComposition(
+            auth: auth,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ).makeModel(analytics: analytics.emitter)
+        billing?.start()
+        self.billing = billing
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
         let initialConnectionReporter = analytics.initialConnectionReporter
@@ -236,7 +252,7 @@ final class AppCompositionRoot {
             let signingOutAccountID = auth.coordinator.currentUser?.id
             let signingOutScope = auth.coordinator.authenticatedTeamScope
             return { accessToken, refreshToken in
-                PhonePushActiveAccountStore.clear()
+                PhonePushActiveAccountStore().clear()
                 await withTaskGroup(of: Void.self) { group in
                     group.addTask {
                         await pushCoordinator.unregisterFromServer(
@@ -358,7 +374,7 @@ final class AppCompositionRoot {
     /// Bundle-owned build identity used in explicit diagnostic exports.
     /// Values come only from signed app metadata, never user input.
     static var diagnosticBuildStamp: String {
-        DiagnosticBuildStamp.make(infoDictionary: Bundle.main.infoDictionary)
+        DiagnosticReport.buildStamp(infoDictionary: Bundle.main.infoDictionary)
     }
 
     private static var crashReportingEnabled: Bool {
@@ -395,7 +411,11 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            #if DEBUG
+            MobileLatencyTrace.stamp("scene.active")
+            #endif
             analytics.terminalLatencyReporter.setForeground(true)
+            analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
             connectionMethodStore.recordConfiguredMethodDiagnostic()
             let isFullForegroundReturn = !hasForegrounded || wasBackgrounded
@@ -430,12 +450,14 @@ final class AppCompositionRoot {
             hasForegrounded = true
         case .inactive:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
             // The switcher opened; a swipe-kill from here may skip the
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
             analytics.terminalLatencyReporter.setForeground(false)
+            analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
             wasBackgrounded = true
             Task { await irx.didEnterBackground() }

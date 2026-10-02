@@ -68,6 +68,7 @@ extension ShortcutAction {
     private var builtInDefaultStroke: ShortcutStroke? {
         switch self {
         case .openSettings: return ShortcutStroke(key: ",", command: true)
+        case .openTeamPicker: return ShortcutStroke(key: "t", command: true, shift: true, option: true)
         case .reloadConfiguration: return ShortcutStroke(key: ",", command: true, shift: true)
         case .showHideAllWindows: return ShortcutStroke(key: ".", command: true, option: true, control: true)
         case .globalSearch: return ShortcutStroke(key: "f", command: true, option: true)
@@ -85,6 +86,7 @@ extension ShortcutAction {
         case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
         case .goToWorkspace: return ShortcutStroke(key: "p", command: true)
         case .commandPalette: return ShortcutStroke(key: "p", command: true, shift: true)
+        case .agentInbox: return ShortcutStroke(key: "i", command: true, shift: true)
         case .commandPaletteNext: return ShortcutStroke(key: "n", control: true)
         case .commandPalettePrevious: return ShortcutStroke(key: "p", control: true)
         case .sendFeedback: return nil
@@ -106,6 +108,7 @@ extension ShortcutAction {
         case .nextSidebarTabInGroup, .prevSidebarTabInGroup: return nil
         case .focusHistoryBack: return ShortcutStroke(key: "[", command: true)
         case .focusHistoryForward: return ShortcutStroke(key: "]", command: true)
+        case .focusHistoryLast: return nil
         case .renameTab: return ShortcutStroke(key: "r", command: true)
         case .renameWorkspace: return ShortcutStroke(key: "r", command: true, shift: true)
         case .editWorkspaceDescription: return ShortcutStroke(key: "e", command: true, option: true)
@@ -131,6 +134,7 @@ extension ShortcutAction {
         case .focusNextPane: return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
+        case .newPaneAutoLayout: return ShortcutStroke(key: "n", command: true, control: true)
         case .toggleSplitZoom: return ShortcutStroke(key: "\r", command: true, shift: true)
         case .increaseWorkspaceTerminalFontSize:
             return ShortcutStroke(key: "=", command: true, control: true)
@@ -184,12 +188,15 @@ extension ShortcutAction {
         case .cycleTextBoxSubmitAction: return ShortcutStroke(key: "\t", shift: true)
         case .attachTextBoxFile: return ShortcutStroke(key: "a", command: true, shift: true, option: true)
         case .sendCtrlFToTerminal: return nil
+        case .pasteLastScreenshot: return nil
+        case .sizeTerminalToMyWindow: return ShortcutStroke(key: "=", command: true, option: true, control: true)
         case .clearScreenKeepScrollback: return ShortcutStroke(key: "k", command: true, shift: true)
         case .toggleRightSidebar: return ShortcutStroke(key: "b", command: true, option: true)
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
+        case .toggleFileEditorWordWrap: return ShortcutStroke(key: "z", option: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
         case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)
         case .browserBack: return ShortcutStroke(key: "[", command: true)
@@ -229,6 +236,9 @@ extension ShortcutAction {
         case .simulatorToggleSoftwareKeyboard: return ShortcutStroke(key: "k", command: true)
         case .diffViewerNextFile: return nil
         case .diffViewerPreviousFile: return nil
+        case .diffViewerNextHunk: return ShortcutStroke(key: "n")
+        case .diffViewerPreviousHunk: return ShortcutStroke(key: "p")
+        case .diffViewerToggleViewed: return ShortcutStroke(key: "v")
         }
     }
 }

@@ -1,60 +1,70 @@
+import CmuxCloud
+import CmuxFoundation
 import SwiftUI
 
 /// A machine that does not exist yet (or failed to): the row the Machines
 /// panel shows from the moment the sheet's Create is pressed until the fleet
 /// list returns the real machine. Mirrors ``CloudTreeMachineRowContent``'s
 /// two layouts so the row sits in the same column grid as its neighbours;
-/// the leading slot carries a spinner while running and a warning once
-/// failed.
+/// a spinner while running, or a warning once failed, follows the name.
 struct CloudTreePendingMachineRowContent: View {
     let operation: MachineCreateOperation
     var style: CloudTreeStyle = CloudTreeStyleStore.current
+    @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
 
     var body: some View {
         switch style.machineRowLayout {
         case .singleLine:
             CloudTreeMachineBand(style: style) {
-                HStack(alignment: .center, spacing: CloudTreeRowGrid.dotGap) {
-                    leadingGlyph
-                        .frame(width: CloudTreeRowGrid.dotSlot, alignment: .center)
-                    HStack(alignment: .firstTextBaseline, spacing: CloudTreeRowGrid.dotGap) {
-                        name
-                        status
-                    }
-                    Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                    name
+                    statusGlyph
+                    status
+                    Spacer(minLength: style.rowGrid.trailingGap)
                 }
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         case .twoLine:
-            HStack(alignment: .top, spacing: CloudTreeRowGrid.dotGap) {
-                leadingGlyph
-                    .frame(width: CloudTreeRowGrid.dotSlot, height: style.machineNameLineHeight, alignment: .center)
-                VStack(alignment: .leading, spacing: CloudTreeRowGrid.machineLineSpacing) {
-                    name
-                        .frame(height: style.machineNameLineHeight)
+            HStack(alignment: .top, spacing: 0) {
+                VStack(alignment: .leading, spacing: scaled(style.rowGrid.machineLineSpacing)) {
+                    HStack(alignment: .firstTextBaseline, spacing: style.rowGrid.dotGap) {
+                        name
+                        statusGlyph
+                    }
+                    .frame(height: scaled(style.machineNameLineHeight))
                     status
-                        .frame(height: style.machineSubtitleLineHeight)
+                        .frame(height: scaled(style.machineSubtitleLineHeight))
                 }
-                Spacer(minLength: CloudTreeRowGrid.trailingGap)
+                Spacer(minLength: style.rowGrid.trailingGap)
             }
-            .padding(.vertical, style.machineVerticalPadding)
-            .padding(.trailing, CloudTreeRowGrid.trailingPadding)
+            .padding(.vertical, scaled(style.machineVerticalPadding))
+            .padding(.trailing, style.rowGrid.trailingPadding)
             .accessibilityElement(children: .combine)
             .accessibilityLabel(operation.summaryLine)
         }
     }
 
+    /// Progress or failure, drawn after the name rather than in a leading slot:
+    /// the name sits on the column the created machine's row will use, so it
+    /// does not jump when the fleet list returns the real machine.
     @ViewBuilder
-    private var leadingGlyph: some View {
+    private var statusGlyph: some View {
         if operation.isRunning || operation.isReconciling {
             ProgressView()
                 .controlSize(.mini)
         } else {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.orange)
+            CmuxSystemSymbolImage(
+                magnified: "exclamationmark.triangle.fill",
+                pointSize: style.iconSize,
+                weight: .medium,
+                tint: .orange
+            )
         }
+    }
+
+    private func scaled(_ value: CGFloat) -> CGFloat {
+        GlobalFontMagnification.scaledSize(value, percent: magnification)
     }
 
     private var name: some View {

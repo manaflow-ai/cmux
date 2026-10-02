@@ -1,3 +1,6 @@
+import CmuxCloudBannerCore
+import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -29,15 +32,17 @@ struct CloudPortRoutePlanTests {
 
     @Test("Private routing keeps paths, ports, queries, and fragments")
     func privateURLKeepsComponents() {
-        #expect(CloudPortRoutePlan.privateURL("https://localhost:8443/a%20b?q=%2F#frag", address: "fd12::7")?.absoluteString == "https://[fd12::7]:8443/a%20b?q=%2F#frag")
-        #expect(CloudPortRoutePlan.privateURL("http://10.0.0.4:3000/path", address: "10.0.0.7")?.host == "10.0.0.7")
+        let policy = CloudPortRoutePolicy()
+        #expect(policy.privateURL("https://localhost:8443/a%20b?q=%2F#frag", address: "fd12::7")?.absoluteString == "https://[fd12::7]:8443/a%20b?q=%2F#frag")
+        #expect(policy.privateURL("http://10.0.0.4:3000/path", address: "10.0.0.7")?.host == "10.0.0.7")
     }
 
     @Test("Explicit forwards preserve URL components and reject TLS host replacement")
     func explicitForwardURL() {
-        #expect(CloudPortRoutePlan.localURL(rewriting: "http://10.0.0.7:3000/path?x=1#frag", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path?x=1#frag")
-        #expect(CloudPortRoutePlan.localURL(rewriting: "https://10.0.0.7:8443", toLoopbackPort: 41000) == nil)
-        #expect(CloudPortRoutePlan.localURL(rewriting: "file:///tmp/file", toLoopbackPort: 41000) == nil)
+        let policy = CloudPortRoutePolicy()
+        #expect(policy.localURL(rewriting: "http://10.0.0.7:3000/path?x=1#frag", toLoopbackPort: 41000)?.absoluteString == "http://127.0.0.1:41000/path?x=1#frag")
+        #expect(policy.localURL(rewriting: "https://10.0.0.7:8443", toLoopbackPort: 41000) == nil)
+        #expect(policy.localURL(rewriting: "file:///tmp/file", toLoopbackPort: 41000) == nil)
     }
 
     @Test("Direct private access waits for VPN without creating a listener")
@@ -184,6 +189,16 @@ struct CloudPortRoutePlanTests {
         await model.retire()
     }
 
+    @Test("An unavailable route exposes a retry action")
+    func unavailableRouteCanRetry() async {
+        var retries = 0
+        let state = CloudBrowserAccessState()
+        state.showUnavailable("Private address unavailable", retry: { _ in retries += 1 })
+        #expect(state.unavailableRetryAction != nil)
+        state.unavailableRetryAction?()
+        #expect(await wait { retries == 1 })
+    }
+
     @Test("A canceled forward cannot publish a late local address")
     func stopDuringStart() async {
         let started = CloudLinkFirstValue<Bool>()
@@ -205,7 +220,9 @@ struct CloudPortRoutePlanTests {
 
     @Test("Cloud browser opening starts app-owned access without a system VPN")
     func cloudBrowserStartsUserspaceAccess() async throws {
-        let catalog = SurfaceCatalog()
+        let live = LiveWorkspaceFixture()
+        defer { live.tearDown() }
+        let catalog = SurfaceCatalog(live: live)
         let links = CloudMachineLinkManager(clientURL: nil, hostThemeColors: { nil })
         let provider = CmuxTuiSurfaceProvider(
             summary: VMSummary(id: "vm-userspace", provider: "freestyle", status: "running", image: "fixture", createdAt: 0, base: nil, addressIPv4: "10.16.0.7"),
@@ -213,7 +230,7 @@ struct CloudPortRoutePlanTests {
             catalog: catalog
         )
         catalog.register(provider)
-        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        let panel = BrowserPanel(workspaceId: live.id(), websiteDataStore: .nonPersistent())
         defer { panel.close() }
         provider.configureBrowser(panel, url: URL(string: "http://10.16.0.7:8000/path?q=1#fragment")!)
         let model = try #require(panel.cloudAccess.model)

@@ -31,6 +31,14 @@
 /* End PBXBuildFile section */
 		D4E2A0010000000000000001 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4E2A0020000000000000001 /* NotificationService.swift */; };
 		D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = D4E2A0030000000000000001 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C10DA0010000000000000001 /* PacketTunnelProvider.swift in CloudVPN Sources */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000001 /* PacketTunnelProvider.swift */; };
+		C10DA0010000000000000002 /* CloudVPN.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000002 /* CloudVPN.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		C10DA0010000000000000003 /* CloudTunnelWireGuardAdapter.swift in CloudVPN Sources */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000003 /* CloudTunnelWireGuardAdapter.swift */; };
+		C10DA0010000000000000004 /* CloudTunnelProviderCompletion.swift in CloudVPN Sources */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000004 /* CloudTunnelProviderCompletion.swift */; };
+		C10DA0010000000000000005 /* CloudVPNConfigurationKeychain.swift in CloudVPN Sources */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000005 /* CloudVPNConfigurationKeychain.swift */; };
+		C10DA0010000000000000006 /* CloudVPNRoutePolicy.swift in CloudVPN Sources */ = {isa = PBXBuildFile; fileRef = C10DA0020000000000000006 /* CloudVPNRoutePolicy.swift */; };
+		C10DA0010000000000000007 /* WireGuardKit in CloudVPN Frameworks */ = {isa = PBXBuildFile; productRef = C10DA0070000000000000003 /* WireGuardKit */; };
+		C10DA0010000000000000008 /* CmuxCloudTunnelCore in CloudVPN Frameworks */ = {isa = PBXBuildFile; productRef = C10DA0070000000000000004 /* CmuxCloudTunnelCore */; };
 
 /* Begin PBXContainerItemProxy section */
 		8B41F65D2DEDD0D6001A66F9 /* PBXContainerItemProxy */ = {
@@ -46,6 +54,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = D4E2A0070000000000000001;
 			remoteInfo = NotificationService;
+		};
+		C10DA0060000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 8B41F63D2DEDD0D5001A66F9 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C10DA0050000000000000001;
+			remoteInfo = CloudVPN;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -76,6 +91,12 @@
 /* End PBXFileReference section */
 		D4E2A0020000000000000001 /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
 		D4E2A0030000000000000001 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10DA0020000000000000001 /* PacketTunnelProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacketTunnelProvider.swift; sourceTree = "<group>"; };
+		C10DA0020000000000000002 /* CloudVPN.appex */ = {isa = PBXFileReference; explicitFileType = wrapper.app-extension; includeInIndex = 0; path = CloudVPN.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10DA0020000000000000003 /* CloudTunnelWireGuardAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../TunnelExtension/CloudTunnelWireGuardAdapter.swift; sourceTree = SOURCE_ROOT; };
+		C10DA0020000000000000004 /* CloudTunnelProviderCompletion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../TunnelExtension/CloudTunnelProviderCompletion.swift; sourceTree = SOURCE_ROOT; };
+		C10DA0020000000000000005 /* CloudVPNConfigurationKeychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudVPNConfigurationKeychain.swift; sourceTree = SOURCE_ROOT; };
+		C10DA0020000000000000006 /* CloudVPNRoutePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Packages/iOS/CmuxMobileCloud/Sources/CmuxMobileCloud/CloudVPNRoutePolicy.swift; sourceTree = SOURCE_ROOT; };
 
 /* Begin PBXFrameworksBuildPhase section */
 		8B41F6422DEDD0D5001A66F9 /* Frameworks */ = {
@@ -100,6 +121,7 @@
 		};
 /* End PBXFrameworksBuildPhase section */
 		D4E2A0040000000000000001 /* NotificationService Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (D4E2A0090000000000000001 /* CmuxPhonePush in NotificationService Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
+		C10DA0040000000000000002 /* CloudVPN Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (C10DA0010000000000000007 /* WireGuardKit in CloudVPN Frameworks */, C10DA0010000000000000008 /* CmuxCloudTunnelCore in CloudVPN Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXGroup section */
 		8B41F6472DEDD0D5001A66F9 /* cmux */ = {
@@ -114,6 +136,7 @@
 				8B8A10AD2DF5000000A66F90 /* MobileAppLifecycleDiagnostics.swift */,
 				8B8A10182DF5000000A66F90 /* cmux.xctestplan */,
 				D4E2A0050000000000000001 /* NotificationService */,
+				C10DA0030000000000000001 /* CloudVPN */,
 			);
 			path = cmux;
 			sourceTree = "<group>";
@@ -148,6 +171,7 @@
 				8B41F6452DEDD0D5001A66F9 /* cmux.app */,
 				8B41F65C2DEDD0D6001A66F9 /* cmux.xctest */,
 				D4E2A0030000000000000001 /* NotificationService.appex */,
+				C10DA0020000000000000002 /* CloudVPN.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -183,6 +207,7 @@
 		};
 /* End PBXGroup section */
 		D4E2A0050000000000000001 /* NotificationService */ = {isa = PBXGroup; children = (D4E2A0020000000000000001 /* NotificationService.swift */); path = "../NotificationService"; sourceTree = "<group>"; };
+		C10DA0030000000000000001 /* CloudVPN */ = {isa = PBXGroup; children = (C10DA0020000000000000001 /* PacketTunnelProvider.swift */, C10DA0020000000000000003 /* CloudTunnelWireGuardAdapter.swift */, C10DA0020000000000000004 /* CloudTunnelProviderCompletion.swift */, C10DA0020000000000000005 /* CloudVPNConfigurationKeychain.swift */, C10DA0020000000000000006 /* CloudVPNRoutePolicy.swift */); path = "../CloudVPN"; sourceTree = "<group>"; };
 
 /* Begin PBXNativeTarget section */
 		8B41F6442DEDD0D5001A66F9 /* cmux */ = {
@@ -199,6 +224,7 @@
 			);
 			dependencies = (
 				D4E2A00F0000000000000001 /* PBXTargetDependency */,
+				C10DA0060000000000000002 /* PBXTargetDependency */,
 			);
 			name = cmux;
 			packageProductDependencies = (
@@ -246,6 +272,18 @@
 			productReference = D4E2A0030000000000000001 /* NotificationService.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		C10DA0050000000000000001 /* CloudVPN */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10DA0050000000000000002 /* Build configuration list for CloudVPN */;
+			buildPhases = (C10DA0040000000000000003 /* Build wireguard-go */, C10DA0040000000000000001 /* CloudVPN Sources */, C10DA0040000000000000002 /* CloudVPN Frameworks */);
+			buildRules = ();
+			dependencies = ();
+			packageProductDependencies = (C10DA0070000000000000003 /* WireGuardKit */, C10DA0070000000000000004 /* CmuxCloudTunnelCore */);
+			name = CloudVPN;
+			productName = CloudVPN;
+			productReference = C10DA0020000000000000002 /* CloudVPN.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -264,6 +302,7 @@
 						TestTargetID = 8B41F6442DEDD0D5001A66F9;
 					};
 					D4E2A0070000000000000001 = { CreatedOnToolsVersion = 16.3; };
+					C10DA0050000000000000001 = { CreatedOnToolsVersion = 16.3; };
 				};
 			};
 			buildConfigurationList = 8B41F6402DEDD0D5001A66F9 /* Build configuration list for PBXProject "cmux" */;
@@ -286,6 +325,8 @@
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
 			packageReferences = (
 				D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */,
+				C10DA0070000000000000001 /* XCLocalSwiftPackageReference "WireGuardKit" */,
+				C10DA0070000000000000002 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */,
 			);
 			projectDirPath = "";
 			projectRoot = "";
@@ -293,6 +334,7 @@
 				8B41F6442DEDD0D5001A66F9 /* cmux */,
 				8B41F65B2DEDD0D6001A66F9 /* cmuxUITests */,
 				D4E2A0070000000000000001 /* NotificationService */,
+				C10DA0050000000000000001 /* CloudVPN */,
 			);
 		};
 /* End PBXProject section */
@@ -330,6 +372,29 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${SRCROOT}/scripts/copy-markdown-viewer-assets.sh\"\n";
 		};
+		C10DA0040000000000000003 /* Build wireguard-go */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../scripts/build-wireguard-go.sh",
+				"$(SRCROOT)/../vendor/WireGuardKit/Sources/WireGuardKitGo/api-apple.go",
+				"$(SRCROOT)/../vendor/WireGuardKit/Sources/WireGuardKitGo/go.mod",
+				"$(SRCROOT)/../vendor/WireGuardKit/Sources/WireGuardKitGo/go.sum",
+			);
+			name = "Build wireguard-go";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/libwg-go.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../scripts/build-wireguard-go.sh\"\n";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXResourcesBuildPhase section */
@@ -352,7 +417,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-		D4E2A0060000000000000001 /* Embed App Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */); runOnlyForDeploymentPostprocessing = 0; };
+		D4E2A0060000000000000001 /* Embed App Extensions */ = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (D4E2A0010000000000000002 /* NotificationService.appex in Embed App Extensions */, C10DA0010000000000000002 /* CloudVPN.appex in Embed App Extensions */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXSourcesBuildPhase section */
 		8B41F6412DEDD0D5001A66F9 /* Sources */ = {
@@ -381,12 +446,18 @@
 		};
 /* End PBXSourcesBuildPhase section */
 		D4E2A0080000000000000001 /* NotificationService Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (D4E2A0010000000000000001 /* NotificationService.swift in Sources */); runOnlyForDeploymentPostprocessing = 0; };
+		C10DA0040000000000000001 /* CloudVPN Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (C10DA0010000000000000001 /* PacketTunnelProvider.swift in CloudVPN Sources */, C10DA0010000000000000003 /* CloudTunnelWireGuardAdapter.swift in CloudVPN Sources */, C10DA0010000000000000004 /* CloudTunnelProviderCompletion.swift in CloudVPN Sources */, C10DA0010000000000000005 /* CloudVPNConfigurationKeychain.swift in CloudVPN Sources */, C10DA0010000000000000006 /* CloudVPNRoutePolicy.swift in CloudVPN Sources */); runOnlyForDeploymentPostprocessing = 0; };
 
 /* Begin PBXTargetDependency section */
 		D4E2A00F0000000000000001 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D4E2A0070000000000000001 /* NotificationService */;
 			targetProxy = D4E2A00E0000000000000001 /* PBXContainerItemProxy */;
+		};
+		C10DA0060000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C10DA0050000000000000001 /* CloudVPN */;
+			targetProxy = C10DA0060000000000000001 /* PBXContainerItemProxy */;
 		};
 		8B41F65E2DEDD0D6001A66F9 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
@@ -597,8 +668,10 @@
 			};
 			name = Release;
 		};
-		D4E2A00C0000000000000001 /* Debug */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements; CMUX_DEV_TAG = e2en12; CMUX_HOST_BUNDLE_IDENTIFIER = "dev.cmux.ios.$(CMUX_DEV_TAG)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Debug; };
-		D4E2A00D0000000000000001 /* Release */ = { isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = Config/NotificationService.entitlements; CMUX_DEV_TAG = e2en12; CMUX_HOST_BUNDLE_IDENTIFIER = dev.cmux.app.beta; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_HOST_BUNDLE_IDENTIFIER).NotificationService"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Release; };
+		D4E2A00C0000000000000001 /* Debug */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10112DF5000000A66F90 /* Debug.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS)"; CMUX_HOST_BUNDLE_IDENTIFIER = "$(CMUX_APP_BUNDLE_IDENTIFIER)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Debug; };
+		D4E2A00D0000000000000001 /* Release */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10122DF5000000A66F90 /* Release.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_NOTIFICATION_SERVICE_CODE_SIGN_ENTITLEMENTS)"; CMUX_HOST_BUNDLE_IDENTIFIER = "$(CMUX_APP_BUNDLE_IDENTIFIER)"; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = NotificationService/Info.plist; INFOPLIST_KEY_CFBundleIdentifier = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = NotificationService; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Release; };
+		C10DA0050000000000000003 /* Debug */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10112DF5000000A66F90 /* Debug.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_CLOUD_VPN_CODE_SIGN_ENTITLEMENTS)"; ENABLE_USER_SCRIPT_SANDBOXING = NO; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = CloudVPN/Info.plist; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(BUILT_PRODUCTS_DIR)"); PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = CloudVPN; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Debug; };
+		C10DA0050000000000000004 /* Release */ = { isa = XCBuildConfiguration; baseConfigurationReference = 8B8A10122DF5000000A66F90 /* Release.xcconfig */; buildSettings = { CODE_SIGN_STYLE = Automatic; CODE_SIGN_ENTITLEMENTS = "$(CMUX_CLOUD_VPN_CODE_SIGN_ENTITLEMENTS)"; ENABLE_USER_SCRIPT_SANDBOXING = NO; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = CloudVPN/Info.plist; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"); LIBRARY_SEARCH_PATHS = ("$(inherited)", "$(BUILT_PRODUCTS_DIR)"); PRODUCT_BUNDLE_IDENTIFIER = "$(CMUX_CLOUD_VPN_BUNDLE_IDENTIFIER)"; PRODUCT_NAME = CloudVPN; SKIP_INSTALL = YES; SWIFT_VERSION = 5.0; WRAPPER_EXTENSION = appex; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -630,6 +703,7 @@
 			defaultConfigurationName = Release;
 		};
 		D4E2A00B0000000000000001 /* Build configuration list for NotificationService */ = { isa = XCConfigurationList; buildConfigurations = (D4E2A00C0000000000000001 /* Debug */, D4E2A00D0000000000000001 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		C10DA0050000000000000002 /* Build configuration list for CloudVPN */ = { isa = XCConfigurationList; buildConfigurations = (C10DA0050000000000000003 /* Debug */, C10DA0050000000000000004 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -659,11 +733,21 @@
 		};
 /* End XCSwiftPackageProductDependency section */
 		D4E2A00A0000000000000001 /* CmuxPhonePush */ = { isa = XCSwiftPackageProductDependency; package = D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */; productName = CmuxPhonePush; };
+		C10DA0070000000000000003 /* WireGuardKit */ = { isa = XCSwiftPackageProductDependency; package = C10DA0070000000000000001 /* XCLocalSwiftPackageReference "WireGuardKit" */; productName = WireGuardKit; };
+		C10DA0070000000000000004 /* CmuxCloudTunnelCore */ = { isa = XCSwiftPackageProductDependency; package = C10DA0070000000000000002 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */; productName = CmuxCloudTunnelCore; };
 
 /* Begin XCLocalSwiftPackageReference section */
 		D4E2A010000000000000001 /* XCLocalSwiftPackageReference "CmuxPhonePush" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../Packages/macOS/CmuxPhonePush;
+		};
+		C10DA0070000000000000001 /* XCLocalSwiftPackageReference "WireGuardKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../vendor/WireGuardKit;
+		};
+		C10DA0070000000000000002 /* XCLocalSwiftPackageReference "CmuxCloudTunnelCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../Packages/macOS/CmuxCloudTunnelCore;
 		};
 /* End XCLocalSwiftPackageReference section */
 	};

@@ -57,12 +57,15 @@ import {
 } from "./legacyReplies";
 import { captureSentryException } from "./sentry";
 import { rateLimitedJson } from "./retryAfterResponse";
+import { WorkspacePresence } from "./workspacePresenceDo";
+import { workspacePresenceRoute } from "./workspacePresenceRoute";
 
-export { TeamPresence, AccountControlPlane };
+export { TeamPresence, AccountControlPlane, WorkspacePresence };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
+  WORKSPACE_PRESENCE: DurableObjectNamespace<WorkspacePresence>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
 
@@ -107,6 +110,10 @@ const worker = {
       return json({ ok: true, service: "cmux-presence" });
     }
 
+    if (url.pathname === "/v1/workspace-presence") {
+      return workspacePresenceRoute(request, env);
+    }
+
     if (url.pathname === "/v1/connectivity/subscribe") {
       if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
       const user = await verifyRequest(request, env);
@@ -140,7 +147,8 @@ const worker = {
       if (namespace && !/^[A-Za-z0-9._:-]{1,255}$/.test(namespace)) {
         return json({ error: "invalid_client_namespace" }, 400);
       }
-      const user = await verifyRequest(request, env);
+      // The socket mints relay credentials: never from a cached success.
+      const user = await verifyRequest(request, env, { fresh: true });
       if (!user) return unauthorized();
       const headers = new Headers(request.headers);
       headers.set("x-control-account-id", user.id);
@@ -157,7 +165,7 @@ const worker = {
       // strict-parsed body travels — a client-supplied account id has no
       // channel here.
       if (request.method !== "POST") return json({ error: "method_not_allowed" }, 405);
-      const user = await verifyRequest(request, env);
+      const user = await verifyRequest(request, env, { fresh: true });
       if (!user) return unauthorized();
       const body = await readBoundedJson(request, 1_024);
       if (!body.ok) return json({ error: "invalid_request" }, body.status);
@@ -342,7 +350,7 @@ const worker = {
       const team = await resolveTeamOr403(request, env);
       if (!team.ok) return team.response;
       return new Response(await team.stub.snapshot(team.teamId), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", "cache-control": "private, no-store" },
       });
     }
 

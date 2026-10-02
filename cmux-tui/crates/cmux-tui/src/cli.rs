@@ -669,6 +669,9 @@ USAGE
   cmux terminal <selector> process wait [--timeout-ms <n>]
   cmux terminal <selector> viewport scroll --delta-rows <n>
   cmux terminal <selector> move|project|attach|close [OPTIONS]
+
+screen wait prints its result either way and exits 1 when the timeout
+passes without a match.
 ";
 
 const BROWSER_HELP: &str = "\
@@ -692,6 +695,10 @@ USAGE
   cmux agent report --terminal <selector> --state <value> --source <value>
   cmux agent hook install|uninstall|status [provider...]
   cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+  cmux agent plugin list
+  cmux agent plugin install <git-url> [--name <value>] [--force]
+  cmux agent plugin use|update|remove <name-or-id>
+  cmux agent plugin use --builtin
 ";
 
 const SIDEBAR_HELP: &str = "\

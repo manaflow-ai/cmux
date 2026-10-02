@@ -19,7 +19,7 @@ struct PhonePushCryptoTests {
     func roundTrip() throws {
         let sender = Curve25519.KeyAgreement.PrivateKey()
         let recipient = Curve25519.KeyAgreement.PrivateKey()
-        let envelope = try PhonePushCrypto.encrypt(
+        let envelope = try PhonePushCrypto().encrypt(
             plaintext: Data(#"{"replyId":"reply-1","text":"hello"}"#.utf8),
             tuple: tuple,
             recipientPublicKey: recipient.publicKey.rawRepresentation,
@@ -30,7 +30,7 @@ struct PhonePushCryptoTests {
         )
         let wire = try JSONEncoder().encode(envelope)
         let decoded = try JSONDecoder().decode(PhonePushEncryptedPayload.self, from: wire)
-        let plaintext = try PhonePushCrypto.decrypt(
+        let plaintext = try PhonePushCrypto().decrypt(
             envelope: decoded,
             tuple: tuple,
             recipientInstallationID: tuple.iosInstallationID,
@@ -46,7 +46,7 @@ struct PhonePushCryptoTests {
     func rejectsBindingMismatches() throws {
         let sender = Curve25519.KeyAgreement.PrivateKey()
         let recipient = Curve25519.KeyAgreement.PrivateKey()
-        let envelope = try PhonePushCrypto.encrypt(
+        let envelope = try PhonePushCrypto().encrypt(
             plaintext: Data("secret".utf8),
             tuple: tuple,
             recipientPublicKey: recipient.publicKey.rawRepresentation,
@@ -56,7 +56,7 @@ struct PhonePushCryptoTests {
             installationID: tuple.iosInstallationID
         )
         #expect(throws: PhonePushCryptoError.self) {
-            try PhonePushCrypto.decrypt(
+            try PhonePushCrypto().decrypt(
                 envelope: envelope,
                 tuple: PhonePushDeviceTuple(
                     accountID: "other-account",
@@ -75,7 +75,7 @@ struct PhonePushCryptoTests {
             )
         }
         #expect(throws: PhonePushCryptoError.self) {
-            try PhonePushCrypto.decrypt(
+            try PhonePushCrypto().decrypt(
                 envelope: envelope,
                 tuple: tuple,
                 recipientInstallationID: tuple.iosInstallationID,
@@ -86,7 +86,7 @@ struct PhonePushCryptoTests {
             )
         }
         #expect(throws: PhonePushCryptoError.self) {
-            try PhonePushCrypto.decrypt(
+            try PhonePushCrypto().decrypt(
                 envelope: envelope,
                 tuple: tuple,
                 recipientInstallationID: tuple.iosInstallationID,
@@ -100,9 +100,9 @@ struct PhonePushCryptoTests {
 
     @Test("rejects replayed, future, and overlong authenticated timestamps")
     func replyFreshness() {
-        #expect(PhonePushReplyFreshness.accepts(issuedAt: 1_000, expiresAt: 1_900, now: 1_100))
-        #expect(!PhonePushReplyFreshness.accepts(issuedAt: 1_000, expiresAt: 1_900, now: 2_000))
-        #expect(!PhonePushReplyFreshness.accepts(issuedAt: 2_000, expiresAt: 2_900, now: 1_000))
-        #expect(!PhonePushReplyFreshness.accepts(issuedAt: 1_000, expiresAt: 16_001, now: 1_100))
+        #expect(PhonePushReplyFreshness().accepts(issuedAt: 1_000, expiresAt: 1_900, now: 1_100))
+        #expect(!PhonePushReplyFreshness().accepts(issuedAt: 1_000, expiresAt: 1_900, now: 2_000))
+        #expect(!PhonePushReplyFreshness().accepts(issuedAt: 2_000, expiresAt: 2_900, now: 1_000))
+        #expect(!PhonePushReplyFreshness().accepts(issuedAt: 1_000, expiresAt: 16_001, now: 1_100))
     }
 }

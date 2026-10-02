@@ -29,7 +29,8 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     public let expectedAccountID: String?
     /// The authentication generation that owned the request when it was created.
     public let expectedSessionGeneration: UInt64?
-    /// Exact iOS bundle identifier selected when this event was queued.
+    /// Optional exact iOS bundle identifier for a legacy single-lane request.
+    /// New requests omit this field and fan out to every encrypted recipient.
     public let targetBundleIdentifier: String?
 
     /// Restores an already encoded request from durable storage.

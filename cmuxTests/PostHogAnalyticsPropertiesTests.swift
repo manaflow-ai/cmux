@@ -7,6 +7,48 @@ import Testing
 @Suite(.serialized)
 struct PostHogAnalyticsPropertiesTests {
     @MainActor
+    @Test("a UI-test launch resolves flags from the local override, not a cached rollout value")
+    func featureFlagsPinnedToLocalValuesIgnoreRemoteValues() async throws {
+        let suiteName = "cmux.feature.flags.pinned.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flagKey = CmuxFeatureFlags.appKitSidebarListFlag.key
+        defaults.set(true, forKey: "cmux.flags.remote.\(flagKey)")
+        defaults.set(false, forKey: "cmux.flags.override.\(flagKey)")
+        let probe = FeatureFlagRemoteLoaderProbe()
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            remoteFlagLoader: { await probe.load() },
+            pinsFlagsToLocalValues: true
+        )
+        flags.start()
+
+        #expect(flags.isAppKitSidebarListEnabled == false)
+        #expect(await probe.callCount == 0)
+    }
+
+    @MainActor
+    @Test("a normal launch lets a cached rollout value outrank a local override")
+    func featureFlagsNotPinnedPreferRemoteValues() throws {
+        let suiteName = "cmux.feature.flags.unpinned.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flagKey = CmuxFeatureFlags.appKitSidebarListFlag.key
+        defaults.set(true, forKey: "cmux.flags.remote.\(flagKey)")
+        defaults.set(false, forKey: "cmux.flags.override.\(flagKey)")
+
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            pinsFlagsToLocalValues: false
+        )
+
+        #expect(flags.isAppKitSidebarListEnabled == true)
+    }
+
+    @MainActor
     @Test("feature flag control plane starts its injected remote loader")
     func featureFlagControlPlaneStartsInjectedRemoteLoader() async throws {
         let suiteName = "cmux.feature.flags.loader.\(UUID().uuidString)"
@@ -359,6 +401,58 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("conversation sidebar rollout flag honors default, local override, and remote precedence")
+    func conversationSidebarRolloutFlagPrecedence() async throws {
+        let flag = CmuxFeatureFlags.conversationSidebarFlag
+        #expect(flag.key == "conversation-sidebar-release")
+        #expect(!flag.defaultWhenUnavailable)
+
+        let suiteName = "cmux.feature.flags.conversation-sidebar.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var remoteValues: [String: Any] = [:]
+        let probe = FeatureFlagRemoteLoaderProbe()
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { remoteValues[$0] },
+            remoteFlagLoader: { await probe.load() }
+        )
+
+        #expect(!flags.isConversationSidebarAvailable)
+        flags.setOverride(true, for: flag)
+        #expect(flags.overrideValue(for: flag) == true)
+        #expect(flags.isConversationSidebarAvailable)
+
+        remoteValues[flag.key] = false
+        flags.applyLoadedFlags()
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.isConversationSidebarAvailable)
+
+        remoteValues.removeValue(forKey: flag.key)
+        flags.applyLoadedFlags()
+        // An unavailable legacy read preserves the kill switch. Only a
+        // successful control-plane response establishes that it was removed.
+        #expect(flags.remoteValue(for: flag) == false)
+        #expect(!flags.isConversationSidebarAvailable)
+        await confirmation("remote feature flags applied") { applied in
+            let observer = NotificationCenter.default.addObserver(
+                forName: .cmuxFeatureFlagsDidChange,
+                object: flags,
+                queue: nil
+            ) { _ in
+                applied()
+            }
+            defer { NotificationCenter.default.removeObserver(observer) }
+
+            flags.start()
+            await probe.waitUntilCalled()
+        }
+        #expect(flags.remoteValue(for: flag) == nil)
+        #expect(flags.isConversationSidebarAvailable)
+    }
+
+    @MainActor
     @Test("feature flag overrides persist through UserDefaults")
     func featureFlagOverridePersistenceRoundTrip() throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first { $0.defaultWhenUnavailable })
@@ -677,7 +771,7 @@ struct PostHogAnalyticsPropertiesTests {
     func crashExceptionPropertiesSanitizeTokensAndScrubValues() {
         #expect(PostHogAnalytics.sanitizedExceptionToken("EXC_CRASH") == "EXC_CRASH")
         #expect(PostHogAnalytics.sanitizedExceptionToken("NSInternalInconsistencyException") == "NSInternalInconsistencyException")
-        #expect(PostHogAnalytics.sanitizedExceptionToken("bad type /Users/lawrence") == nil)
+        #expect(PostHogAnalytics.sanitizedExceptionToken("bad type /Users/dev") == nil)
         #expect(PostHogAnalytics.sanitizedExceptionToken("   ") == nil)
         #expect(PostHogAnalytics.sanitizedExceptionToken(nil) == nil)
 

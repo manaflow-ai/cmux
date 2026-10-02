@@ -1092,12 +1092,103 @@ pub(super) fn append_journal_record(
 }
 
 impl WorkspaceRegistry {
+    /// Reserve a process generation for the userland journal-plugin
+    /// supervisor. The value lives in the session registry so a daemon restart
+    /// can never reuse a generation that a persisted roster fence retired.
+    pub(crate) fn reserve_journal_plugin_generation(&self) -> anyhow::Result<u64> {
+        let transaction =
+            Transaction::new_unchecked(&self.connection, rusqlite::TransactionBehavior::Immediate)?;
+        let current = transaction
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [JOURNAL_PLUGIN_GENERATION_META_KEY],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|value| {
+                value.parse::<u64>().with_context(|| {
+                    format!("journal plugin generation {JOURNAL_PLUGIN_GENERATION_META_KEY} is not an unsigned integer")
+                })
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let next = current
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("journal plugin generation exhausted"))?;
+        transaction.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            rusqlite::params![JOURNAL_PLUGIN_GENERATION_META_KEY, next.to_string()],
+        )?;
+        transaction.commit()?;
+        Ok(next)
+    }
+
     pub fn session_journal_after(
         &self,
         sequence: u64,
         limit: usize,
     ) -> anyhow::Result<SessionJournalPage> {
         query_session_journal_after(&self.connection, sequence, limit)
+    }
+
+    /// Return the highest sequence in the active or archived journal without
+    /// decoding any records. Reducer recovery uses this to reject a stale
+    /// snapshot cursor while remaining valid when the journal has compacted
+    /// its earliest records.
+    pub fn session_journal_head(&self) -> anyhow::Result<u64> {
+        query_journal_head(&self.connection)
+    }
+
+    /// Persisted fold position of one journal reducer: (version, cursor,
+    /// snapshot). A version mismatch on load discards the snapshot so the
+    /// reducer re-folds from the journal head.
+    pub(crate) fn journal_reducer_state(
+        &self,
+        reducer_id: &str,
+    ) -> anyhow::Result<Option<(u32, u64, String)>> {
+        let raw = self
+            .connection
+            .query_row(
+                "SELECT value FROM meta WHERE key = ?1",
+                [format!("journal_reducer.{reducer_id}")],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(raw) = raw else { return Ok(None) };
+        let value: Value = serde_json::from_str(&raw)
+            .with_context(|| format!("journal reducer state for {reducer_id} is not JSON"))?;
+        let version = value.get("version").and_then(Value::as_u64).unwrap_or(0) as u32;
+        let cursor = value
+            .get("cursor")
+            .and_then(Value::as_str)
+            .and_then(|cursor| cursor.parse::<u64>().ok())
+            .unwrap_or(0);
+        let snapshot =
+            value.get("snapshot").and_then(Value::as_str).map(str::to_string).unwrap_or_default();
+        Ok(Some((version, cursor, snapshot)))
+    }
+
+    /// Durably record a reducer's fold position and state snapshot. Cursor
+    /// values are stored as strings so 64-bit sequences survive JSON.
+    pub(crate) fn put_journal_reducer_state(
+        &self,
+        reducer_id: &str,
+        version: u32,
+        cursor: u64,
+        snapshot: &str,
+    ) -> anyhow::Result<()> {
+        let value = serde_json::json!({
+            "version": version,
+            "cursor": cursor.to_string(),
+            "snapshot": snapshot,
+        });
+        self.connection.execute(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![format!("journal_reducer.{reducer_id}"), value.to_string()],
+        )?;
+        Ok(())
     }
 
     /// The most recently started journal output stream for one terminal:
@@ -2220,6 +2311,7 @@ mod tests {
     #[test]
     fn journal_cursor_and_page_limits_fail_closed() {
         let registry = WorkspaceRegistry::in_memory("limits").unwrap();
+        assert_eq!(registry.session_journal_head().unwrap(), 0);
         assert!(registry.session_journal_after(1, 1).unwrap_err().to_string().contains("ahead"));
         assert!(registry.session_journal_after(0, 0).unwrap_err().to_string().contains("positive"));
         assert!(
@@ -2257,6 +2349,7 @@ mod tests {
         .unwrap();
         tx.commit().unwrap();
 
+        assert_eq!(registry.session_journal_head().unwrap(), 1);
         let page = reader.after(0, 1).unwrap();
         assert_eq!(page.head_sequence, 1);
         assert_eq!(page.records[0].kind, "workspace.focus");

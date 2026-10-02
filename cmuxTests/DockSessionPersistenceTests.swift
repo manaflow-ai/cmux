@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 import Testing
 import CmuxControlSocket
@@ -1288,6 +1289,17 @@ struct DockSessionPersistenceTests {
         #expect(restoredTerminal.shellActivity.state == .promptIdle)
         #expect(restoredTerminal.displayTitle != runningTitle)
 
+        // The initial prompt discarded the startup title. A new preexec
+        // title belongs to the replacement shell's first user command.
+        #expect(store.applyTerminalTitleChange(GhosttyTitleChange(
+            tabId: workspaceID,
+            surfaceId: restoredPanelID,
+            title: runningTitle,
+            sourceSurfaceIdentifier: ObjectIdentifier(restoredTerminal.surface)
+        )))
+        store.flushPendingTerminalTitleUpdates()
+        #expect(restoredTerminal.displayTitle != runningTitle)
+
         controller.controlSidebarScheduleScopedShellState(
             scope: ControlSidebarPanelScope(
                 workspaceID: workspaceID,
@@ -1343,6 +1355,35 @@ struct DockSessionPersistenceTests {
         #expect(store.panels.isEmpty)
         #expect(store.bonsplitController.allTabIds.isEmpty)
         #expect(store.hasAppliedConfigurationSeed)
+    }
+
+    @Test("Dock restore ignores duplicate panel IDs")
+    @MainActor
+    func duplicatePanelIDsDoNotTrapDuringRestore() throws {
+        let panelID = UUID()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-dock-duplicate-panel-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        var snapshot = emptyTerminalDockSnapshot(
+            panelID: panelID,
+            stableSurfaceID: UUID(),
+            workingDirectory: root.path
+        )
+        snapshot.panels.append(snapshot.panels[0])
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [panelID, panelID],
+            selectedPanelId: panelID
+        ))
+
+        let store = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { root.path })
+        defer { store.closeAllPanels() }
+
+        let restoredPanelIDs = store.restoreSessionSnapshot(snapshot)
+
+        #expect(restoredPanelIDs.count == 1)
+        #expect(store.panels.count == 1)
     }
 
     @Test("Window Dock unread survives a session snapshot and direct restore")
@@ -1555,10 +1596,29 @@ struct DockSessionPersistenceTests {
             at: directory,
             withIntermediateDirectories: true
         )
+        // Hook identity becomes restorable only after its durable Codex rollout exists.
+        let rolloutDirectory = directory.deletingLastPathComponent()
+            .appendingPathComponent(".codex/sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: rolloutDirectory, withIntermediateDirectories: true)
+        var verifiedSessions = sessions
+        for (sessionID, record) in sessions {
+            let transcriptURL = rolloutDirectory.appendingPathComponent("rollout-\(sessionID).jsonl")
+            let metadata: [String: Any] = [
+                "type": "session_meta",
+                "payload": [
+                    "id": sessionID,
+                    "cwd": record["cwd"] as? String ?? "/tmp",
+                    "source": "cli",
+                    "originator": "codex-tui",
+                ],
+            ]
+            try JSONSerialization.data(withJSONObject: metadata).write(to: transcriptURL)
+            verifiedSessions[sessionID]?["transcriptPath"] = transcriptURL.path
+        }
         let data = try JSONSerialization.data(
             withJSONObject: [
                 "version": 1,
-                "sessions": sessions,
+                "sessions": verifiedSessions,
             ],
             options: [.prettyPrinted, .sortedKeys]
         )

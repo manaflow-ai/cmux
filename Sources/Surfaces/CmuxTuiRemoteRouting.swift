@@ -1,7 +1,13 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
+    /// Keeps the app-host test and legacy app-facing alias on the shared package contract.
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        CodexForkMonitorArguments().make(environment: environment)
+    }
+
     /// Every `cmux vm agent` option that takes a value, so the alias walk and
     /// the help scan skip the value instead of reading it as the first provider
     /// argument (or as `--help`).
@@ -9,9 +15,22 @@ enum CmuxTuiRemoteRouting {
         "--agent", "--machine", "--cwd", "--name", "--remote-workspace", "--size", "--timeout",
     ]
 
+    /// The value of a `--focus <value>` / `--focus=<value>` flag: exactly true/false,
+    /// 1/0 or yes/no (any case), nil for anything else. One spelling set for every
+    /// command that opens UI, so `--focus` followed by an ordinary word stays bare.
+    static func focusFlagValue(_ token: String) -> Bool? {
+        switch token.lowercased() {
+        case "true", "1", "yes": return true
+        case "false", "0", "no": return false
+        default: return nil
+        }
+    }
+
     static func isAgentSubcommand(_ raw: String?) -> Bool {
         raw?.lowercased() == "agent"
     }
+
+
 
     static func vmAgentRequestsHelp(_ arguments: [String]) -> Bool {
         let normalized = Array(vmAgentAliasArgs(arguments).prefix { $0 != "--" })
@@ -43,11 +62,23 @@ enum CmuxTuiRemoteRouting {
 
         // Boolean `cmux vm agent` options; `--wait` and `--output` are the
         // until-done flags, which must reach the VM parser rather than the agent.
-        let flagOptions: Set<String> = ["--sync", "--no-open", "--new", "--json", "--wait", "--output", "--help", "-h"]
+        let flagOptions: Set<String> = ["--sync", "--no-open", "--no-focus", "--new", "--json", "--wait", "--output", "--help", "-h"]
         var index = 0
         while index < tail.count {
             let token = tail[index]
-            if flagOptions.contains(token) {
+            // `--focus` takes an optional boolean. A following word that is exactly a
+            // boolean (`focusFlagValue`) is read as the flag's value, so a bare prompt
+            // that starts with "true" or "no" needs `--` or `--focus=true` first.
+            if token == "--focus" {
+                normalized.append(token)
+                if index + 1 < tail.count, focusFlagValue(tail[index + 1]) != nil {
+                    normalized.append(tail[index + 1])
+                    index += 1
+                }
+                index += 1
+                continue
+            }
+            if flagOptions.contains(token) || token.hasPrefix("--focus=") {
                 normalized.append(token)
                 index += 1
                 continue

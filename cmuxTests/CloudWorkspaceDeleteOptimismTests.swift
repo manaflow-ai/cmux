@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCloudMachines
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -170,6 +171,8 @@ struct CloudWorkspaceDeleteOptimismTests {
         let outline = try #require(coordinator.outlineView)
         let folder = try #require(CloudTreeNodeBuilder.flattened(coordinator.nodes).first { $0.id == fixture.folderID("ws_1") })
         let child = try #require(folder.children.first)
+        // Workspaces start collapsed; open this one so its terminal has a row.
+        outline.expandItem(folder)
         try #require(outline.row(forItem: child) >= 0)
         outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: child)), byExtendingSelection: false)
         coordinator.selectedNodeID = child.id

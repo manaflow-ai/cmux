@@ -12,18 +12,18 @@ struct MarkdownViewerAssetCompressionTests {
         let deflated = try deflate(original)
         #expect(deflated.count < original.count)
 
-        let inflated = MarkdownViewerAssetCompression.inflate(deflated)
+        let inflated = Data.inflateMarkdownViewerAsset(deflated)
         #expect(inflated == original)
     }
 
     @Test("empty input inflates to empty output")
     func emptyInput() {
-        #expect(MarkdownViewerAssetCompression.inflate(Data()) == Data())
+        #expect(Data.inflateMarkdownViewerAsset(Data()) == Data())
     }
 
     @Test("garbage input fails instead of returning partial bytes")
     func garbageInput() {
-        #expect(MarkdownViewerAssetCompression.inflate(Data([0xDE, 0xAD, 0xBE, 0xEF])) == nil)
+        #expect(Data.inflateMarkdownViewerAsset(Data([0xDE, 0xAD, 0xBE, 0xEF])) == nil)
     }
 
     private func deflate(_ data: Data) throws -> Data {

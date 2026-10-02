@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
-import createMiddleware from "next-intl/middleware";
+import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
@@ -9,6 +9,7 @@ import {
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -24,7 +25,6 @@ import {
   VM_REFLECTION_ALIAS_VALUE,
 } from "./services/coderouter/vmGuestEnv";
 
-const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
@@ -74,7 +74,25 @@ function routeRequest(incomingRequest: NextRequest) {
   response = handleLegalAndDocsRoutes(request, pathname);
   if (response) return response;
 
-  response = intlMiddleware(request);
+  response = localeMiddleware(request);
+  if (
+    request.headers.has("next-router-prefetch") ||
+    request.headers.get("purpose") === "prefetch"
+  ) {
+    // A delayed prefetch for the previous locale must not overwrite a newer
+    // explicit choice. The header also covers runtime/shell prefetch variants.
+    // Keep next-intl's routing, but do not publish its cookie.
+    // Rebuild the response so later cookie writes cannot resurrect that cookie
+    // from NextResponse's internal cookie map.
+    const headers = new Headers(response.headers);
+    headers.delete("set-cookie");
+    headers.delete("x-middleware-set-cookie");
+    response = new NextResponse(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
   if (featureWorkflowDocRequest) {
     setFeatureWorkflowDocLinkHeader(
       response,
@@ -443,6 +461,25 @@ function handleLegalAndDocsRoutes(
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/en/docs/managed-policies";
+    return NextResponse.rewrite(url);
+  }
+
+  const cloudSecurityMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/cloud-security\/?$/,
+  );
+  if (
+    cloudSecurityMatch &&
+    !cloudSecurityDocsLocales.includes(
+      cloudSecurityMatch[1] as (typeof cloudSecurityDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/cloud-security";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/cloud-security" || pathname === "/docs/cloud-security/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/cloud-security";
     return NextResponse.rewrite(url);
   }
   return undefined;

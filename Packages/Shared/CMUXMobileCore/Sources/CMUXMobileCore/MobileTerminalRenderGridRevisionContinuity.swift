@@ -44,6 +44,48 @@ public struct MobileTerminalRenderGridRevisionContinuity: Equatable, Sendable {
         self.rows = frame.rows
     }
 
+    /// How a frame relates to the delivered chain state.
+    public enum Verdict: Equatable, Sendable {
+        /// The frame chains exactly onto the delivered state: deliver it.
+        case admit
+        /// The delivered state already covers this frame (an in-flight frame
+        /// from before a replay baseline landed): drop it silently. Revisions
+        /// are monotonic within one epoch, so a frame at or below the
+        /// delivered revision is superseded by construction, never
+        /// corruption.
+        case stale
+        /// The chain is genuinely broken (a gap ahead, an unknown epoch, or a
+        /// shape mismatch on an otherwise-linkable frame): request a replay.
+        case chainBreak
+    }
+
+    /// Classifies `frame` against the delivered chain state.
+    ///
+    /// ``admits(_:delivered:)`` collapses this to a binary verdict; consumers
+    /// that can drop superseded frames must use this instead, because
+    /// answering ``Verdict/stale`` with a replay re-requests a baseline whose
+    /// reset invalidates the next in-flight frames in turn — a livelock at
+    /// one replay per transport round trip
+    /// (https://github.com/manaflow-ai/cmux/issues/13474).
+    public static func classify(
+        _ frame: MobileTerminalRenderGridFrame,
+        delivered: Self?
+    ) -> Verdict {
+        // Staleness is decidable only inside one epoch (revisions are
+        // monotonic per epoch and restart across epochs) and only for frames
+        // that carry a real identity. Everything else keeps the binary
+        // behavior, including cross-epoch frames (fail closed) and legacy
+        // epochless producers (history chain remains their only guard).
+        if let delivered,
+           !frame.renderEpoch.isEmpty,
+           frame.renderRevision > 0,
+           frame.renderEpoch == delivered.renderEpoch,
+           frame.renderRevision <= delivered.renderRevision {
+            return .stale
+        }
+        return admits(frame, delivered: delivered) ? .admit : .chainBreak
+    }
+
     /// Whether `frame` may patch on top of the delivered state.
     ///
     /// Full frames always pass: they replace state rather than patch it.

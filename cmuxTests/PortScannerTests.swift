@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import CmuxCore
 import CmuxFoundation
 import Darwin
@@ -24,7 +25,7 @@ struct PortScannerOwnerScopedCompletenessTests {
             },
             processPresenceProvider: { _ in .present }
         )
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [:],
             globallyComplete: true,
             incompletePIDs: [Int(unrelated.pid)]
@@ -51,7 +52,7 @@ struct PortScannerOwnerScopedCompletenessTests {
             processIdentityProvider: { _ in nil },
             processPresenceProvider: { _ in .present }
         )
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [:],
             globallyComplete: true,
             incompletePIDs: []
@@ -81,7 +82,7 @@ struct PortScannerOwnershipScopeEvidenceTests {
             processIdentityProvider: { _ in listener },
             processPresenceProvider: { _ in .present }
         )
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [Int(listener.pid): [4200]],
             globallyComplete: true,
             incompletePIDs: []
@@ -108,7 +109,7 @@ struct PortScannerOwnershipScopeEvidenceTests {
             processIdentityProvider: { _ in listener },
             processPresenceProvider: { _ in .present }
         )
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [Int(listener.pid): [4200]],
             globallyComplete: true,
             incompletePIDs: []
@@ -135,7 +136,7 @@ struct PortScannerOwnershipScopeEvidenceTests {
             processIdentityProvider: { _ in listener },
             processPresenceProvider: { _ in .present }
         )
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [Int(listener.pid): [4200]],
             globallyComplete: false,
             incompletePIDs: [999]
@@ -157,122 +158,65 @@ struct PortScannerOwnershipScopeEvidenceTests {
 
 @Suite("Port scanner process capture")
 struct PortScannerProcessCaptureTests {
-    @Test("Malformed ps rows preserve valid mappings but make the scan incomplete")
-    func malformedPSRowsAreIncomplete() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "123 ttys001\nmalformed\n456 ttys002 extra\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys002")
-
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .incomplete)
-    }
-
-    @Test("Malformed lsof rows are incomplete only for their owning PID")
-    func malformedLsofRowsArePIDScoped() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "p123\nf3\nn*:4200\nnmalformed\np456\nf3\nn*:4300\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
-        let scan = await PortScanner(
-            commandRunner: runner,
+    @Test("Ports read from the kernel are complete evidence")
+    func kernelPortsAreCompleteEvidence() {
+        let scan = PortScanner(
             processIdentityProvider: {
                 AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
-        ).runLsof(pidsCsv: "123,456")
-
-        #expect(scan.values == [123: [4200], 456: [4300]])
-        #expect(scan.completeness(for: [123]) == .incomplete)
-        #expect(scan.completeness(for: [456]) == .complete)
-    }
-
-    @Test("A clean lsof field stream is complete")
-    func cleanLsofRowsAreComplete() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "p123\nf3\nn*:4200\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
-        let scan = await PortScanner(
-            commandRunner: runner,
-            processIdentityProvider: {
-                AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
-            }
-        ).runLsof(pidsCsv: "123")
+            },
+            listeningPortsProvider: { $0 == 123 ? .ports([4200]) : .ports([]) }
+        ).scanListeningPorts(pidsCsv: "123")
 
         #expect(scan.values == [123: [4200]])
         #expect(scan.completeness == .complete)
     }
 
-    @Test("lsof diagnostics preserve valid ports but make the scan incomplete")
-    func lsofDiagnosticsAreIncomplete() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "p123\nf3\nn*:4200\n",
-            stderr: "lsof: permission denied\n",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
-        let scan = await PortScanner(commandRunner: runner).runLsof(pidsCsv: "123")
+    @Test("An unreadable live PID is incomplete only for itself")
+    func unreadablePIDIsPIDScoped() {
+        let scan = PortScanner(
+            processIdentityProvider: {
+                $0 == 456
+                    ? AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+                    : nil
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { $0 == 456 ? .ports([4300]) : .denied }
+        ).scanListeningPorts(pidsCsv: "123,456")
 
-        #expect(scan.values == [123: [4200]])
-        #expect(scan.completeness == .incomplete)
+        #expect(scan.values == [456: [4300]])
+        #expect(scan.completeness(for: [123]) == .incomplete)
+        #expect(scan.completeness(for: [456]) == .complete)
     }
 
-    @Test("Filesystem warnings do not poison lsof TCP evidence")
-    func filesystemWarningsAreSuppressedForLsofTCPScan() async {
-        let pid = 123
-        let identity = AgentPIDProcessIdentity(
-            pid: pid_t(pid),
-            startSeconds: 1,
-            startMicroseconds: 0
-        )
-        let runner = PortLifecycleCommandRunner(
-            ttyName: "ttys001",
-            sessionLeaderPID: 1,
-            pid: pid,
-            port: 4200
-        )
-        let scan = await PortScanner(
-            commandRunner: runner,
-            processIdentityProvider: { $0 == identity.pid ? identity : nil },
-            processPresenceProvider: { $0 == identity.pid ? .present : .absent }
-        ).runLsof(pidsCsv: String(pid))
-        let arguments = await runner.lastLsofArguments
+    @Test("A root-owned PID we may not read still has a readable identity, so it stays complete")
+    func deniedPIDWithReadableIdentityStaysComplete() {
+        // The root `login` process heads every terminal's process group. An
+        // unprivileged reader never sees its sockets, and treating that as a
+        // miss would stop the panel behind it from ever retiring its ports.
+        let scan = PortScanner(
+            processIdentityProvider: {
+                AgentPIDProcessIdentity(pid: $0, startSeconds: 1, startMicroseconds: 0)
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { _ in .denied }
+        ).scanListeningPorts(pidsCsv: "1")
 
-        #expect(scan.values == [pid: [4200]])
-        #expect(scan.completeness(for: [pid]) == .complete)
-        #expect(arguments?.contains("-w") == true)
+        #expect(scan.values.isEmpty)
+        #expect(scan.completeness(for: [1]) == .complete)
     }
 
-    @Test("A confirmed absent PID is safe negative lsof evidence")
-    func absentPIDIsCompleteNegativeEvidence() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "p100\nf3\nn*:4200\n",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))
+    @Test("A confirmed absent PID is safe negative evidence")
+    func absentPIDIsCompleteNegativeEvidence() {
         let liveIdentity = AgentPIDProcessIdentity(
             pid: 100,
             startSeconds: 1,
             startMicroseconds: 0
         )
-        let scan = await PortScanner(
-            commandRunner: runner,
+        let scan = PortScanner(
             processIdentityProvider: { $0 == liveIdentity.pid ? liveIdentity : nil },
-            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent }
-        ).runLsof(pidsCsv: "100,200")
+            processPresenceProvider: { $0 == liveIdentity.pid ? .present : .absent },
+            listeningPortsProvider: { $0 == liveIdentity.pid ? .ports([4200]) : .unavailable }
+        ).scanListeningPorts(pidsCsv: "100,200")
 
         #expect(scan.values == [100: [4200]])
         #expect(scan.completeness(for: [100]) == .complete)
@@ -330,7 +274,7 @@ struct PortScannerProcessCaptureTests {
     @Test("A zombie on a panel's TTY does not withhold negative port evidence")
     func zombieProcessIsAuthoritativeAbsence() async throws {
         // Rejecting zombies as identities is only half the story: a zombie is
-        // still signalable, so presence read it as live and `runLsof` filed it
+        // still signalable, so presence read it as live and the scan filed it
         // as a PID whose ports might have gone unseen. That is the same
         // incompleteness that froze every panel behind the root `login`, and a
         // zombie can hold no socket at all.
@@ -350,14 +294,7 @@ struct PortScannerProcessCaptureTests {
         try #require(Self.processStatus(pid: pid) == SZOMB, "the child never became a zombie")
 
         let panel = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))
-        let lsofScan = await PortScanner(commandRunner: runner).runLsof(pidsCsv: String(pid))
+        let lsofScan = PortScanner().scanListeningPorts(pidsCsv: String(pid))
         let completeness = PortScanner.panelCompletenessByKey(
             panelTTYs: [panel: "ttys001"],
             pidToTTY: [Int(pid): "ttys001"],
@@ -385,18 +322,10 @@ struct PortScannerProcessCaptureTests {
     }
 
     @Test("A panel hosting a root-owned process can still retire its ports")
-    func panelWithRootOwnedProcessStaysComplete() async {
+    func panelWithRootOwnedProcessStaysComplete() {
         let panel = PortScanner.PanelKey(workspaceId: UUID(), panelId: UUID())
         let rootOwnedPID = 1
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "",
-            stderr: "",
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        ))
-        let lsofScan = await PortScanner(commandRunner: runner)
-            .runLsof(pidsCsv: String(rootOwnedPID))
+        let lsofScan = PortScanner().scanListeningPorts(pidsCsv: String(rootOwnedPID))
 
         let completeness = PortScanner.panelCompletenessByKey(
             panelTTYs: [panel: "ttys001"],
@@ -414,7 +343,7 @@ struct PortScannerProcessCaptureTests {
         let workspaceID = UUID()
         let healthyPanel = PortScanner.PanelKey(workspaceId: workspaceID, panelId: UUID())
         let failedPanel = PortScanner.PanelKey(workspaceId: workspaceID, panelId: UUID())
-        let lsofScan = PortLsofScanResult(
+        let lsofScan = PortListenerScanResult(
             values: [100: [4200]],
             globallyComplete: true,
             incompletePIDs: [200]
@@ -451,295 +380,6 @@ struct PortScannerProcessCaptureTests {
         #expect(complete[panel] == .complete)
         #expect(incomplete[panel] == .incomplete)
     }
-
-    @Test("A vanished TTY device does not discard the surviving panels' processes")
-    func missingTTYDeviceDoesNotDiscardSurvivingPanels() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys011: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "123 ttys001\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .complete)
-        #expect(arguments == [
-            ["-t", "ttys001,ttys011", "-o", "pid=,tty="],
-            ["-t", "ttys001", "-o", "pid=,tty="]
-        ])
-    }
-
-    @Test("Every TTY device vanishing is authoritative emptiness, not a failed scan")
-    func allTTYDevicesMissingIsCompleteAndEmpty() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: """
-                ps: /dev/ttys011: No such file or directory
-                ps: /dev/ttys091: No such file or directory
-
-                """,
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys011,ttys091")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values.isEmpty)
-        #expect(scan.completeness == .complete)
-        #expect(arguments == [["-t", "ttys011,ttys091", "-o", "pid=,tty="]])
-    }
-
-    @Test("A diagnostic that names no requested TTY stays incomplete without retrying")
-    func unrecognizedPSDiagnosticsStayIncomplete() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "123 ttys001\n",
-                stderr: "ps: unable to obtain kernel process table\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .incomplete)
-        #expect(arguments == [["-t", "ttys001,ttys011", "-o", "pid=,tty="]])
-    }
-
-    @Test("A diagnostic that names a requested TTY with another errno stays incomplete")
-    func nonMissingDeviceDiagnosticStaysIncomplete() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "123 ttys001\n",
-                stderr: "ps: /dev/ttys011: Permission denied\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
-        let arguments = await runner.recordedArguments
-
-        // A device that exists but cannot be read is missing evidence, not
-        // absence: dropping it would retire live ports.
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .incomplete)
-        #expect(arguments == [["-t", "ttys001,ttys011", "-o", "pid=,tty="]])
-    }
-
-    @Test("A vanished TTY alongside an unreadable one keeps the scan incomplete")
-    func mixedVanishedAndUnreadableDiagnosticsStayIncomplete() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: """
-                ps: /dev/ttys011: No such file or directory
-                ps: /dev/ttys001: Permission denied
-
-                """,
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys001: Permission denied\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,ttys011")
-        let arguments = await runner.recordedArguments
-
-        // The vanished terminal must not launder the unreadable one into
-        // completeness: only the unreadable terminal is re-queried, and its
-        // persisting diagnostic leaves the scan incomplete.
-        #expect(scan.values.isEmpty)
-        #expect(scan.completeness == .incomplete)
-        #expect(arguments == [
-            ["-t", "ttys001,ttys011", "-o", "pid=,tty="],
-            ["-t", "ttys001", "-o", "pid=,tty="]
-        ])
-    }
-
-    @Test("The two-device diagnostic form still identifies the vanished TTY")
-    func combinedDeviceDiagnosticIdentifiesVanishedTTY() async {
-        // `ps` stats both /dev/tty<name> and /dev/<name> for a name that does
-        // not already begin with "tty", and names both in one diagnostic.
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttyremote7 and /dev/remote7: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "123 ttys001\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,remote7")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .complete)
-        #expect(arguments == [
-            ["-t", "ttys001,remote7", "-o", "pid=,tty="],
-            ["-t", "ttys001", "-o", "pid=,tty="]
-        ])
-    }
-
-    @Test("A TTY registered by full device path is still recognized as vanished")
-    func fullDevicePathTTYIsRecognizedAsVanished() async {
-        // `registerTTY` stores whatever the shell reported, and `$(tty)` yields
-        // the full device path.
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys011: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "123 ttys001\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001,/dev/ttys011")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values == [123: "ttys001"])
-        #expect(scan.completeness == .complete)
-        #expect(arguments == [
-            ["-t", "ttys001,/dev/ttys011", "-o", "pid=,tty="],
-            ["-t", "ttys001", "-o", "pid=,tty="]
-        ])
-    }
-
-    @Test("The last TTY vanishing on the final attempt is still authoritative emptiness")
-    func lastTTYVanishingOnFinalAttemptIsComplete() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys011: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys012: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys013: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner)
-            .runPS(ttyList: "ttys011,ttys012,ttys013")
-
-        // Whether the last pty closes on the first or the final attempt, no
-        // process can be attached to a freed device, so the empty result is
-        // evidence rather than a failed scan.
-        #expect(scan.values.isEmpty)
-        #expect(scan.completeness == .complete)
-    }
-
-    @Test("A TTY that stays unscannable after the retry budget stays incomplete")
-    func repeatedlyVanishingTTYsExhaustTheRetryBudget() async {
-        let runner = ScriptedCommandRunner(results: [
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys011: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys012: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            ),
-            CommandResult(
-                stdout: "",
-                stderr: "ps: /dev/ttys013: No such file or directory\n",
-                exitStatus: 1,
-                timedOut: false,
-                executionError: nil
-            )
-        ])
-
-        let scan = await PortScanner(commandRunner: runner)
-            .runPS(ttyList: "ttys001,ttys011,ttys012,ttys013")
-        let arguments = await runner.recordedArguments
-
-        #expect(scan.values.isEmpty)
-        #expect(scan.completeness == .incomplete)
-        #expect(arguments == [
-            ["-t", "ttys001,ttys011,ttys012,ttys013", "-o", "pid=,tty="],
-            ["-t", "ttys001,ttys012,ttys013", "-o", "pid=,tty="],
-            ["-t", "ttys001,ttys013", "-o", "pid=,tty="]
-        ])
-    }
-
-    @Test("Process scan timeout is bounded and incomplete")
-    func processScanTimeoutIsIncomplete() async {
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: nil,
-            stderr: nil,
-            exitStatus: nil,
-            timedOut: true,
-            executionError: nil
-        ))
-        let scan = await PortScanner(commandRunner: runner).runPS(ttyList: "ttys001")
-        let timeout = await runner.lastTimeout
-
-        #expect(scan.values.isEmpty)
-        #expect(scan.completeness == .incomplete)
-        #expect(timeout == PortScanner.processScanTimeout)
-    }
 }
 
 @Suite("Agent process identity validation")
@@ -751,15 +391,9 @@ struct AgentProcessIdentityValidationTests {
         let secondIdentity = AgentPIDProcessIdentity(pid: 101, startSeconds: 20, startMicroseconds: 0)
         let firstRoot = AgentPortRootIdentity(pid: 100, processIdentity: firstIdentity)
         let secondRoot = AgentPortRootIdentity(pid: 101, processIdentity: secondIdentity)
-        let runner = StubCommandRunner(result: CommandResult(
-            stdout: "100 1\n101 100\n102 101\n103 102\n",
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        ))
+        let processTable = StubPortProcessTable(parents: [100: 1, 101: 100, 102: 101, 103: 102])
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
             processIdentityProvider: { pid in
                 switch pid {
                 case firstIdentity.pid: firstIdentity
@@ -803,20 +437,14 @@ struct AgentProcessIdentityValidationTests {
         let recycled = AgentPIDProcessIdentity(pid: 100, startSeconds: 11, startMicroseconds: 0)
         let root = AgentPortRootIdentity(pid: 100, processIdentity: recorded)
         for postCaptureIdentity in [recycled, nil] as [AgentPIDProcessIdentity?] {
-            // Serializes the async runner's identity flip with synchronous provider reads.
+            // Serializes the process read's identity flip with synchronous provider reads.
             let identity = OSAllocatedUnfairLock(initialState: Optional(recorded))
-            let runner = StubCommandRunner(
-                result: CommandResult(
-                    stdout: "100 1\n101 100\n",
-                    stderr: "",
-                    exitStatus: 0,
-                    timedOut: false,
-                    executionError: nil
-                ),
-                onRun: { identity.withLock { $0 = postCaptureIdentity } }
+            let processTable = StubPortProcessTable(
+                parents: [100: 1, 101: 100],
+                onRead: { identity.withLock { $0 = postCaptureIdentity } }
             )
             let scanner = PortScanner(
-                commandRunner: runner,
+                processTable: processTable,
                 processIdentityProvider: { _ in identity.withLock { $0 } },
                 processPresenceProvider: { _ in .present }
             )
@@ -833,20 +461,14 @@ struct AgentProcessIdentityValidationTests {
         let workspaceID = UUID()
         let identity = AgentPIDProcessIdentity(pid: 100, startSeconds: 10, startMicroseconds: 20)
         let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
-        // Serializes the async runner callback with the synchronous assertion read.
+        // Serializes the process read callback with the synchronous assertion read.
         let didRun = OSAllocatedUnfairLock(initialState: false)
-        let runner = StubCommandRunner(
-            result: CommandResult(
-                stdout: "100 1\n",
-                stderr: "",
-                exitStatus: 0,
-                timedOut: false,
-                executionError: nil
-            ),
-            onRun: { didRun.withLock { $0 = true } }
+        let processTable = StubPortProcessTable(
+            parents: [100: 1],
+            onRead: { didRun.withLock { $0 = true } }
         )
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
             processIdentityProvider: { _ in nil },
             processPresenceProvider: { _ in .present }
         )
@@ -884,7 +506,7 @@ struct AgentProcessIdentityValidationTests {
 
     @Test("lsof incompleteness is scoped to workspaces that own the failed PID")
     func lsofCompletenessIsPIDScoped() {
-        let scan = PortLsofScanResult(
+        let scan = PortListenerScanResult(
             values: [100: [4200]],
             globallyComplete: true,
             incompletePIDs: [200]
@@ -1045,44 +667,30 @@ struct ProcessTerminationGateTests {
     }
 }
 
-/// Replays exactly one scripted result per invocation so unexpected retries
-/// fail instead of silently reusing stale evidence.
-private actor ScriptedCommandRunner: CommandRunning {
-    private let results: [CommandResult]
-    private(set) var recordedArguments: [[String]] = []
+/// Records every terminal query a scan makes and answers it as unreadable, so
+/// a lifecycle test can observe that a scan ran without publishing evidence.
+private actor RecordingPortProcessTable: PortProcessTableReading {
+    private(set) var recordedTerminalQueries: [[String]] = []
     private var invocationWaiters: [CheckedContinuation<Void, Never>] = []
 
-    init(results: [CommandResult]) {
-        self.results = results
-    }
-
     func waitForInvocation() async {
-        if !recordedArguments.isEmpty { return }
+        if !recordedTerminalQueries.isEmpty { return }
         await withCheckedContinuation { continuation in
             invocationWaiters.append(continuation)
         }
     }
 
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        recordedArguments.append(arguments)
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        recordedTerminalQueries.append(ttyNames)
         invocationWaiters.forEach { $0.resume() }
         invocationWaiters.removeAll()
-        let index = recordedArguments.count - 1
-        guard results.indices.contains(index) else {
-            return CommandResult(
-                stdout: nil,
-                stderr: nil,
-                exitStatus: nil,
-                timedOut: false,
-                executionError: "unexpected scripted command invocation \(recordedArguments.count)"
-            )
-        }
-        return results[index]
+        return ([:], .incomplete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        ([:], .incomplete)
     }
 }
 
@@ -1090,8 +698,8 @@ private actor ScriptedCommandRunner: CommandRunning {
 struct PortScannerLifecycleTests {
     @Test("A stale completion preserves a pending rescan under the current generation")
     func staleCompletionDoesNotConsumePendingRescan() async {
-        let runner = ScriptedCommandRunner(results: [])
-        let scanner = PortScanner(commandRunner: runner)
+        let processTable = RecordingPortProcessTable()
+        let scanner = PortScanner(processTable: processTable)
         let workspaceID = UUID()
         let panelID = UUID()
         await MainActor.run {
@@ -1127,21 +735,21 @@ struct PortScannerLifecycleTests {
                 panelProcessScopeCompletenessByKey: [:],
                 agentCompletenessByWorkspace: [:],
                 agentProcessScopeCompletenessByWorkspace: [:],
-                panelLsofEvidence: PortLsofScanResult(values: [:], globallyComplete: true, incompletePIDs: []),
+                panelLsofEvidence: PortListenerScanResult(values: [:], globallyComplete: true, incompletePIDs: []),
                 agentLsofEvidence: nil,
                 inspectedPIDs: [],
                 requestID: 0
             )
         }
-        await runner.waitForInvocation()
-        let calls = await runner.recordedArguments
+        await processTable.waitForInvocation()
+        let calls = await processTable.recordedTerminalQueries
         #expect(!calls.isEmpty)
     }
 
     @Test("Unregister preserves a pending burst for other panels")
     func unregisterPreservesOtherPanelBurst() async {
-        let runner = ScriptedCommandRunner(results: [])
-        let scanner = PortScanner(commandRunner: runner)
+        let processTable = RecordingPortProcessTable()
+        let scanner = PortScanner(processTable: processTable)
         let workspaceID = UUID()
         let removedPanelID = UUID()
         let retainedPanelID = UUID()
@@ -1154,8 +762,8 @@ struct PortScannerLifecycleTests {
         await MainActor.run {
             scanner.unregisterPanel(workspaceId: workspaceID, panelId: removedPanelID)
         }
-        await runner.waitForInvocation()
-        let calls = await runner.recordedArguments
+        await processTable.waitForInvocation()
+        let calls = await processTable.recordedTerminalQueries
         #expect(!calls.isEmpty)
     }
 }
@@ -1175,7 +783,7 @@ struct PortScannerGenerationTests {
             startMicroseconds: 0
         )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
-        let scanner = PortScanner(commandRunner: ScriptedCommandRunner(results: []))
+        let scanner = PortScanner(processTable: RecordingPortProcessTable())
         let (publications, continuation) = AsyncStream<[Int]>.makeStream(
             bufferingPolicy: .unbounded
         )
@@ -1222,7 +830,7 @@ struct PortScannerGenerationTests {
                 panelProcessScopeCompletenessByKey: [:],
                 agentCompletenessByWorkspace: [workspaceID: .complete],
                 agentProcessScopeCompletenessByWorkspace: [workspaceID: .complete],
-                panelLsofEvidence: PortLsofScanResult(
+                panelLsofEvidence: PortListenerScanResult(
                     values: [:],
                     globallyComplete: true,
                     incompletePIDs: []
@@ -1238,28 +846,396 @@ struct PortScannerGenerationTests {
     }
 }
 
-@Suite("Port scanner lsof batching")
-struct PortScannerLsofBatchingTests {
-    @Test("Large PID lists are split without exceeding the argument budget")
-    func largePIDListUsesBoundedCSVArguments() {
-        let pids = Array(1...20_000)
-        let chunks = PortScanner.lsofPIDChunks(pids)
-
-        #expect(chunks.count > 1)
-        #expect(chunks.flatMap { $0 } == pids)
-        for chunk in chunks {
-            let csvBytes = chunk.map(String.init).joined(separator: ",").utf8.count
-            #expect(csvBytes + PortScanner.lsofArgumentOverhead <= PortScanner.lsofArgumentByteBudget)
-        }
-    }
-}
-
 @Suite("Port scanner retirement end to end")
 struct PortScannerPortRetirementTests {
+    /// The production burst spans ten seconds, so these tests drive the scanner
+    /// on a compressed schedule of the same shape: six scans, one burst, the
+    /// same coalesce step. Only the wall-clock spacing shrinks; the scan count
+    /// and the ordering the reconciler depends on are unchanged.
+    private static let fastBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 0.75]
+    /// Same six-scan burst, but with the final scan left far enough behind the
+    /// fifth that a kick issued from inside the fifth scan's port lookup reaches
+    /// the scanner queue while the burst still owes exactly one scan, the case
+    /// the late-burst test covers. The gap only has to outlast the scanner's own
+    /// hop from the fifth timer to that lookup, not a test-task wakeup.
+    private static let fastLateBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 1.6]
+    /// A burst of one scan: the three scans a kick owes arrive as follow-up
+    /// bursts a few milliseconds apart, then scanning stops. That gives a test
+    /// a scanner it can tell is idle (`waitForScansToSettle`).
+    private static let singleScanBurstOffsets: [TimeInterval] = [0.01]
+    /// The compressed stand-in for the production 200ms coalesce step. No test
+    /// here kicks repeatedly while it waits, so nothing is racing this window:
+    /// each kick is issued once and the scanner's own guarantee of
+    /// `minimumScansPerKick` scans per kick carries the rest.
+    private static let fastCoalesceDelay: TimeInterval = 0.01
+
+    /// The compressed schedules above only stand in for production if the
+    /// shipped cadence still has the shape they mimic.
+    @Test("The production scan schedule keeps its six-scan burst and coalesce window")
+    func productionScanScheduleMatchesCompressedShape() {
+        #expect(PortScanner.defaultBurstOffsets == [0.5, 1.5, 3, 5, 7.5, 10])
+        #expect(PortScanner.defaultCoalesceDelay == 0.2)
+        #expect(Self.fastBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+        #expect(Self.fastLateBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+    }
+
+    /// An agent binary such as Claude Code running fullscreen becomes the
+    /// panel's foreground process, so its own loopback sandbox-proxy listeners
+    /// must never badge the panel, while a dev server it launches as a child
+    /// keeps its badge.
+    @Test("An agent root's own ports never badge its panel, but its child dev server keeps its badge")
+    func agentRootOwnPortsExcludedFromPanelBadgeButChildPortsKept() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys910"
+        let rootPID = 9001
+        let childPID = 9002
+        let rootPorts: Set<Int> = [55936, 55937]
+        let childPort = 5173
+        let rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: rootIdentity)
+        let scanner = PortScanner(
+            processTable: AgentRootPanelProcessTable(ttyName: ttyName, rootPID: rootPID, childPID: childPID),
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case rootPID: rootIdentity
+                case childPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                switch Int(pid) {
+                case rootPID: .ports(rootPorts)
+                case childPID: .ports([childPort])
+                default: .ports([])
+                }
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        let agentPublishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.onAgentPortsUpdated = { publishedWorkspaceId, ports in
+                guard publishedWorkspaceId == workspaceId else { return false }
+                agentPublishedPorts.withLock { $0.append(ports) }
+                return true
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: rootPID, processIdentity: rootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishChildPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0.contains(childPort) },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishChildPort, "the child dev server's port was never published")
+        let didPublishAgentChildPort = await Self.waitForPublication(
+            in: agentPublishedPorts,
+            matching: { $0.contains(childPort) },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishAgentChildPort, "the child dev server's port never reached the agent's ports")
+
+        let publications = publishedPorts.withLock { $0 }
+        #expect(publications.contains([childPort]))
+        #expect(
+            publications.allSatisfy { Set($0).isDisjoint(with: rootPorts) },
+            "the agent root's own sandbox proxy ports must never badge the panel"
+        )
+        // The agent's own port list is a second route for the same listeners:
+        // the panel scan and the agent-only scan each join ports to roots.
+        let agentPublications = agentPublishedPorts.withLock { $0 }
+        #expect(agentPublications.contains([childPort]))
+        #expect(
+            agentPublications.allSatisfy { Set($0).isDisjoint(with: rootPorts) },
+            "the agent root's own sandbox proxy ports must never reach the agent's ports"
+        )
+    }
+
+    /// Whether a listener badges its panel depends on which processes are
+    /// agent roots, so a root registered after the panel's last scan leaves
+    /// the root's ports badged until something else kicks the panel.
+    @Test("A root registered after the panel's scans settle takes its own ports off the badge")
+    func agentRootRegisteredLaterTakesItsPortsOffTheBadge() async throws {
+        let fixture = AgentRootPanelFixture(ttyName: "ttys912", rootPID: 9201, childPID: 9202)
+        let scanner = fixture.makeScanner(
+            burstOffsets: Self.singleScanBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        await fixture.registerPanel(on: scanner, recording: publishedPorts)
+        scanner.kick(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+
+        // Nothing marks the root yet, so its listeners badge like any other.
+        let sawEveryPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { Set($0) == fixture.allPorts },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(sawEveryPort, "the unregistered root's ports never badged the panel")
+        let settled = await Self.waitForScansToSettle(fixture.processTable)
+        try #require(settled, "the panel's scans never settled")
+
+        let publishedBefore = publishedPorts.withLock { $0.count }
+        await fixture.setRootRegistered(true, on: scanner)
+
+        let didTakeRootPortsOff = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publishedBefore,
+            matching: { $0 == [fixture.childPort] },
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didTakeRootPortsOff, "registering the root never rescanned its panel")
+    }
+
+    /// The mirror case: a root that stops being one is an ordinary process
+    /// again, so its listeners go back on the badge without another command.
+    @Test("A root removed after the panel's scans settle puts its ports back on the badge")
+    func agentRootRemovedLaterPutsItsPortsBackOnTheBadge() async throws {
+        let fixture = AgentRootPanelFixture(ttyName: "ttys913", rootPID: 9301, childPID: 9302)
+        let scanner = fixture.makeScanner(
+            burstOffsets: Self.singleScanBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        await fixture.registerPanel(on: scanner, recording: publishedPorts)
+        await fixture.setRootRegistered(true, on: scanner)
+        scanner.kick(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+
+        let sawChildPortOnly = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [fixture.childPort] },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(sawChildPortOnly, "the registered root's ports were not excluded")
+        let settled = await Self.waitForScansToSettle(fixture.processTable)
+        try #require(settled, "the panel's scans never settled")
+
+        let publishedBefore = publishedPorts.withLock { $0.count }
+        await fixture.setRootRegistered(false, on: scanner)
+
+        let didPutRootPortsBack = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publishedBefore,
+            matching: { Set($0) == fixture.allPorts },
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPutRootPortsBack, "removing the root never rescanned its panel")
+    }
+
+    /// Exclusion keys off identity, not the raw PID. If the tracked root exits
+    /// and the OS recycles its PID for an ordinary process before the next
+    /// `refreshAgentPorts` update, that process still badges.
+    @Test("A recycled agent-root PID keeps badging its panel once its identity no longer matches")
+    func recycledAgentRootPIDKeepsBadgingPanel() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys911"
+        let recycledPID = 9101
+        let unrelatedChildPID = 9102
+        let recycledPort = 4444
+        let recordedRootIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 1, startMicroseconds: 0)
+        let liveIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 99, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(unrelatedChildPID), startSeconds: 2, startMicroseconds: 0)
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: liveIdentity)
+        let scanner = PortScanner(
+            processTable: AgentRootPanelProcessTable(
+                ttyName: ttyName,
+                rootPID: recycledPID,
+                childPID: unrelatedChildPID
+            ),
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case recycledPID: liveIdentity
+                case unrelatedChildPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                Int(pid) == recycledPID ? .ports([recycledPort]) : .ports([])
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: recycledPID, processIdentity: recordedRootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishRecycledPIDPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [recycledPort] },
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPublishRecycledPIDPort, "an unrelated process reusing a stale agent-root PID must still badge its panel")
+    }
+
+    /// The scan is not free, so hiding the ports detail has to stop it running,
+    /// not just stop it being displayed (issue #6123).
+    @Test("Hiding the ports detail stops the local scan")
+    func disabledPortScanningNeverScans() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys903"
+        let listenerPID = Int(getpid())
+        let processTable = PortLifecycleProcessTable(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: 4323
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity }
+        )
+        scanner.setScanningEnabled(false)
+
+        await MainActor.run {
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let scanned = await processTable.waitForPortScan(1, timeout: .seconds(2))
+        #expect(scanned == false, "a disabled scanner must not read any process's ports")
+    }
+
+    /// Ports that open while the detail is hidden are never seen, so showing
+    /// the detail again has to rescan the panels without waiting for a command.
+    @Test("Showing the ports detail again rescans registered panels")
+    func reenabledPortScanningRescansRegisteredPanels() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys904"
+        let listenerPID = Int(getpid())
+        let listeningPort = 4324
+        let processTable = PortLifecycleProcessTable(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: listeningPort
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        scanner.setScanningEnabled(false)
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        scanner.setScanningEnabled(true)
+
+        let didPublishListeningPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [listeningPort] },
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPublishListeningPort, "re-enabling the scanner never rescanned the panel")
+    }
+
+    /// Readers other than the sidebar row (socket, CLI, custom sidebars) keep
+    /// reading published ports, so hiding the detail must not leave them a
+    /// list frozen at the moment scanning stopped.
+    @Test("Hiding the ports detail clears the published ports")
+    func disablingPortScanningClearsPublishedPorts() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys905"
+        let listenerPID = Int(getpid())
+        let listeningPort = 4325
+        let processTable = PortLifecycleProcessTable(
+            ttyName: ttyName,
+            sessionLeaderPID: 1,
+            pid: listenerPID,
+            port: listeningPort
+        )
+        let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
+        let scanner = PortScanner(
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        scanner.setScanningEnabled(true)
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishListeningPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [listeningPort] },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishListeningPort, "the listening port was never published")
+
+        let publicationsBeforeDisable = publishedPorts.withLock { $0.count }
+        scanner.setScanningEnabled(false)
+
+        let didClearPorts = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publicationsBeforeDisable,
+            matching: \.isEmpty,
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didClearPorts, "hiding the ports detail left the published ports in place")
+    }
+
     /// Drives the whole scanner — TTY registration, kick, coalesce, burst,
     /// reconcile, publish — so a break anywhere in that chain surfaces even
     /// when every individual stage still passes its own test.
-    @Test("A published port retires despite unrelated lsof filesystem warnings")
+    @Test("A published port retires after the process stops listening")
     func publishedPortIsRetiredAfterProcessStopsListening() async throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -1272,7 +1248,7 @@ struct PortScannerPortRetirementTests {
         let sessionLeaderPID = 1
         let listenerPID = Int(getpid())
         let listeningPort = 4321
-        let runner = PortLifecycleCommandRunner(
+        let processTable = PortLifecycleProcessTable(
             ttyName: ttyName,
             sessionLeaderPID: sessionLeaderPID,
             pid: listenerPID,
@@ -1281,8 +1257,11 @@ struct PortScannerPortRetirementTests {
         let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
-            commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -1298,20 +1277,24 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            pollInterval: .milliseconds(25)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
 
         // Only publications recorded after the port stops being held count as
         // retirement; an earlier empty publication is registration noise.
         let publicationsBeforeStop = publishedPorts.withLock { $0.count }
-        await runner.stopListening()
+        processTable.stopListening()
+        // One kick, not one per poll: a kick guarantees `minimumScansPerKick`
+        // scans, which is exactly the number of complete misses the reconciler
+        // needs to retire the port.
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didRetirePort = await Self.waitForPublication(
             in: publishedPorts,
             after: publicationsBeforeStop,
             matching: \.isEmpty,
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) }
+            pollInterval: .milliseconds(25)
         )
 
         #expect(didRetirePort, "the port was never retired after its process stopped listening")
@@ -1327,7 +1310,7 @@ struct PortScannerPortRetirementTests {
         let ttyName = "ttys902"
         let listenerPID = Int(getpid())
         let listeningPort = 4322
-        let runner = PortLifecycleCommandRunner(
+        let processTable = PortLifecycleProcessTable(
             ttyName: ttyName,
             sessionLeaderPID: 1,
             pid: listenerPID,
@@ -1336,8 +1319,11 @@ struct PortScannerPortRetirementTests {
         let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
-            commandRunner: runner,
-            ttySessionIdentityProvider: { _ in sessionIdentity }
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastLateBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
 
@@ -1348,36 +1334,41 @@ struct PortScannerPortRetirementTests {
             }
             scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
         }
+        // The fifth scan leaves only the last scan of the six-scan burst.
+        // Stopping there means clearing the kick at that scan strands the port
+        // after only one complete miss, so the kick must survive the burst.
+        // The fixture stops and kicks from inside the fifth port lookup, after
+        // that lookup reports the port, so the stop is tied to the scan itself
+        // rather than to when this task happens to observe it.
+        processTable.stopListening(afterListenerLookup: 5) {
+            scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        }
         scanner.kick(workspaceId: workspaceId, panelId: panelId)
 
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: {}
+            pollInterval: .milliseconds(10)
         )
         try #require(didPublishListeningPort, "the listening port was never published")
-
-        // The fifth scan is at 7.5 seconds in the six-scan burst. Stopping here
-        // leaves only the 10-second scan in the original burst, so clearing the
-        // kick at that scan strands the port after only one complete miss.
-        let reachedFifthScan = await runner.waitForLsofInvocation(5)
-        try #require(reachedFifthScan, "the scanner did not reach the fifth burst scan")
-        let publicationsBeforeStop = publishedPorts.withLock { $0.count }
-        await runner.stopListening()
-        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+        // Retirement is the first empty publication after the port appeared;
+        // an earlier empty publication is registration noise.
+        let firstListeningPublication = try #require(
+            publishedPorts.withLock { $0.firstIndex(of: [listeningPort]) }
+        )
 
         let didRetirePort = await Self.waitForPublication(
             in: publishedPorts,
-            after: publicationsBeforeStop,
+            after: firstListeningPublication + 1,
             matching: \.isEmpty,
-            onKick: {},
-            timeout: .seconds(12)
+            timeout: .seconds(12),
+            pollInterval: .milliseconds(10)
         )
 
         #expect(didRetirePort, "a late-burst kick did not schedule enough complete misses")
     }
 
-    /// `/bin/ps` accepts a full device path in `-t`, but reports the matching
+    /// The process table accepts a full device path, but reports the matching
     /// process's TTY without `/dev/`. The scanner must still attribute the
     /// listener to the panel that registered the full path.
     @Test("A live full-path TTY still attributes its listener")
@@ -1388,7 +1379,7 @@ struct PortScannerPortRetirementTests {
         let processTTYName = "ttys903"
         let listenerPID = Int(getpid())
         let listeningPort = 4323
-        let runner = PortLifecycleCommandRunner(
+        let processTable = PortLifecycleProcessTable(
             ttyName: registeredTTYName,
             processTTYName: processTTYName,
             sessionLeaderPID: 1,
@@ -1398,7 +1389,8 @@ struct PortScannerPortRetirementTests {
         let listenerIdentity = try #require(AgentPIDProcessIdentity(pid: pid_t(listenerPID)))
         let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: listenerIdentity)
         let scanner = PortScanner(
-            commandRunner: runner,
+            processTable: processTable,
+            listeningPortsProvider: { processTable.listeningPorts(pid: $0) },
             ttySessionIdentityProvider: { _ in sessionIdentity }
         )
         let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
@@ -1419,25 +1411,59 @@ struct PortScannerPortRetirementTests {
         let didPublishListeningPort = await Self.waitForPublication(
             in: publishedPorts,
             matching: { $0 == [listeningPort] },
-            onKick: { scanner.kick(workspaceId: workspaceId, panelId: panelId) },
             timeout: .seconds(6)
         )
 
         #expect(didPublishListeningPort, "the full-path TTY never received its listener")
     }
 
+    /// Waits until the process table has gone `quiet` without a read. The
+    /// schedule of `singleScanBurstOffsets` puts scans tens of milliseconds
+    /// apart, so half a second of silence is the end of the scans a kick owes,
+    /// not a gap between two of them. Call it only after a scan has run.
+    private static func waitForScansToSettle(
+        _ processTable: AgentRootPanelProcessTable,
+        quiet: Duration = .milliseconds(500),
+        timeout: Duration = .seconds(20)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        var lastReadCount = processTable.readCount
+        var lastChange = ContinuousClock.now
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+            let readCount = processTable.readCount
+            if readCount != lastReadCount {
+                lastReadCount = readCount
+                lastChange = ContinuousClock.now
+            } else if ContinuousClock.now - lastChange >= quiet {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Polls rather than sleeping a fixed interval, since the scan burst runs
-    /// on real timers whose spacing shifts under load.
+    /// on real timers whose spacing shifts under load. The deadline bounds only
+    /// the failure path: a satisfied predicate returns immediately.
     ///
-    /// The interval must stay above the scanner's 200ms kick coalesce window:
-    /// each kick reschedules that timer, so polling faster than it starves the
-    /// burst and no scan ever runs.
+    /// This only observes; it never kicks. Kicking from the poll loop is a
+    /// flake vector, not a nudge: `PortScanner.kick()` re-arms the coalesce
+    /// timer whenever no burst is running, so on a loaded runner — where timer
+    /// jitter is the same order as the coalesce window — a stream of polls can
+    /// cancel that timer forever and no scan ever runs. Each caller kicks once
+    /// instead, which the scanner already answers with a guaranteed
+    /// `minimumScansPerKick` scans. That makes the poll interval a pure
+    /// latency/CPU tradeoff, independent of the coalesce delay.
     private static func waitForPublication(
         in publishedPorts: OSAllocatedUnfairLock<[[Int]]>,
         after startIndex: Int = 0,
         matching predicate: @Sendable ([Int]) -> Bool,
-        onKick: @Sendable () -> Void,
-        timeout: Duration = .seconds(20)
+        timeout: Duration = .seconds(20),
+        pollInterval: Duration = .milliseconds(500)
     ) async -> Bool {
         func isSatisfied() -> Bool {
             publishedPorts.withLock { $0.dropFirst(startIndex).contains(where: predicate) }
@@ -1445,11 +1471,10 @@ struct PortScannerPortRetirementTests {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if isSatisfied() { return true }
-            onKick()
             // Cancellation makes the sleep throw immediately; without this the
             // poll would spin until the wall-clock deadline.
             do {
-                try await Task.sleep(for: .milliseconds(500))
+                try await Task.sleep(for: pollInterval)
             } catch {
                 break
             }
@@ -1460,22 +1485,25 @@ struct PortScannerPortRetirementTests {
 
 /// Reports one listening port on one TTY until `stopListening()`, after which
 /// the process is still alive but owns no sockets.
-private actor PortLifecycleCommandRunner: CommandRunning {
+/// Stubs the process-table half of a scan and stands in for the kernel port
+/// lookup, so a panel's whole port lifecycle can be driven without a real
+/// listening socket.
+private final class PortLifecycleProcessTable: PortProcessTableReading, @unchecked Sendable {
+    // Safe: every mutable field lives in `state`, which is only read or
+    // written under its lock.
+    private struct State {
+        var isListening = true
+        var portScanCount = 0
+        var listenerLookupCount = 0
+        var scheduledStop: (lookup: Int, action: @Sendable () -> Void)?
+    }
+
     private let ttyName: String
     private let processTTYName: String
     private let sessionLeaderPID: Int
     private let pid: Int
     private let port: Int
-    private var isListening = true
-    private(set) var lastLsofArguments: [String]?
-    private var lsofInvocationCount = 0
-
-    private static let filesystemWarning = """
-    lsof: WARNING: can't stat() smbfs file system /Volumes/.timemachine/example
-          Output information may be incomplete.
-          assuming "dev=deadbeef" from mount table
-
-    """
+    private let state = OSAllocatedUnfairLock(initialState: State())
 
     init(
         ttyName: String,
@@ -1492,100 +1520,211 @@ private actor PortLifecycleCommandRunner: CommandRunning {
     }
 
     func stopListening() {
-        isListening = false
+        state.withLock { $0.isListening = false }
     }
 
-    func waitForLsofInvocation(_ target: Int, timeout: Duration = .seconds(15)) async -> Bool {
+    /// The port lookup the scanner calls instead of spawning lsof.
+    func listeningPorts(pid queryPID: pid_t) -> ListeningPortLookupResult {
+        let (reportsPort, stopAction) = state.withLock { current -> (Bool, (@Sendable () -> Void)?) in
+            current.portScanCount += 1
+            guard Int(queryPID) == pid else { return (false, nil) }
+            current.listenerLookupCount += 1
+            let reportsPort = current.isListening
+            var action: (@Sendable () -> Void)?
+            if let stop = current.scheduledStop, stop.lookup == current.listenerLookupCount {
+                current.scheduledStop = nil
+                current.isListening = false
+                action = stop.action
+            }
+            return (reportsPort, action)
+        }
+        stopAction?()
+        return .ports(reportsPort ? [port] : [])
+    }
+
+    /// Stops listening inside the `target`th lookup of the listener's ports,
+    /// after that lookup has reported the port, then runs `action` while the
+    /// scan is still in flight. Must be armed before that lookup happens.
+    func stopListening(
+        afterListenerLookup target: Int,
+        then action: @escaping @Sendable () -> Void
+    ) {
+        state.withLock { $0.scheduledStop = (target, action) }
+    }
+
+    func waitForPortScan(_ target: Int, timeout: Duration = .seconds(15)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
-        while lsofInvocationCount < target, ContinuousClock.now < deadline {
+        while state.withLock({ $0.portScanCount }) < target, ContinuousClock.now < deadline {
             do {
                 try await Task.sleep(for: .milliseconds(50))
             } catch {
                 return false
             }
         }
-        return lsofInvocationCount >= target
+        return state.withLock { $0.portScanCount } >= target
     }
 
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        if executable.hasSuffix("ps") {
-            if arguments.first == "-ax" {
-                return Self.output("\(pid) 1\n")
-            }
-            // Honor the `-t` selector: a scan that asks about another terminal
-            // must not be handed this panel's processes.
-            let selectedTTYs = Self.selection(for: "-t", in: arguments)
-            guard selectedTTYs.contains(ttyName) || selectedTTYs.contains(processTTYName) else {
-                return Self.noSelectedFiles()
-            }
-            return Self.output("\(sessionLeaderPID) \(processTTYName)\n\(pid) \(processTTYName)\n")
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        // Honor the requested terminals: a scan that asks about another
+        // terminal must not be handed this panel's processes.
+        let requested = Set(ttyNames)
+        guard requested.contains(ttyName) || requested.contains(processTTYName) else {
+            return ([:], .complete)
         }
-        lsofInvocationCount += 1
-        lastLsofArguments = arguments
-        // `lsof -w` suppresses filesystem warnings. They are unrelated to a
-        // PID-scoped TCP socket query, but any stderr currently makes the
-        // scanner globally incomplete and prevents stale ports from aging out.
-        let stderr = arguments.contains("-w") ? "" : Self.filesystemWarning
-        guard isListening, Self.selection(for: "-p", in: arguments).contains(String(pid)) else {
-            return Self.noSelectedFiles(stderr: stderr)
-        }
-        return Self.output("p\(pid)\nf3\nn127.0.0.1:\(port)\n", stderr: stderr)
+        let canonicalName = PortScanner.canonicalTTYName(processTTYName)
+        return ([sessionLeaderPID: canonicalName, pid: canonicalName], .complete)
     }
 
-    /// The comma-separated values the command was asked to select on.
-    private static func selection(for flag: String, in arguments: [String]) -> Set<String> {
-        guard let flagIndex = arguments.firstIndex(of: flag) else { return [] }
-        let valueIndex = arguments.index(after: flagIndex)
-        guard valueIndex < arguments.endIndex else { return [] }
-        return Set(arguments[valueIndex].split(separator: ",").map(String.init))
-    }
-
-    private static func output(_ stdout: String, stderr: String = "") -> CommandResult {
-        CommandResult(
-            stdout: stdout,
-            stderr: stderr,
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        )
-    }
-
-    /// Both `ps` and `lsof` exit 1 with no output when a valid selector matches
-    /// nothing.
-    private static func noSelectedFiles(stderr: String = "") -> CommandResult {
-        CommandResult(
-            stdout: "",
-            stderr: stderr,
-            exitStatus: 1,
-            timedOut: false,
-            executionError: nil
-        )
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        ([pid: 1], .complete)
     }
 }
 
-private actor StubCommandRunner: CommandRunning {
-    let result: CommandResult
-    let onRun: (@Sendable () -> Void)?
-    private(set) var lastTimeout: TimeInterval?
+/// A terminal panel whose foreground process is an agent root, with a second
+/// process on the same TTY that is the root's child. A real child launched
+/// without redirection inherits the controlling terminal, so both PIDs sit on
+/// the panel's TTY and both can listen.
+private final class AgentRootPanelProcessTable: PortProcessTableReading, @unchecked Sendable {
+    // Safe: the TTY and PIDs never change and `reads` is only touched under
+    // its lock.
+    private let ttyName: String
+    private let rootPID: Int
+    private let childPID: Int
+    private let reads = OSAllocatedUnfairLock(initialState: 0)
 
-    init(result: CommandResult, onRun: (@Sendable () -> Void)? = nil) {
-        self.result = result
-        self.onRun = onRun
+    init(ttyName: String, rootPID: Int, childPID: Int) {
+        self.ttyName = ttyName
+        self.rootPID = rootPID
+        self.childPID = childPID
     }
 
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        lastTimeout = timeout
-        onRun?()
-        return result
+    /// Process-table reads so far, of either kind.
+    var readCount: Int { reads.withLock { $0 } }
+
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        reads.withLock { $0 += 1 }
+        guard Set(ttyNames).contains(ttyName) else { return ([:], .complete) }
+        let canonicalName = PortScanner.canonicalTTYName(ttyName)
+        return ([rootPID: canonicalName, childPID: canonicalName], .complete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        reads.withLock { $0 += 1 }
+        return ([rootPID: 1, childPID: rootPID], .complete)
+    }
+}
+
+/// One panel whose foreground process is an agent root, with a child dev
+/// server beside it. Both listen, so a scan can only tell them apart by
+/// whether the root is registered.
+private struct AgentRootPanelFixture {
+    let workspaceId = UUID()
+    let panelId = UUID()
+    let rootPID: Int
+    let childPID: Int
+    let rootPorts: Set<Int> = [55936, 55937]
+    let childPort = 5173
+    let processTable: AgentRootPanelProcessTable
+    private let ttyName: String
+    private let rootIdentity: AgentPIDProcessIdentity
+    private let childIdentity: AgentPIDProcessIdentity
+
+    var allPorts: Set<Int> { rootPorts.union([childPort]) }
+
+    init(ttyName: String, rootPID: Int, childPID: Int) {
+        self.ttyName = ttyName
+        self.rootPID = rootPID
+        self.childPID = childPID
+        self.processTable = AgentRootPanelProcessTable(ttyName: ttyName, rootPID: rootPID, childPID: childPID)
+        self.rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
+        self.childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
+    }
+
+    func makeScanner(burstOffsets: [TimeInterval], coalesceDelay: TimeInterval) -> PortScanner {
+        let rootPID = rootPID
+        let childPID = childPID
+        let rootPorts = rootPorts
+        let childPort = childPort
+        let rootIdentity = rootIdentity
+        let childIdentity = childIdentity
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: rootIdentity)
+        return PortScanner(
+            processTable: processTable,
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case rootPID: rootIdentity
+                case childPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                switch Int(pid) {
+                case rootPID: .ports(rootPorts)
+                case childPID: .ports([childPort])
+                default: .ports([])
+                }
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: burstOffsets,
+            coalesceDelay: coalesceDelay
+        )
+    }
+
+    /// Registers the panel's TTY and records every list of ports published for it.
+    func registerPanel(
+        on scanner: PortScanner,
+        recording publishedPorts: OSAllocatedUnfairLock<[[Int]]>
+    ) async {
+        let workspaceId = workspaceId
+        let panelId = panelId
+        let ttyName = ttyName
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+    }
+
+    /// Registers or removes the workspace's agent root, as an agent session
+    /// starting or ending does.
+    func setRootRegistered(_ registered: Bool, on scanner: PortScanner) async {
+        let workspaceId = workspaceId
+        let roots: Set<AgentPortRootIdentity> = registered
+            ? [AgentPortRootIdentity(pid: rootPID, processIdentity: rootIdentity)]
+            : []
+        await MainActor.run {
+            scanner.refreshAgentPorts(workspaceId: workspaceId, agentRoots: roots)
+        }
+    }
+}
+
+/// Answers every process-tree read with a fixed parent map, optionally running
+/// a callback inside the read so a test can change state mid-scan.
+private actor StubPortProcessTable: PortProcessTableReading {
+    let parents: [Int: Int]
+    let onRead: (@Sendable () -> Void)?
+
+    init(parents: [Int: Int], onRead: (@Sendable () -> Void)? = nil) {
+        self.parents = parents
+        self.onRead = onRead
+    }
+
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        onRead?()
+        return ([:], .complete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        onRead?()
+        return (parents, .complete)
     }
 }

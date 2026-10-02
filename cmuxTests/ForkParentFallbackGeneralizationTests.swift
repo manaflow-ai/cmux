@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -37,10 +38,10 @@ struct ForkParentFallbackGeneralizationTests {
 
         let detected = detectedSnapshots(
             fixture: fixture,
-            argv: ["/Users/lawrence/.bun/bin/codex", "fork", fixture.parentCodexId, "--model", "gpt-5"],
+            argv: ["/Users/dev/.bun/bin/codex", "fork", fixture.parentCodexId, "--model", "gpt-5"],
             launchKind: "codex",
             processName: "codex",
-            processPath: "/Users/lawrence/.bun/bin/codex"
+            processPath: "/Users/dev/.bun/bin/codex"
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 

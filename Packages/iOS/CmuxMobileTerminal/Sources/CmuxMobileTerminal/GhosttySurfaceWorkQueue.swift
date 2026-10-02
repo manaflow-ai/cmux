@@ -4,6 +4,7 @@ import Foundation
 /// All mutable state is accessed only from `queue`; main-actor code replaces whole instances on recovery.
 final class GhosttySurfaceWorkQueue: @unchecked Sendable {
     let queue: DispatchQueue
+    // Carve-out: synchronous C-event admission must reject a full queue before allocating more work.
     private let pendingLock = NSLock()
     private var pendingPriority: [@Sendable () -> Void] = []
     private var pendingNormal: [@Sendable () -> Void] = []
@@ -91,10 +92,21 @@ final class GhosttySurfaceWorkQueue: @unchecked Sendable {
         enqueue(work, priority: true)
     }
 
-    private func enqueue(_ work: @escaping @Sendable () -> Void, priority: Bool) -> Bool {
+    /// Enqueue a surface's teardown, even when the queue is full. A refused
+    /// teardown leaks the surface. Each queue serves one surface, which is
+    /// torn down once, so this admits at most one item past the limit.
+    func asyncTeardown(_ work: @escaping @Sendable () -> Void) {
+        _ = enqueue(work, priority: false, admitsOverLimit: true)
+    }
+
+    private func enqueue(
+        _ work: @escaping @Sendable () -> Void,
+        priority: Bool,
+        admitsOverLimit: Bool = false
+    ) -> Bool {
         pendingLock.lock()
         let pendingCount = pendingPriority.count - priorityHead + pendingNormal.count - normalHead
-        if pendingCount >= Self.maximumPendingOperations {
+        if !admitsOverLimit, pendingCount >= Self.maximumPendingOperations {
             pendingLock.unlock()
             return false
         }

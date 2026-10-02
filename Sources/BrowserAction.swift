@@ -6,6 +6,7 @@ enum BrowserAction {
     case back
     case forward
     case reload
+    case hardReload
     case openInDefaultBrowser
     case focusAddressBar
     case toggleFocusMode(reason: String)
@@ -14,6 +15,7 @@ enum BrowserAction {
     case showJavaScriptConsole
     case toggleReactGrab
     case toggleDesignMode(reason: String)
+    case toggleKeepPageActive
     case zoomIn
     case zoomOut
     case resetZoom

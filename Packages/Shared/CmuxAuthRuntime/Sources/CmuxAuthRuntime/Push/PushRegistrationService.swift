@@ -1429,7 +1429,7 @@ public actor PushRegistrationService: PushRegistering {
             let seconds = retryAfterSeconds(
                 response: response,
                 body: data
-            ) ?? CmxRetryAfterPolicy.defaultRateLimitSeconds
+            ) ?? CmxRetryAfterPolicy().defaultRateLimitSeconds
             return .failure(
                 .rateLimited(retryAfterSeconds: seconds),
                 retryAfter: .seconds(seconds)
@@ -1445,7 +1445,7 @@ public actor PushRegistrationService: PushRegistering {
         response: HTTPURLResponse,
         body: Data
     ) -> Int? {
-        let headerDelay = CmxRetryAfterPolicy.seconds(
+        let headerDelay = CmxRetryAfterPolicy().seconds(
             from: response.value(forHTTPHeaderField: "Retry-After")
         )
         let bodyDelay = try? JSONDecoder().decode(

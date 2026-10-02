@@ -50,6 +50,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` bootstrap/probe failures surface actionable details.
 - `DONE` bootstrap installs `~/.cmux/bin/cmux` wrapper (also tries `/usr/local/bin/cmux`) so `cmux` is available in PATH on the remote.
 - `DONE` normal `cmux ssh` launches `cmuxd-remote serve --stdio --persistent --slot <slot> --persistent-lease-port <port>`, where the stdio process proxies to a long-lived authenticated daemon with slot credentials under `~/.cmux/daemon/<version>/<slot>/`, a short per-user socket path under `/tmp/cmuxd-remote-<uid>/`, and an exact relay-slot lease path.
+- `DONE` each persistent stdio bridge claims its slot with a fresh authenticated `bridge_lease_id`; a newer bridge evicts older authenticated connections, including half-open SSH bridges, while the persistent PTY hub remains intact.
 - `DONE` persistent daemon slots advertise `pty.session.persistent_daemon`; cmux requires that capability before preserving a saved remote PTY session ID across app relaunch.
 - `DONE` clean workspace teardown verifies the relay's slot matches the workspace, sends an authenticated per-slot shutdown, waits a bounded interval for daemon ownership to release, removes relay shell state, and passively reaps disconnected, session-empty daemons whose exact previously observed relay slot lease disappears.
 
@@ -64,7 +65,7 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 - `DONE` session snapshots persist the relay port for persistent SSH PTYs and mint fresh relay credentials on restore, so a reattached remote shell can keep using its existing `CMUX_SOCKET_PATH=127.0.0.1:<relay_port>` after app relaunch.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.daemon_path`; remote `cmux` wrapper uses this to select the right daemon binary per session, including mixed local cmux versions.
 - `DONE` relay startup writes `~/.cmux/relay/<relay_port>.auth` with a relay ID and token; the local relay requires HMAC-SHA256 challenge-response before forwarding any command to the real local socket.
-- `DONE` relay authorization (GHSA-9vmv-3hjw-j28c): deny-by-default method and closed parameter schemas before forwarding; request HMAC bound to the workspace and active SSH controller generation; live ownership and connection-generation revalidation at dispatch and terminal target resolution. Local creation/respawn, local startup overrides, global listing/navigation, and irrelevant routing selectors are denied. See `daemon/remote/README.md` for the current allowlist contract and the separately authenticated persistent-SSH resume metadata exception. Sessions have a 16-connection cap, 10-second handshake deadlines, a 30-second lifetime, bounded responses, and cancellation of outstanding local-socket I/O.
+- `DONE` relay authorization (GHSA-9vmv-3hjw-j28c): deny-by-default method and closed parameter schemas before forwarding; request HMAC bound to the workspace and active SSH controller generation; live ownership and connection-generation revalidation at dispatch and terminal target resolution. Local creation/respawn, local startup overrides, global listing/navigation, and irrelevant routing selectors are denied. See `daemon/remote/README.md` for the current allowlist contract; resume bindings are not relay methods, and command-bearing parameters have no exceptions. Sessions have a 16-connection cap, 10-second handshake deadlines, a 30-second lifetime, bounded responses, and cancellation of outstanding local-socket I/O.
 - `DONE` SSH agent forwarding is opt-in. `cmux ssh` preserves its live `SSH_AUTH_SOCK` for app-launched OpenSSH transports so `ForwardAgent yes` from ssh_config works normally, and accepts `-A` / `--forward-agent` or `-a` / `--no-forward-agent` for explicit forwarding control.
 - `DONE` ephemeral port range (49152-65535) filtered from probe results to exclude relay ports from other workspaces.
 - `DONE` multi-workspace port conflict detection uses TCP connect check (`isLoopbackPortReachable`) so ports already forwarded by another workspace are silently skipped instead of flagged as conflicts.
@@ -90,13 +91,14 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 ### 4.1 Browser Networking Path
 1. `DONE` one local proxy endpoint is created per SSH transport/session key (not per detected port).
 2. `DONE` endpoint is provided by a local broker that supports SOCKS5 + HTTP CONNECT and tunnels via daemon stream RPC.
+   Each tunnel start mints a random credential; SOCKS5 requires it through username/password authentication (RFC 1929) and HTTP CONNECT through `Proxy-Authorization: Basic`. Only the embedded browser receives it, so `workspace.remote.status` reports the endpoint without it.
 3. `DONE` browser panels in remote workspaces are auto-wired to the workspace proxy endpoint.
 4. `DONE` browser panels in local workspaces are not force-proxied.
 5. `DONE` identical SSH transports share one endpoint via a transport-scoped broker.
 
 ### 4.2 WKWebView Wiring
 1. `DONE` use workspace-scoped `WKWebsiteDataStore(forIdentifier:)`.
-2. `DONE` apply workspace/browser scoped `proxyConfigurations`.
+2. `DONE` apply workspace/browser scoped `proxyConfigurations`, each carrying the tunnel credential.
 3. `DONE` prefer SOCKS5 proxy config.
 4. `DONE` keep HTTP CONNECT proxy config as fallback.
 5. `DONE` re-apply proxy config on reconnect/state updates.
@@ -151,7 +153,7 @@ Recompute effective size on:
 | M-008 | WebView proxy auto-wiring for remote workspaces | DONE | Workspace-scoped `WKWebsiteDataStore.proxyConfigurations` wiring is active |
 | M-009 | PTY resize coordinator (`smallest screen wins`) | DONE | Daemon session RPC now tracks attachments and applies min cols/rows semantics with unit tests |
 | M-010 | Resize + proxy reconnect e2e test suites | DONE | `tests_v2/test_ssh_remote_docker_forwarding.py` validates HTTP/websocket egress plus SOCKS pipelined-payload handling; `tests_v2/test_ssh_remote_docker_reconnect.py` verifies reconnect recovery and repeats SOCKS pipelined-payload checks after host restart; `tests_v2/test_ssh_remote_proxy_bind_conflict.py` validates structured `proxy_unavailable` bind-conflict surfacing and `local_proxy_port` status retention under bind conflict; `tests_v2/test_ssh_remote_daemon_resize_stdio.py` validates session resize semantics over real stdio RPC process boundaries; `tests_v2/test_ssh_remote_cli_metadata.py` validates `workspace.remote.configure` numeric-string compatibility, explicit `null` clear semantics (including `workspace.remote.status` reflection), strict `port`/`local_proxy_port` validation (bounds/type), case-insensitive SSH option override precedence for StrictHostKeyChecking/control-socket keys, and `local_proxy_port` payload echo for deterministic bind-conflict test hook behavior |
-| M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, CLI contract tests, and `tests_v2/test_ssh_remote_detachable_pty.py` |
+| M-011 | Detachable persistent `cmux ssh` PTY sessions | IN PROGRESS | Persistent remote daemon slots keep PTY sessions alive across local surface close and app relaunch; coverage includes Go daemon auth/reattach tests, Swift restore tests, and CLI contract tests |
 
 ## 7. Acceptance Test Matrix (With Status)
 

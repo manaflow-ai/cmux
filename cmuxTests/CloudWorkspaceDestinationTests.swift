@@ -86,7 +86,7 @@ struct CloudWorkspaceDestinationTests {
             referenceWorkspaceId: anchor, initialWorkspaceId: nil
         )
 
-        #expect(delegate.performNewCloudWorkspaceAction(tabManager: manager, destination: destination))
+        #expect(delegate.performNewCloudMachineAction(tabManager: manager, destination: destination))
         for await _ in presenter.accepted { break }
         #expect(created.groupId == groupID, "placement belongs to the reservation, before the server response")
 

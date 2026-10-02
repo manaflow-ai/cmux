@@ -1,8 +1,11 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
 import CmuxAppKitSupportUI
 import CmuxAuthRuntime
+import CmuxCloudTui
 import CmuxPanes
+import CmuxSurfaceCatalogModel
 import Testing
 import SwiftUI
 
@@ -78,6 +81,71 @@ import SwiftUI
         #expect(workspace.focusedPanelId == created.panelID)
         let selectedSurface = try #require(workspace.bonsplitController.selectedTab(inPane: paneID)?.id)
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
+    }
+
+    @Test("Cloud terminal input reasserts the active pane")
+    func cloudTerminalInputReassertsActivePane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+        cloudPanel.cloudAttachment = CloudTerminalAttachmentStatus(machineID: "focus-ring-test")
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        var sessionActive = true
+        Workspace.bindCloudManualMirrorInputConvergence(
+            panel: cloudPanel,
+            isActive: { sessionActive },
+            onExplicitInput: {
+                #expect(Workspace.liveWorkspace(id: cloudPanel.workspaceId)?.focusedPanelId == cloudPanel.id)
+            }
+        )
+
+        #expect(workspace.focusedPanelId == localPanelID)
+
+        // Pointer activation must converge the visible pane selection before
+        // the portal's asynchronous callback gets a chance to run.
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+
+        workspace.focusPanel(localPanelID)
+        #expect(workspace.focusedPanelId == localPanelID)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+
+        // Moving the same panel to another workspace must keep the input hook
+        // attached to its new owner after attach rebinds ordinary callbacks.
+        let manager = try #require(harness.appDelegate.tabManagerFor(windowId: harness.windowId))
+        let destination = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let detached = try #require(workspace.detachSurface(panelId: cloudPanel.id))
+        let destinationPane = try #require(destination.bonsplitController.allPaneIds.first)
+        #expect(destination.attachDetachedSurface(detached, inPane: destinationPane, focus: false) == cloudPanel.id)
+        manager.selectWorkspace(destination)
+        // Bonsplit selects a tab it creates, so an unfocused attach into the
+        // destination's only pane still leaves the moved panel selected there.
+        // Put the destination's own terminal in front before typing.
+        let localDestinationPanel = try #require(destination.panels.keys.first { $0 != cloudPanel.id })
+        destination.focusPanel(localDestinationPanel)
+        #expect(destination.focusedPanelId == localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == cloudPanel.id)
+
+        // A stopped session must not steal focus if its panel is later reused.
+        sessionActive = false
+        destination.focusPanelFromTerminalInput(localDestinationPanel)
+        cloudPanel.surface.onExplicitInput?()
+        #expect(destination.focusedPanelId == localDestinationPanel)
     }
 
     @Test("Cloud shortcut inheritance uses the live remote foreground cwd")
@@ -187,7 +255,7 @@ import SwiftUI
         let failure = try #require(workspace.cloudMaterializationFailures[panelID])
         #expect(panelID == pendingPanelID)
         #expect(workspace.cloudPendingCreations[panelID]?.machine == machine)
-        #expect(failure.detail == error.errorDescription)
+        #expect(failure.detail == CloudDiagnosticFailure.classify(error).label)
         #expect(presentation.showsReconnectButton)
         let operation = try #require(recorder.operations.first)
         #expect(operation.operation == .terminal)
@@ -239,6 +307,25 @@ import SwiftUI
         let store = harness.workspace.cloudPaneCreationFailureStore
         let sourcePanelID = try #require(harness.workspace.focusedPanelId)
         let source = try #require(harness.workspace.terminalPanel(for: sourcePanelID))
+        // A new window inherits persisted geometry and chrome from earlier
+        // tests in the same app host, which can leave the terminal narrower
+        // than the card's 100pt floor (seen at 124pt in a 640pt window). The
+        // card is sized to `pane width - 24`, so give the pane room first.
+        // Restore before tearDown closes the window so any persisted geometry
+        // later tests inherit stays what it was.
+        let originalFrame = window.frame
+        defer { window.setFrame(originalFrame, display: false) }
+        window.setFrame(NSRect(x: 0, y: 0, width: 1280, height: 800), display: true)
+        let resizeDeadline = ContinuousClock.now + .seconds(3)
+        while source.hostedView.bounds.width < 300, ContinuousClock.now < resizeDeadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try #require(
+            source.hostedView.bounds.width >= 300,
+            "The source pane must be wide enough for the card before presenting it"
+        )
         let request = store.beginRequest()
         harness.workspace.presentCloudPaneCreationFailure(
             machine: .cloud("overlay-test"),
@@ -255,7 +342,25 @@ import SwiftUI
             await Task.yield()
         }
         let overlay = try #require(card())
-        #expect(overlay.frame.width > 100 && overlay.frame.height > 50)
+        let layoutDeadline = ContinuousClock.now + .seconds(3)
+        while (overlay.frame.width <= 100 || overlay.frame.height <= 50), ContinuousClock.now < layoutDeadline {
+            window.displayIfNeeded()
+            target.container.layoutSubtreeIfNeeded()
+            overlay.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(
+            overlay.frame.width > 100 && overlay.frame.height > 50,
+            """
+            card=\(overlay.frame) inContainer=\(overlay.superview === target.container) \
+            source=\(target.container.convert(source.hostedView.bounds, from: source.hostedView)) \
+            sourceVisible=\(source.hostedView.visibleRect) sourceHidden=\(source.hostedView.isHiddenOrHasHiddenAncestor) \
+            sourceWindowMatches=\(source.hostedView.window === window) \
+            reference=\(target.container.convert(target.reference.bounds, from: target.reference)) \
+            window=\(window.frame) visible=\(window.isVisible) key=\(window.isKeyWindow) \
+            mainWindows=\(NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("cmux.main.") == true }.map { "\($0.frame)" })
+            """
+        )
         let terminalFrame = target.container.convert(source.hostedView.bounds, from: source.hostedView)
         #expect(abs(overlay.frame.midX - terminalFrame.midX) < 2)
         #expect(abs(overlay.frame.midY - terminalFrame.midY) < 2)
@@ -576,6 +681,62 @@ import SwiftUI
         #expect(workspace.paneId(forPanelId: created.panelID) != paneID)
     }
 
+    /// A focused Cloud split hands focus over like a local Cmd+D. SwiftUI reparents
+    /// the source terminal into the new split; unless that reparent is suppressed,
+    /// the source takes focus back and the new pane shows a hollow cursor.
+    @Test func focusedCloudSplitKeepsTheSourceFromTakingFocusBack() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let source = try #require(workspace.focusedPanelId.flatMap { workspace.terminalPanel(for: $0) })
+        let panel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            panel,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true,
+            isLoading: false
+        )
+
+        #expect(workspace.focusedPanelId == panel.id)
+        #expect(workspace.paneId(forPanelId: panel.id) != paneID)
+#if DEBUG
+        #expect(source.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
+    }
+
+    /// A Cloud manual-mirror surface can receive a pointer while its portal
+    /// focus callback is being rebound. Pointer activation must still update
+    /// the workspace model immediately, otherwise keyboard input goes to Cloud
+    /// while Bonsplit keeps the local pane's focus ring.
+    @Test func pointerFocusConvergesMixedLocalAndCloudPanes() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        let sourcePane = try #require(workspace.bonsplitController.focusedPaneId)
+        let localPanelID = try #require(workspace.focusedPanelId)
+        let cloudPanel = try #require(workspace.makeRemoteTmuxPanePanel(onInput: { _ in }))
+
+        _ = try workspace.insertCloudManualMirrorPanel(
+            cloudPanel,
+            at: .split(workspaceID: workspace.id, paneID: sourcePane.id.uuidString, direction: .right),
+            focus: false,
+            isLoading: false
+        )
+        #expect(workspace.focusedPanelId == localPanelID)
+        #expect(workspace.isFocusedTerminalInputSurface(localPanelID))
+
+        let pointerView = GhosttyNSView(frame: .zero)
+        pointerView.terminalSurface = cloudPanel.surface
+        pointerView.activateContainerFocusFromPointerDown()
+
+        #expect(workspace.focusedPanelId == cloudPanel.id)
+        #expect(workspace.isFocusedTerminalInputSurface(cloudPanel.id))
+        let cloudPane = try #require(workspace.paneId(forPanelId: cloudPanel.id))
+        #expect(cloudPane != sourcePane)
+    }
+
     /// A projected browser (VM desktop or port preview) goes through the same create
     /// handler as a terminal; `focus: true` must select it too.
     @Test func focusedBrowserTabIsSelected() throws {
@@ -682,7 +843,20 @@ import SwiftUI
             windowId = appDelegate.createMainWindow()
             let manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
             workspace = try #require(manager.selectedWorkspace)
+            // createMainWindow copies the size of the current main window, and
+            // earlier tests in the host leave 320-point windows behind. Split
+            // admission then correctly refuses a side-by-side split, so give
+            // the window and its split container a realistic size first.
+            let window = try #require(appDelegate.mainWindow(for: windowId))
+            window.setContentSize(Self.contentSize)
+            window.contentView?.layoutSubtreeIfNeeded()
+            // Surface split behavior should not depend on AppKit having laid out
+            // a hidden test window yet. Install deterministic geometry so the
+            // factory can allocate the new pane immediately on a cold runner.
+            workspace.bonsplitController.setContainerFrame(CGRect(origin: .zero, size: Self.contentSize))
         }
+
+        private static let contentSize = CGSize(width: 1_000, height: 700)
 
         func tearDown() {
             let identifier = "cmux.main.\(windowId.uuidString)"

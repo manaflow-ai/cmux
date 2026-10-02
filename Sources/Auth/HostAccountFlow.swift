@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import CMUXAuthCore
 import CmuxAuthRuntime
@@ -17,13 +18,31 @@ import Observation
 @MainActor
 @Observable
 final class HostAccountFlow: AccountFlow, AccountSignInFlow {
-    private let coordinator: AuthCoordinator
+    let coordinator: AuthCoordinator
     private let browserSignIn: HostBrowserSignInFlow
     private let featureFlags = CmuxFeatureFlags.shared
     @ObservationIgnored private var featureFlagsObserver: (any NSObjectProtocol)?
     private(set) var isProUpgradeAvailable: Bool
     private(set) var isProActive = false
     private(set) var canManageBilling = false
+    var teamObservationRevision: UInt64 = 0
+    /// Pending selection is shared by Settings, the menu and socket actions.
+    /// Cloud requests keep using the confirmed coordinator scope until success.
+    var pendingTeamSelection: (requestID: UUID, teamID: String?)?
+    var isSelectingTeam: Bool { coordinator.isSelectingTeam }
+    /// A team create still waiting on the server, shown as the active team
+    /// until the server answers. Switches and creates from every surface are
+    /// refused until it finishes, since a later change would fail it.
+    var pendingTeamCreate: PendingTeamCreate?
+    /// Owns the optimistic create projection so a later create cannot clear
+    /// it when the earlier coordinator request has already finished.
+    var pendingTeamCreateRequestID: UUID?
+    /// Invitations addressed to the signed-in user, refreshed on sign-in, by
+    /// the poll and after every invitation action. Empty while signed out.
+    var receivedInvitations: [CloudReceivedInvitation] = []
+    @ObservationIgnored var receivedInvitationsPoll: Task<Void, Never>?
+    @ObservationIgnored var receivedInvitationsLoaded = false
+    var isCreatingTeam: Bool { coordinator.isCreatingTeam }
 
     init(coordinator: AuthCoordinator, browserSignIn: HostBrowserSignInFlow) {
         self.coordinator = coordinator
@@ -38,6 +57,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
                 self?.isProUpgradeAvailable = CmuxFeatureFlags.shared.isProUpgradeUIEnabled
             }
         }
+        startCoordinatorObservation()
     }
 
     deinit {
@@ -47,26 +67,38 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var currentIdentity: AccountIdentity? {
-        Self.identity(from: coordinator.currentUser)
+        _ = teamObservationRevision
+        return Self.identity(from: coordinator.currentUser)
     }
 
     var availableTeams: [AccountTeamSummary] {
-        coordinator.availableTeams.map { team in
+        _ = teamObservationRevision
+        return coordinator.availableTeams.map { team in
             AccountTeamSummary(id: team.id, displayName: team.displayName, slug: team.slug)
         }
     }
 
     var selectedTeamID: String? {
-        get { coordinator.selectedTeamID }
-        set { coordinator.selectedTeamID = newValue }
+        get {
+            if let pendingTeamSelection { return pendingTeamSelection.teamID }
+            return confirmedTeamID
+        }
+    }
+
+    /// Cloud scope and persisted machine preferences follow confirmed authority.
+    var confirmedTeamID: String? {
+        _ = teamObservationRevision
+        return coordinator.resolvedTeamID
     }
 
     var isWorkingOnAuth: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession || browserSignIn.isPresentingSignIn
     }
 
     var isAuthenticated: Bool {
-        coordinator.isAuthenticated
+        _ = teamObservationRevision
+        return coordinator.isAuthenticated
     }
 
     var isPresentingSignIn: Bool {
@@ -78,7 +110,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     }
 
     var isCompletingSignIn: Bool {
-        coordinator.isLoading || coordinator.isRestoringSession
+        _ = teamObservationRevision
+        return coordinator.isLoading || coordinator.isRestoringSession
     }
 
     var lastSignInFailure: AccountSignInModel.Failure? {
@@ -155,6 +188,43 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         await browserSignIn.signOut()
         isProActive = false
         canManageBilling = false
+    }
+
+    /// Set for the whole switch so sign-in gates show its progress instead of
+    /// an idle Sign In button that would start a second attempt.
+    private(set) var isSwitchingAccount = false
+    @ObservationIgnored private var switchAttempt: Task<Bool, Never>?
+
+    /// Signs out, then signs in again asking the hosted page to confirm the
+    /// account. The browser may still hold a cmux session; the page's chooser
+    /// offers "continue as" that account or a different one.
+    func switchAccount() async {
+        // Clicking again while a switch's window is open (it may be behind
+        // other windows) replaces that attempt with a fresh window; the
+        // sign-out already happened, so it is not repeated. A click while the
+        // sign-out is still running is dropped: there is no window yet, and
+        // starting one would race the sign-out.
+        if isSwitchingAccount {
+            if switchAttempt != nil {
+                switchAttempt = browserSignIn.beginSignIn(selectAccount: true)
+            }
+            return
+        }
+        isSwitchingAccount = true
+        defer {
+            isSwitchingAccount = false
+            switchAttempt = nil
+        }
+        await signOut()
+        var attempt = browserSignIn.beginSignIn(selectAccount: true)
+        switchAttempt = attempt
+        // Stay switching until the newest attempt settles: a replaced one
+        // ends early, cancelled, while its replacement is still open.
+        while true {
+            _ = await attempt.value
+            guard let latest = switchAttempt, latest != attempt else { break }
+            attempt = latest
+        }
     }
 
     /// Socket variant of sign-out. The underlying sign-out continues if the

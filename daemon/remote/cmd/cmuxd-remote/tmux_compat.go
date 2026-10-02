@@ -8,9 +8,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"golang.org/x/sys/unix"
 )
@@ -170,23 +170,89 @@ func parseTmuxArgs(args []string, valueFlags, boolFlags []string) *tmuxParsed {
 
 // --- Format string rendering ---
 
-var tmuxFormatVarRe = regexp.MustCompile(`#\{[^}]+\}`)
+var tmuxShortFormatKeys = map[byte]string{
+	'D': "pane_id",
+	'F': "window_flags",
+	'I': "window_index",
+	'P': "pane_index",
+	'S': "session_name",
+	'T': "pane_title",
+	'W': "window_name",
+}
+
+func tmuxStripUnresolvedLongFormatTokens(value string) string {
+	var cleaned strings.Builder
+	cleaned.Grow(len(value))
+	for i := 0; i < len(value); {
+		if value[i] != '#' || i+1 >= len(value) || value[i+1] != '{' {
+			cleaned.WriteByte(value[i])
+			i++
+			continue
+		}
+		closeOffset := strings.IndexByte(value[i+2:], '}')
+		if closeOffset < 0 {
+			cleaned.WriteString(value[i:])
+			break
+		}
+		i += 2 + closeOffset + 1
+	}
+	return cleaned.String()
+}
 
 func tmuxRenderFormat(format string, context map[string]string, fallback string) string {
 	if format == "" {
 		return fallback
 	}
-	rendered := format
-	for key, value := range context {
-		rendered = strings.ReplaceAll(rendered, "#{"+key+"}", value)
+
+	var rendered strings.Builder
+	rendered.Grow(len(format))
+	for i := 0; i < len(format); {
+		if format[i] != '#' {
+			rendered.WriteByte(format[i])
+			i++
+			continue
+		}
+		if i+1 >= len(format) {
+			rendered.WriteByte('#')
+			break
+		}
+
+		next := format[i+1]
+		if next == '#' {
+			rendered.WriteByte('#')
+			i += 2
+			continue
+		}
+		if next == '{' {
+			closeOffset := strings.IndexByte(format[i+2:], '}')
+			if closeOffset < 0 {
+				rendered.WriteString(format[i:])
+				break
+			}
+			closeIndex := i + 2 + closeOffset
+			if value, ok := context[format[i+2:closeIndex]]; ok {
+				rendered.WriteString(tmuxStripUnresolvedLongFormatTokens(value))
+			}
+			i = closeIndex + 1
+			continue
+		}
+		if key, ok := tmuxShortFormatKeys[next]; ok {
+			if value, exists := context[key]; exists {
+				rendered.WriteString(tmuxStripUnresolvedLongFormatTokens(value))
+			}
+			i += 2
+			continue
+		}
+
+		rendered.WriteByte('#')
+		i++
 	}
-	// Remove any remaining unresolved #{...} variables
-	rendered = tmuxFormatVarRe.ReplaceAllString(rendered, "")
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
+
+	result := strings.TrimSpace(rendered.String())
+	if result == "" {
 		return fallback
 	}
-	return rendered
+	return result
 }
 
 // --- Format context building ---
@@ -1609,6 +1675,8 @@ func dispatchTmuxCommand(rc *rpcContext, command string, args []string) error {
 		return tmuxSelectLayout(rc, args)
 	case "show-buffer", "showb":
 		return tmuxShowBuffer(args)
+	case "show-options", "show-option", "show":
+		return tmuxShowOptions(args)
 	case "save-buffer", "saveb":
 		return tmuxSaveBuffer(args)
 
@@ -1743,13 +1811,44 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 	}
 
 	focusNewPane := !p.hasFlag("-d")
-	created, err := rc.call("surface.split", map[string]any{
+	commandText := strings.TrimSpace(strings.Join(p.positional, " "))
+	isOMXHud := tmuxCommandLooksLikeAgentHud(p.positional)
+	startupScriptPath := ""
+	params := map[string]any{
 		"workspace_id": targetWs,
 		"surface_id":   targetSurface,
 		"direction":    direction,
 		"focus":        focusNewPane,
-	})
+	}
+	if cwd := strings.TrimSpace(p.value("-c")); cwd != "" {
+		if resolved := tmuxNormalizePath(cwd); resolved != "" {
+			params["working_directory"] = resolved
+		}
+	}
+	if commandText != "" {
+		params["tmux_start_command"] = commandText
+		if isOMXHud {
+			startupScript, scriptErr := tmuxStartupScript(p.positional, p.value("-c"))
+			if scriptErr != nil {
+				return scriptErr
+			}
+			params["initial_command"] = startupScript
+			startupScriptPath = startupScript
+		}
+	}
+	if targetCells, ok := tmuxSplitSizeCells(p.value("-l")); ok {
+		paneID, paneErr := tmuxPaneIdForSurface(rc, targetWs, targetSurface)
+		if paneErr == nil {
+			if divider, dividerOK := tmuxInitialDividerPosition(rc, targetWs, paneID, direction, targetCells); dividerOK {
+				params["initial_divider_position"] = divider
+			}
+		}
+	}
+	created, err := rc.call("surface.split", params)
 	if err != nil {
+		if startupScriptPath != "" {
+			_ = os.Remove(startupScriptPath)
+		}
 		return err
 	}
 	surfaceId, _ := created["surface_id"].(string)
@@ -1788,12 +1887,14 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		"orientation":  "vertical",
 	})
 
-	if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
-		rc.call("surface.send_text", map[string]any{
-			"workspace_id": targetWs,
-			"surface_id":   surfaceId,
-			"text":         text,
-		})
+	if !isOMXHud {
+		if text := tmuxShellCommandText(p.positional, p.value("-c")); text != "" {
+			rc.call("surface.send_text", map[string]any{
+				"workspace_id": targetWs,
+				"surface_id":   surfaceId,
+				"text":         text,
+			})
+		}
 	}
 
 	if p.hasFlag("-P") {
@@ -1809,6 +1910,148 @@ func tmuxSplitWindow(rc *rpcContext, args []string) error {
 		fmt.Println(tmuxRenderFormat(p.value("-F"), ctx, fallback))
 	}
 	return nil
+}
+
+func tmuxSplitSizeCells(raw string) (int, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" || strings.Contains(trimmed, "%") {
+		return 0, false
+	}
+	value := 0
+	if _, err := fmt.Sscan(trimmed, &value); err != nil || value <= 0 {
+		return 0, false
+	}
+	return value, true
+}
+
+func tmuxInitialDividerPosition(rc *rpcContext, workspaceID, paneID, direction string, targetCells int) (float64, bool) {
+	if targetCells <= 0 || paneID == "" {
+		return 0, false
+	}
+	payload, err := rc.call("pane.list", map[string]any{"workspace_id": workspaceID})
+	if err != nil {
+		return 0, false
+	}
+	panes, _ := payload["panes"].([]any)
+	for _, raw := range panes {
+		pane, _ := raw.(map[string]any)
+		if pane == nil || stringFromAnyGo(pane["id"]) != paneID {
+			continue
+		}
+		currentCells := intFromAnyGo(pane["rows"])
+		if direction == "left" || direction == "right" {
+			currentCells = intFromAnyGo(pane["columns"])
+		}
+		if currentCells <= 0 {
+			return 0, false
+		}
+		requested := targetCells
+		if max := currentCells - 1; requested > max {
+			requested = max
+		}
+		if requested < 1 {
+			requested = 1
+		}
+		rawPosition := float64(requested) / float64(currentCells)
+		if direction != "left" && direction != "up" {
+			rawPosition = float64(currentCells-requested) / float64(currentCells)
+		}
+		return minMaxDividerPosition(rawPosition), true
+	}
+	return 0, false
+}
+
+func minMaxDividerPosition(value float64) float64 {
+	if value < 0.1 {
+		return 0.1
+	}
+	if value > 0.9 {
+		return 0.9
+	}
+	return value
+}
+
+func tmuxPaneIdForSurface(rc *rpcContext, workspaceID, surfaceID string) (string, error) {
+	payload, err := rc.call("surface.list", map[string]any{"workspace_id": workspaceID})
+	if err != nil {
+		return "", err
+	}
+	surfaces, _ := payload["surfaces"].([]any)
+	for _, raw := range surfaces {
+		surface, _ := raw.(map[string]any)
+		if surface != nil && stringFromAnyGo(surface["id"]) == surfaceID {
+			if paneID := stringFromAnyGo(surface["pane_id"]); paneID != "" {
+				return paneID, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("surface %s has no pane", surfaceID)
+}
+
+func tmuxCommandLooksLikeAgentHud(commandTokens []string) bool {
+	commandText := strings.Join(commandTokens, " ")
+	if !tmuxCommandTextContainsWord(commandText, "hud") {
+		return false
+	}
+	env := os.Getenv
+	if env("CMUX_OMX_CMUX_BIN") != "" ||
+		env("CMUX_OMP_CMUX_BIN") != "" ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omx") ||
+		strings.EqualFold(env("CMUX_AGENT_LAUNCH_KIND"), "omp") {
+		return true
+	}
+	return tmuxCommandTextContainsWord(commandText, "omx") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-codex") ||
+		tmuxCommandTextContainsWord(commandText, "omp") ||
+		tmuxCommandTextContainsWord(commandText, "oh-my-pi")
+}
+
+func tmuxCommandTextContainsWord(text, word string) bool {
+	want := strings.ToLower(word)
+	for _, token := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-')
+	}) {
+		if token == want {
+			return true
+		}
+	}
+	return false
+}
+
+func tmuxStartupScript(commandTokens []string, cwd string) (string, error) {
+	commandText := strings.TrimSpace(strings.Join(commandTokens, " "))
+	if commandText == "" {
+		return "", fmt.Errorf("tmux startup script requires a command")
+	}
+	file, err := os.CreateTemp("", "cmux-tmux-command-*.sh")
+	if err != nil {
+		return "", fmt.Errorf("create tmux startup script: %w", err)
+	}
+	path := file.Name()
+	cleanup := func() {
+		file.Close()
+		_ = os.Remove(path)
+	}
+	lines := []string{"#!/bin/sh", `rm -f -- "$0" 2>/dev/null || true`}
+	if trimmed := strings.TrimSpace(cwd); trimmed != "" {
+		if resolved := tmuxNormalizePath(trimmed); resolved != "" {
+			lines = append(lines, "cd -- "+tmuxShellQuote(resolved)+" || exit $?")
+		}
+	}
+	lines = append(lines, `exec "${SHELL:-/bin/sh}" -lc `+tmuxShellQuote(commandText))
+	if _, err := file.WriteString(strings.Join(lines, "\n") + "\n"); err != nil {
+		cleanup()
+		return "", fmt.Errorf("write tmux startup script: %w", err)
+	}
+	if err := file.Chmod(0o700); err != nil {
+		cleanup()
+		return "", fmt.Errorf("chmod tmux startup script: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("close tmux startup script: %w", err)
+	}
+	return path, nil
 }
 
 func tmuxSelectWindow(rc *rpcContext, args []string) error {
@@ -2088,6 +2331,29 @@ func tmuxDisplayMessage(rc *rpcContext, args []string) error {
 	rendered := tmuxRenderFormat(format, ctx, "")
 	if p.hasFlag("-p") || rendered != "" {
 		fmt.Println(rendered)
+	}
+	return nil
+}
+
+func tmuxShowOptions(args []string) error {
+	p := parseTmuxArgs(args, []string{"-t"}, []string{"-g", "-q", "-s", "-v", "-w"})
+	if len(p.positional) == 0 {
+		return nil
+	}
+
+	optionName := p.positional[len(p.positional)-1]
+	if optionName != "extended-keys" {
+		if p.hasFlag("-q") {
+			return nil
+		}
+		return fmt.Errorf("unsupported option")
+	}
+
+	const value = "on"
+	if p.hasFlag("-v") {
+		fmt.Println(value)
+	} else {
+		fmt.Printf("%s %s\n", optionName, value)
 	}
 	return nil
 }

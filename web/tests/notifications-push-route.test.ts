@@ -40,6 +40,8 @@ type PushBodyOptions = {
   correlationId?: string;
   expirationEpochSeconds?: number;
   targetNamespace?: string;
+  targetNamespaces?: readonly string[];
+  keyIDs?: readonly string[];
   macDeviceId?: string;
   macInstanceTag?: string;
   installationIDs?: readonly string[];
@@ -76,13 +78,14 @@ function pushBody(options: PushBodyOptions = {}): Record<string, unknown> {
     encryptedPayloads: installationIDs.map((installationID, index) => ({
       version: 2,
       installationID,
-      keyID: index === 0 ? DEFAULT_PUSH_KEY_ID : `ios-push-key-${index + 1}`,
+      keyID: options.keyIDs?.[index]
+        ?? (index === 0 ? DEFAULT_PUSH_KEY_ID : `ios-push-key-${index + 1}`),
       senderKeyID: DEFAULT_SENDER_KEY_ID,
       encapsulatedKey: base64Bytes(32, 1),
       ciphertext: Buffer.from(`${ciphertextVariant}:${index}`.padEnd(16, "x")).toString("base64"),
       tuple: {
         accountID: "user-1",
-        iosBuildID: targetNamespace,
+        iosBuildID: options.targetNamespaces?.[index] ?? targetNamespace,
         iosInstallationID: installationID,
         macDeviceID: macDeviceId,
         macInstanceTag,
@@ -265,54 +268,6 @@ describe("notifications push route", () => {
       error: "invalid_target_namespace",
     });
     expect(cloudDb).not.toHaveBeenCalled();
-  });
-
-  test("requires a target namespace before DB access", async () => {
-    const response = await pushRoute.sendPushWithTransport(
-      new Request("https://cmux.test/api/notifications/push", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer access-token",
-          "x-stack-refresh-token": "refresh-token",
-        },
-        body: JSON.stringify(pushBody()),
-      }),
-      sendApnsNotificationReliably as Parameters<
-        typeof pushRoute.sendPushWithTransport
-      >[1],
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "missing_target_namespace",
-    });
-    expect(cloudDb).not.toHaveBeenCalled();
-    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
-  });
-
-  test("rejects a header-less legacy Mac before any fanout", async () => {
-    const response = await pushRoute.sendPushWithTransport(
-      new Request("https://cmux.test/api/notifications/push", {
-        method: "POST",
-        headers: {
-          authorization: "Bearer access-token",
-          "x-stack-refresh-token": "refresh-token",
-        },
-        body: JSON.stringify(pushBody({
-          correlationId: "7f1f7a48-9f38-4a0f-9a71-a4c14f0f6d59",
-        })),
-      }),
-      sendApnsNotificationReliably as Parameters<
-        typeof pushRoute.sendPushWithTransport
-      >[1],
-    );
-
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({
-      error: "missing_target_namespace",
-    });
-    expect(cloudDb).not.toHaveBeenCalled();
-    expect(sendApnsNotificationReliably).not.toHaveBeenCalled();
   });
 
   test("rejects an encrypted recipient tuple with the wrong account before DB access", async () => {
@@ -507,6 +462,64 @@ describe("notifications push route", () => {
       environment: "production",
     });
     expect(typeof targets[0]?.targetId).toBe("string");
+  });
+
+  dbTest("fans out encrypted pushes across every registered iOS bundle", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    useStubDb = false;
+    const releaseToken = "c".repeat(64);
+    const internalToken = "d".repeat(64);
+    await sql`
+      truncate device_tokens, notification_send_events restart identity cascade
+    `;
+    await sql`
+      insert into device_tokens (
+        user_id, device_token, platform, bundle_id, environment,
+        installation_id, push_key_id, push_public_key
+      ) values
+        (
+          'user-1', ${releaseToken}, 'ios', 'com.cmux.app', 'production',
+          'release-installation', 'ios-push-key-1', ${'R'.repeat(43) + '='}
+        ),
+        (
+          'user-1', ${internalToken}, 'ios', 'dev.cmux.app.internal', 'production',
+          'internal-installation', 'ios-push-key-2', ${'I'.repeat(43) + '='}
+        )
+    `;
+
+    const response = await pushRoute.sendPushWithTransport(
+      new Request("https://cmux.test/api/notifications/push", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer access-token",
+          "x-stack-refresh-token": "refresh-token",
+        },
+        body: JSON.stringify(pushBody({
+          correlationId: "f8f18b05-cf10-46be-8bba-c5ea468efabc",
+          installationIDs: ["release-installation", "internal-installation"],
+          keyIDs: ["ios-push-key-1", "ios-push-key-2"],
+          targetNamespaces: ["com.cmux.app", "dev.cmux.app.internal"],
+        })),
+      }),
+      sendApnsNotificationReliably as Parameters<
+        typeof pushRoute.sendPushWithTransport
+      >[1],
+    );
+
+    expect(response.status).toBe(200);
+    const targets = (
+      (sendApnsNotificationReliably as unknown as {
+        mock: { calls: unknown[][] };
+      }).mock.calls[0]?.[1] as Array<{
+        deviceToken: string;
+        bundleId: string;
+      }>
+    );
+    expect(targets).toHaveLength(2);
+    expect(targets.map((target) => target.bundleId).sort()).toEqual([
+      "com.cmux.app",
+      "dev.cmux.app.internal",
+    ]);
   });
 
   test("keeps correlation on unexpected failures after payload parsing", async () => {

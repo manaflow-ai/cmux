@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxPhonePush
 import Foundation
@@ -23,7 +24,7 @@ extension MobileHostService {
             let macDeviceID = MobileHostIdentity.deviceID()
             let macInstanceTag = MobileHostIdentity.instanceTag()
             let macBuildID = Bundle.main.bundleIdentifier ?? "cmux"
-            let macKey = try PhonePushKeyStore.current(bundleID: macBuildID)
+            let macKey = try PhonePushKeyMaterial.current(bundleID: macBuildID)
 
             // The account and Mac identity are all derived locally. The phone
             // supplies only its key descriptor, build label, and independent
@@ -38,7 +39,7 @@ extension MobileHostService {
                 macInstanceTag: macInstanceTag,
                 macBuildID: macBuildID
             )
-            PhonePushPeerKeyStore.pin(
+            PhonePushPeerKeyStore().pin(
                 exchange.descriptor.publicKey,
                 keyID: exchange.descriptor.keyID,
                 for: tuple

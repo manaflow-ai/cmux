@@ -1,3 +1,4 @@
+import CmuxMobileShellModel
 import CoreGraphics
 
 struct WorkspaceMacTitlePickerValue: Equatable {

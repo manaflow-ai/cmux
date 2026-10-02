@@ -38,7 +38,7 @@ extension GhosttySurfaceView {
         // renders, so anything but an active primary-screen gesture clears
         // the pixel state outright.
         guard scrollInteractionActive,
-              delegate?.ghosttySurfaceViewOwnsLocalPrimaryScreenScroll(self) == true,
+              ownsLocalPrimaryScreenScroll,
               localPixelScrollState.withLock({ $0.lastApplied }) != nil else {
             localPixelScrollState.withLock {
                 $0.epoch &+= 1
@@ -169,6 +169,7 @@ extension GhosttySurfaceView {
         operation: LocalPixelScrollSurfaceOperation,
         deltaPixels: Double,
         rebaseFromHeldPosition: Bool,
+        // Carve-out: the gesture snapshot must be read atomically inside this synchronous libghostty batch.
         pixelState: OSAllocatedUnfairLock<LocalPixelScrollState>,
         // lint:allow lock - the view's cumulative push counter threaded to the
         // serial batch; same discipline as pixelState above.

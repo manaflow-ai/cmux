@@ -1,0 +1,27 @@
+# Legacy YAML config
+font:
+  normal:
+    family: "Fira Code"   # comment after value
+  size: 12
+
+colors:
+  primary:
+    background: 0x282c34
+    foreground: '#abb2bf'
+  normal:
+    black:   '#1e2127'
+    red:     '#e06c75'
+
+cursor:
+  style:
+    shape: Underline
+    blinking: Off
+
+window:
+  opacity: 1.0
+  padding:
+    x: 4
+    y: 4
+
+scrolling:
+  history: 10000

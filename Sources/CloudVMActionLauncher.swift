@@ -1,3 +1,4 @@
+import CmuxCloud
 import CmuxFoundation
 import CmuxCloudMachines
 import CmuxSettings
@@ -231,27 +232,25 @@ final class CloudVMActionLauncher {
 
     /// Best-effort cleanup for a machine that was announced by a cancelled
     /// create. Delete is idempotent at the socket boundary, so a race with the
-    /// create finalizer is safe; the local workspace/catalog cleanup is handled
-    /// by the same destroy path as a user-initiated delete. The auth-transition
-    /// override keeps a late tombstone from opening a sign-in sheet; the socket
-    /// still enforces the account's server-side authorization.
+    /// create finalizer is safe. The machine hides at once, and its local
+    /// workspaces and panes detach when the destroy request starts. The
+    /// auth-transition override keeps a late tombstone from opening a sign-in
+    /// sheet; the socket still enforces the account's server-side authorization.
     func destroyMachineBestEffort(_ machineID: String) {
         let id = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !id.isEmpty else { return }
+        guard MachineDeleteCoordinator.shared.canBegin(id) else { return }
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        _ = start(
+        // The socket's destroy retires the machine; an early CLI exit lists it again.
+        if start(
             socketPath: socketPath,
             preferredWindow: nil,
             arguments: ["vm", "rm", id],
             presentsFailureAlert: false,
             allowDuringAuthTransition: true,
-            onCompletion: { completion in
-                guard completion.succeeded || completion.indicatesCloudVMNotFound else { return }
-                AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: id)
-            }
-        )
+            onCompletion: { _ in MachineDeleteCoordinator.shared.launchEnded(id) }
+        ) { MachineDeleteCoordinator.shared.beginCleanup(id) }
     }
 
     @discardableResult
@@ -313,6 +312,10 @@ final class CloudVMActionLauncher {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_BUNDLED_CLI_PATH"] = cliURL.path
+        // The app launches these for a person's click, so the CLI's opens take focus the
+        // way an interactive run does (its piped stdio would otherwise read as a
+        // script). A background launch passes `--focus false`, which still wins.
+        environment["CMUX_FOCUS_NEW"] = "1"
         for (key, value) in environmentOverrides {
             environment[key] = value
         }

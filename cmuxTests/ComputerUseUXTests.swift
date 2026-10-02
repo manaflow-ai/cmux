@@ -1,3 +1,4 @@
+@testable import CmuxComputerUse
 import AppKit
 import CMUXAgentLaunch
 import CmuxFoundation
@@ -232,6 +233,25 @@ struct ComputerUseUXTests {
             directCaptureReady: true))
     }
 
+    @Test @MainActor
+    func settingsHostActionsRoutePermissionRequestsToRequiredOnboardingAction() {
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        let actions = HostSettingsActions(
+            configFileURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-settings-\(UUID().uuidString).json"),
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            browserDataImportCoordinator: BrowserDataImportCoordinator(),
+            runComputerUseOnboardingAction: { startingPoint in
+                presentations.append(startingPoint)
+            }
+        )
+
+        actions.requestComputerUseAccessibility()
+        actions.requestComputerUseScreenRecording()
+
+        #expect(presentations == [.accessibility, .screenRecording])
+    }
+
     @Test func computerUseRuntimePermissionReadinessRequiresExplicitCompletion() {
         var phase = ComputerUseRuntimePermissionPhase.disabled(
             onboardingComplete: false
@@ -256,15 +276,15 @@ struct ComputerUseUXTests {
         #expect(phase == .onboardingRequired)
     }
 
-    @Test @MainActor func workstreamComputerUseHooksNeverPresentOnboarding() throws {
+    @Test @MainActor func unownedWorkstreamEventsNeverPresentOnboarding() async throws {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
             toolName: "mcp__cmux-cua__start_session"
         )
-        // The hook is still recognized for live-session/cursor bookkeeping,
-        // but that recognition is deliberately not an onboarding request.
+        // A recognized tool name alone does not establish a current live agent
+        // session. These unowned events must not request onboarding.
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
 
         // The same namespaced event remains recognized for live-session
@@ -294,11 +314,6 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
 
         var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
-        let presentationCoordinator = ComputerUseOnboardingCoordinator(
-            presenter: { startingPoint in
-                presentations.append(startingPoint)
-            }
-        )
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent(
                 "cmux-cua-onboarding-ingress-\(UUID().uuidString)",
@@ -314,6 +329,12 @@ struct ComputerUseUXTests {
             hostAuthenticationToken: String(repeating: "b", count: 64)
         )
         let runtimeService = ComputerUseRuntimeService(paths: paths)
+        let presentationCoordinator = ComputerUseOnboardingCoordinator(
+            runtimeService: runtimeService,
+            presenter: { startingPoint, _ in
+                presentations.append(startingPoint)
+            }
+        )
         let catalog = SettingCatalog()
         let defaultsSuite = "cmux-cua-onboarding-ingress-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
@@ -409,11 +430,11 @@ struct ComputerUseUXTests {
             failedUnrelatedTool,
         ]
         for event in events {
-            appCoordinator.handleWorkstreamEvent(event)
+            await appCoordinator.handleWorkstreamEvent(event)
         }
         #expect(
             presentations.isEmpty,
-            "agent activity, prompt text, skill discovery, and status probes stay quiet"
+            "unowned activity, prompt text, skill discovery, and status probes stay quiet"
         )
 
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
@@ -425,11 +446,11 @@ struct ComputerUseUXTests {
         )
 
         for event in events {
-            appCoordinator.handleWorkstreamEvent(event)
+            await appCoordinator.handleWorkstreamEvent(event)
         }
         #expect(
             presentations == [.screenRecording, .accessibility],
-            "dismissal and tool retries must not resurface onboarding"
+            "unowned tool retries must not resurface onboarding"
         )
         #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
         #expect(presentations == [.screenRecording, .accessibility, .accessibility])
@@ -955,10 +976,10 @@ struct ComputerUseUXTests {
         let suiteName = "cmux.tests.directCapture.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let key = ComputerUseOnboardingWindowController.directCaptureReadyDefaultsKey
+        let key = ComputerUseOnboardingStore.legacyCompletionKey
         defaults.set(true, forKey: key)
 
-        ComputerUseOnboardingWindowController.invalidateDirectCaptureReady(in: defaults)
+        ComputerUseOnboardingStore(defaults: defaults, scope: "synthetic-test").invalidateHelper()
 
         #expect(!defaults.bool(forKey: key))
         #expect(
@@ -1301,7 +1322,7 @@ struct ComputerUseUXTests {
     }
 
     @Test @MainActor
-    func computerUseHelperArtworkMatchesTheCurrentAppearance() throws {
+    func computerUseHelperArtworkKeepsItsComposerRenditionAcrossAppearances() throws {
         let helperAppURL = URL(fileURLWithPath: "/fixture/cmux Computer Use.app")
         let staticArtwork = NSImage(
             size: NSSize(width: 32, height: 32),
@@ -1333,8 +1354,11 @@ struct ComputerUseUXTests {
         let lightCorner = try Self.sampledIconColor(lightIcon, x: 0, y: 0)
         let darkCorner = try Self.sampledIconColor(darkIcon, x: 0, y: 0)
 
-        #expect(lightPlate.brightnessComponent > 0.7)
+        // The authored macOS rendition owns its plate in both appearances.
+        // Compositing must preserve that dark plate and transparent corners.
+        #expect(lightPlate.brightnessComponent < 0.4)
         #expect(darkPlate.brightnessComponent < 0.4)
+        #expect(abs(lightPlate.brightnessComponent - darkPlate.brightnessComponent) < 0.01)
         #expect(lightCorner.alphaComponent < 0.01)
         #expect(darkCorner.alphaComponent < 0.01)
     }
@@ -1697,12 +1721,16 @@ struct ComputerUseUXTests {
     @Test func untaggedRuntimeUsesBundleIdentityToIsolateAppVariants() {
         let production = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app",
             authenticationToken: "production-token"
         )
         let staging = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
+            socketRootDirectoryURL: URL(fileURLWithPath: "/tmp"),
+            userIdentifier: 501,
             environment: [:],
             bundleIdentifier: "com.cmuxterm.app.staging",
             authenticationToken: "staging-token"
@@ -1996,7 +2024,7 @@ struct ComputerUseUXTests {
             response: #"{"ok":true,"result":{"capturable":true}}"#
         )
 
-        let ready = await ComputerUseRuntimeService.verifyDirectScreenCapture(
+        let result = await ComputerUseRuntimeService.verifyDirectScreenCaptureOutcome(
             paths: paths,
             expectedPeerIdentity: currentIdentity
         )
@@ -2006,7 +2034,7 @@ struct ComputerUseUXTests {
         )
         let request = try #require(envelope["request"] as? [String: Any])
 
-        #expect(ready)
+        #expect(result == .ready)
         #expect(envelope["auth_token"] as? String == "agent-capability")
         #expect(envelope["host_auth_token"] as? String == "host-capability")
         #expect(request["method"] as? String == "verify_screen_capture")
@@ -2162,73 +2190,6 @@ struct ComputerUseUXTests {
         responder.stop()
     }
 
-    @Test(.timeLimit(.minutes(1))) @MainActor
-    func permissionRefreshSurvivesHelperSocketReplacement() async throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "cmux-cua-permissions-\(UUID().uuidString)",
-                isDirectory: true
-            )
-        let home = root.appendingPathComponent("home", isDirectory: true)
-        // Keep the fixture socket under Darwin's short, stable `/tmp` alias.
-        // Remote builders can expose a user temp path long enough that even a
-        // one-character runtime scope cannot fit in a UNIX-domain socket path.
-        let sockets = URL(fileURLWithPath: "/tmp", isDirectory: true)
-            .appendingPathComponent(
-                "cmux-cu-permissions-\(UUID().uuidString.prefix(8))",
-                isDirectory: true
-            )
-        defer {
-            try? FileManager.default.removeItem(at: root)
-            try? FileManager.default.removeItem(at: sockets)
-        }
-        try FileManager.default.createDirectory(
-            at: home,
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.createDirectory(
-            at: sockets,
-            withIntermediateDirectories: true
-        )
-        let paths = ComputerUseRuntimePaths(
-            homeDirectoryURL: home,
-            socketRootDirectoryURL: sockets,
-            userIdentifier: getuid(),
-            environment: ["CMUX_TAG": "permission-replacement"],
-            authenticationToken: "permission-test-token"
-        )
-        let runtime = ComputerUseRuntimeService(
-            bundle: Bundle(for: NSApplication.self),
-            paths: paths
-        )
-        await runtime.setEnabled(true)
-
-        let unavailable = try UnixSocketResponder(
-            path: paths.daemonSocketURL.path,
-            response: #"{"ok":false}"#
-        )
-        let refreshTask = Task { @MainActor in
-            await runtime.refreshHelperStatus()
-        }
-        while unavailable.receivedRequests.isEmpty {
-            await Task.yield()
-        }
-        unavailable.stop()
-
-        let replacement = try UnixSocketResponder(
-            path: paths.daemonSocketURL.path,
-            response: #"{"ok":true,"result":{"structuredContent":{"accessibility":true,"screen_recording":true}}}"#
-        )
-        let status = await refreshTask.value
-        replacement.stop()
-
-        #expect(runtime.permissionStatusIsKnown)
-        #expect(status.accessibility)
-        #expect(status.screenRecording)
-
-        await runtime.setEnabled(false)
-    }
-
     @Test func helperLaunchConfigurationIsQuietAndExternallyOwned() throws {
         let paths = ComputerUseRuntimePaths(
             homeDirectoryURL: URL(fileURLWithPath: "/Users/tester"),
@@ -2300,7 +2261,7 @@ struct ComputerUseUXTests {
     }
 
     @Test func agentWrappersDeclareHostOwnedComputerUseOnboarding() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         for wrapperName in [
@@ -2487,7 +2448,7 @@ struct ComputerUseUXTests {
     }
 
     @Test func computerUseSchemaDeclaresPersistedKeys() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = SwiftTestingAssertions.sourceURL()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let schemaURL = repositoryRoot.appendingPathComponent("web/data/cmux.schema.json")
@@ -2502,7 +2463,7 @@ struct ComputerUseUXTests {
         #expect((computerUseProperties["showInMenuBar"] as? [String: Any])?["type"] as? String == "boolean")
     }
 
-    @Test func generatedAgentShimReadsComputerUseAuthorityOnEveryLaunch() throws {
+    @Test func generatedAgentShimAllowsFirstUseButPreservesExplicitKillSwitch() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cua-live-setting-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -2520,14 +2481,18 @@ struct ComputerUseUXTests {
         let shimSet = try #require(TerminalSurface.installAgentCommandShimsIfPossible(
             wrapperDirectoryURL: binDirectory,
             surfaceId: UUID(),
-            temporaryDirectory: shimRoot,
+            rootDirectory: shimRoot,
             computerUseSettingFileURL: settingURL
         ))
         let shim = try #require(shimSet.shims.first { $0.commandName == "claude" })
 
-        // Setting disabled -> shim forces the disable regardless of inherited env.
+        // Settings-off still attaches the provider so an explicit functional
+        // request can open first-use setup. It is not the user kill switch.
         try "0\n".write(to: settingURL, atomically: true, encoding: .utf8)
         try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "0")
+        #expect(try String(contentsOf: logURL, encoding: .utf8) == "0")
+
+        try runShim(at: shim.executablePath, logURL: logURL, inheritedDisabled: "1")
         #expect(try String(contentsOf: logURL, encoding: .utf8) == "1")
 
         // A terminal spawned while the app setting was disabled must observe a
@@ -2627,12 +2592,7 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = NSRunningApplication.current
         let targetName = try #require(target.localizedName)
         let targetLaunchDate = try #require(target.launchDate)
         let writerIdentity = try #require(AgentPIDProcessIdentity(
@@ -2660,52 +2620,55 @@ struct ComputerUseUXTests {
             writerPID: Int(writerIdentity.pid),
             writerStartSeconds: writerIdentity.startSeconds,
             writerStartMicroseconds: writerIdentity.startMicroseconds,
-            session: driverSessionID,
+            session: "\(driverSessionID)-mcp-73-2000",
             targetApp: targetName,
             targetPID: Int(target.processIdentifier),
             targetWindowID: 7,
             lastActionAt: formatter.string(from: actionDate)
         )
 
-        let activationEvents = AsyncStream.makeStream(
-            of: pid_t.self,
+        let cursorEvents = AsyncStream.makeStream(
+            of: String.self,
             bufferingPolicy: .bufferingNewest(1)
         )
-        defer { activationEvents.continuation.finish() }
+        defer { cursorEvents.continuation.finish() }
+        var terminalFocuses = 0
 
-        try await confirmation(
-            "background directory callback activated the target once"
-        ) { activated in
-            let controller = ComputerUseWatchTargetController(
-                stateDirectoryURL: directory,
-                featureEnabled: { true },
-                liveDriverSessions: { [driverSessionID: liveSession] },
-                currentLiveDriverSession: { _ in liveSession },
-                feed: ComputerUseWatchTargetFeed(
-                    authenticationKey: Self.stateAuthenticationKey
-                ),
-                activate: { application in
-                    activationEvents.continuation.yield(
-                        application.processIdentifier
-                    )
-                }
-            )
-            controller.start()
-            defer { controller.stop() }
-
-            try state.write(
-                to: directory.appendingPathComponent("watcher.json"),
-                options: .atomic
-            )
-            for await processIdentifier in activationEvents.stream {
-                guard processIdentifier == target.processIdentifier else {
-                    continue
-                }
-                activated()
-                activationEvents.continuation.finish()
-                break
+        let controller = ComputerUseWatchTargetController(
+            stateDirectoryURL: directory,
+            featureEnabled: { true },
+            liveDriverSessions: { [driverSessionID: liveSession] },
+            currentLiveDriverSession: { _ in liveSession },
+            feed: ComputerUseWatchTargetFeed(
+                authenticationKey: Self.stateAuthenticationKey
+            ),
+            onFocusTerminal: { _, _, _ in
+                terminalFocuses += 1
+            },
+            onCursorVisibilityChange: { cursorDriverSessionID, _, _, _ in
+                MainActor.assertIsolated()
+                cursorEvents.continuation.yield(cursorDriverSessionID)
+            },
+            activate: { _ in
+                Issue.record("A new Computer Use session must not front its target")
             }
+        )
+        controller.start()
+        defer { controller.stop() }
+
+        try state.write(
+            to: directory.appendingPathComponent("watcher.json"),
+            options: .atomic
+        )
+        for await cursorDriverSessionID in cursorEvents.stream
+            where cursorDriverSessionID == driverSessionID
+        {
+            break
         }
+        await AppKitTestEventPump().drain()
+        // An agent's CUA call must never select its workspace or raise the
+        // cmux window: the user may be working in another workspace or app.
+        #expect(terminalFocuses == 0)
     }
 
     @Test(.timeLimit(.minutes(1))) @MainActor
@@ -2721,13 +2684,8 @@ struct ComputerUseUXTests {
         )
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let target = try #require(NSWorkspace.shared.runningApplications.first {
-            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier
-                && !$0.isTerminated
-                && $0.bundleIdentifier?.isEmpty == false
-                && $0.localizedName?.isEmpty == false
-                && $0.launchDate != nil
-        })
+        let target = try await Self.launchExternalTargetForTesting()
+        defer { target.terminate() }
         let targetName = try #require(target.localizedName)
         let targetBundleIdentifier = try #require(target.bundleIdentifier)
         let targetLaunchDate = try #require(target.launchDate)
@@ -2770,12 +2728,18 @@ struct ComputerUseUXTests {
             }
         )
         var featureEnabled = false
-        var reportScannedSession = false
-        let scannedSessions = AsyncStream.makeStream(
-            of: String.self,
-            bufferingPolicy: .bufferingNewest(1)
-        )
-        defer { scannedSessions.continuation.finish() }
+        let terminalFocusEvents = AsyncStream<UUID>.makeStream()
+        var terminalFocusIterator = terminalFocusEvents.stream.makeAsyncIterator()
+        defer { terminalFocusEvents.continuation.finish() }
+        let cursorEvents = AsyncStream<String>.makeStream()
+        var cursorEventIterator = cursorEvents.stream.makeAsyncIterator()
+        defer { cursorEvents.continuation.finish() }
+        let cursorReassertions = AsyncStream<
+            (driverSessionID: String, targetWindowID: UInt32?)
+        >.makeStream()
+        var cursorReassertionIterator =
+            cursorReassertions.stream.makeAsyncIterator()
+        defer { cursorReassertions.continuation.finish() }
         var activatedProcessIdentifiers: [pid_t] = []
         var focusedTerminalSessions: [(workspaceID: UUID, surfaceID: UUID)] = []
         var cursorVisibilityChanges: [
@@ -2790,18 +2754,14 @@ struct ComputerUseUXTests {
             featureEnabled: { featureEnabled },
             liveDriverSessions: { sessions },
             currentLiveDriverSession: { scannedSession in
-                if reportScannedSession {
-                    scannedSessions.continuation.yield(
-                        scannedSession.logicalSessionID
-                    )
-                }
-                return sessionsBySurfaceID[scannedSession.surfaceID]
+                sessionsBySurfaceID[scannedSession.surfaceID]
             },
             feed: ComputerUseWatchTargetFeed(
                 authenticationKey: Self.stateAuthenticationKey
             ),
             onFocusTerminal: { workspaceID, surfaceID, _ in
                 focusedTerminalSessions.append((workspaceID, surfaceID))
+                terminalFocusEvents.continuation.yield(surfaceID)
             },
             onCursorVisibilityChange: {
                 driverSessionID,
@@ -2813,6 +2773,12 @@ struct ComputerUseUXTests {
                     proxySessionID,
                     visible
                 ))
+                cursorEvents.continuation.yield(driverSessionID)
+            },
+            onCursorReassert: { driverSessionID, _, targetWindowID, _ in
+                cursorReassertions.continuation.yield(
+                    (driverSessionID, targetWindowID)
+                )
             },
             frontmostApplicationProcessIdentifier: { nil },
             activate: { application in
@@ -2830,7 +2796,8 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        #expect(await terminalFocusIterator.next() == backgroundSurfaceID)
+        await AppKitTestEventPump().drain()
         #expect(cursorVisibilityChanges.isEmpty)
         #expect(focusedTerminalSessions.count == 1)
         #expect(
@@ -2881,18 +2848,27 @@ struct ComputerUseUXTests {
             options: .atomic
         )
 
-        reportScannedSession = true
         featureEnabled = true
         NotificationCenter.default.post(
             name: .cmuxFeatureFlagsDidChange,
             object: nil
         )
-        var scannedIterator = scannedSessions.stream.makeAsyncIterator()
-        let scannedLogicalSessionID = await scannedIterator.next()
-
-        #expect(scannedLogicalSessionID == backgroundLogicalSessionID)
+        #expect(await cursorEventIterator.next() == backgroundDriverSessionID)
+        // The activity still pins the helper cursor to its target window.
+        let reassertion = await cursorReassertionIterator.next()
+        #expect(reassertion?.driverSessionID == backgroundDriverSessionID)
+        #expect(reassertion?.targetWindowID == 8)
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers.isEmpty)
-        #expect(focusedTerminalSessions.count == 2)
+        // Later agent actions keep the target behind cmux without selecting
+        // the workspace again; only the explicit menu choice focused it.
+        #expect(focusedTerminalSessions.count == 1)
+
+        #expect(cursorVisibilityChanges.count == 1)
+        #expect(cursorVisibilityChanges.first?.driverSessionID == backgroundDriverSessionID)
+        #expect(cursorVisibilityChanges.first?.proxySessionID == backgroundProxySessionID)
+        #expect(cursorVisibilityChanges.first?.visible == true)
+        let cursorEffectCountBeforeViewing = cursorVisibilityChanges.count
 
         let identity = ComputerUseTargetIdentity(
             processIdentifier: Int(target.processIdentifier),
@@ -2906,9 +2882,9 @@ struct ComputerUseUXTests {
             stateWriterIdentity: writerIdentity,
             proxySessionID: backgroundProxySessionID
         ))
-        await Task.yield()
+        await AppKitTestEventPump().drain()
         #expect(activatedProcessIdentifiers == [target.processIdentifier])
-        #expect(cursorVisibilityChanges.isEmpty)
+        #expect(cursorVisibilityChanges.count == cursorEffectCountBeforeViewing)
         #expect(!controller.isRunningInBackground(
             driverSessionID: backgroundDriverSessionID,
             logicalSessionID: backgroundLogicalSessionID
@@ -3778,6 +3754,31 @@ struct ComputerUseUXTests {
             return
         }
         appendString(value, to: &message)
+    }
+
+    @MainActor
+    private static func launchExternalTargetForTesting() async throws -> NSRunningApplication {
+        let existingPIDs = Set(NSWorkspace.shared.runningApplications.map(\.processIdentifier))
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.createsNewApplicationInstance = true
+        configuration.hides = true
+        configuration.addsToRecentItems = false
+        let target = try await NSWorkspace.shared.openApplication(
+            at: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"),
+            configuration: configuration
+        )
+        try #require(!existingPIDs.contains(target.processIdentifier),
+            "The fixture must own the external app instance it will terminate")
+        do {
+            try #require(await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                !target.isTerminated && target.localizedName != nil && target.launchDate != nil
+            })
+            return target
+        } catch {
+            target.terminate()
+            throw error
+        }
     }
 
     private static func sampledIconColor(

@@ -1,5 +1,7 @@
+import CmuxCloud
 import AppKit
 import Bonsplit
+import CmuxSurfaceCatalogModel
 import CmuxTerminal
 import CmuxWorkspaces
 import Foundation
@@ -15,6 +17,29 @@ import GhosttyKit
 /// (`Workspace+CloudTerminalReservation`).
 @MainActor
 extension Workspace {
+    /// A saved device terminal stays process-free until its provider reconnects:
+    /// the pane is built on the same manual-mirror path as a live attachment.
+    func restoreDeviceDisplayPanel(_ snapshot: SessionPanelSnapshot, in pane: PaneID) -> UUID? {
+        guard let panel = makeRemoteTmuxPanePanel(onInput: { _ in }, keyNameResolver: nil) else { return nil }
+        Self.bindCloudManualMirrorCallbacks(
+            panel: panel, onResize: { _ in }, onRuntimeReady: {}, onFocus: {}, attachment: nil
+        )
+        guard let panelID = try? insertCloudManualMirrorTab(panel, in: pane, focus: false, isLoading: false, iconAssetName: nil) else {
+            return nil
+        }
+        let status = DeviceTerminalAttachmentStatus()
+        panel.deviceAttachment = status
+        status.onChange = { [weak self] in self?.postRemoteConnectionPresentationDidChange() }
+        status.onRetry = { [weak self] in
+            guard self != nil, let projection = SurfaceCatalog.shared.projection(forPanel: panelID),
+                  let provider = SurfaceCatalog.shared.provider(for: projection.resource.machine) else { return }
+            Task { await provider.refresh(force: true) }
+        }
+        status.update(connected: false, connecting: false)
+        applySessionPanelMetadata(snapshot, toPanelId: panelID)
+        return panelID
+    }
+
     private static var cloudManualMirrorTabTitle: String {
         String(localized: "cloudTree.terminal.untitled", defaultValue: "terminal")
     }
@@ -32,20 +57,25 @@ extension Workspace {
     func addCloudManualMirrorPane(
         at destination: SurfaceDestination,
         focus: Bool,
+        iconAssetName: String? = nil,
         onInput: @escaping @Sendable (TerminalManualInput) -> Void,
         keyNameResolver: (@MainActor @Sendable (ghostty_input_key_s) -> String?)? = nil,
         onResize: @escaping @MainActor @Sendable (TerminalSurfaceRawSizingSample) -> Void,
         onRuntimeReady: @escaping @MainActor @Sendable () -> Void,
         onFocus: @escaping @MainActor @Sendable () -> Void,
-        attachment: CloudTerminalAttachmentStatus? = nil
+        attachment: CloudTerminalAttachmentStatus? = nil,
+        allowsRemoteClipboardWrites: Bool = false
     ) throws -> (workspaceID: UUID, panelID: UUID, surface: TerminalSurface) {
         guard let workspace = Self.liveWorkspace(id: destination.workspaceID),
               !workspace.isRetiredFromOwningTabManager else {
             throw SurfaceCatalogError.destinationNotFound(destination.workspaceID.uuidString)
         }
+        let loading = try CloudMachineLoadingReservation.current?.loadingPanel(at: destination, machineID: attachment?.machineID)
         guard let panel = workspace.makeRemoteTmuxPanePanel(
+            id: loading?.id ?? UUID(),
             onInput: onInput,
-            keyNameResolver: keyNameResolver
+            keyNameResolver: keyNameResolver,
+            allowsRemoteClipboardWrites: allowsRemoteClipboardWrites
         ) else {
             throw SurfaceCatalogError.unsupported("manual cloud terminal panel")
         }
@@ -56,7 +86,13 @@ extension Workspace {
             onFocus: onFocus,
             attachment: attachment
         )
-        let panelID = try workspace.insertCloudManualMirrorPanel(panel, at: destination, focus: focus, isLoading: false)
+        if let loading {
+            try workspace.adoptCloudMachineLoadingPanel(loading, terminal: panel, focus: focus)
+            return (workspace.id, panel.id, panel.surface)
+        }
+        let panelID = try workspace.insertCloudManualMirrorPanel(
+            panel, at: destination, focus: focus, isLoading: false, iconAssetName: iconAssetName
+        )
         return (workspace.id, panelID, panel.surface)
     }
 
@@ -79,13 +115,30 @@ extension Workspace {
         panel.cloudAttachment = attachment
     }
 
+    /// Keeps Cloud input convergence attached to the panel rather than to the
+    /// workspace that happened to create it. Workspace transfer rebinds the
+    /// ordinary terminal callback, while this hook follows the panel and
+    /// resolves its current workspace at input time.
+    static func bindCloudManualMirrorInputConvergence(
+        panel: TerminalPanel,
+        isActive: @escaping @MainActor () -> Bool = { true },
+        onExplicitInput: @escaping @MainActor () -> Void
+    ) {
+        panel.onManualMirrorExplicitInput = { [weak panel] in
+            guard let panel, isActive() else { return }
+            Workspace.liveWorkspace(id: panel.workspaceId)?.focusPanelFromTerminalInput(panel.id)
+            onExplicitInput()
+        }
+    }
+
     /// Places an already-built manual-mirror panel at `destination` and returns its id.
     /// `isLoading` marks the tab strip while an optimistic pane waits for its terminal.
     func insertCloudManualMirrorPanel(
         _ panel: TerminalPanel,
         at destination: SurfaceDestination,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String? = nil
     ) throws -> UUID {
         switch destination {
         case .workspace(_, let placement):
@@ -93,20 +146,22 @@ extension Workspace {
             guard let pane else { throw SurfaceCatalogError.destinationNotFound("focused pane") }
             switch placement {
             case .tab:
-                return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading)
+                return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
             case .split:
-                return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading)
+                return try splitCloudManualMirrorPane(panel, target: pane, direction: .right, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
             }
-        case .tab(_, let paneID, _):
+        case .tab(_, let paneID, let index):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try insertCloudManualMirrorTab(panel, in: pane, focus: focus, isLoading: isLoading)
+            return try insertCloudManualMirrorTab(
+                panel, in: pane, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName, index: index
+            )
         case .split(_, let paneID, let direction):
             guard let pane = Self.pane(paneID, in: self) else {
                 throw SurfaceCatalogError.destinationNotFound("pane (paneID)")
             }
-            return try splitCloudManualMirrorPane(panel, target: pane, direction: direction, focus: focus, isLoading: isLoading)
+            return try splitCloudManualMirrorPane(panel, target: pane, direction: direction, focus: focus, isLoading: isLoading, iconAssetName: iconAssetName)
         }
     }
 
@@ -114,13 +169,18 @@ extension Workspace {
         _ panel: TerminalPanel,
         in pane: PaneID,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String?,
+        index: Int? = nil
     ) throws -> UUID {
+        let previousPane = bonsplitController.focusedPaneId
+        let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
         panels[panel.id] = panel
         panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         guard let tab = bonsplitController.createTab(
             title: Self.cloudManualMirrorTabTitle,
             icon: panel.displayIcon,
+            iconAsset: iconAssetName,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
             isLoading: false,
@@ -132,11 +192,24 @@ extension Workspace {
             throw SurfaceCatalogError.unsupported("manual cloud terminal tab")
         }
         bindSurface(tab, toPanelId: panel.id)
+        if let index {
+            let tabs = bonsplitController.tabs(inPane: pane)
+            if let current = tabs.firstIndex(where: { $0.id == tab }) {
+                let target = min(max(index, 0), tabs.count - 1)
+                // Bonsplit accepts an insertion gap, not the final tab index.
+                _ = bonsplitController.reorderTab(tab, toIndex: target + (current < target ? 1 : 0))
+            }
+        }
         rememberTerminalConfigInheritanceSource(panel)
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {
             focusPanel(panel.id)
-        } else {
+        } else if let previousPane {
+            // Creating a tab can select its target pane as a Bonsplit side
+            // effect. A non-focused projection must preserve the caller's
+            // active pane/tab so layout admission cannot steal keyboard focus.
+            bonsplitController.focusPane(previousPane)
+            if let previousTab { bonsplitController.selectTab(previousTab) }
             panel.unfocus()
         }
         return panel.id
@@ -147,15 +220,19 @@ extension Workspace {
         target: PaneID,
         direction: SurfaceSplitDirection,
         focus: Bool,
-        isLoading: Bool
+        isLoading: Bool,
+        iconAssetName: String?
     ) throws -> UUID {
         let previousPane = bonsplitController.focusedPaneId
         let previousTab = previousPane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id }
+        // Bonsplit moves focus into the new pane, so capture the source terminal first.
+        let previousHostedView = focusedTerminalInputTarget()?.panel.hostedView
         panels[panel.id] = panel
         panelTitles[panel.id] = Self.cloudManualMirrorTabTitle
         let tab = Bonsplit.Tab(
             title: Self.cloudManualMirrorTabTitle,
             icon: panel.displayIcon,
+            iconAsset: iconAssetName,
             kind: SurfaceKind.terminal.rawValue,
             isDirty: panel.isDirty,
             isLoading: false,
@@ -167,12 +244,14 @@ extension Workspace {
         defer { isProgrammaticSplit = false }
         let orientation: SplitOrientation = (direction == .left || direction == .right) ? .horizontal : .vertical
         let insertFirst = direction == .left || direction == .up
-        guard bonsplitController.splitPane(
-            target,
-            orientation: orientation,
-            withTab: tab,
-            insertFirst: insertFirst
-        ) != nil else {
+        guard withSplitSpaceAdmissionBypass({
+            bonsplitController.splitPane(
+                target,
+                orientation: orientation,
+                withTab: tab,
+                insertFirst: insertFirst
+            )
+        }) != nil else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             panels.removeValue(forKey: panel.id)
             panel.close()
@@ -181,13 +260,26 @@ extension Workspace {
         rememberTerminalConfigInheritanceSource(panel)
         panel.surface.flushPendingManualSizeReportIfAttached()
         if focus {
-            focusPanel(panel.id)
+            focusNewSplitPanel(panel.id, previousHostedView: previousHostedView, reason: "workspace.cloudSplitReparent")
         } else if let previousPane {
             bonsplitController.focusPane(previousPane)
             if let previousTab { bonsplitController.selectTab(previousTab) }
             panel.unfocus()
         }
         return panel.id
+    }
+
+    /// Flags or clears the tab-strip spinner of a pane whose terminal is still arriving.
+    func setCloudManualMirrorTabLoading(panelID: UUID, _ isLoading: Bool) {
+        guard let tabID = surfaceIdFromPanelId(panelID) else { return }
+        bonsplitController.updateTab(tabID, isLoading: isLoading)
+    }
+
+    /// Updates a Cloud terminal tab after the daemon reports a provider identity change.
+    func updateCloudTerminalTabIcon(panelID: UUID, assetName: String?) {
+        guard let tabID = surfaceIdFromPanelId(panelID),
+              let tab = bonsplitController.tab(tabID), tab.iconAsset != assetName else { return }
+        bonsplitController.updateTab(tabID, iconAsset: .some(assetName))
     }
 
     /// The live workspace with `id` in any window, or nil once it was retired.

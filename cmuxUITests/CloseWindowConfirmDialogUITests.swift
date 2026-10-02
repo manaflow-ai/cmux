@@ -11,6 +11,9 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
     func testCmdCtrlWShowsCloseWindowConfirmationText() {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        // Close Window asks only when something would be lost; the idle test
+        // shell would otherwise close without the dialog.
+        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: 12.0),
@@ -36,6 +39,9 @@ final class CloseWindowConfirmDialogUITests: XCTestCase {
     func testReturnConfirmsCloseWindowDialog() {
         let app = XCUIApplication.cmuxTestApplication()
         app.launchEnvironment["CMUX_TAG"] = launchTag
+        // Close Window asks only when something would be lost; the idle test
+        // shell would otherwise close without the dialog.
+        app.launchEnvironment["CMUX_UI_TEST_FORCE_CONFIRM_CLOSE_WORKSPACE"] = "1"
         app.launch()
         XCTAssertTrue(
             ensureForegroundAfterLaunch(app, timeout: 12.0),

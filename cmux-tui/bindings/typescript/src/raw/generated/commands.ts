@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7042c629f34d3606581d07b2d2c03b65116c2467810724163c54674865825cc0. */
+/* cmux-tui mux protocol 12, IR 2276a5909634a1bb0c2b453023c77914bcd7b8174fc74ac06a818cf1d7b56298. */
 
 
 import type * as T from "./types.js";
@@ -308,15 +308,18 @@ export type CreateWorkspaceResult = T.WorkspaceMutationResult;
 /** Protocol v10; authority: frontend. */
 export interface DetachAttachedViewRequest extends CmuxRequestBase {
   cmd: "detach-attached-view";
-  "lease": string;
+  "lease"?: (string) | null;
   "surface": T.Id;
+  "view"?: (string) | null;
 }
 export type DetachAttachedViewResult = T.AttachedViewOutcomeResult;
 
 /** Protocol v6; authority: control. */
 export interface DetachClientRequest extends CmuxRequestBase {
   cmd: "detach-client";
-  "client": bigint;
+  "by"?: (T.SizeDetachActor) | null;
+  "client": T.DetachClientTarget;
+  "surface"?: (T.Id) | null;
 }
 export type DetachClientResult = T.EmptyResult;
 
@@ -359,6 +362,12 @@ export interface GetFrontendProjectionRequest extends CmuxRequestBase {
   "subject_key": string;
 }
 export type GetFrontendProjectionResult = T.FrontendProjection;
+
+/** Protocol v12; authority: control. */
+export interface GetSizeStateRequest extends CmuxRequestBase {
+  cmd: "get-size-state";
+  "surface": T.Id;
+}
 
 /** Protocol v5; authority: control. */
 export interface IdentifyRequest extends CmuxRequestBase {
@@ -535,6 +544,13 @@ export interface NewWorkspaceRequest extends CmuxRequestBase {
 }
 export type NewWorkspaceResult = T.SurfaceResult;
 
+/** Protocol v12; authority: control. */
+export interface NoteSizeActivityRequest extends CmuxRequestBase {
+  cmd: "note-size-activity";
+  "surface": T.Id;
+  "view"?: (string) | null;
+}
+
 /** Protocol v6; authority: control. */
 export interface NotifyRequest extends CmuxRequestBase {
   cmd: "notify";
@@ -619,6 +635,13 @@ export interface ReadScrollbackRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 
+/** Protocol v12; authority: control. */
+export interface ReattachViewRequest extends CmuxRequestBase {
+  cmd: "reattach-view";
+  "counts"?: (boolean) | null;
+  "surface": T.Id;
+}
+
 /** Protocol v10; authority: local-admin. */
 export interface RegisterBrowserProviderRequest extends CmuxRequestBase {
   cmd: "register-browser-provider";
@@ -633,8 +656,9 @@ export type RegisterBrowserProviderResult = T.BrowserProviderSnapshot;
 /** Protocol v10; authority: frontend. */
 export interface ReleaseAttachedViewSizeRequest extends CmuxRequestBase {
   cmd: "release-attached-view-size";
-  "lease": string;
+  "lease"?: (string) | null;
   "surface": T.Id;
+  "view"?: (string) | null;
 }
 export type ReleaseAttachedViewSizeResult = T.AttachedViewOutcomeResult;
 
@@ -723,9 +747,11 @@ export type ReportFocusResult = T.EmptyResult;
 export interface ResizeAttachedViewRequest extends CmuxRequestBase {
   cmd: "resize-attached-view";
   "cols": number;
-  "lease": string;
+  "identity"?: (T.SizingIdentity) | null;
+  "lease"?: (string) | null;
   "rows": number;
   "surface": T.Id;
+  "view"?: (string) | null;
 }
 export type ResizeAttachedViewResult = T.AttachedViewResizeResult;
 
@@ -824,8 +850,13 @@ export interface SetCellPixelsRequest extends CmuxRequestBase {
 export interface SetClientInfoRequest extends CmuxRequestBase {
   cmd: "set-client-info";
   "capabilities"?: (Array<string>) | null;
+  "device_id"?: (string) | null;
+  "device_kind"?: (string) | null;
+  "device_name"?: (string) | null;
+  "display_name"?: (string) | null;
   "kind"?: (string) | null;
   "name"?: (string) | null;
+  "user_id"?: (string) | null;
 }
 export type SetClientInfoResult = T.EmptyResult;
 
@@ -863,6 +894,25 @@ export interface SetRatioRequest extends CmuxRequestBase {
 }
 export type SetRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface SetSizeCountsRequest extends CmuxRequestBase {
+  cmd: "set-size-counts";
+  "client"?: (bigint) | null;
+  "counts"?: (boolean) | null;
+  "lease"?: (string) | null;
+  "participant"?: (string) | null;
+  "surface": T.Id;
+  "view"?: (string) | null;
+}
+
+/** Protocol v12; authority: control. */
+export interface SetSizePolicyRequest extends CmuxRequestBase {
+  cmd: "set-size-policy";
+  "policy"?: (T.SizePolicy) | null;
+  "surface"?: (T.Id) | null;
+  "workspace"?: (T.Id) | null;
+}
+
 /** Protocol v8; authority: control. */
 export interface SetSplitRatioRequest extends CmuxRequestBase {
   cmd: "set-split-ratio";
@@ -871,6 +921,14 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
   "transaction"?: (bigint) | null;
 }
 export type SetSplitRatioResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface SetTerminalIdlePolicyRequest extends CmuxRequestBase {
+  cmd: "set-terminal-idle-policy";
+  "idle_close_seconds"?: (bigint) | null;
+  "surface"?: (T.Id) | null;
+  "terminal_id"?: (string) | null;
+}
 
 /** Protocol v9; authority: control. */
 export interface SetViewportPaneWidthRequest extends CmuxRequestBase {
@@ -1042,6 +1100,7 @@ export type CmuxRequest =
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
   | GetFrontendProjectionRequest
+  | GetSizeStateRequest
   | IdentifyRequest
   | IdsRequest
   | JournalFrontendEventRequest
@@ -1064,6 +1123,7 @@ export type CmuxRequest =
   | NewScreenRequest
   | NewTabRequest
   | NewWorkspaceRequest
+  | NoteSizeActivityRequest
   | NotifyRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -1073,6 +1133,7 @@ export type CmuxRequest =
   | PutFrontendProjectionRequest
   | ReadScreenRequest
   | ReadScrollbackRequest
+  | ReattachViewRequest
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
@@ -1100,7 +1161,10 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetDefaultColorsRequest
   | SetRatioRequest
+  | SetSizeCountsRequest
+  | SetSizePolicyRequest
   | SetSplitRatioRequest
+  | SetTerminalIdlePolicyRequest
   | SetViewportPaneWidthRequest
   | SetWindowTitleRequest
   | ShutdownDaemonRequest
@@ -1409,6 +1473,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "get-size-state": {
+    request: GetSizeStateRequest;
+    result: T.GetSizeStateResult;
+    authority: "control";
+    since: 12;
+    capability: "shared-sizing-v1";
+    stream: null;
+  };
   "identify": {
     request: IdentifyRequest;
     result: T.IdentifyResult;
@@ -1585,6 +1657,14 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "note-size-activity": {
+    request: NoteSizeActivityRequest;
+    result: T.NoteSizeActivityResult;
+    authority: "control";
+    since: 12;
+    capability: "shared-sizing-v1";
+    stream: null;
+  };
   "notify": {
     request: NotifyRequest;
     result: T.NotifyResult;
@@ -1655,6 +1735,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 7;
     capability: null;
+    stream: null;
+  };
+  "reattach-view": {
+    request: ReattachViewRequest;
+    result: T.ReattachViewResult;
+    authority: "control";
+    since: 12;
+    capability: "sizing-view-detach-v1";
     stream: null;
   };
   "register-browser-provider": {
@@ -1873,12 +1961,36 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "set-size-counts": {
+    request: SetSizeCountsRequest;
+    result: T.SetSizeCountsResult;
+    authority: "control";
+    since: 12;
+    capability: "shared-sizing-v1";
+    stream: null;
+  };
+  "set-size-policy": {
+    request: SetSizePolicyRequest;
+    result: T.SetSizePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "shared-sizing-v1";
+    stream: null;
+  };
   "set-split-ratio": {
     request: SetSplitRatioRequest;
     result: SetSplitRatioResult;
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-terminal-idle-policy": {
+    request: SetTerminalIdlePolicyRequest;
+    result: T.SetTerminalIdlePolicyResult;
+    authority: "control";
+    since: 12;
+    capability: "terminal-idle-close-v1";
     stream: null;
   };
   "set-viewport-pane-width": {

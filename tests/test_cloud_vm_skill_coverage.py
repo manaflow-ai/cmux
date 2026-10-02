@@ -25,7 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CLI_MAIN = ROOT / "CLI" / "cmux.swift"
 CLI_TUI = ROOT / "CLI" / "CMUXCLI+VMTui.swift"
-CONTROLLER = ROOT / "Sources" / "TerminalController.swift"
+CAPABILITIES = ROOT / "Sources" / "TerminalController+Capabilities.swift"
 CONTRACT = ROOT / "docs" / "cli-contract.md"
 SKILL_DIR = ROOT / "skills" / "cmux-cloud-vm"
 COMMANDS_MD = SKILL_DIR / "references" / "commands.md"
@@ -40,7 +40,7 @@ SKILL_FILES = [
     SKILL_DIR / "agents" / "openai.yaml",
     BUNDLED_SKILL,
 ]
-
+SKILL_FILES.extend(path for path in sorted(SKILL_DIR.rglob("*.md")) if path not in SKILL_FILES)
 # Verbs the dispatcher accepts but the usage line deliberately omits.
 USAGE_LINE_INTERNAL = {"ssh-attach"}
 
@@ -119,7 +119,7 @@ def advertised_methods(source: str) -> tuple[set[str], set[str]]:
     """(cloud methods the reference must cover, every method the app advertises)."""
     start = source.find('"vm.list",')
     if start < 0:
-        raise RuntimeError("cannot find the vm.* capabilities list in Sources/TerminalController.swift")
+        raise RuntimeError("cannot find the vm.* capabilities list in Sources/TerminalController+Capabilities.swift")
     end = source.find("]", start)
     every = set(re.findall(r'"([a-z_]+\.[a-z_.]+)"', source[start:end]))
     cloud = {method for method in every if method.startswith("vm.")} | (CLOUD_SURFACE_METHODS & every)
@@ -254,7 +254,7 @@ def main() -> int:
 
     # Socket methods: the reference names every advertised vm.*/surface.* method
     # and no method the app does not advertise.
-    advertised, every_method = advertised_methods(CONTROLLER.read_text(encoding="utf-8"))
+    advertised, every_method = advertised_methods(CAPABILITIES.read_text(encoding="utf-8"))
     mentioned = set(re.findall(r"\b((?:vm|surface)\.[a-z_]+)\b", shipped))
     for method in sorted(advertised - mentioned):
         failures.append(f"{COMMANDS_MD.relative_to(ROOT)} never mentions advertised socket method {method}")

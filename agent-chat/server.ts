@@ -1,3 +1,4 @@
+import { initializeAgentPath } from "./path-environment";
 import type {
   Adapter,
   AgentEvent,
@@ -15,8 +16,14 @@ import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
 import { piAdapter } from "./adapters/pi";
 import { makeAcpAdapter } from "./adapters/acp";
+import { attachTranscript, focusTranscriptTerminal, queuedTranscriptMessages, transcriptAdapter, type QueuedAgentMessage, type TranscriptAgent } from "./adapters/transcript";
+import { resolveSessionTranscript, resolveSurfaceTranscript, transcriptAttention, type TranscriptSource } from "./transcript-sources";
 import { pickAccentColor, resolveGhosttyTheme, resolveGhosttyThemeAsync, type GhosttyTheme } from "./theme";
 import { agentModelCatalog, type AgentModelProviderCatalog } from "./catalog";
+import { discoverHarnesses } from "./harnesses";
+import type { HarnessRecommendation } from "./harness-contract";
+import { harnessCatalogs } from "./harness-messages";
+import { gitHubSlugFromRemoteURL } from "./src/githubReferences";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -106,13 +113,7 @@ export async function writeStateFileForTest(path: string, port: number) {
   await writeStateFilePath(path, port);
 }
 
-// Under launchd the PATH is minimal; make sure the agent CLIs resolve.
-{
-  const home = process.env.HOME ?? "";
-  const extra = [`${home}/.local/bin`, `${home}/.bun/bin`, "/opt/homebrew/bin", "/usr/local/bin"];
-  const cur = (process.env.PATH ?? "").split(":");
-  process.env.PATH = [...extra.filter((p) => !cur.includes(p)), ...cur].join(":");
-}
+initializeAgentPath(process.env, process.platform);
 const ROOT = import.meta.dir;
 const DEFAULT_CWD = `${ROOT}/scratch`;
 const ICON_ROOT = resolve(ROOT, "../Assets.xcassets/AgentIcons");
@@ -122,6 +123,10 @@ const FILES_LIMIT = 5_000;
 const FILE_DIFF_ALLOWLIST_LIMIT = 5_000;
 const MAX_SESSION_EVENTS = 5_000;
 const GIT_TIMEOUT_MS = 10_000;
+/// Reading one config value is fast, and this runs on the path that starts a
+/// session, so an unresponsive directory gives up quickly and the session
+/// starts without links rather than waiting on it.
+const REPOSITORY_SLUG_TIMEOUT_MS = 2_000;
 const DONE_FILES_TIMEOUT_MS = 2_000;
 const TURN_BASELINE_TIMEOUT_MS = 3_000;
 const MAX_TURN_BASELINES = 4;
@@ -148,18 +153,26 @@ const PROVIDERS: ProviderDef[] = [
   { id: "claude", label: "Claude Code", adapter: "claude", cmd: ["claude"], installCommand: "npm i -g @anthropic-ai/claude-code" },
   { id: "codex", label: "Codex", adapter: "codex", cmd: ["codex"], installCommand: "npm i -g @openai/codex" },
   { id: "opencode", label: "OpenCode", adapter: "acp", cmd: ["opencode", "acp"], installCommand: "npm i -g opencode-ai" },
+  // Cursor's installer makes `agent` primary and `cursor-agent` a legacy symlink; keep the repo-standard spelling here.
+  { id: "cursor-agent", label: "Cursor Agent", adapter: "acp", cmd: ["cursor-agent", "acp"], installCommand: "curl https://cursor.com/install -fsS | bash" },
+  { id: "goose", label: "Goose", adapter: "acp", cmd: ["goose", "acp"], installCommand: "curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | bash" },
   { id: "pi", label: "pi", adapter: "pi", cmd: ["pi"], installCommand: "npm i -g @mariozechner/pi" },
   {
     id: "gemini",
     label: "Gemini",
     adapter: "acp",
-    cmd: ["gemini", "--acp"],
+    cmd: ["gemini", "--experimental-acp"],
     autoApproveArgs: ["--yolo"],
     installCommand: "npm i -g @google/gemini-cli",
     models: geminiCatalogModels(),
     defaultModel: geminiDefaultModel(),
   },
 ];
+
+/** Read-only registry access for tests; production code keeps the mutable array private. */
+export function providerDefinitionsForTest(): readonly ProviderDef[] {
+  return PROVIDERS;
+}
 
 const adapters = new Map<string, Adapter>();
 for (const def of PROVIDERS) {
@@ -173,6 +186,19 @@ interface Session extends SessionCtx {
   adapter: Adapter;
   sockets: Set<Bun.ServerWebSocket<WsData>>;
   createdAt: number;
+  /** Set for chat views of an agent running in a cmux terminal. */
+  transcript?: {
+    agent: TranscriptAgent;
+    path: string;
+    disposeTimer?: ReturnType<typeof setTimeout>;
+    /** What the agent is waiting on in the terminal (permission, question), if anything. */
+    attention?: string | null;
+    /** cmux agent messages waiting for the agent, and when they were last read. */
+    queuedMessages?: QueuedAgentMessage[];
+    queuedCheckedAt?: number;
+    queuedInflight?: boolean;
+    queuedReadFailed?: boolean;
+  };
 }
 interface WsData {
   subscribed: string | null;
@@ -183,7 +209,9 @@ const allSockets = new Set<Bun.ServerWebSocket<WsData>>();
 let fileTheme = resolveGhosttyTheme();
 let cmuxThemeOverride: GhosttyTheme | null = null;
 let currentTheme = fileTheme;
-const startRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
+const startRequests = new Map<string, { promise: Promise<Session>; settledAt?: number; stopped?: boolean; session?: Session }>();
+const startRequestSessions = new Map<string, { session: Session; stopped?: boolean }>();
+const sessionActionRequests = new Map<string, { createdAt: number; promise: Promise<Session> }>();
 type AttributionMode = "new-turn" | "current-turn";
 type InternalDoneEvent = Extract<AgentEvent, { kind: "done" }> & { generation?: number };
 const optionCatalog = new Map<string, {
@@ -222,7 +250,13 @@ function pruneCwdCatalog(map: Map<string, { fetchedAt: number; refreshing?: Prom
 function pruneStartRequests() {
   const now = Date.now();
   for (const [key, entry] of startRequests) {
-    if (now - entry.createdAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+    if (entry.settledAt !== undefined && now - entry.settledAt > START_REQUEST_TTL_MS) startRequests.delete(key);
+  }
+}
+function pruneSessionActionRequests() {
+  const now = Date.now();
+  for (const [key, entry] of sessionActionRequests) {
+    if (now - entry.createdAt > START_REQUEST_TTL_MS) sessionActionRequests.delete(key);
   }
 }
 const keyConfig = await readKeyConfig();
@@ -235,8 +269,22 @@ function sessionSummary(s: Session) {
     title: s.title,
     status: s.status,
     createdAt: s.createdAt,
-    capabilities: capabilitiesFor(s.provider),
+    conversationId: s.conversationId,
+    parentSessionId: s.parentSessionId,
+    parentConversationId: s.parentConversationId,
+    startRequestId: s.startRequestId,
+    capabilities: s.transcript ? s.adapter.capabilities : capabilitiesFor(s.provider),
+    ...(s.transcript ? { mode: "transcript" as const, attention: s.transcript.attention ?? null, queuedMessages: s.transcript.queuedMessages ?? [] } : {}),
   };
+}
+
+export function stripQueuedMessages(summary: Record<string, unknown>): Record<string, unknown> {
+  const { queuedMessages: _queuedMessages, ...withoutQueuedMessages } = summary;
+  return withoutQueuedMessages;
+}
+
+function sessionListSummary(s: Session) {
+  return stripQueuedMessages(sessionSummary(s));
 }
 
 function capabilitiesFor(provider: string): ProviderCapabilities {
@@ -245,6 +293,39 @@ function capabilitiesFor(provider: string): ProviderCapabilities {
 
 function capabilitiesMap(): Record<string, ProviderCapabilities> {
   return Object.fromEntries(PROVIDERS.map((p) => [p.id, capabilitiesFor(p.id)]));
+}
+
+/**
+ * Build the server-side harness choices consumed by the command palette and
+ * other clients. The resolver is injectable so this stays deterministic in
+ * tests and callers can provide a cached installation probe.
+ */
+export function harnessRecommendations(
+  providers: ProviderDef[] = PROVIDERS,
+  isInstalled: (provider: ProviderDef) => boolean = (provider) => Boolean(Bun.which(provider.cmd?.[0] ?? provider.id, { PATH: process.env.PATH })),
+  triggersFor: (provider: ProviderDef) => CommandTrigger[] = (provider) => capabilitiesFor(provider.id).triggers,
+): HarnessRecommendation[] {
+  return providers
+    .map((provider) => {
+      const installed = isInstalled(provider);
+      return {
+        id: provider.id,
+        label: provider.label,
+        installed,
+        priority: installed ? 0 : 1,
+        triggers: triggersFor(provider),
+        kind: "provider" as const,
+        provider: provider.id,
+        tags: [],
+        reason: installed
+          ? { id: "installed" as const }
+          : provider.installCommand
+            ? { id: "install" as const, params: { command: provider.installCommand } }
+            : { id: "missing" as const },
+        ...(provider.installCommand ? { installCommand: provider.installCommand } : {}),
+      };
+    })
+    .sort((a, b) => a.priority - b.priority || a.label.localeCompare(b.label));
 }
 
 function providerInfo(p: ProviderDef) {
@@ -263,7 +344,8 @@ function providerInfo(p: ProviderDef) {
 function broadcastSessions() {
   const payload = JSON.stringify({
     kind: "sessions",
-    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+    // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary),
   });
   for (const ws of allSockets) ws.send(payload);
 }
@@ -305,15 +387,26 @@ function createSession(
   autoApprove: boolean,
   title: string,
   startOptions: Record<string, OptionValue> = {},
+  lineage: {
+    conversationId?: string;
+    parentSessionId?: string;
+    parentConversationId?: string;
+    startRequestId?: string;
+  } = {},
+  override: { id?: string; adapter?: Adapter } = {},
 ): Session {
-  const adapter = adapters.get(provider);
+  const adapter = override.adapter ?? adapters.get(provider);
   if (!adapter) throw new Error(`unknown provider: ${provider}`);
-  const id = crypto.randomUUID().slice(0, 8);
+  const id = override.id ?? crypto.randomUUID().slice(0, 8);
   const sess: Session = {
     id,
     provider,
     cwd,
     title,
+    conversationId: lineage.conversationId ?? crypto.randomUUID(),
+    parentSessionId: lineage.parentSessionId,
+    parentConversationId: lineage.parentConversationId,
+    startRequestId: lineage.startRequestId,
     autoApprove,
     startOptions,
     seedOptions: optionCatalog.get(provider)?.options,
@@ -329,6 +422,9 @@ function createSession(
         return;
       }
       emitSessionEvent(sess, evt);
+    },
+    resetHistory() {
+      resetSessionHistory(sess);
     },
     setStatus(status: SessionStatus) {
       const pendingDone = sess.internal.pendingDoneEmit as Promise<void> | undefined;
@@ -349,6 +445,17 @@ function createSession(
   sessions.set(id, sess);
   broadcastSessions();
   return sess;
+}
+
+function emitRouting(
+  sess: Session,
+  input: Omit<Extract<AgentEvent, { kind: "routing" }>, "kind" | "conversationId"> & { conversationId?: string },
+) {
+  sess.emit({
+    kind: "routing",
+    ...input,
+    conversationId: input.conversationId ?? sess.conversationId ?? sess.id,
+  });
 }
 
 function emitSessionEvent(sess: Session, evt: AgentEvent) {
@@ -402,6 +509,12 @@ function broadcastSessionHistory(sess: Session) {
     events: sess.events,
   });
   for (const ws of sess.sockets) ws.send(payload);
+}
+
+export function resetSessionHistory(sess: Session) {
+  sess.events.length = 0;
+  delete sess.internal.eventGenerations;
+  broadcastSessionHistory(sess);
 }
 
 function activeAttributionGenerations(sess: Session): number[] {
@@ -506,7 +619,19 @@ function emitDoneAfterFiles(sess: Session, evt: InternalDoneEvent) {
   });
 }
 
-function sendPrompt(sess: Session, prompt: string) {
+function sendPrompt(sess: Session, prompt: string, requestId = crypto.randomUUID()) {
+  if (sess.transcript) {
+    // Typed into the terminal's agent; the transcript records the prompt, so
+    // there is no turn generation to unwind and no "done" to emit. The send
+    // can still reject (a replaced agent process, a failed spawn), and that
+    // has to reach the user rather than becoming an unhandled rejection.
+    Promise.resolve(sess.adapter.send(sess, prompt)).catch((err) => {
+      console.error("[agent-chat] send failed", err);
+      sess.emit({ kind: "error", message: safeErrorMessage("send", err) });
+    });
+    return;
+  }
+  emitRouting(sess, { phase: "started", requestId, attempt: 1, provider: sess.provider });
   const activeGeneration = activeAttributionGeneration(sess);
   if (adapterAttributionMode(sess) === "current-turn" && activeGeneration) {
     sess.emit({ kind: "user", text: prompt });
@@ -545,6 +670,146 @@ function sendPrompt(sess: Session, prompt: string) {
   });
 }
 
+// Transcript views are keyed by the agent's own session id so a reload after
+// a sidecar restart can re-resolve the same view from the hook stores.
+const TRANSCRIPT_SESSION_PREFIX = "t-";
+const TRANSCRIPT_IDLE_DISPOSE_MS = 5 * 60_000;
+
+function transcriptSessionId(source: TranscriptSource): string {
+  return `${TRANSCRIPT_SESSION_PREFIX}${source.sessionId}`;
+}
+
+function transcriptTitle(source: TranscriptSource): string {
+  const label = source.agent === "codex" ? "Codex" : "Claude Code";
+  return source.cwd ? `${label} · ${pathBasename(source.cwd)}` : label;
+}
+
+function ensureTranscriptSession(source: TranscriptSource): Session {
+  const id = transcriptSessionId(source);
+  const existing = sessions.get(id);
+  if (existing?.transcript?.path === source.path) return existing;
+  if (existing?.transcript) {
+    // The agent's transcript moved (for example a resolved fallback path):
+    // re-point the same session so open pages stay subscribed.
+    existing.adapter.dispose(existing);
+    existing.transcript.path = source.path;
+    existing.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
+    startTranscriptTail(existing, source);
+    resetSessionHistory(existing);
+    return existing;
+  }
+  const sess = createSession(source.agent, source.cwd ?? DEFAULT_CWD, false, transcriptTitle(source), {}, {}, {
+    id,
+    adapter: transcriptAdapter,
+  });
+  sess.transcript = { agent: source.agent, path: source.path };
+  sess.internal.transcriptTarget = { agentSessionId: source.sessionId, surfaceId: source.surfaceId };
+  startTranscriptTail(sess, source);
+  return sess;
+}
+
+function startTranscriptTail(sess: Session, source: TranscriptSource) {
+  attachTranscript(sess, source.agent, source.path, (title) => {
+    if (sess.title === title) return;
+    sess.title = title;
+    broadcastSessions();
+    const payload = JSON.stringify({ kind: "session-title", sessionId: sess.id, title });
+    for (const ws of sess.sockets) ws.send(payload);
+  }, { onTick: () => refreshTranscriptAttention(sess, source) });
+  // Seed attention before the first history replay. Hook state is independent
+  // of the JSONL transcript, so a reload while a terminal is waiting can have
+  // no file tick to trigger the callback.
+  refreshTranscriptAttention(sess, source);
+}
+
+// Permission prompts, questions, and pickers live in the terminal and are not
+// in the transcript until answered; the hook store says when the agent waits.
+function refreshTranscriptAttention(sess: Session, source: TranscriptSource) {
+  if (!sess.transcript) return;
+  if (sess.sockets.size) refreshQueuedMessages(sess);
+  const attention = transcriptAttention(source.agent, source.sessionId);
+  if ((sess.transcript.attention ?? null) === attention) return;
+  sess.transcript.attention = attention;
+  if (!sess.sockets.size) return;
+  const payload = JSON.stringify({ kind: "session-attention", sessionId: sess.id, attention });
+  for (const ws of sess.sockets) ws.send(payload);
+}
+
+// Queued cmux agent messages live in the app, not the transcript. Each read
+// spawns the CLI, so it runs at most every couple of seconds while a page is
+// open; delivered messages then appear in the transcript itself.
+const QUEUED_MESSAGES_REFRESH_MS = 2_000;
+// After a failed read (an app without the method, or a busy app), wait longer.
+const QUEUED_MESSAGES_RETRY_MS = 30_000;
+
+function refreshQueuedMessages(sess: Session) {
+  const transcript = sess.transcript;
+  if (!transcript || transcript.queuedInflight) return;
+  const now = Date.now();
+  const interval = transcript.queuedReadFailed ? QUEUED_MESSAGES_RETRY_MS : QUEUED_MESSAGES_REFRESH_MS;
+  if (transcript.queuedCheckedAt && now - transcript.queuedCheckedAt < interval) return;
+  transcript.queuedCheckedAt = now;
+  transcript.queuedInflight = true;
+  void queuedTranscriptMessages(sess)
+    .then((messages) => {
+      transcript.queuedReadFailed = messages === undefined;
+      if (messages === undefined) return;
+      if (JSON.stringify(transcript.queuedMessages ?? []) === JSON.stringify(messages)) return;
+      transcript.queuedMessages = messages;
+      const payload = JSON.stringify({ kind: "session-queued-messages", sessionId: sess.id, messages });
+      for (const ws of sess.sockets) ws.send(payload);
+    })
+    .catch(() => {
+      transcript.queuedReadFailed = true;
+    })
+    .finally(() => {
+      transcript.queuedInflight = false;
+    });
+}
+
+function refreshExistingTranscriptSession(sess: Session): Session {
+  if (!sess.transcript) return sess;
+  const target = sess.internal.transcriptTarget as { agentSessionId?: string } | undefined;
+  if (!target?.agentSessionId) return sess;
+  const source = resolveSessionTranscript(target.agentSessionId);
+  if (!source) return sess;
+  const refreshed = ensureTranscriptSession(source);
+  refreshTranscriptAttention(refreshed, source);
+  return refreshed;
+}
+
+function resolveTranscriptSessionById(id: string): Session | undefined {
+  if (!id.startsWith(TRANSCRIPT_SESSION_PREFIX)) return undefined;
+  const source = resolveSessionTranscript(id.slice(TRANSCRIPT_SESSION_PREFIX.length));
+  return source ? ensureTranscriptSession(source) : undefined;
+}
+
+function cancelTranscriptDispose(sess: Session) {
+  if (sess.transcript?.disposeTimer) clearTimeout(sess.transcript.disposeTimer);
+  if (sess.transcript) sess.transcript.disposeTimer = undefined;
+}
+
+// A transcript view with no open page stops tailing after a grace period; the
+// next visit re-resolves it from the hook stores.
+function scheduleTranscriptDispose(sess: Session) {
+  if (!sess.transcript || sess.sockets.size) return;
+  cancelTranscriptDispose(sess);
+  sess.transcript.disposeTimer = setTimeout(() => {
+    if (sess.sockets.size || sessions.get(sess.id) !== sess) return;
+    sess.adapter.dispose(sess);
+    sessions.delete(sess.id);
+    broadcastSessions();
+  }, TRANSCRIPT_IDLE_DISPOSE_MS);
+}
+
+function transcriptNotFoundPage(): Response {
+  const body = `<!doctype html><meta charset="utf-8"><title>No agent session</title>
+<body style="font:14px -apple-system,sans-serif;padding:32px;color:#888;background:transparent">
+<p>No Claude Code or Codex session is recorded for this terminal yet.</p>
+<p>Start the agent in the terminal (cmux hooks must be enabled), then reopen the chat view.</p></body>`;
+  return new Response(body, { status: 404, headers: { "content-type": "text/html; charset=utf-8" } });
+}
+
 function refreshSession(sess: Session) {
   Promise.resolve(sess.adapter.refreshOptions?.(sess)).catch((err) => {
     console.error("[agent-chat] refresh-options failed", err);
@@ -552,14 +817,30 @@ function refreshSession(sess: Session) {
   });
 }
 
-async function forkSession(source: Session): Promise<Session> {
+async function forkSession(source: Session, reason = "fork"): Promise<Session> {
+  if (source.status === "running") {
+    throw new Error("cannot continue elsewhere while a turn is running");
+  }
   if (!source.adapter.forkSession) throw new Error(`${source.provider} does not support fork`);
   await assertCwd(source.cwd);
-  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions });
+  const fork = createSession(source.provider, source.cwd, source.autoApprove, source.title, { ...source.startOptions }, {
+    parentSessionId: source.id,
+    parentConversationId: source.conversationId,
+  });
   fork.events = source.events.slice();
   rebuildFileDiffAllowlist(fork);
   try {
     await source.adapter.forkSession(source, fork);
+    emitRouting(fork, {
+      phase: "handoff",
+      requestId: crypto.randomUUID(),
+      attempt: 1,
+      parentSessionId: source.id,
+      parentConversationId: source.conversationId,
+      provider: fork.provider,
+      reason,
+      handoffMode: "native_fork",
+    });
     refreshSession(fork);
     return fork;
   } catch (err) {
@@ -570,14 +851,78 @@ async function forkSession(source: Session): Promise<Session> {
   }
 }
 
-async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string }> {
+/**
+ * User-facing continuation. This is deliberately separate from the legacy
+ * `fork` operation: callers can distinguish an intentional handoff from a
+ * branching experiment while both use the provider-native context transfer.
+ */
+async function handoffSession(source: Session): Promise<Session> {
+  return forkSession(source, "user_handoff");
+}
+
+async function checkCwd(cwd: string): Promise<{ ok: boolean; message?: string; repositorySlug?: string }> {
   try {
     const s = await stat(cwd);
-    if (s.isDirectory()) return { ok: true };
+    if (s.isDirectory()) {
+      const repositorySlug = await gitHubRepositorySlug(cwd);
+      return repositorySlug ? { ok: true, repositorySlug } : { ok: true };
+    }
   } catch {
     // Fall through to the stable user-facing message.
   }
   return { ok: false, message: `working directory does not exist: ${cwd}` };
+}
+
+/// The `owner/name` GitHub repository a directory's `origin` remote names.
+///
+/// The transcript uses this to resolve bare references such as `#847`. A
+/// directory outside a repository, or one whose `origin` is not on github.com,
+/// has no slug, and those references then stay text rather than guessing.
+/// How long a slug is trusted before `git` is asked again.
+///
+/// A directory that has a remote keeps it, so the answer is reused for a long
+/// while. A directory that has none is a different case: an agent that runs
+/// `git init` and `git remote add` in the session directory would otherwise
+/// never get links until the server restarts, so a miss is only held briefly.
+const REPOSITORY_SLUG_TTL_MS = 10 * 60_000;
+const REPOSITORY_SLUG_MISS_TTL_MS = 30_000;
+/// `check-cwd` takes any directory the client names, so the map is bounded and
+/// the oldest entry is dropped rather than letting it grow for the process
+/// lifetime.
+const REPOSITORY_SLUG_CACHE_MAX = 256;
+const repositorySlugCache = new Map<string, { slug: string | null; expiresAt: number }>();
+/// Concurrent `check-cwd` messages for the same directory share one `git` run.
+const repositorySlugInFlight = new Map<string, Promise<string | null>>();
+
+async function gitHubRepositorySlug(cwd: string): Promise<string | null> {
+  const cached = repositorySlugCache.get(cwd);
+  if (cached && cached.expiresAt > Date.now()) return cached.slug;
+  const inFlight = repositorySlugInFlight.get(cwd);
+  if (inFlight) return inFlight;
+  const pending = readRepositorySlug(cwd).finally(() => repositorySlugInFlight.delete(cwd));
+  repositorySlugInFlight.set(cwd, pending);
+  return pending;
+}
+
+async function readRepositorySlug(cwd: string): Promise<string | null> {
+  let slug: string | null = null;
+  try {
+    const remote = await gitOutput(cwd, ["config", "--get", "remote.origin.url"], 4_000, REPOSITORY_SLUG_TIMEOUT_MS);
+    slug = gitHubSlugFromRemoteURL(remote);
+  } catch {
+    // Not a repository, no origin, or git was too slow. All mean no slug.
+  }
+  repositorySlugCache.delete(cwd);
+  repositorySlugCache.set(cwd, {
+    slug,
+    expiresAt: Date.now() + (slug ? REPOSITORY_SLUG_TTL_MS : REPOSITORY_SLUG_MISS_TTL_MS),
+  });
+  while (repositorySlugCache.size > REPOSITORY_SLUG_CACHE_MAX) {
+    const oldest = repositorySlugCache.keys().next();
+    if (oldest.done) break;
+    repositorySlugCache.delete(oldest.value);
+  }
+  return slug;
 }
 
 async function assertCwd(cwd: string) {
@@ -1200,7 +1545,7 @@ export function resolveFileDiffPath(cwd: string, path: string): string {
   return rel.replaceAll("\\", "/");
 }
 
-function fileDiffAllowlist(sess: Session): Set<string> {
+function fileDiffAllowlist(sess: Pick<Session, "internal">): Set<string> {
   let allowed = sess.internal.fileDiffAllowlist as Set<string> | undefined;
   if (!allowed) {
     allowed = new Set();
@@ -1235,7 +1580,7 @@ function rebuildFileDiffAllowlist(sess: Session) {
   }
 }
 
-function assertFileDiffAllowed(sess: Session, safePath: string) {
+function assertFileDiffAllowed(sess: Pick<Session, "internal">, safePath: string) {
   if (!fileDiffAllowlist(sess).has(safePath)) throw new Error("path was not reported by this session");
 }
 
@@ -1834,8 +2179,16 @@ function startServer() {
       if (prompt) sendPrompt(sess, prompt);
       return Response.json({ id: sess.id, url: `http://127.0.0.1:${server.port}${prefixedPath(`/s/${sess.id}`)}` });
     }
+    const terminalMatch = url.pathname.match(/^\/terminal\/([0-9A-Fa-f-]{8,64})\/?$/);
+    if (terminalMatch && req.method === "GET") {
+      const source = resolveSurfaceTranscript(terminalMatch[1]);
+      if (!source) return transcriptNotFoundPage();
+      const sess = ensureTranscriptSession(source);
+      scheduleTranscriptDispose(sess);
+      return new Response(null, { status: 302, headers: { location: `${prefixedPath(`/s/${sess.id}`)}${url.search}` } });
+    }
     if (url.pathname === "/api/sessions" && req.method === "GET") {
-      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary));
+      return Response.json([...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionListSummary));
     }
     return new Response(renderPage(url), { headers: { "content-type": "text/html; charset=utf-8" } });
     },
@@ -1845,19 +2198,32 @@ function startServer() {
       ws.send(JSON.stringify({
         kind: "hello",
         providers: PROVIDERS.map(providerInfo),
+        harnessCatalogs,
+        harnesses: [
+          ...harnessRecommendations(),
+          ...discoverHarnesses({ cwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD }),
+        ],
         capabilities: capabilitiesMap(),
         defaultCwd: process.env.CMUX_AGENT_UI_CWD ?? DEFAULT_CWD,
         keys: keyConfig,
       }));
       ws.send(JSON.stringify({
         kind: "sessions",
-        sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map(sessionSummary),
+        // Queued message bodies go only to the session's own page.
+    sessions: [...sessions.values()].sort((a, b) => b.createdAt - a.createdAt).map((s) => {
+      const { queuedMessages: _queued, ...summary } = sessionSummary(s) as ReturnType<typeof sessionSummary> & { queuedMessages?: unknown };
+      return summary;
+    }),
       }));
       },
       close(ws) {
       allSockets.delete(ws);
       const sid = ws.data.subscribed;
-      if (sid) sessions.get(sid)?.sockets.delete(ws);
+      const sess = sid ? sessions.get(sid) : undefined;
+      if (sess) {
+        sess.sockets.delete(ws);
+        scheduleTranscriptDispose(sess);
+      }
       },
       message(ws, raw) {
       let msg: any;
@@ -1867,7 +2233,7 @@ function startServer() {
         return;
       }
       try {
-        handleMessage(ws, msg);
+        handleSessionMessage(ws, msg);
       } catch (err) {
         sendWsError(ws, String(msg.op ?? ""), err);
       }
@@ -1929,17 +2295,66 @@ function safeErrorMessage(op: string, err: unknown, context: { provider?: string
 }
 
 function sendWsErrorDetails(
-  ws: Bun.ServerWebSocket<WsData>,
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
   op: string,
   err: unknown,
-  details: { provider?: string; requestId?: string; sessionId?: string; path?: string } = {},
+  details: { provider?: string; requestId?: string; sessionId?: string; path?: string; cwd?: string } = {},
 ) {
   console.error(`[agent-chat] ${op || "request"} failed`, err);
   const { provider, ...publicDetails } = details;
   ws.send(JSON.stringify({ kind: "error", op, message: safeErrorMessage(op, err, { provider }), ...publicDetails }));
 }
 
-function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
+/** Handles diff validation and replies for the WebSocket route. */
+export function sendFileDiffResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "data" | "send">,
+  msg: { sessionId?: unknown; path?: unknown; requestId?: unknown },
+  sess?: Pick<Session, "id" | "cwd" | "internal">,
+) {
+  const path = String(msg.path ?? "");
+  const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+  if (!path) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (!sess) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path, requestId });
+    return;
+  }
+  if (ws.data.subscribed !== sess.id) {
+    sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path, requestId });
+    return;
+  }
+  let safePath: string;
+  try {
+    safePath = resolveFileDiffPath(sess.cwd, path);
+    assertFileDiffAllowed(sess, safePath);
+  } catch (err) {
+    sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId });
+    return;
+  }
+  return Promise.resolve(fileDiff(sess.cwd, safePath))
+    .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff, requestId })))
+    .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path, requestId }));
+}
+
+/** Replies on the same command-discovery path used by the WebSocket route. */
+export async function sendCommandCatalogResponse(
+  ws: Pick<Bun.ServerWebSocket<WsData>, "send">,
+  msg: { provider?: unknown; cwd?: unknown; requestId?: unknown },
+) {
+  const provider = String(msg.provider ?? "");
+  const cwd = String(msg.cwd || DEFAULT_CWD);
+  const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+  try {
+    const groups = await cachedCommands(provider, cwd);
+    ws.send(JSON.stringify({ kind: "commands-list", provider, cwd, requestId, groups }));
+  } catch (err) {
+    sendWsErrorDetails(ws, "list-commands", err, { provider, cwd, requestId });
+  }
+}
+
+export function handleSessionMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
   switch (msg.op) {
     case "start": {
       const prompt = String(msg.prompt ?? "").trim();
@@ -1948,27 +2363,40 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       const cwd = String(msg.cwd || DEFAULT_CWD);
       const title = prompt.length > 64 ? prompt.slice(0, 64) + "…" : prompt;
       const provider = String(msg.provider);
+      const conversationId = typeof msg.conversationId === "string" && msg.conversationId ? msg.conversationId : undefined;
+      const parentSessionId = typeof msg.parentSessionId === "string" && msg.parentSessionId ? msg.parentSessionId : undefined;
       const autoApprove = msg.autoApprove !== false;
       const rawOptions = applyAutoApproveDefaults(provider, autoApprove, parseOptions(msg.options));
       pruneStartRequests();
       const existing = requestId ? startRequests.get(requestId) : undefined;
+      let request = existing;
       const startPromise = existing?.promise ?? Promise.resolve(assertCwd(cwd).then(() => sanitizeStartOptions(provider, cwd, rawOptions))).then((options) => {
-        const sess = createSession(provider, cwd, autoApprove, title, options);
+        if (request?.stopped) throw new Error("agent start cancelled");
+        const sess = createSession(provider, cwd, autoApprove, title, options, {
+          conversationId,
+          parentSessionId,
+          startRequestId: requestId,
+        });
+        if (request) request.session = sess;
+        if (requestId) startRequestSessions.set(requestId, { session: sess });
         refreshSession(sess);
-        sendPrompt(sess, prompt);
+        sendPrompt(sess, prompt, requestId ?? crypto.randomUUID());
         return sess;
       });
       if (requestId && !existing) {
-        startRequests.set(requestId, { createdAt: Date.now(), promise: startPromise });
+        request = { promise: startPromise };
+        startRequests.set(requestId, request);
         startPromise.finally(() => {
+          request!.settledAt = Date.now();
           setTimeout(() => {
             if (startRequests.get(requestId)?.promise === startPromise) startRequests.delete(requestId);
           }, START_REQUEST_TTL_MS);
         }).catch(() => {});
       }
-      startPromise.then((sess) => {
+      return startPromise.then((sess) => {
         subscribe(ws, sess);
-        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId }));
+        const routing = [...sess.events].reverse().find((evt) => evt.kind === "routing");
+        ws.send(JSON.stringify({ kind: "session-created", session: sessionSummary(sess), requestId, routing }));
         if (existing) {
           ws.send(JSON.stringify({
             kind: "history",
@@ -1978,26 +2406,40 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
           }));
         }
       }).catch((err) => {
-        sendWsErrorDetails(ws, "start", err, { provider, requestId });
+        if (request?.stopped) ws.send(JSON.stringify({ kind: "start-stopped", requestId }));
+        else sendWsErrorDetails(ws, "start", err, { provider, requestId });
       });
-      break;
     }
     case "check-cwd": {
       const cwd = String(msg.cwd || DEFAULT_CWD);
+      const requestId = typeof msg.requestId === "string" ? msg.requestId : undefined;
+      const connectionEpoch = typeof msg.connectionEpoch === "number" ? msg.connectionEpoch : undefined;
       Promise.resolve(checkCwd(cwd))
-        .then((res) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ...res })))
-        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err) })));
+        .then((res) => ws.send(JSON.stringify({
+          kind: "cwd-check",
+          cwd,
+          ...(requestId ? { requestId } : {}),
+          ...(connectionEpoch !== undefined ? { connectionEpoch } : {}),
+          ...res,
+          harnesses: discoverHarnesses({ cwd }),
+        })))
+        .catch((err) => ws.send(JSON.stringify({ kind: "cwd-check", cwd, ok: false, message: String(err), ...(requestId ? { requestId } : {}), ...(connectionEpoch !== undefined ? { connectionEpoch } : {}) })));
       break;
     }
     case "send": {
       const sess = sessions.get(String(msg.sessionId));
       const prompt = String(msg.prompt ?? "").trim();
       if (!sess || !prompt) return;
-      sendPrompt(sess, prompt);
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : crypto.randomUUID();
+      sendPrompt(sess, prompt, requestId);
       break;
     }
     case "subscribe": {
-      const sess = sessions.get(String(msg.sessionId));
+      const sessionId = String(msg.sessionId);
+      const existing = sessions.get(sessionId);
+      const sess = existing
+        ? refreshExistingTranscriptSession(existing)
+        : resolveTranscriptSessionById(sessionId);
       if (!sess) {
         ws.send(JSON.stringify({ kind: "no-session", sessionId: msg.sessionId }));
         return;
@@ -2012,7 +2454,31 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       refreshSession(sess);
       break;
     }
+    case "focus-terminal": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess?.transcript) return;
+      Promise.resolve(focusTranscriptTerminal(sess)).then((res) => {
+        if (!res.ok) sess.emit({ kind: "error", message: `Couldn't focus the terminal: ${res.error}` });
+      });
+      break;
+    }
     case "stop": {
+      if (typeof msg.requestId === "string" && !msg.sessionId) {
+        const request = startRequests.get(msg.requestId);
+        const sessionRecord = startRequestSessions.get(msg.requestId);
+        if (request && !request.stopped) {
+          // Creation and the first send run synchronously together. If they
+          // won the race, route Stop to the created session's adapter.
+          if (request.session) request.session.adapter.stop(request.session);
+          request.stopped = true;
+          if (sessionRecord) sessionRecord.stopped = true;
+        } else if (sessionRecord && !sessionRecord.stopped) {
+          sessionRecord.session.adapter.stop(sessionRecord.session);
+          sessionRecord.stopped = true;
+        }
+        ws.send(JSON.stringify({ kind: "start-stopped", requestId: msg.requestId }));
+        break;
+      }
       const sess = sessions.get(String(msg.sessionId));
       sess?.adapter.stop(sess);
       break;
@@ -2034,11 +2500,51 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
         sendWsErrorDetails(ws, "fork", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
         return;
       }
-      Promise.resolve(forkSession(sess))
-        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork) })))
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `fork:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(forkSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((fork) => ws.send(JSON.stringify({ kind: "session-forked", session: sessionSummary(fork), ...(requestId ? { requestId } : {}) })))
         .catch((err) => {
           sess.emit({ kind: "error", message: safeErrorMessage("fork", err) });
           sendWsErrorDetails(ws, "fork", err, { sessionId: sess.id });
+        });
+      break;
+    }
+    case "handoff": {
+      const sess = sessions.get(String(msg.sessionId));
+      if (!sess) {
+        sendWsErrorDetails(ws, "handoff", new Error("no session"), { sessionId: String(msg.sessionId ?? "") });
+        return;
+      }
+      const requestId = typeof msg.requestId === "string" && msg.requestId ? msg.requestId : undefined;
+      pruneSessionActionRequests();
+      const key = requestId ? `handoff:${sess.id}:${requestId}` : undefined;
+      const existing = key ? sessionActionRequests.get(key) : undefined;
+      const action = existing?.promise ?? Promise.resolve(handoffSession(sess));
+      if (key && !existing) {
+        sessionActionRequests.set(key, { createdAt: Date.now(), promise: action });
+        action.finally(() => {
+          setTimeout(() => {
+            if (sessionActionRequests.get(key)?.promise === action) sessionActionRequests.delete(key);
+          }, START_REQUEST_TTL_MS);
+        }).catch(() => {});
+      }
+      action
+        .then((child) => ws.send(JSON.stringify({ kind: "session-handoff", session: sessionSummary(child), sourceSessionId: sess.id, ...(requestId ? { requestId } : {}) })))
+        .catch((err) => {
+          sess.emit({ kind: "error", message: safeErrorMessage("handoff", err) });
+          sendWsErrorDetails(ws, "handoff", err, { sessionId: sess.id });
         });
       break;
     }
@@ -2055,16 +2561,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "list-commands": {
-      const provider = String(msg.provider ?? "");
-      const adapter = adapters.get(provider);
-      if (!adapter) {
-        sendWsError(ws, "list-commands", `unknown provider: ${provider}`);
-        return;
-      }
-      const cwd = String(msg.cwd || DEFAULT_CWD);
-      Promise.resolve(cachedCommands(provider, cwd))
-        .then((groups) => ws.send(JSON.stringify({ kind: "commands-list", provider, groups })))
-        .catch((err) => sendWsError(ws, "list-commands", err));
+      void sendCommandCatalogResponse(ws, msg);
       break;
     }
     case "list-files": {
@@ -2075,31 +2572,7 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       break;
     }
     case "get-file-diff": {
-      const sess = sessions.get(String(msg.sessionId));
-      const path = String(msg.path ?? "");
-      if (!path) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("invalid path"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (!sess) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: String(msg.sessionId ?? ""), path });
-        return;
-      }
-      if (ws.data.subscribed !== sess.id) {
-        sendWsErrorDetails(ws, "get-file-diff", new Error("no session"), { sessionId: sess.id, path });
-        return;
-      }
-      let safePath: string;
-      try {
-        safePath = resolveFileDiffPath(sess.cwd, path);
-        assertFileDiffAllowed(sess, safePath);
-      } catch (err) {
-        sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path });
-        return;
-      }
-      Promise.resolve(fileDiff(sess.cwd, safePath))
-        .then((diff) => ws.send(JSON.stringify({ kind: "file-diff", sessionId: sess.id, path: safePath, diff })))
-        .catch((err) => sendWsErrorDetails(ws, "get-file-diff", err, { sessionId: sess.id, path }));
+      sendFileDiffResponse(ws, msg, sessions.get(String(msg.sessionId)));
       break;
     }
     case "delete": {
@@ -2107,6 +2580,9 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
       if (!sess) return;
       sess.adapter.dispose(sess);
       sessions.delete(sess.id);
+      if (sess.startRequestId && startRequestSessions.get(sess.startRequestId)?.session === sess) {
+        startRequestSessions.delete(sess.startRequestId);
+      }
       broadcastSessions();
       break;
     }
@@ -2115,9 +2591,14 @@ function handleMessage(ws: Bun.ServerWebSocket<WsData>, msg: any) {
 
 function subscribe(ws: Bun.ServerWebSocket<WsData>, sess: Session) {
   const prev = ws.data.subscribed;
-  if (prev) sessions.get(prev)?.sockets.delete(ws);
+  const prevSess = prev ? sessions.get(prev) : undefined;
+  if (prevSess && prevSess !== sess) {
+    prevSess.sockets.delete(ws);
+    scheduleTranscriptDispose(prevSess);
+  }
   ws.data.subscribed = sess.id;
   sess.sockets.add(ws);
+  cancelTranscriptDispose(sess);
 }
 
 process.on("SIGINT", () => {

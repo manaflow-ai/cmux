@@ -9,4 +9,3 @@ public enum SocketControlPolicySource: String, Equatable, Sendable {
     /// The value came from the user's settings/defaults.
     case userDefaults = "user_defaults"
 }
-

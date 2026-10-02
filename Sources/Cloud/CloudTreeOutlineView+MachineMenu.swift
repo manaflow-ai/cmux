@@ -1,4 +1,6 @@
+import CmuxCloud
 import AppKit
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     func machineMenuItems(_ machine: MachineSnapshot) -> [NSMenuItem] {
@@ -13,73 +15,52 @@ extension CloudTreeOutlineView.Coordinator {
                 ? String(localized: "machines.row.unpin", defaultValue: "Unpin Machine")
                 : String(localized: "machines.row.pin", defaultValue: "Pin Machine")
         ) { [weak self] in
-            self?.setMachinePinned(!machine.isPinned, id: id)
+            guard let machines = actions.setPinned(id, !machine.isPinned) else { return }
+            self?.applyMachineOrder(machines)
         })
-        if machine.freeAccess == .expired {
-            items.append(item(String(localized: "machines.menu.upgradeToReconnect", defaultValue: "Upgrade to Reconnect\u{2026}")) { actions.promptUpgrade() })
-        } else {
-            if machine.isDefault {
-                let defaultItem = item(String(localized: "machines.menu.defaultMachine", defaultValue: "Default Machine")) { }
-                defaultItem.isEnabled = false
-                items.append(defaultItem)
-            } else {
-                items.append(item(String(localized: "machines.menu.setDefaultMachine", defaultValue: "Set as Default Machine")) {
-                    actions.setDefault(id)
-                })
-            }
-            items.append(item(String(localized: "machines.menu.openShell", defaultValue: "Open Shell")) { nodeActions.newTerminal(.cloud(id), nil) })
-            items.append(item(String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace")) { nodeActions.newWorkspace(.cloud(id)) })
-            if machine.isDesktop {
-                items.append(item(String(localized: "machines.menu.openDesktop", defaultValue: "Open Desktop")) {
-                    nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
-                })
-            }
-            items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
-        }
+        items.append(contentsOf: machineReorderMenuItems(id: id))
+        let verbs = machineMenuVerbs
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.openEntries(machine)))
         if machine.freeAccess != .expired, machine.capabilities.sizing {
             items.append(CloudTreeResizeMenu.item(machine: machine, id: id, action: actions))
         }
+        if machine.freeAccess != .expired {
+            items.append(item(String(localized: "machines.menu.network", defaultValue: "Network…")) { actions.editNetwork(id, machine.displayName) })
+            // Only when the server reports the setting: an older control plane has no endpoint for it.
+            if let agentUpdates = machine.agentUpdates {
+                let keepUpdated = item(String(localized: "machines.menu.keepAgentsUpdated", defaultValue: "Keep Agents Up to Date")) {
+                    actions.setAgentUpdates(id, !agentUpdates.keepsAgentsUpdated)
+                }
+                keepUpdated.state = agentUpdates.keepsAgentsUpdated ? .on : .off
+                keepUpdated.toolTip = CloudAgentUpdatesExplainer.text
+                items.append(keepUpdated)
+            }
+        }
         items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
         items.append(.separator())
-        items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
-        if let address = machine.privateAddress {
-            items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
-        }
-        items.append(item(String(localized: "machines.menu.status", defaultValue: "Status")) { actions.runCommand(id, ["vm", "status"]) })
-        // Only verbs this provider can honor: a Checkpoint that answers 502 is not a verb.
-        if machine.capabilities.snapshot {
-            items.append(item(String(localized: "machines.menu.checkpoint", defaultValue: "Checkpoint")) { actions.runCommand(id, ["vm", "snapshot"]) })
-        }
-        if machine.capabilities.fork {
-            items.append(item(String(localized: "machines.menu.fork", defaultValue: "Fork")) { actions.runCommand(id, ["vm", "fork"]) })
-        }
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.manageEntries(machine)))
         items.append(.separator())
-        items.append(item(String(localized: "machines.menu.delete", defaultValue: "Delete…")) { actions.confirmDelete(id) })
+        items.append(contentsOf: CloudMenuAppKitRenderer.items(verbs.deleteEntries(machine)))
         return items
     }
 
-    /// Native menu actions apply the persisted result before returning to AppKit.
-    /// Waiting for the enclosing SwiftUI panel can leave the old cell visible
-    /// until a later catalog refresh, especially when pinning does not reorder.
-    private func setMachinePinned(_ pinned: Bool, id: String) {
-        guard let machines = machineActions.setPinned(id, pinned) else { return }
-        let current = organizationNodes
-        let roots = Dictionary(current.compactMap { node -> (String, CloudTreeNode)? in
-            guard case .machine(let machine, _) = node.kind else { return nil }
-            return (machine.id, node)
-        }, uniquingKeysWith: { first, _ in first })
-        var updated = machines.compactMap { machine -> CloudTreeNode? in
-            guard let node = roots[machine.id], case .machine(_, let info) = node.kind else { return nil }
-            return CloudTreeNode(
-                id: node.id, kind: .machine(machine, info), children: node.children, isPinned: machine.isPinned
-            )
-        }.makeIterator()
-        // Local/pending rows keep their slots; only accepted cloud machines
-        // take the store's order, retaining adopted creation IDs and children.
-        applyOrganization(nodes: current.compactMap { node in
-            if case .machine = node.kind { return updated.next() }
-            return node
-        })
+    /// The sidebar binds the shared machine verbs to the tree: shells and
+    /// workspaces open through the catalog into the selected workspace.
+    var machineMenuVerbs: CloudMachineMenuVerbs {
+        let actions = machineActions
+        let nodeActions = nodeActions
+        return CloudMachineMenuVerbs(
+            openShell: { nodeActions.newTerminal(.cloud($0), nil) },
+            newWorkspace: { nodeActions.newWorkspace(.cloud($0)) },
+            openDesktop: { id in
+                nodeActions.project(SurfaceResourceID(machine: .cloud(id), kind: .display, key: SurfaceResourceID.desktopDisplayKey), .split, true)
+            },
+            runCommand: actions.runCommand,
+            promptRename: actions.promptRename,
+            copyToPasteboard: nodeActions.copyToPasteboard,
+            confirmDelete: actions.confirmDelete,
+            promptUpgrade: actions.promptUpgrade
+        )
     }
 
     /// A running create can be cancelled immediately; a failed one offers

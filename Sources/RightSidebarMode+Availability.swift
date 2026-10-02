@@ -1,3 +1,4 @@
+import CmuxCloud
 import AppKit
 import Foundation
 
@@ -16,6 +17,8 @@ extension RightSidebarMode {
             return .dock
         case "cloud", "machines", "vms":
             return .machines
+        case "devices", "device", "macs":
+            return .machines
         case "custom", "custom-sidebar":
             return .customSidebar
         default:
@@ -24,28 +27,32 @@ extension RightSidebarMode {
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
-        )
+        allCases.filter { $0.isAvailable(defaults: defaults) }
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+    static func availableModes(
+        feedEnabled: Bool,
+        machinesEnabled: Bool,
+        devicesEnabled: Bool = false
+    ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
-                dockEnabled: dockEnabled,
-                machinesEnabled: machinesEnabled
+                machinesEnabled: machinesEnabled,
+                devicesEnabled: devicesEnabled
             )
         }
     }
 
     func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
+        if self == .customSidebar {
+            return CmuxExtensionSidebarSelection.customSidebarsEnabled(defaults: defaults)
+                && FileExplorerState.persistedCustomSidebarName(defaults: defaults) != nil
+        }
+        return isAvailable(
             feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
+            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults),
+            devicesEnabled: false
         )
     }
 
@@ -75,14 +82,18 @@ extension RightSidebarMode {
         return index + 1
     }
 
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
+    func isAvailable(
+        feedEnabled: Bool,
+        machinesEnabled: Bool,
+        devicesEnabled: Bool = false
+    ) -> Bool {
         switch self {
         case .files, .find, .sessions:
             return true
         case .feed:
             return feedEnabled
         case .dock:
-            return dockEnabled
+            return true
         case .machines:
             return machinesEnabled
         case .customSidebar:

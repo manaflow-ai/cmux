@@ -39,9 +39,10 @@ extension AppDelegate {
 
     /// Whether a live surface can leave its current owner and be driven from
     /// `destinationDock`.
-    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock _: DockSplitStore) -> Bool {
+    func canMoveSurfaceIntoDock(sourceTabId: UUID, destinationDock: DockSplitStore) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        return canMoveSurfaceIntoDock(source)
+        return ownershipRejection(forBonsplitTab: sourceTabId, policy: destinationDock.surfaceOwnershipPolicy) == nil
+            && canMoveSurfaceIntoDock(source)
     }
 
     /// Whether the right sidebar (Files / Find / Dock) currently owns input
@@ -93,7 +94,7 @@ extension AppDelegate {
         destination: BonsplitController.ExternalTabDropRequest.Destination
     ) -> Bool {
         guard let source = locateContainerSurface(tabId: sourceTabId) else { return false }
-        guard canMoveSurfaceIntoDock(source) else { return false }
+        guard canMoveSurfaceIntoDock(sourceTabId: sourceTabId, destinationDock: destinationDock) else { return false }
         let shouldPreserveSourceWorkspace = shouldPreserveSourceWorkspaceAfterDockMove(
             source,
             destinationDock: destinationDock
@@ -170,7 +171,8 @@ extension AppDelegate {
               let destinationWorkspace = destinationManager.tabs.first(where: { $0.id == targetWorkspaceId }) else {
             return false
         }
-        guard destinationWorkspace.surfaceOwnershipPolicy.rejection(for: sourceDock.machineOwningSurface(panelId)) == nil else { return false }
+        guard destinationWorkspace.surfaceOwnershipPolicy.rejection(for: sourceDock.machineOwningSurface(panelId),
+                                                                    kind: AppDelegate.shared?.surfaceResourceKind(for: sourceDock.panels[panelId])) == nil else { return false }
         let resolvedPane = targetPane.flatMap { pane in
             destinationWorkspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? destinationWorkspace.bonsplitController.focusedPaneId
