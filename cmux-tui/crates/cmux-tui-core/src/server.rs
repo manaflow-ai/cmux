@@ -8972,7 +8972,10 @@ fn run_session_event_stream(
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() || !stream.outbound.is_open() {
+        if stream.canceled.load(Ordering::Acquire)
+            || !writer.is_open()
+            || !stream.outbound.is_open()
+        {
             break;
         }
         let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
@@ -9698,7 +9701,10 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() || !stream.outbound.is_open() {
+            if stream.canceled.load(Ordering::Acquire)
+                || !writer.is_open()
+                || !stream.outbound.is_open()
+            {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
