@@ -645,7 +645,7 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
     0
 }
 
-fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
+pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
     super::wire::print_local_error(
         &json!({ "code": code, "message": message, "details": {}, "retryable": false }),
         output,

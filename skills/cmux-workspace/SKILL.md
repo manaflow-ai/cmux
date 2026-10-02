@@ -113,6 +113,8 @@ CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh app identify
 
 The CLI finds the daemon from `--socket`/`--session`, then `CMUX_TUI_SOCKET`, then the app's session; it finds the app from `CMUX_SOCKET_PATH`. If a command cannot connect, check `cmux session list` for the daemon and `cmux app ping` for the app. Exit code 3 means transport failure.
 
+Lists act on that one session. `--all-sessions` runs a list on every local session (records gain `session`), and a session-qualified id (`build-box:ws_…`) routes one command to that local session. Sessions the app reaches over SSH or Cloud are not reachable from the CLI yet.
+
 ## Rules
 
 - Work in the caller workspace by default; pass explicit ids for mutating actions so automation is auditable.

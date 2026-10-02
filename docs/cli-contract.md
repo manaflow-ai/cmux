@@ -36,6 +36,7 @@ Global options, accepted before the scope:
 | --- | --- |
 | `--socket <path>` | Connect to an exact local session socket. |
 | `--session <name>` | Route through a named local session. |
+| `--all-sessions` | Run a list (`… list`) on every local session; each record gains `session`. |
 | `--machine <value>` | Constrain machine-scoped requests. |
 | `--app-socket <path>` | Connect to an exact app control socket (app scopes only). |
 | `--json` | Print one JSON result object. |
@@ -45,6 +46,14 @@ Global options, accepted before the scope:
 
 `--socket`, `--session`, `--machine` and `--app-socket` also take the
 `--flag=value` form.
+
+Every command acts on one session. Without `--socket`, `--session` or
+`--all-sessions`, lists and bulk commands act only on the session the CLI
+finds (see [Discovery](#discovery)), so a script that lists and then closes
+never reaches another session. `--all-sessions` is accepted only by list
+reads and reaches the local sessions this user runs (the runtime directory's
+`<name>.sock` files and the bundling app's session); sessions the app reaches
+over SSH or on Cloud machines have no CLI transport yet.
 
 ## Output and exit codes
 
@@ -118,6 +127,13 @@ For a `current` or name selector, missing structural ancestors default to
 workspace, screen and pane (what the user sees), not the caller's. To act on
 the caller's own terminal, pass `$CMUX_TUI_TERMINAL_ID`. An id selector needs no ancestors. Nested forms name the chain
 explicitly: `cmux workspace api screen current pane current split --down`.
+
+A selector id, or an id given to `--workspace`, `--screen`, `--pane`, `--tab`,
+`--tabs`, `--terminal`, `--browser`, `--split`, `--target` or `--other-*`, may
+carry its session: `build-box:ws_…` routes the command to the local session
+`build-box`, as `--session build-box` would. Ids from two sessions in one
+command, or a qualifier with `--socket` or a different `--session`, are usage
+errors. App actions take unqualified ids.
 
 Zero matches return `selector.not_found`; more than one returns
 `selector.ambiguous` with every candidate id. A supplied ancestor that does not
@@ -486,4 +502,6 @@ yet.
 | `sidebar-state` | `cmux workspace [<sel>] status list`. |
 | `todo` | None as a CLI verb; the app actions under `cmux action list --noun workspace` cover the checklist. |
 | `claude-hook`, `codex-hook`, `hooks …` | `cmux agent hook install|uninstall|status|emit`. |
+| `--workspace build-box:workspace:N`, `list-workspaces --all-sessions` | `build-box:ws_…` qualified ids and `--all-sessions` on lists (local named sessions only). |
+| `agent message`, `agent inbox` | None yet. The inbox belongs to the session host that runs the recipient's terminal and has no daemon operation. |
 | `markdown open`, `themes`, `vm`, `cloud` verbs, `glaeda`, `current` | None, except the app actions `cmux action list` reports (for example `cmux cloud new-machine`). |

@@ -236,7 +236,7 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
 }
 
 /// One read on the connection; returns its result.
-fn read(
+pub(super) fn read(
     reader: &mut Reader,
     operation: ResourceOperation,
     params: Map<String, Value>,

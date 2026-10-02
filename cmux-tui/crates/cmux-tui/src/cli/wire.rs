@@ -910,6 +910,17 @@ pub(super) fn resolve_socket_with_env(
         return Ok((path.clone(), false));
     }
     if let Some(session) = &global.session {
+        // The bundling app starts its own session under the Darwin per-user
+        // temp directory, whatever this process's TMPDIR is.
+        #[cfg(target_os = "macos")]
+        if let Some(identity) = crate::app_identity::AppIdentity::detect(
+            |name| env(name).and_then(|value| value.into_string().ok()),
+            std::env::current_exe().ok().as_deref(),
+        ) && identity.daemon_session().as_deref() == Some(session.as_str())
+            && let Some(path) = crate::app_identity::app_daemon_socket(&identity)
+        {
+            return Ok((path, true));
+        }
         return Ok((cmux_tui_core::server::try_default_socket_path(session)?, true));
     }
     for name in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"] {
