@@ -49,4 +49,10 @@ describe("workspace stack prototype", () => {
     expect(added.workspaces[0]!.tabs.map((tab) => tab.kind)).toEqual(["terminal"]);
     expect(added.activeId).toBe(added.workspaces[0]!.id);
   });
+
+  test("a new chat workspace waits for the pane's session instead of naming one", () => {
+    const added = newWorkspace(seedStack, "agent");
+    expect(added.workspaces[0]!.tabs).toEqual([{ id: expect.any(String), kind: "agent", title: "New chat" }]);
+    expect(openSessionIds(added)).toEqual(openSessionIds(seedStack));
+  });
 });
