@@ -369,7 +369,7 @@ A pure reducer in `cmux-server-core` turns facts into alerts: `(facts, previous 
 | --- | --- | --- | --- |
 | `power.onBattery` | on battery for 60 s | warning; critical under 20% | none (plug in) |
 | `network.offline` | link down and no route for 30 s | critical | none |
-| `disk.low` | free < 10% and < 10 GiB (warning), < 5% and < 2 GiB (critical); clears 2 points above (Lawrence, 2026-10-02) | warning, critical | open storage settings |
+| `disk.low` | free < 10% and < 10 GiB (warning), < 5% and < 2 GiB (critical); clears 2 points or 2 GiB above (Lawrence, 2026-10-02) | warning, critical | open storage settings |
 | `lock.pending` | the display assertion is not held (battery, MDM, user setting) and the idle lock is due within 5 minutes while a GUI workload (computer use, a headful browser) runs | warning | hold the display assertion, or open Lock Screen settings |
 | `sleep.enabled` | system sleep on AC is enabled in settings (our assertion covers idle sleep, not a lid close or a scheduled sleep) | info | `pmset -c sleep 0 disksleep 0` (admin once) |
 | `restart.noAutoRestart` | `autorestart` off | info | `pmset -a autorestart 1` (admin once) |
