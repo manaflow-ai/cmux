@@ -35,22 +35,49 @@ import Testing
     }
 
     /// With background-opacity below 1 the window's backdrop shows through
-    /// the terminal; the pane, its composer and the composer's field must let
-    /// it through too, while text and labels on the accent stay opaque. The
-    /// field was composited to an opaque color, a solid block over the blur.
-    @Test func aTranslucentThemeKeepsThePageTranslucentAndItsTextOpaque() {
+    /// the terminal; the pane must let the same amount through. The page
+    /// paints the theme's color once; the composer's field sits on the page,
+    /// so it must add only a faint tint. A field painted with the page's own
+    /// translucent color stacks with it (0.8 over 0.8 is 0.96), a near-solid
+    /// block over the blur. Text and labels on the accent stay opaque.
+    @Test func aTranslucentPaneLetsAsMuchThroughAsTheTerminal() throws {
         let translucent = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), backgroundOpacity: 0.8))
         let values = AgentPaneTheme.values(translucent)
-        for key in ["pageBackground", "surfaceBackground", "inputBackground"] {
-            let css = values[key] as? String ?? ""
-            #expect(css.hasSuffix(", 0.8)"), "\(key) is \(css)")
-        }
+        let page = try #require(Self.rgba(values["pageBackground"]))
+        #expect(abs(page.alpha - 0.8) < 0.001)
+        let field = try #require(Self.rgba(values["inputBackground"]))
+        let fieldOverPage = page.alpha + field.alpha * (1 - page.alpha)
+        #expect(fieldOverPage < page.alpha + 0.05, "the field over the page lets through \(1 - fieldOverPage)")
         for key in ["text", "accent", "accentText"] {
-            let css = values[key] as? String ?? ""
-            #expect(css.hasSuffix(", 1.0)"), "\(key) is \(css)")
+            #expect(Self.rgba(values[key])?.alpha == 1, "\(key) is \(values[key] ?? "nil")")
         }
-        // An opaque theme keeps its opaque field.
-        let opaqueField = AgentPaneTheme.values(.fallback)["inputBackground"] as? String ?? ""
-        #expect(opaqueField.hasSuffix(", 1.0)"))
+    }
+
+    /// An opaque theme looks as it did: the field's tint over the page is the
+    /// color the field used to be painted with.
+    @Test func anOpaqueThemesFieldLooksTheSame() throws {
+        let tokens = ThemeTokens.fallback
+        let values = AgentPaneTheme.values(tokens)
+        let field = try #require(Self.rgba(values["inputBackground"]))
+        let shown = field.composited(over: tokens.contentBackground)
+        let before = tokens.hoverFill.composited(over: tokens.contentBackground)
+        #expect(abs(shown.red - before.red) < 0.005 && abs(shown.green - before.green) < 0.005 && abs(shown.blue - before.blue) < 0.005)
+    }
+
+    /// WebKit paints the under-page color behind the page too; a translucent
+    /// one stacks under the page's own fill, so it is clear then (as
+    /// `WebKitTab` does).
+    @Test func theUnderPageColorIsClearForATranslucentTheme() {
+        let translucent = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), backgroundOpacity: 0.8))
+        #expect(AgentPaneTheme.underPageColor(translucent).alpha == 0)
+        #expect(AgentPaneTheme.underPageColor(.fallback) == ThemeTokens.fallback.contentBackground)
+    }
+
+    /// `rgba(r, g, b, a)` as the page receives it.
+    private static func rgba(_ value: (any Sendable)?) -> ThemeRGB? {
+        guard let text = value as? String, text.hasPrefix("rgba("), text.hasSuffix(")") else { return nil }
+        let parts = text.dropFirst(5).dropLast().split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 4 else { return nil }
+        return ThemeRGB(red: parts[0] / 255, green: parts[1] / 255, blue: parts[2] / 255, alpha: parts[3])
     }
 }

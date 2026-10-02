@@ -97,7 +97,8 @@ import WebKit
         let pane = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
         defer { pane.close() }
         // A WebKit without the SPI keeps its default backing.
-        guard pane.webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) else { return }
+        guard pane.webView.responds(to: NSSelectorFromString("_setDrawsBackground:")),
+              pane.webView.responds(to: NSSelectorFromString("_drawsBackground")) else { return }
         #expect(pane.webView.value(forKey: "drawsBackground") as? Bool == false)
     }
 

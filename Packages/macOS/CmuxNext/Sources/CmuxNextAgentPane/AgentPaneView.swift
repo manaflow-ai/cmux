@@ -258,7 +258,7 @@ public final class AgentPaneView: NSView {
     /// shows before the page paints).
     func applyTheme() {
         let tokens = themeTokens
-        webView.underPageBackgroundColor = tokens.contentBackground.nsColor
+        webView.underPageBackgroundColor = AgentPaneTheme.underPageColor(tokens).nsColor
         themeCrashNotice(tokens)
         guard let script = AgentPaneTheme.script(tokens) else { return }
         evaluateScript(script)

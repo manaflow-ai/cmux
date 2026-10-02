@@ -52,4 +52,12 @@ describe("agent theme", () => {
     expect(shared).toMatch(/--color-token-button-foreground:\s*var\(--agent-accent-text/);
     expect(shared).toMatch(/--agent-primary-text:\s*var\(--agent-accent-text/);
   });
+
+  // The composer sits on the page, which already paints the theme's
+  // background; a second fill stacks with it and hides a translucent
+  // window's backdrop.
+  test("the composer paints no background of its own", () => {
+    const composer = css("../acpmux/styles.css").match(/\.acpmux-composer\{[^}]*\}/)?.[0] ?? "";
+    expect(composer).not.toMatch(/background:(?!transparent)/);
+  });
 });
