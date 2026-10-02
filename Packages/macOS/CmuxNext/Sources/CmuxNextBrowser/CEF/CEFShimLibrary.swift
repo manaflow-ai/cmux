@@ -117,6 +117,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let deleteCookies: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
+    /// Browser import: saved passwords into a profile's password store
+    /// (entries as raw `cmux_shim_password_entry` rows, see CEFRuntime+PasswordImport).
+    let importPasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
+    let passwordEntrySize: @convention(c) () -> Int32
+    let passwordImportAvailable: @convention(c) () -> Int32
+    /// Password filling on or off in one tab (off while an agent drives it).
+    let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
@@ -243,6 +250,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         visitCookies = try r("cmux_shim_visit_cookies")
         deleteCookies = try r("cmux_shim_delete_cookies")
         importCookies = try r("cmux_shim_import_cookies")
+        importPasswords = try r("cmux_shim_import_passwords")
+        passwordEntrySize = try r("cmux_shim_password_entry_size")
+        passwordImportAvailable = try r("cmux_shim_password_import_available")
+        setPasswordFill = try r("cmux_shim_set_password_fill")
         sslStatus = try r("cmux_shim_ssl_status")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")

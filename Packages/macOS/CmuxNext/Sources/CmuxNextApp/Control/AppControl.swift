@@ -39,6 +39,7 @@ final class AppControl {
         self.service = service
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
+        service.router.register(TabSearchControl.methods(services: services))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register([
             .mainActor("debug.frames") { call in .value(probe.handle(call.params)) },
@@ -50,6 +51,11 @@ final class AppControl {
             .mainActor("debug.focus") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugFocus.report(services: services))
+            },
+            // Home per window and the local conversation projection (home.md).
+            .mainActor("debug.home") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugHome.report(services: services))
             },
             // Room, workspace and terminal theme scopes.
             .mainActor("debug.themes") { [weak services] _ in

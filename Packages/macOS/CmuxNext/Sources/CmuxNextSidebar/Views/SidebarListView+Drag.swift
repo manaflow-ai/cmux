@@ -106,7 +106,7 @@ extension SidebarListView {
         CATransaction.setDisableActions(true)
         drag.lift.frame = liftFrame
         CATransaction.commit()
-        updateAutoscroll(windowPoint: windowPoint)
+        autoscroll.update(windowPoint: windowPoint)
 
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
@@ -120,7 +120,7 @@ extension SidebarListView {
 
     func finishDrag() {
         guard let drag else { return }
-        stopAutoscroll()
+        autoscroll.stop()
         guard let target = drag.target else { return cancelDrag() }
         self.drag = nil
         switch (drag.payload, target) {
@@ -141,7 +141,7 @@ extension SidebarListView {
 
     func cancelDrag() {
         guard let drag else { return }
-        stopAutoscroll()
+        autoscroll.stop()
         self.drag = nil
         press?.cancelled = true
         suppressed = drag.hiddenKeys
@@ -163,54 +163,5 @@ extension SidebarListView {
             self.decorations.setPill(self.activePillFrame(in: self.displayed), animated: false)
             self.updateHover()
         })
-    }
-
-    // MARK: Autoscroll
-
-    /// Scroll velocity for a drag at `windowPoint` (zero outside the edge zones).
-    func autoscrollVelocity(windowPoint: NSPoint) -> CGFloat {
-        guard let clip = enclosingScrollView?.contentView else { return 0 }
-        let point = clip.convert(windowPoint, from: nil)
-        let b = clip.bounds
-        // Up to ~25 rows per second at the very edge.
-        return SidebarAutoscroll.velocity(pointY: point.y, visibleMinY: b.minY, visibleMaxY: b.maxY,
-                                          zone: SidebarStyle.autoscrollZone, maxSpeed: Metrics.sidebarRowHeight * 25)
-    }
-
-    /// Ticks on the window's FrameScheduler only while the pointer is in an edge zone.
-    func updateAutoscroll(windowPoint: NSPoint) {
-        if autoscrollVelocity(windowPoint: windowPoint) != 0 { startAutoscroll() } else { stopAutoscroll() }
-    }
-
-    func startAutoscroll() {
-        autoscrollClient.activate()
-    }
-
-    func stopAutoscroll() {
-        autoscrollClient.deactivate()
-    }
-
-    /// One autoscroll frame; false once there is nothing to scroll.
-    func autoscrollTick(_ tick: FrameTick) -> Bool {
-        guard let windowPoint = drag?.lastWindowPoint ?? external?.windowPoint,
-              let scrollView = enclosingScrollView else { return false }
-        let velocity = autoscrollVelocity(windowPoint: windowPoint)
-        guard velocity != 0 else { return false }
-        let clip = scrollView.contentView
-        let b = clip.bounds
-        let dt = tick.elapsed
-        let maxY = max(0, frame.height - b.height)
-        let y = min(max(b.minY + velocity * dt, 0), maxY)
-        // At the content edge there is nothing to scroll: stop until the
-        // pointer moves again.
-        guard y != b.minY else { return false }
-        clip.scroll(to: NSPoint(x: b.minX, y: y))
-        scrollView.reflectScrolledClipView(clip)
-        if drag != nil {
-            updateDrag(windowPoint: windowPoint)
-        } else if let external {
-            _ = externalDragMoved(windowPoint: windowPoint, sourceMachine: external.sourceMachine)
-        }
-        return true
     }
 }

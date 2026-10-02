@@ -9,7 +9,7 @@ import CmuxNextLayout
 /// Tab actions (category `.tab` except `tabGroup.*`): create, close,
 /// select, reorder, rename, pin, and move to other panes, splits, columns,
 /// workspaces, and windows. Every change is a daemon command; the strip
-/// shows it through the store (optimistic where the store has a patch).
+/// shows it through the store (a store intent where one exists).
 enum TabHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindLifecycle(registry, ctx)
@@ -73,7 +73,7 @@ enum TabHandlers {
             guard let number = invocation["index"]?.intValue ?? ctx.refuse(RefusalStrings.indexRequired) else { return }
             let ids = pane.orderedIDs
             guard !ids.isEmpty else { return ctx.refuse(RefusalStrings.paneHasNoTabs) }
-            // Chrome: 9 always selects the last tab.
+            // 9 always selects the last tab.
             pane.select(number >= 9 ? ids[ids.count - 1] : ids[min(number - 1, ids.count - 1)])
         })
         registry.bind("palette.goToTab", invoke: { invocation in
@@ -169,7 +169,7 @@ enum TabHandlers {
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
         let daemon = ctx.services.activeDaemon
         ctx.registry.track(Task {
-            let ok = await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            let ok = await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name ?? "")
             }
             if !ok { pane.resyncStrip() }

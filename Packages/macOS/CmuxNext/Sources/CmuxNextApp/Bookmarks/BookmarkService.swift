@@ -34,7 +34,7 @@ final class BookmarkService {
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
     @ObservationIgnored var migrating = false
-    /// The folder each profile's last bookmark went to (Chrome remembers it).
+    /// The folder each profile's last bookmark went to, offered for the next one.
     @ObservationIgnored var lastFolder: [String: String] = [:]
     /// Live browser chromes, by tab key, for the star and bar fan-out.
     @ObservationIgnored var chromes: [String: WeakChrome] = [:]
@@ -64,7 +64,9 @@ final class BookmarkService {
         let file = BookmarkFileStore(file: directory.appending(path: "bookmarks.json"))
         self.file = file
         services.importedBookmarkSink = BookmarkImportSink(service: self)
-        services.machines.local.store.onBookmarksChanged = { [weak self] profile in self?.daemonChanged(profile) }
+        services.machines.local.store.sideEvents.subscribe { [weak self] event in
+            if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
+        }
         // task-owner: one-shot launch read of the bookmark file
         Task { [weak self] in
             let loaded = await file.load()
@@ -92,7 +94,7 @@ final class BookmarkService {
     }
 
     /// The wire id whose bookmarks a tab shows: its browser profile, the
-    /// default one for an incognito tab (Chrome shows your bookmarks there).
+    /// default one for an incognito tab, so incognito shows your bookmarks.
     func profile(ofTab key: String) -> String {
         let engine = services.browserProfiles.engineProfile(forTab: key)
         if OffTheRecordProfiles.shared.isOffTheRecord(engine) { return BrowserProfileRecord.defaultID }

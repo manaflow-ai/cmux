@@ -1,0 +1,291 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/diffs",
+  "name": {
+    "en": "Diffs",
+    "ja": "差分"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Review changes: the working tree against HEAD, two refs, an agent's proposed diff or a run's diff, side by side or inline, with comments and per-hunk accept or reject.",
+    "ja": "変更をレビュー: 作業ツリーとHEAD、2つの参照、エージェントが提案した差分、実行の差分を左右またはインラインで表示し、コメントとハンクごとの承認・却下ができます。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "git",
+    "agents",
+    "developer-tools"
+  ],
+  "keywords": [
+    "diff",
+    "git",
+    "review",
+    "changes"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "main": "dist/main.js",
+  "scopes": {
+    "workspace:read": "Find the repository of the workspace you are in.",
+    "git:read": "Read git status and diffs of that repository.",
+    "diff:read": "Open diffs that agents and runs propose to you.",
+    "feed:read": "Open the review request an agent sent you."
+  },
+  "optionalScopes": {
+    "git:write": "Stage or discard a hunk when you click Stage or Discard.",
+    "diff:write": "Record your accept, reject and comments on a proposed diff.",
+    "feed:write": "Send your review back to the agent that asked for it.",
+    "embed:run": "Show file diffs with your editor app instead of the built-in view."
+  },
+  "contributes": {
+    "sidebarSections": [
+      {
+        "id": "changes",
+        "title": {
+          "en": "Changes",
+          "ja": "変更"
+        },
+        "symbol": "plusminus",
+        "defaultRegion": "middle",
+        "render": "renderChanges",
+        "maxRows": 14
+      }
+    ],
+    "paneKinds": [
+      {
+        "id": "diff",
+        "title": {
+          "en": "Diff",
+          "ja": "差分"
+        },
+        "symbol": "plusminus",
+        "render": "renderDiffPane",
+        "x-cmux-implements": {
+          "interface": "cmux.diff.renderer/1",
+          "inputs": [
+            "worktree",
+            "refs",
+            "resource",
+            "feedItem",
+            "run",
+            "documents"
+          ]
+        },
+        "x-cmux-consumes": [
+          "cmux.editor/1",
+          "cmux.diff.source/1"
+        ]
+      }
+    ],
+    "commands": [
+      {
+        "id": "openChanges",
+        "title": {
+          "en": "Open Changes",
+          "ja": "変更を開く"
+        },
+        "symbol": "plusminus",
+        "run": "openChanges",
+        "keywords": [
+          "diff",
+          "git",
+          "changes",
+          "status"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:changes"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "staged": {
+              "type": "boolean",
+              "default": false,
+              "description": "Staged changes instead of the working tree."
+            },
+            "path": {
+              "type": "string",
+              "description": "Select this repository-relative file."
+            }
+          }
+        }
+      },
+      {
+        "id": "openDiff",
+        "title": {
+          "en": "Open Diff Between Refs",
+          "ja": "参照間の差分を開く"
+        },
+        "run": "openDiff",
+        "contexts": [],
+        "arguments": {
+          "type": "object",
+          "required": [
+            "repo",
+            "base",
+            "head"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "description": "Repository handle from git.status."
+            },
+            "base": {
+              "type": "string",
+              "description": "Base ref or commit."
+            },
+            "head": {
+              "type": "string",
+              "description": "Head ref or commit."
+            }
+          }
+        }
+      },
+      {
+        "id": "review",
+        "title": {
+          "en": "Review Proposed Diff",
+          "ja": "提案された差分をレビュー"
+        },
+        "run": "review",
+        "contexts": [],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "item": {
+              "type": "string",
+              "description": "A feed review request (fi_…)."
+            },
+            "diff": {
+              "type": "string",
+              "description": "A diff resource (diff_…)."
+            },
+            "run": {
+              "type": "string",
+              "description": "An automation run whose diff to show (run_…)."
+            }
+          }
+        },
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "reviewLatest",
+        "title": {
+          "en": "Review Latest Proposal",
+          "ja": "最新の提案をレビュー"
+        },
+        "symbol": "checklist",
+        "run": "reviewLatest",
+        "keywords": [
+          "review",
+          "agent",
+          "proposal",
+          "diff"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "toggleLayout",
+        "title": {
+          "en": "Toggle Side-by-Side Diff",
+          "ja": "差分の左右表示を切り替え"
+        },
+        "symbol": "rectangle.split.2x1",
+        "run": "toggleLayout",
+        "keywords": [
+          "diff",
+          "inline",
+          "split"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "cycleVariant",
+        "title": {
+          "en": "Next Diffs Variant",
+          "ja": "差分の次のバリアント"
+        },
+        "run": "cycleVariant",
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
+      }
+    ],
+    "mcpServers": [
+      {
+        "id": "diffsTools",
+        "title": {
+          "en": "Diffs",
+          "ja": "差分"
+        },
+        "tools": "commands"
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": [
+            "split",
+            "stream",
+            "review"
+          ],
+          "default": "split",
+          "title": "Design variant",
+          "description": "split: file list left, diff right. stream: every file in one scroll. review: proposal review with decisions and comments.",
+          "x-cmux-devOnly": true
+        },
+        "layout": {
+          "type": "string",
+          "enum": [
+            "inline",
+            "sideBySide"
+          ],
+          "default": "inline",
+          "title": "Diff layout"
+        },
+        "editorApp": {
+          "type": "string",
+          "default": "cmux/codemirror",
+          "title": "Editor app for file diffs",
+          "description": "Used when you have not chosen a default editor for the file type."
+        },
+        "fallbackLines": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 600,
+          "default": 160,
+          "title": "Lines per file in the built-in view before Show More"
+        }
+      }
+    }
+  },
+  "activation": [
+    "onSidebarSection:changes",
+    "onCommand:openChanges",
+    "onCommand:openDiff",
+    "onCommand:review",
+    "onCommand:reviewLatest"
+  ],
+  "files": [
+    "dist/",
+    "assets/"
+  ]
+}

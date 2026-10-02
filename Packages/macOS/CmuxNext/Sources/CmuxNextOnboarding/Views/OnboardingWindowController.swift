@@ -72,7 +72,9 @@ final class OnboardingWindow: NSWindow {
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         switch (event.keyCode, flags) {
-        case (36, []), (76, []): onKey?(.next)            // Return, Enter
+        // A held key repeats: only a fresh press moves on (it must not also accept the password consent).
+        case (36, []) where !event.isARepeat, (76, []) where !event.isARepeat: onKey?(.next)  // Return, Enter
+        case (36, []), (76, []): break
         case (33, .command): onKey?(.back)                 // Command-[
         default: super.keyDown(with: event)
         }

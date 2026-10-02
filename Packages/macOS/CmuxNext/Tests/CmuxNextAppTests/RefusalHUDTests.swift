@@ -30,11 +30,18 @@ struct RefusalHUDTests {
     @Test func hidesAfterItsLifetime() async {
         let window = window()
         defer { window.close() }
-        let hud = RefusalHUD()
-        hud.lifetime = .milliseconds(20)
+        let clock = ManualClock()
+        let hud = RefusalHUD(clock: clock)
+        let (hidden, signal) = AsyncStream.makeStream(of: Void.self)
+        hud.onHide = { signal.yield() }
         hud.show("refused", in: window)
-        let deadline = ContinuousClock.now + .seconds(5)
-        while hud.message != nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(10)) }
+        await clock.sleepers()
+        #expect(hud.message == "refused")
+        // The hide hops to the main actor after the deadline; wait for it
+        // rather than reading the message straight after the advance.
+        clock.advance(by: hud.lifetime)
+        var iterator = hidden.makeAsyncIterator()
+        #expect(await iterator.next() != nil)
         #expect(hud.message == nil)
     }
 }

@@ -36,7 +36,7 @@ final class WebKitWebView: WKWebView {
         super.keyDown(with: event)
     }
 
-    /// Whether the user gave input within `window` (default: Chrome's
+    /// Whether the user gave input within `window` (default: Chromium's
     /// 5-second transient activation).
     func hadRecentUserInput(within window: Duration = .seconds(5)) -> Bool {
         lastUserInput.map { ContinuousClock.now - $0 <= window } ?? false

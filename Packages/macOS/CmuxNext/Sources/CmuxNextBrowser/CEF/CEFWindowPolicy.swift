@@ -8,7 +8,7 @@ nonisolated enum CEFWindowDecision: Equatable, Sendable {
     /// No Chromium window of that profile exists: Chromium opens nothing
     /// and cmux opens `url` in a new tab of its own.
     case openInNewTab(url: String, disposition: BrowserNewTabDisposition)
-    /// An incognito request ("Open Link in Incognito Window", Chrome's New
+    /// An incognito request ("Open Link in Incognito Window", New
     /// Incognito Window): Chromium opens nothing, and cmux opens `url` (or
     /// nothing, when empty) in a cmux incognito window, or in the source
     /// tab's incognito window when the source is incognito.

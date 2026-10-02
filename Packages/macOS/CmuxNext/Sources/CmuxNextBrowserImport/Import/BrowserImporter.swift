@@ -9,13 +9,15 @@ public actor BrowserImporter {
     private let provisioning: any BrowserProfileProvisioning
     private let store: ImportedDataStore?
     private let cookies: CookieImporter?
+    private let passwords: PasswordImporter?
 
-    /// `cookies` nil: the cookie kind is skipped (no cookie store to write to).
+    /// `cookies` or `passwords` nil: that kind is skipped (no store to write to).
     public init(provisioning: any BrowserProfileProvisioning = DefaultProfileOnly(), store: ImportedDataStore? = nil,
-                cookies: CookieImporter? = nil) {
+                cookies: CookieImporter? = nil, passwords: PasswordImporter? = nil) {
         self.provisioning = provisioning
         self.store = store
         self.cookies = cookies
+        self.passwords = passwords
     }
 
     public func run(
@@ -41,6 +43,8 @@ public actor BrowserImporter {
                     try Task.checkCancellation()
                     if kind == .cookies {
                         try await importCookies(item.profile, into: &batch)
+                    } else if kind == .passwords {
+                        try await importPasswords(item.profile, into: &batch)
                     } else {
                         try Self.read(kind, from: item.profile, historyLimit: plan.historyLimit, into: &batch)
                     }
@@ -76,6 +80,21 @@ public actor BrowserImporter {
             throw CancellationError()
         } catch {
             batch.cookieError = .malformed(String(describing: type(of: error)))
+        }
+    }
+
+    /// Passwords fail on their own too, for the same reason.
+    private func importPasswords(_ profile: BrowserSourceProfile, into batch: inout ImportBatch) async throws {
+        guard let passwords else { return }
+        do {
+            batch.passwords = try await passwords.run(profile, intoProfile: batch.source.targetProfileID)
+        } catch let error as PasswordImporter.Failure {
+            batch.passwordError = error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A Login Data file that would not open: counted, never described (the message could hold a path or a row).
+            batch.passwordError = .unreadable
         }
     }
 

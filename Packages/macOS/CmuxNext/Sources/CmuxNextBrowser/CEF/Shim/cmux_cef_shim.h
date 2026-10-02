@@ -64,7 +64,7 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_WILL_OPEN = 20,
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
-  // The tab's renderer process ended unexpectedly (Chrome's "Aw, Snap!").
+  // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
   // a = cef_termination_status_t, b = error code (exit code or signal),
   // s1 = Chromium's error string.
   CMUX_SHIM_RENDER_TERMINATED = 23,
@@ -73,7 +73,7 @@ typedef enum {
   CMUX_SHIM_RENDER_UNRESPONSIVE = 24,
   // The renderer answers again after RENDER_UNRESPONSIVE.
   CMUX_SHIM_RENDER_RESPONSIVE = 25,
-  // A Chrome command that opens a window of Chromium's own (New Window,
+  // A Chromium command that opens a window of Chromium's own (New Window,
   // New Incognito Window, Task Manager, feedback, guest profile, Move Tab to
   // New Window, app windows). The shim blocked it; request = the IDC_*
   // command id (chrome/app/chrome_command_ids.h).
@@ -101,8 +101,8 @@ typedef enum {
 
 typedef enum {
   CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
-  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chrome's IDC_DEV_TOOLS_CONSOLE
-  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chrome's IDC_DEV_TOOLS_INSPECT (element picker)
+  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chromium's IDC_DEV_TOOLS_CONSOLE
+  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chromium's IDC_DEV_TOOLS_INSPECT (element picker)
   CMUX_SHIM_DEVTOOLS_INSPECT_AT = 4,  // inspect the element at (x, y), view coordinates
   CMUX_SHIM_DEVTOOLS_CLOSE = 5,
 } cmux_shim_devtools_command_t;
@@ -227,7 +227,7 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
-// Chrome's Back/Forward menus. JSON {"current": index, "entries": [{"url",
+// Back/Forward menu entries. JSON {"current": index, "entries": [{"url",
 // "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown
 // browser. Works on every fork.
 CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id);
@@ -381,6 +381,41 @@ CMUX_SHIM_EXPORT int cmux_shim_delete_cookies(int browser_id, int reply, const c
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Browser import: saved passwords into the Chromium password store of
+// profile_cache_path (a persistent profile; an off-the-record key returns 0),
+// the store autofill reads, encrypted with cmux's own Keychain key. Every
+// field is UTF-8 with an explicit length (no terminator needed). The shim
+// copies the entries before it returns, so the caller zeroes its buffers at
+// once; the shim zeroes its copies when the store has taken them. Values are
+// never logged. REPLY with `reply` and browser 0 follows: s1 = {"added",
+// "duplicate","conflict","rejected"} (counts only). Returns 0 when nothing was
+// started (bad path, or the fork lacks cmux_password_import: API 15).
+typedef struct {
+  const char* url;
+  size_t url_length;
+  const char* signon_realm;
+  size_t signon_realm_length;
+  const char* username;
+  size_t username_length;
+  const char* password;
+  size_t password_length;
+  // Microseconds since 1601 (Chromium time); 0 = now.
+  int64_t created;
+} cmux_shim_password_entry;
+CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, int reply, const cmux_shim_password_entry* entries,
+                                                int count);
+// sizeof(cmux_shim_password_entry): Swift writes entries at the C offsets
+// (url 0, url_length 8, signon_realm 16, signon_realm_length 24, username 32,
+// username_length 40, password 48, password_length 56, created 64) and
+// refuses to call when this is not 72.
+CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void);
+// 1 when this fork can write passwords (cmux_password_import, API 15).
+CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
+// Turns Chromium's password filling on or off in one tab. An agent-driven
+// tab has it off: a page script could otherwise read a filled password
+// after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
+// Returns 0 when the fork lacks cmux_tab_set_password_fill (API 15).
+CMUX_SHIM_EXPORT int cmux_shim_set_password_fill(int browser_id, int enabled);
 // The visible entry's SSL status as JSON {"secure","certStatus",
 // "contentStatus","sslVersion","url","chain":[base64 DER, leaf first]}, or
 // NULL. Free with cmux_shim_free_owned.

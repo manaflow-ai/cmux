@@ -1,6 +1,6 @@
 // Site state for Page Info through CEF's own API (ABI 3): content settings of
 // the browser's request context (Chromium's HostContentSettingsMap, the
-// store Chrome's Page Info edits), the context's cookie manager, and the
+// store Chromium's Page Info edits), the context's cookie manager, and the
 // visible navigation entry's SSL status.
 
 #include <cstdlib>

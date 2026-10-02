@@ -12,7 +12,31 @@ public struct Glass {
         case clear
     }
 
-    /// A glass panel that hosts `content` edge to edge.
+    /// A floating panel over content (palette, hover card, find and prompt
+    /// bars) that hosts `content` edge to edge: Liquid Glass with the theme
+    /// tint, or under Reduce Transparency an opaque theme fill
+    /// (`ThemeTokens.opaqueOverlayFill`) with a hairline, switched live
+    /// when the setting or the theme changes. Use this for every overlay;
+    /// it takes clicks unless `interactive` is false.
+    public static func makeOverlayPanel(
+        content: NSView? = nil,
+        cornerRadius: CGFloat = Metrics.panelCornerRadius,
+        interactive: Bool = true
+    ) -> OverlaySurfaceView {
+        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius)
+        surface.translatesAutoresizingMaskIntoConstraints = false
+        if let content {
+            content.translatesAutoresizingMaskIntoConstraints = true
+            content.autoresizingMask = [.width, .height]
+            content.frame = surface.contentView.bounds
+            surface.contentView.addSubview(content)
+        }
+        return surface
+    }
+
+    /// A raw glass panel that hosts `content` edge to edge. It has no
+    /// Reduce Transparency fallback: floating overlays use
+    /// `makeOverlayPanel` instead.
     public static func makePanel(
         content: NSView? = nil,
         style: Style = .regular,

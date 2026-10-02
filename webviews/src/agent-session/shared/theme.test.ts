@@ -96,7 +96,7 @@ describe("agent theme", () => {
   // the base, so nothing changes there.
   test("the composer box is a tint over the page", () => {
     const acpmux = css("../acpmux/styles.css");
-    for (const name of ["--acpmux-composer-bg", "--acpmux-composer-edge"]) {
+    for (const name of ["--acpmux-composer-bg", "--acpmux-composer-edge", "--acpmux-composer-tray"]) {
       expect(acpmux).toMatch(
         new RegExp(`${name}:color-mix\\(in srgb,var\\(--agent-text\\) \\d+%,var\\(--agent-page-bg`),
       );
@@ -112,6 +112,12 @@ describe("agent theme", () => {
     const send = acpmux.match(/\.acpmux-send\{[^}]*\}/)?.[0] ?? "";
     expect(send).not.toBe("");
     expect(send).not.toMatch(/[;{]color:var\(--acpmux-composer-bg\)/);
+    // The idle Send dims by mixing into the opaque base, never by opacity, which would let the backdrop through.
+    expect(acpmux).not.toMatch(/\.acpmux-send[^{]*\{[^}]*opacity/);
+    // The tray behind the box fills only above it, so the box's tint doesn't stack on it.
+    expect(acpmux).toMatch(
+      /\.acpmux-composer-context\{[^}]*background:linear-gradient\(var\(--acpmux-composer-tray\) calc\(100% - 12px\),transparent 0\)/,
+    );
     const overlay = acpmux.match(/\[data-sidebar=open\] \.acpmux-sidebar\{[^}]*\}/)?.[0] ?? "";
     expect(overlay).toMatch(/background:var\(--acpmux-base\)/);
     for (const hover of [

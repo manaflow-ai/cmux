@@ -25,6 +25,7 @@ extension TabStripView {
         if buttonGroup.frame != frame { buttonGroup.frame = frame }
         buttonGroup.layoutSubtreeIfNeeded()
         removeAllToolTips()
+        locationField.toolTipTag = nil
         for (button, rect) in zip(buttonGroup.buttons, buttonGroup.buttonFrames()) where !button.toolTip.isEmpty {
             addToolTip(buttonGroup.convert(rect, to: self), owner: button.toolTip as NSString, userData: nil)
         }

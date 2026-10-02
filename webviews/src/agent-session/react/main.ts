@@ -2,21 +2,21 @@ import React, { useCallback, useEffect, useLayoutEffect, useReducer, useRef, use
 import { activityGlyph } from "../shared/activityGlyph";
 import { callNative, subscribeToAgentEvents } from "../shared/bridge";
 import {
-  CODEX_BUTTON_BASE,
-  CODEX_BUTTON_COMPOSER,
-  CODEX_BUTTON_COMPOSER_SM,
-  CODEX_BUTTON_GHOST,
-  CODEX_BUTTON_ICON,
-  CODEX_BUTTON_UNIFORM,
-  CODEX_COMPOSER_FOOTER_MULTILINE,
-  CODEX_COMPOSER_FOOTER_SINGLE_LINE,
-  CODEX_COMPOSER_FRAME,
-  CODEX_COMPOSER_INNER,
-  CODEX_COMPOSER_STACK,
-  CODEX_COMPOSER_SURFACE,
-  CODEX_SUBMIT_BUTTON,
-} from "../shared/codexClassNames";
-import { CODEX_FOLDER_ICON_PATH } from "../shared/codexIconPaths";
+  AGENT_BUTTON_BASE,
+  AGENT_BUTTON_COMPOSER,
+  AGENT_BUTTON_COMPOSER_SM,
+  AGENT_BUTTON_GHOST,
+  AGENT_BUTTON_ICON,
+  AGENT_BUTTON_UNIFORM,
+  AGENT_COMPOSER_FOOTER_MULTILINE,
+  AGENT_COMPOSER_FOOTER_SINGLE_LINE,
+  AGENT_COMPOSER_FRAME,
+  AGENT_COMPOSER_INNER,
+  AGENT_COMPOSER_STACK,
+  AGENT_COMPOSER_SURFACE,
+  AGENT_SUBMIT_BUTTON,
+} from "../shared/agentClassNames";
+import { AGENT_FOLDER_ICON_PATH } from "../shared/agentIconPaths";
 import { commandText, ComposerCommandSubmissionGate, composerCommandRoute } from "../shared/commandRouting";
 import { shouldUseSingleLineComposer } from "../shared/composerLayout";
 import {
@@ -549,13 +549,13 @@ function SessionSurface({
         h(
           "button",
           {
-            className: `model-picker ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
+            className: `model-picker ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} min-w-0 rounded-full`,
             type: "button",
             disabled: !canSelect,
             "aria-haspopup": "menu",
             "aria-expanded": providerMenuOpen,
             "data-state": providerMenuOpen ? "open" : "closed",
-            "data-codex-intelligence-trigger": true,
+            "data-agent-intelligence-trigger": true,
             "data-selected-reasoning-effort": "high",
             onClick: () => {
               if (!canSelect) {
@@ -688,7 +688,7 @@ function SessionSurface({
       : null;
   const leftControls = h(
     "div",
-    { className: "codex-left-rail flex min-w-0 items-center gap-[5px]" },
+    { className: "agent-left-rail flex min-w-0 items-center gap-[5px]" },
     h(AddContextDropdown, {
       hasIdeContext: workspaceContextItem != null,
       isAutoContextOn,
@@ -719,7 +719,7 @@ function SessionSurface({
   );
   const secondaryControls = h(
     "div",
-    { className: "codex-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
+    { className: "agent-secondary-controls flex min-w-0 items-center gap-1", ref: footerCollapse.setContainerRef },
     modelPicker,
     shouldShowIdeContextIndicator && !ideContextCollapse.hideControl
       ? h(
@@ -739,12 +739,12 @@ function SessionSurface({
   );
   const actionCluster = h(
     "div",
-    { className: "codex-action-cluster flex shrink-0 items-center gap-2" },
+    { className: "agent-action-cluster flex shrink-0 items-center gap-2" },
     showStart
       ? h(
           "button",
           {
-            className: `codex-action codex-start ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
+            className: `agent-action agent-start ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} rounded-full`,
             type: "button",
             disabled: !canStart,
             onClick: () => void startProvider(state, dispatch),
@@ -756,7 +756,7 @@ function SessionSurface({
       ? h(
           "button",
           {
-            className: `codex-action codex-stop ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+            className: `agent-action agent-stop ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`,
             type: "button",
             "aria-label": state.context?.copy.stop ?? "Stop",
             onClick: () => void stopProvider(state, dispatch),
@@ -767,7 +767,7 @@ function SessionSurface({
     h(
       "button",
       {
-        className: `codex-action codex-mic ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+        className: `agent-action agent-mic ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         disabled: true,
         "aria-label": state.context?.copy.voiceInput ?? "",
@@ -777,7 +777,7 @@ function SessionSurface({
     h(
       "button",
       {
-        className: `codex-action send-button ${CODEX_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
+        className: `agent-action send-button ${AGENT_SUBMIT_BUTTON}${canSend ? "" : " cursor-default opacity-50"}`,
         type: "button",
         disabled: !canSend,
         "aria-label": state.context?.copy.send ?? "Send",
@@ -813,7 +813,7 @@ function SessionSurface({
     ? h(
         "div",
         {
-          className: CODEX_COMPOSER_FOOTER_SINGLE_LINE,
+          className: AGENT_COMPOSER_FOOTER_SINGLE_LINE,
         },
         leftControls,
         composerInputWrapper,
@@ -839,7 +839,7 @@ function SessionSurface({
         h(
           "div",
           {
-            className: CODEX_COMPOSER_FOOTER_MULTILINE,
+            className: AGENT_COMPOSER_FOOTER_MULTILINE,
           },
           leftControls,
           h("div", { className: "flex items-center" }),
@@ -851,16 +851,16 @@ function SessionSurface({
           ),
         ),
       );
-  const composerControls = h("div", { className: CODEX_COMPOSER_INNER }, composerControlsContent);
+  const composerControls = h("div", { className: AGENT_COMPOSER_INNER }, composerControlsContent);
   const showPlanSuggestion = !isPlanMode && !isPlanSuggestionDismissed && /\bplan\b/i.test(state.input);
 
   return h(
     "section",
-    { className: "agent-shell", "data-codex-window-type": "electron" },
+    { className: "agent-shell", "data-agent-window-type": "electron" },
     h(TranscriptThread, { entries: state.transcript, copy: state.context?.copy }),
     h(
       "div",
-      { className: CODEX_COMPOSER_STACK },
+      { className: AGENT_COMPOSER_STACK },
       h(
         "div",
         { className: "relative flex w-full flex-col gap-2" },
@@ -875,7 +875,7 @@ function SessionSurface({
           },
           h(
             "div",
-            { className: CODEX_COMPOSER_FRAME },
+            { className: AGENT_COMPOSER_FRAME },
             h(
               "span",
               {
@@ -907,7 +907,7 @@ function SessionSurface({
               "div",
               {
                 className:
-                  CODEX_COMPOSER_SURFACE +
+                  AGENT_COMPOSER_SURFACE +
                   " " +
                   (isSingleLineComposer ? "overflow-visible rounded-full" : "overflow-y-auto rounded-3xl"),
               },
@@ -944,7 +944,7 @@ function AboveComposerPlanSuggestion({
         {
           className:
             "relative inline-flex max-w-full min-w-0 items-center justify-between gap-4 overflow-hidden rounded-3xl border border-token-border/80 bg-token-dropdown-background/90 py-1.5 pr-2 pl-3 text-token-foreground shadow-md backdrop-blur-sm",
-          "data-codex-above-composer-suggestion": "keyword-plan-mode",
+          "data-agent-above-composer-suggestion": "keyword-plan-mode",
         },
         h(
           "div",
@@ -1045,7 +1045,7 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       const hasText = entry.text.trim().length > 0;
       return h(
         "div",
-        { className: "codex-user-turn group flex w-full flex-col items-end justify-end gap-1" },
+        { className: "agent-user-turn group flex w-full flex-col items-end justify-end gap-1" },
         attachments.length > 0
           ? h(UserMessageAttachmentTray, {
               attachments,
@@ -1056,7 +1056,7 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
               "div",
               {
                 className:
-                  "codex-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
+                  "agent-user-bubble bg-token-foreground/5 max-w-[77%] min-w-0 overflow-hidden break-words rounded-2xl px-3 py-2 [&_.contain-inline-size]:[contain:initial]",
               },
               h(UserMessageText, { copy, text: entry.text }),
             )
@@ -1068,12 +1068,12 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       if (entry.isComplete === false) {
         return h(
           "div",
-          { className: "codex-assistant-turn group flex min-w-0 flex-col" },
+          { className: "agent-assistant-turn group flex min-w-0 flex-col" },
           h(
             "div",
             {
               className:
-                "codex-assistant-message codex-assistant-message-streaming text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)]",
+                "agent-assistant-message agent-assistant-message-streaming text-size-chat leading-[calc(var(--agent-chat-font-size)+8px)]",
             },
             entry.text,
           ),
@@ -1081,10 +1081,10 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
       }
       return h(
         "div",
-        { className: "codex-assistant-turn group flex min-w-0 flex-col" },
+        { className: "agent-assistant-turn group flex min-w-0 flex-col" },
         h("div", {
           className:
-            "codex-assistant-message text-size-chat leading-[calc(var(--codex-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
+            "agent-assistant-message text-size-chat leading-[calc(var(--agent-chat-font-size)+8px)] [&>*:last-child]:mb-0 [&>ol:first-child]:mt-0 [&>ul:first-child]:mt-0",
           dangerouslySetInnerHTML: { __html: renderMarkdownHTML(entry.text) },
         }),
         entry.text.trim().length > 0
@@ -1094,9 +1094,9 @@ const TranscriptTurn = React.memo(function TranscriptTurn({
     case "notice":
       return h(
         "div",
-        { className: `codex-notice-turn ${entry.tone ?? "warning"}` },
+        { className: `agent-notice-turn ${entry.tone ?? "warning"}` },
         h("div", {
-          className: "codex-notice-content text-size-chat-sm",
+          className: "agent-notice-content text-size-chat-sm",
           dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
         }),
       );
@@ -1169,20 +1169,20 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
   const summaryContent = h(
     React.Fragment,
     null,
-    h("span", { className: "codex-tool-activity-icon icon-xs shrink-0", "aria-hidden": true }, activityGlyph(entry)),
+    h("span", { className: "agent-tool-activity-icon icon-xs shrink-0", "aria-hidden": true }, activityGlyph(entry)),
     h(
       "span",
       {
         className:
-          "codex-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground",
+          "agent-tool-activity-text shrink overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%_-_0.25rem),transparent)] [mask-repeat:no-repeat] pr-1 group-hover/collapsed-tool-activity:text-token-foreground",
       },
       h("span", {
-        className: "codex-tool-activity-action",
+        className: "agent-tool-activity-action",
         dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.text) },
       }),
       entry.detail
         ? h("span", {
-            className: "codex-tool-activity-detail",
+            className: "agent-tool-activity-detail",
             dangerouslySetInnerHTML: { __html: ` ${renderPlainTextHTML(entry.detail)}` },
           })
         : null,
@@ -1194,7 +1194,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
         {
           type: "button",
           className:
-            "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left",
+            "agent-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full cursor-interaction items-center gap-1 self-start text-left",
           "aria-expanded": isOutputExpanded,
           onClick: toggleOutput,
         },
@@ -1202,7 +1202,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
         h(
           "span",
           {
-            className: `codex-tool-activity-chevron inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100${isOutputExpanded ? " opacity-100" : ""}`,
+            className: `agent-tool-activity-chevron inline-chevron flex-shrink-0 text-token-input-placeholder-foreground opacity-0 group-hover/summary:opacity-100${isOutputExpanded ? " opacity-100" : ""}`,
           },
           chevronRightIcon(
             `icon-2xs text-current transition-transform duration-300${isOutputExpanded ? " rotate-90" : ""}`,
@@ -1213,37 +1213,37 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
         "div",
         {
           className:
-            "codex-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full items-center gap-1 self-start text-left",
+            "agent-tool-activity-summary group/collapsed-tool-activity group/summary inline-flex w-fit max-w-full items-center gap-1 self-start text-left",
         },
         summaryContent,
       );
 
   return h(
     "div",
-    { className: `codex-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
+    { className: `agent-tool-activity-turn ${entry.activityKind ?? "other"} ${entry.activityStatus ?? "completed"}` },
     summary,
     entry.output
       ? h(
           "div",
           {
             "aria-hidden": !isOutputExpanded,
-            className: "codex-tool-activity-output-shell relative overflow-hidden",
+            className: "agent-tool-activity-output-shell relative overflow-hidden",
             "data-expanded": isOutputExpanded ? "true" : "false",
           },
           h(
             "div",
-            { className: "codex-tool-activity-output-shell-inner" },
+            { className: "agent-tool-activity-output-shell-inner" },
             h(
               "div",
               {
                 className:
-                  "codex-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem] flex flex-col overflow-clip rounded-lg border border-token-border",
+                  "agent-tool-activity-output-frame group/output relative pr-0 min-h-[1.25rem] flex flex-col overflow-clip rounded-lg border border-token-border",
               },
               h(
                 "div",
                 {
                   className:
-                    "codex-shell-header flex items-center justify-between bg-token-side-bar-background pl-2 text-sm font-medium text-ellipsis hover:bg-token-editor-background/40",
+                    "agent-shell-header flex items-center justify-between bg-token-side-bar-background pl-2 text-sm font-medium text-ellipsis hover:bg-token-editor-background/40",
                 },
                 h("div", { className: "flex min-w-0 items-center" }, h("span", { className: "truncate" }, shellLabel)),
                 h(
@@ -1258,7 +1258,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
                     "button",
                     {
                       type: "button",
-                      className: `codex-shell-collapse ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+                      className: `agent-shell-collapse ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
                       "aria-label": collapseShellLabel,
                       title: collapseShellLabel,
                       onClick: collapseOutput,
@@ -1272,7 +1272,7 @@ function ToolActivityTurn({ copy, entry }: { copy?: AgentSessionCopy; entry: Tra
                 { className: "relative overflow-hidden" },
                 h("div", {
                   className:
-                    "codex-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
+                    "agent-tool-activity-output vertical-scroll-fade-mask [--edge-fade-distance:2rem] box-border flex flex-col gap-1.5 overflow-x-auto overflow-y-auto whitespace-pre p-2 font-vscode-editor font-medium text-size-code-sm text-token-description-foreground max-h-[140px]",
                   onScroll: handleOutputScroll,
                   ref: outputRef,
                   dangerouslySetInnerHTML: { __html: renderPlainTextHTML(entry.output) },
@@ -1318,14 +1318,14 @@ function ShellFooter({
   successLabel: string;
 }) {
   if (status === "inProgress") {
-    return h("div", { className: "codex-shell-footer text-size-chat px-2.5 pt-0.5 pb-1" });
+    return h("div", { className: "agent-shell-footer text-size-chat px-2.5 pt-0.5 pb-1" });
   }
   if (status === "stopped") {
     return h(
       "div",
       {
         className:
-          "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+          "agent-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
       },
       h("span", { className: "ml-auto" }, stoppedLabel),
     );
@@ -1335,7 +1335,7 @@ function ShellFooter({
       "div",
       {
         className:
-          "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+          "agent-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
       },
       h("span", { className: "ml-auto" }, failedLabel),
     );
@@ -1344,7 +1344,7 @@ function ShellFooter({
     "div",
     {
       className:
-        "codex-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
+        "agent-shell-footer text-size-chat flex items-center gap-2 px-2.5 pt-0.5 pb-1 text-token-input-placeholder-foreground",
     },
     h("span", { className: "ml-auto flex items-center gap-1" }, checkIcon("icon-xxs"), successLabel),
   );
@@ -1399,7 +1399,7 @@ function ShellHeaderCopyButton({
     {
       ref: buttonRef,
       type: "button",
-      className: `codex-shell-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
+      className: `agent-shell-copy ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_ICON} rounded-full electron:rounded-md hover:bg-transparent hover:text-token-button-foreground`,
       "aria-label": activeLabel,
       title: activeLabel,
       onClick: copyContents,
@@ -1442,7 +1442,7 @@ function CopyOutputButton({ label, output }: { label: string; output: string }) 
     {
       ref: buttonRef,
       type: "button",
-      className: `codex-tool-output-copy ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} rounded-full electron:rounded-md electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100${isCopied ? " text-token-foreground opacity-100" : ""}`,
+      className: `agent-tool-output-copy ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} rounded-full electron:rounded-md electron:p-1 electron:[&>svg]:icon-sm flex items-center justify-center p-0.5 absolute top-0 right-2.5 opacity-0 transition-opacity duration-200 group-hover/output:opacity-100${isCopied ? " text-token-foreground opacity-100" : ""}`,
       "aria-label": label,
       title: label,
       onClick: copyOutput,
@@ -1486,7 +1486,7 @@ function UserMessageActions({ copy, sentAtMs, text }: { copy?: AgentSessionCopy;
 
   return h(
     "div",
-    { className: "codex-user-message-actions flex flex-row-reverse items-center gap-1" },
+    { className: "agent-user-message-actions flex flex-row-reverse items-center gap-1" },
     h(
       "div",
       {
@@ -1498,7 +1498,7 @@ function UserMessageActions({ copy, sentAtMs, text }: { copy?: AgentSessionCopy;
         {
           ref: buttonRef,
           type: "button",
-          className: `codex-user-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
+          className: `agent-user-message-action-button ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_ICON} rounded-full electron:rounded-md`,
           "aria-label": activeLabel,
           title: activeLabel,
           onClick: copyMessage,
@@ -1554,14 +1554,14 @@ function AssistantMessageActions({
     "div",
     {
       className:
-        "codex-assistant-message-actions mt-1.5 flex h-5 items-center justify-start gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
+        "agent-assistant-message-actions mt-1.5 flex h-5 items-center justify-start gap-0.5 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100",
     },
     h(
       "button",
       {
         ref: buttonRef,
         type: "button",
-        className: `codex-assistant-message-action-button ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_ICON} rounded-full electron:rounded-md`,
+        className: `agent-assistant-message-action-button ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_ICON} rounded-full electron:rounded-md`,
         "aria-label": activeLabel,
         title: activeLabel,
         onClick: copyMessage,
@@ -1626,7 +1626,7 @@ function UserMessageText({ copy, text }: { copy?: AgentSessionCopy; text: string
     "div",
     { className: "flex flex-col items-end gap-1" },
     h("div", {
-      className: "codex-user-message-content text-size-chat relative w-full min-w-0 mb-px",
+      className: "agent-user-message-content text-size-chat relative w-full min-w-0 mb-px",
       "data-collapsed": isCollapsed ? "true" : undefined,
       dangerouslySetInnerHTML: { __html: renderPlainTextHTML(text) },
     }),
@@ -1637,7 +1637,7 @@ function UserMessageText({ copy, text }: { copy?: AgentSessionCopy; text: string
             type: "button",
             "aria-expanded": isExpanded,
             className:
-              "codex-user-message-toggle text-size-chat mt-1.5 inline-flex cursor-interaction items-center gap-1 self-start text-token-description-foreground hover:text-token-foreground",
+              "agent-user-message-toggle text-size-chat mt-1.5 inline-flex cursor-interaction items-center gap-1 self-start text-token-description-foreground hover:text-token-foreground",
             onClick: toggleExpanded,
           },
           h("span", null, isExpanded ? showLessLabel : showMoreLabel),
@@ -1655,7 +1655,7 @@ function shouldCollapseUserMessage(text: string) {
 function UserMessageAttachmentTray({ attachments }: { attachments: ComposerAttachment[] }) {
   return h(
     "div",
-    { className: "codex-user-message-attachments flex max-w-[77%] flex-row-reverse flex-wrap items-center gap-1" },
+    { className: "agent-user-message-attachments flex max-w-[77%] flex-row-reverse flex-wrap items-center gap-1" },
     attachments.map((attachment) => h(UserMessageAttachmentCard, { attachment, key: attachment.id })),
   );
 }
@@ -1712,12 +1712,12 @@ function ComposerAttachmentTray({
   return h(
     "div",
     {
-      className: `codex-attachment-tray w-full overflow-x-auto${className ? ` ${className}` : ""}`,
+      className: `agent-attachment-tray w-full overflow-x-auto${className ? ` ${className}` : ""}`,
       "data-composer-attachments-row": true,
     },
     h(
       "div",
-      { className: "codex-attachment-row flex min-w-max items-end gap-2" },
+      { className: "agent-attachment-row flex min-w-max items-end gap-2" },
       attachments.map((attachment) =>
         h(ComposerAttachmentCard, {
           attachment,
@@ -1788,7 +1788,7 @@ function RateLimitFooter({ state, providerDisplayName }: { state: SessionState; 
   return h(
     "div",
     {
-      className: "rate-line codex-rate-limit-summary relative",
+      className: "rate-line agent-rate-limit-summary relative",
       role: "status",
       "aria-label": `${providerDisplayName} ${statusLabel(state)}`.trim(),
       onBlur: (event: React.FocusEvent<HTMLDivElement>) => {
@@ -1900,18 +1900,18 @@ function ComposerTopTray({
 }) {
   return h(
     "div",
-    { className: "codex-top-tray-shell absolute z-20" },
+    { className: "agent-top-tray-shell absolute z-20" },
     h(
       "div",
-      { className: "codex-top-tray-panel", "cmdk-root": "", "data-cmdk-root": true },
+      { className: "agent-top-tray-panel", "cmdk-root": "", "data-cmdk-root": true },
       h(
         "div",
-        { className: "codex-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
+        { className: "agent-top-tray-list", "cmdk-list": "", "data-cmdk-list": true },
         items.length === 0
           ? h(
               "div",
               {
-                className: "codex-top-tray-empty",
+                className: "agent-top-tray-empty",
                 "cmdk-empty": "",
                 "data-cmdk-empty": true,
                 "data-command-menu-empty-state": "true",
@@ -1920,15 +1920,15 @@ function ComposerTopTray({
             )
           : items.map((item, index) => {
               const titleClass = item.detail
-                ? "codex-top-tray-label max-w-[60%] flex-none truncate"
-                : "codex-top-tray-label min-w-0 flex-1 truncate";
+                ? "agent-top-tray-label max-w-[60%] flex-none truncate"
+                : "agent-top-tray-label min-w-0 flex-1 truncate";
               const titleParts = composerMenuTitleParts(item.label, query);
               const hasDimmedTitleParts = titleParts.some((part) => !part.isMatch);
               return h(
                 "button",
                 {
                   key: item.id,
-                  className: "codex-top-tray-item",
+                  className: "agent-top-tray-item",
                   type: "button",
                   "aria-selected": index === highlightedIndex ? "true" : undefined,
                   "cmdk-item": "",
@@ -1940,8 +1940,8 @@ function ComposerTopTray({
                 },
                 h(
                   "div",
-                  { className: "codex-top-tray-copy flex w-full items-center gap-2" },
-                  h("span", { className: "codex-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
+                  { className: "agent-top-tray-copy flex w-full items-center gap-2" },
+                  h("span", { className: "agent-top-tray-icon icon-xs shrink-0", "aria-hidden": true }, item.icon),
                   h(
                     "div",
                     { className: titleClass },
@@ -1962,7 +1962,7 @@ function ComposerTopTray({
                         "span",
                         {
                           className:
-                            "codex-top-tray-detail min-w-0 flex-1 truncate text-sm text-token-description-foreground",
+                            "agent-top-tray-detail min-w-0 flex-1 truncate text-sm text-token-description-foreground",
                         },
                         item.detail,
                       )
@@ -1991,7 +1991,7 @@ function ComposerModeIndicator({
     h(
       "button",
       {
-        className: `composer-mode-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} rounded-full`,
+        className: `composer-mode-button group ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} rounded-full`,
         type: "button",
         "aria-label": label,
         onClick: onClear,
@@ -2023,7 +2023,7 @@ function ComposerIdeContextIndicator({
   return h(
     "button",
     {
-      className: `composer-context-button group ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} min-w-0 rounded-full`,
+      className: `composer-context-button group ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} min-w-0 rounded-full`,
       type: "button",
       "aria-label": label,
       title: label,
@@ -2065,7 +2065,7 @@ function PermissionsDropdown({
   const triggerLabel = copy?.changePermissions ?? "Change permissions";
   const selectedLabel = permissionModeLabel(copy, mode);
   const options: ComposerPermissionMode[] = isEnabled ? ["default", "auto-review", "full-access", "custom"] : [];
-  const triggerSizeClass = hideLabel ? CODEX_BUTTON_COMPOSER_SM : CODEX_BUTTON_COMPOSER;
+  const triggerSizeClass = hideLabel ? AGENT_BUTTON_COMPOSER_SM : AGENT_BUTTON_COMPOSER;
   const selectMode = (nextMode: ComposerPermissionMode) => {
     onModeChange(nextMode);
     onOpenChange(false);
@@ -2084,7 +2084,7 @@ function PermissionsDropdown({
     h(
       "button",
       {
-        className: `permissions-trigger ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${triggerSizeClass} ${hideLabel ? CODEX_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
+        className: `permissions-trigger ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${triggerSizeClass} ${hideLabel ? AGENT_BUTTON_UNIFORM : "min-w-0"} rounded-full`,
         type: "button",
         "aria-label": triggerLabel,
         "aria-haspopup": isEnabled ? "menu" : undefined,
@@ -2232,7 +2232,7 @@ function AddContextDropdown({
     h(
       "button",
       {
-        className: `codex-tool codex-tool-plus ${CODEX_BUTTON_BASE} ${CODEX_BUTTON_GHOST} ${CODEX_BUTTON_COMPOSER} ${CODEX_BUTTON_UNIFORM} rounded-full`,
+        className: `agent-tool agent-tool-plus ${AGENT_BUTTON_BASE} ${AGENT_BUTTON_GHOST} ${AGENT_BUTTON_COMPOSER} ${AGENT_BUTTON_UNIFORM} rounded-full`,
         type: "button",
         "aria-label": addFilesAndMoreLabel,
         "aria-haspopup": "menu",
@@ -2829,7 +2829,7 @@ function folderIcon(className = "icon-sm") {
     "svg",
     { className, width: 20, height: 20, viewBox: "0 0 20 20", fill: "none", "aria-hidden": true },
     h("path", {
-      d: CODEX_FOLDER_ICON_PATH,
+      d: AGENT_FOLDER_ICON_PATH,
       fill: "currentColor",
     }),
   );

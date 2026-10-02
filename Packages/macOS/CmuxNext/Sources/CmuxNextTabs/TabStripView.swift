@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Observation
 import QuartzCore
 
-/// Chrome-style tab strip for one pane.
+/// The tab strip for one pane.
 ///
 /// Reads a `TabStripModel`, lays tabs out with `TabLayoutEngine`, and animates
 /// between layouts with per-tab springs on a display link, so open, close,
@@ -48,7 +48,7 @@ public final class TabStripView: NSView {
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
-    /// group editor bubble, as in Chrome.
+    /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
@@ -62,33 +62,13 @@ public final class TabStripView: NSView {
     var fadedEdges: (leading: Bool, trailing: Bool) = (false, false)
     let newTabButton = NewTabButtonView()
     let buttonGroup = TabStripButtonGroupView()
+    /// The selected browser tab's address in the free space after the tabs.
+    let locationField = TabLocationFieldView()
     let hoverCard = TabHoverCardController()
     let groupEditor = TabGroupEditorController()
     var trackingArea: NSTrackingArea?
 
     // MARK: Layout and animation state
-
-    /// Per-tab springs. A tab that grows in from zero width uses the
-    /// `appear` spring; a move to zero (close, collapse) uses `disappear`.
-    struct TabMotion {
-        var x: Spring
-        var width: Spring
-        var alpha: Spring
-
-        init(x: CGFloat, width: CGFloat, alpha: CGFloat) {
-            self.x = Spring(value: x, token: .move)
-            self.width = Spring(value: width, token: width == 0 ? .appear : .move)
-            self.alpha = Spring(value: alpha, token: .appear, epsilon: 0.004)
-        }
-
-        var isSettled: Bool { x.isSettled && width.isSettled && alpha.isSettled }
-
-        mutating func snap() {
-            x.snap()
-            width.snap()
-            alpha.snap()
-        }
-    }
 
     /// Layer-drawn tabs. One CALayer tree per tab, no NSView per tab.
     var cells: [TabID: TabCell] = [:]
@@ -195,6 +175,8 @@ public final class TabStripView: NSView {
         contentView.addSubview(newTabButton)
         newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
         contentView.addSubview(buttonGroup)
+        contentView.addSubview(locationField)
+        locationField.onPress = { [weak self] in self?.model.send(.focusLocation) }
         buttonGroup.onPress = { [weak self] id in self?.model.send(.trailingButton(id)) }
         buttonGroup.onAccessibilityFocus = { [weak self] focused in self?.buttonReveal.accessibilityFocused = focused }
         groupEditor.onCommand = { [weak self] command in self?.model.send(.group(command)) }
@@ -233,6 +215,7 @@ public final class TabStripView: NSView {
             }
         }
         if !newTabButton.isHidden { children.append(newTabButton) }
+        if !locationField.isHidden { children.append(locationField) }
         if !buttonGroup.isHidden { children.append(buttonGroup) }
         return children
     }
@@ -345,6 +328,7 @@ public final class TabStripView: NSView {
         }
         groupEditor.hide()
         newTabButton.needsLayout = true
+        locationField.font = Typography.caption
         buttonGroup.metrics = metrics
         glassView?.cornerRadius = metrics.cornerRadius + metrics.stripVerticalPadding
         invalidateIntrinsicContentSize()
@@ -367,7 +351,7 @@ public final class TabStripView: NSView {
         layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
-            // Chrome resizes tabs with the window instantly.
+            // Tabs resize with the window instantly.
             relayout(animated: false)
         } else {
             applyFrames()

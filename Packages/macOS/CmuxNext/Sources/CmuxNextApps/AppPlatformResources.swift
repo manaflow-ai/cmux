@@ -1,0 +1,21 @@
+public import Foundation
+
+/// Files synced from `cmux-tui/crates/cmux-app-host` and `samples/apps` by
+/// `scripts/cmux-next/sync-app-runtime.sh` (never edit the copies).
+public nonisolated enum AppPlatformResources {
+    /// `Resources/AppPlatform` inside the module bundle.
+    public static var root: URL {
+        Bundle.module.resourceURL?.appending(path: "AppPlatform", directoryHint: .isDirectory)
+            ?? Bundle.module.bundleURL.appending(path: "AppPlatform", directoryHint: .isDirectory)
+    }
+
+    /// The engine-neutral runtime (`dist/cmux-app-runtime.js`).
+    public static var runtimeScript: URL { root.appending(path: "runtime/cmux-app-runtime.js") }
+    /// `generated/scopes.json`: op name -> scope and class.
+    public static var scopesFile: URL { root.appending(path: "scopes.json") }
+    public static var schemaFile: URL { root.appending(path: "schema/cmux-app.schema.json") }
+    /// `schema/fixtures/{valid,invalid}` shared with the TypeScript validator.
+    public static var fixtures: URL { root.appending(path: "schema/fixtures", directoryHint: .isDirectory) }
+    /// The built first-party sample apps, one directory per app.
+    public static var samples: URL { root.appending(path: "samples", directoryHint: .isDirectory) }
+}

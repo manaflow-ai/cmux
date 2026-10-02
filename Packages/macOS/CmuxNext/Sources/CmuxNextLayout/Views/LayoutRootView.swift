@@ -199,8 +199,11 @@ public final class LayoutRootView: NSView {
             // on layout changes, reveals focus, and springs back after a close.
             let focused = snapshot.focused.flatMap { screen.layout.contains($0) ? $0 : nil }
             let source: ColumnFocusSource = previous?.focused != snapshot.focused ? model.lastFocusSource : .programmatic
+            // Only a snap that stands in for Reduce Motion's spring shows the
+            // scrollbar, not one at launch or while out of the window.
             if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive) {
+                               animated: previous != nil && canAnimate, reveals: !snapshot.gestureActive,
+                               showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                 needsFrames = true
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),

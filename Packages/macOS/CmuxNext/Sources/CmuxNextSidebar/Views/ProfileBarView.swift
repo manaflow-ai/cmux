@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// The room dots at the bottom center of the sidebar (Arc spaces,
-/// plans/cmux-next/data-model.md 7), deliberately plain (user: "more
+/// The room dots at the bottom center of the sidebar
+/// (plans/cmux-next/data-model.md 7), deliberately plain (user: "more
 /// minimal, muted, undesigned"): one small dot per room in the theme's
 /// foreground at a low alpha, the current room a little stronger; no rings,
 /// fills, colors, icons or labels (a room's emoji and name are in its
@@ -36,19 +36,29 @@ final class ProfileBarView: NSView {
     // MARK: Geometry
 
     private var slot: CGFloat { Metrics.roomDotSlot }
-    private var slotCount: Int { model.profiles.count + 1 }
+    /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
+    /// and the dots stay centered without it).
+    private(set) var isPointerInside = false {
+        didSet {
+            guard isPointerInside != oldValue else { return }
+            needsDisplay = true
+            rebuildToolTips()
+        }
+    }
 
-    /// Slot rects, the "+" last, centered horizontally.
+    /// Slot rects: one per room, centered as a group, then the "+" slot
+    /// trailing the last dot (it never shifts the dots).
     private func slotRects() -> [NSRect] {
-        let total = slot * CGFloat(slotCount)
-        let x0 = (bounds.width - total) / 2
-        return (0..<slotCount).map { NSRect(x: x0 + CGFloat($0) * slot, y: 0, width: slot, height: bounds.height) }
+        ProfileBarLogic.slotXs(count: model.profiles.count, slot: slot, width: bounds.width).map {
+            NSRect(x: $0, y: 0, width: slot, height: bounds.height)
+        }
     }
 
     private func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
-        return hit == model.profiles.count ? Self.plusIndex : hit
+        guard hit == model.profiles.count else { return hit }
+        return isPointerInside ? Self.plusIndex : nil
     }
 
     // MARK: Drawing
@@ -64,7 +74,7 @@ final class ProfileBarView: NSView {
                 let diameter = Metrics.roomDotDiameter
                 NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2, width: diameter, height: diameter)).fill()
             }
-            drawPlus(in: rects[model.profiles.count])
+            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
@@ -101,7 +111,7 @@ final class ProfileBarView: NSView {
             let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
             addToolTip(rects[offset], owner: tip as NSString, userData: nil)
         }
-        addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil)
+        if isPointerInside { addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil) }
     }
 
     // MARK: Mouse
@@ -113,7 +123,15 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseMoved(with event: NSEvent) { setHovered(index(at: convert(event.locationInWindow, from: nil))) }
-    override func mouseExited(with event: NSEvent) { setHovered(nil) }
+    override func mouseEntered(with event: NSEvent) { isPointerInside = true }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(nil)
+        isPointerInside = false
+    }
+
+    /// The pointer entered or left (tests and the hover state of a drag).
+    func setPointerInside(_ inside: Bool) { isPointerInside = inside }
 
     private func setHovered(_ value: Int?) {
         guard hovered != value else { return }

@@ -68,7 +68,7 @@ extension TabStripModel {
             if let next = TabGroupOrdering.selectionAfterCollapsing(group, in: ordered, collapsed: collapsed, selected: selectedID) {
                 selectedID = next
             } else {
-                // Every visible tab is in the group: Chrome opens a new tab.
+                // Every visible tab is in the group: open a new tab.
                 let fresh = makeTab()
                 tabs = ordered + [fresh]
                 selectedID = fresh.id

@@ -24,7 +24,7 @@ extension SidebarListView {
     /// The workspace row under `point` (this view's coordinates) that may
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
-        guard drag == nil, rename == nil, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
+        guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
               case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil else { return nil }
         return id
     }

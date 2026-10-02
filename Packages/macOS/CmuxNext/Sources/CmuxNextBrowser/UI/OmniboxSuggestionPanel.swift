@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The lower part of the suggestion card (Helium's omnibox popup): a
+/// The lower part of the suggestion card: a
 /// non-activating child panel flush under the bar, as wide as the card top
 /// (`OmnibarCardTopView`), rounded at the bottom only, with 28 pt rows whose
 /// icon and text line up with the bar's chip and text. A separate window, so
@@ -53,7 +53,7 @@ final class OmniboxSuggestionPanel {
             height: cardHeight + margin
         )
         content.cardFrame = NSRect(x: margin, y: margin, width: cardWidth, height: cardHeight)
-        // Rows from the top, inset like Helium (4 at the sides, 2 above each).
+        // Rows from the top, inset (4 at the sides, 2 above each).
         for (index, row) in rows.enumerated() {
             let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
             row.frame = NSRect(

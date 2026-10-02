@@ -9,7 +9,11 @@ import Testing
     private func themeItem(_ menu: NSMenu, _ registry: ActionRegistry, _ id: ActionID) throws -> NSMenuItem {
         let title = try #require(registry.title(for: id))
         let plain = title.hasSuffix("…") ? String(title.dropLast()) : title
-        return try #require(menu.items.first { $0.title == plain })
+        // The theme submenu may sit inside the Appearance folder.
+        func find(_ menu: NSMenu) -> NSMenuItem? {
+            menu.items.first { $0.title == plain } ?? menu.items.lazy.compactMap { $0.submenu.flatMap(find) }.first
+        }
+        return try #require(find(menu))
     }
 
     @Test func roomMenuListsEveryThemeAndChecksTheCurrentOne() throws {

@@ -6,105 +6,76 @@ import Testing
 /// (OWNERSHIP-PRINCIPLES.md, "Verification": "seeded property tests for ...
 /// the mirror + intent log against a reference model").
 ///
-/// A reference owner holds the layout of three panes. Each step does one
-/// random thing: the client intends a move (sent in order on the control
-/// connection), the owner serves the next request (applies or rejects it;
-/// a move to the tab's own place emits nothing, like cmux-tui), another
-/// client moves, closes or opens a tab or closes or opens a pane (with its
-/// tabs), the client receives a batch of
-/// events (sometimes with a repeated delta, sometimes a `tree-changed`
-/// that forces a resync), a reply, or a resync whose snapshot is newer
-/// than events still in flight (they arrive later and are skipped by the
-/// snapshot barrier), or a new connection whose event sequences restart
-/// below the old ones (requests in flight fail, some after the owner
-/// applied them). After every step:
+/// A reference owner (`RefState`) holds three panes of tabs with names and
+/// pins, four workspaces with names, order and groups, and the collapse
+/// state of two workspace groups and one tab group. Each step does one
+/// random thing: the client intends a change of any kind (moveTab,
+/// renameTab, setTabPinned, renameWorkspace, moveWorkspace,
+/// setWorkspaceGroup, placeWorkspace, either collapse; sent in order on the
+/// control connection), the owner serves the next request (applies or
+/// rejects it; a change that changes nothing emits nothing, like
+/// cmux-tui), another client changes any of the same state or closes or
+/// opens tabs and panes, the client receives a batch of events (sometimes a
+/// repeated delta, sometimes a `tree-changed` that forces a resync; a
+/// collapse is reported only as `tree-changed`), a reply, or a resync whose
+/// snapshot is newer than events still in flight (they arrive later and
+/// are skipped by the snapshot barrier), or a new connection whose event
+/// sequences restart below the old ones (requests in flight fail, some
+/// after the owner applied them). After every step:
 ///
 /// - conservation: the visible tabs are exactly the confirmed tabs, none
 ///   duplicated or lost;
-/// - an unsettled intent stays visible (its tab shows in its target pane),
-///   and the visible layout is exactly the confirmed one plus the pending
-///   intents applied in order;
-/// - no intent settles twice;
+/// - an unsettled move stays visible, and the whole visible state is
+///   exactly the confirmed one plus the pending intents applied in order;
+/// - no intent settles twice, nor before its outcome reached the store;
 /// - convergence: with an empty log and no resync pending, the visible
-///   layout equals the owner's layout at the store's sequence.
+///   state equals the confirmed one, which equals the owner's at the
+///   store's sequence.
 ///
 /// At the end everything drains: every intent settled exactly once, the
-/// visible layout equals the owner's, and the debug single-writer check
+/// visible state equals the owner's, and the debug single-writer check
 /// found nothing.
 @MainActor @Suite struct IntentLogPropertyTests {
     static let seedsPerCase = 250
     static let steps = 80
 
     @Test(arguments: 0..<8)
-    func mirrorAndIntentLogKeepTheirInvariants(chunk: Int) throws {
+    func mirrorAndIntentLogKeepTheirInvariants(chunk: Int) async throws {
         let template = try Fixture.response(DaemonTree.self, "list-workspaces.json")
         for seed in (chunk * Self.seedsPerCase)..<((chunk + 1) * Self.seedsPerCase) {
-            var world = World(seed: UInt64(seed), template: template)
+            var world = IntentWorld(seed: UInt64(seed), template: template)
             try world.run(steps: Self.steps)
+            // Each seed runs on the main actor; yield between seeds so the
+            // package's other main-actor tests (socket round trips with
+            // deadlines) are not starved for the whole chunk.
+            await Task.yield()
         }
     }
 }
 
-/// splitmix64: small, seedable, the same sequence on every machine.
-private struct SeededRandom: RandomNumberGenerator {
-    var state: UInt64
-    mutating func next() -> UInt64 {
-        state &+= 0x9E37_79B9_7F4A_7C15
-        var z = state
-        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
-        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
-        return z ^ (z >> 31)
-    }
-}
-
-/// The owner's layout: panes in order, each with its tabs in order. A pane
-/// of `panes` without an entry is closed.
-private struct Layout: Equatable, CustomStringConvertible {
-    static let panes: [PaneID] = [4, 7, 21]
-    var tabs: [PaneID: [SurfaceID]]
-
-    var description: String { Self.panes.map { "\($0):\(tabs[$0].map { "\($0)" } ?? "closed")" }.joined(separator: " ") }
-    var openPanes: [PaneID] { Self.panes.filter { tabs[$0] != nil } }
-    var allTabs: [SurfaceID] { Self.panes.flatMap { tabs[$0] ?? [] } }
-
-    func pane(of surface: SurfaceID) -> PaneID? { Self.panes.first { tabs[$0]?.contains(surface) == true } }
-
-    /// cmux-tui `move-tab` with a final index; returns false when nothing
-    /// moved (no event): the tab or the pane is missing, or the tab is at
-    /// its place.
-    mutating func move(_ surface: SurfaceID, to pane: PaneID, index: Int) -> Bool {
-        guard tabs[pane] != nil, let source = self.pane(of: surface), let from = tabs[source]?.firstIndex(of: surface) else { return false }
-        if source == pane {
-            let final = min(max(index, 0), tabs[pane]!.count - 1)
-            guard final != from else { return false }
-            tabs[pane]!.remove(at: from)
-            tabs[pane]!.insert(surface, at: final)
-        } else {
-            tabs[source]!.remove(at: from)
-            tabs[pane]!.insert(surface, at: min(max(index, 0), tabs[pane]!.count))
-        }
-        return true
-    }
-}
-
-@MainActor private struct World {
-    struct Request { let transaction: ClientTransactionID; let surface: SurfaceID; let pane: PaneID; let index: Int }
+@MainActor struct IntentWorld {
+    struct Request { let transaction: ClientTransactionID; let intent: Intent }
     struct Reply { let transaction: ClientTransactionID; let ok: Bool; let barrier: UInt64 }
 
-    var random: SeededRandom
+    var random: IntentRandom
     let seed: UInt64
     let template: DaemonTree
     let store = DaemonStore()
 
-    var owner: Layout
-    /// The owner's layout after each event sequence of this connection.
-    var history: [UInt64: Layout]
+    var owner: RefState
+    /// The owner's workspace revision (every workspace delta adds one).
+    var revision: UInt64
+    /// What a store that applied every delta up to each event sequence of
+    /// this connection shows (collapse fields aside: see `confirmed`).
+    var history: [UInt64: RefState]
     var sequence: UInt64 = 0
     /// Connections so far; a new one numbers its events from the start
     /// again (a new `DaemonConnection` restarts its serial).
     var connection = 0
-    /// The owner layout the store's confirmed records reflect.
-    var confirmed: Layout
+    /// The owner state the store's confirmed records reflect. Workspace
+    /// group collapse arrives only in snapshots; the tab group's collapse
+    /// also with each workspace delta of the workspace holding it.
+    var confirmed: RefState
     var nextSurface: UInt64 = 100
     var nextTransaction = 0
 
@@ -116,8 +87,8 @@ private struct Layout: Equatable, CustomStringConvertible {
     /// applied event, or the last snapshot's barrier).
     var mirrorSequence: UInt64 = 0
 
-    /// Pending intents by transaction (the reference log).
-    var pending: [(transaction: ClientTransactionID, surface: SurfaceID, pane: PaneID, index: Int)] = []
+    /// Pending intents in order (the reference log).
+    var pending: [(transaction: ClientTransactionID, intent: Intent)] = []
     var sent: Set<ClientTransactionID> = []
     /// Served requests: accepted (with the reply's barrier and connection) or rejected.
     var served: [ClientTransactionID: (ok: Bool, barrier: UInt64, connection: Int)] = [:]
@@ -131,18 +102,28 @@ private struct Layout: Equatable, CustomStringConvertible {
 
     init(seed: UInt64, template: DaemonTree) {
         self.seed = seed
-        random = SeededRandom(state: seed)
+        random = IntentRandom(state: seed)
         self.template = template
         var tabs: [PaneID: [SurfaceID]] = [:]
+        var meta: [SurfaceID: RefTabMeta] = [:]
         var surface: UInt64 = 1
-        for pane in Layout.panes {
+        for pane in RefLayout.panes {
             let count = Int.random(in: 1...3, using: &random)
             tabs[pane] = (0..<count).map { _ in
                 defer { surface += 1 }
+                meta[SurfaceID(rawValue: surface)] = RefTabMeta()
                 return SurfaceID(rawValue: surface)
             }
         }
-        owner = Layout(tabs: tabs)
+        var workspaces = [RefWorkspace(key: RefState.main, handle: 1, name: "beta", group: nil)]
+        for (offset, key) in ["wa", "wb", "wc"].enumerated() {
+            let group = [nil, "g1", "g2"][Int.random(in: 0..<3, using: &random)].map(WorkspaceGroupID.init(rawValue:))
+            workspaces.append(RefWorkspace(key: WorkspaceKey(rawValue: key), handle: WorkspaceHandle(rawValue: UInt64(40 + offset)),
+                                           name: key, group: group))
+        }
+        owner = RefState(layout: RefLayout(tabs: tabs), meta: meta, workspaces: workspaces,
+                         groupCollapsed: ["g1": false, "g2": false], tabGroupCollapsed: false)
+        revision = template.workspaceRevision
         history = [0: owner]
         confirmed = owner
     }
@@ -151,7 +132,7 @@ private struct Layout: Equatable, CustomStringConvertible {
 
     mutating func run(steps: Int) throws {
         store.apply(snapshot: tree(owner))
-        let log = SettleLog()
+        let log = IntentSettleLog()
         store.onIntentSettled = { transaction, _ in log.record(transaction) }
         for _ in 0..<steps {
             step()
@@ -173,7 +154,7 @@ private struct Layout: Equatable, CustomStringConvertible {
     }
 
     /// Delivers everything until the log is empty and nothing is in flight.
-    mutating func drain(_ log: SettleLog) throws {
+    mutating func drain(_ log: IntentSettleLog) throws {
         var rounds = 0
         while !outbox.isEmpty || !events.isEmpty || !replies.isEmpty || resyncPending {
             rounds += 1
@@ -190,17 +171,34 @@ private struct Layout: Equatable, CustomStringConvertible {
     // MARK: Client
 
     mutating func intend() {
-        let tabs = visible().allTabs
-        guard let surface = tabs.randomElement(using: &random) else { return }
-        let pane = Layout.panes.randomElement(using: &random)!
-        let index = Int.random(in: 0...4, using: &random)
+        guard let intent = randomIntent(in: visible()) else { return }
         nextTransaction += 1
         let transaction = ClientTransactionID(rawValue: "t\(nextTransaction)")
-        trace.append("intend \(transaction) \(surface)->\(pane)@\(index)")
-        store.intend(.moveTab(surface: surface, toPane: pane, index: index), transaction: transaction)
-        pending.append((transaction, surface, pane, index))
+        trace.append("intend \(transaction) \(intent)")
+        store.intend(intent, transaction: transaction)
+        pending.append((transaction, intent))
         sent.insert(transaction)
-        outbox.append(Request(transaction: transaction, surface: surface, pane: pane, index: index))
+        outbox.append(Request(transaction: transaction, intent: intent))
+    }
+
+    /// A random change of any kind to what `state` shows (the user acts
+    /// on the visible state).
+    mutating func randomIntent(in state: RefState) -> Intent? {
+        let surface = state.layout.allTabs.randomElement(using: &random)
+        let key = state.workspaces.randomElement(using: &random)!.key
+        let group = [nil, "g1", "g2"].randomElement(using: &random)!.map(WorkspaceGroupID.init(rawValue:))
+        switch Int.random(in: 0..<10, using: &random) {
+        case 0..<3:
+            return surface.map { .moveTab(surface: $0, toPane: RefLayout.panes.randomElement(using: &random)!, index: Int.random(in: 0...4, using: &random)) }
+        case 3: return surface.map { .renameTab(surface: $0, name: ["a", "b", nil].randomElement(using: &random)!) }
+        case 4: return surface.map { .setTabPinned(surface: $0, pinned: Bool.random(using: &random)) }
+        case 5: return .renameWorkspace(key: key, name: ["x", "y", "z"].randomElement(using: &random)!)
+        case 6: return .moveWorkspace(key: key, index: Int.random(in: 0...4, using: &random))
+        case 7: return Bool.random(using: &random) ? .setWorkspaceGroup(key: key, group: group)
+            : .placeWorkspace(key: key, group: group, index: Int.random(in: 0...3, using: &random))
+        case 8: return .setWorkspaceGroupCollapsed(RefState.groups.randomElement(using: &random)!, collapsed: Bool.random(using: &random))
+        default: return .setTabGroupCollapsed(RefState.tabGroup, collapsed: Bool.random(using: &random))
+        }
     }
 
     mutating func deliverEvents(all: Bool = false) {
@@ -217,10 +215,17 @@ private struct Layout: Equatable, CustomStringConvertible {
         trace.append("events \(batch.map(\.sequence))")
         for envelope in batch { if let transaction = envelope.event.clientTransactionID { echoesDelivered.insert(transaction) } }
         let barrier = store.snapshotBarrier
+        var tabGroupCollapsed = confirmed.tabGroupCollapsed
+        for envelope in batch where envelope.sequence > barrier {
+            if let collapsed = Self.tabGroupCollapse(in: envelope.event) { tabGroupCollapsed = collapsed }
+        }
         if store.apply(batch: batch) == .resync { resyncPending = true }
         if let last = batch.map(\.sequence).filter({ $0 > barrier }).max() {
             mirrorSequence = max(mirrorSequence, last)
+            let groups = confirmed.groupCollapsed
             confirmed = history[mirrorSequence]!
+            confirmed.groupCollapsed = groups
+            confirmed.tabGroupCollapsed = tabGroupCollapsed
         }
     }
 
@@ -276,181 +281,13 @@ private struct Layout: Equatable, CustomStringConvertible {
         store.rejectIntent(transaction)
     }
 
-    // MARK: Owner
-
-    mutating func serve() {
-        guard !outbox.isEmpty else { return }
-        let request = outbox.removeFirst()
-        let roll = Int.random(in: 0..<100, using: &random)
-        let exists = owner.pane(of: request.surface) != nil && owner.tabs[request.pane] != nil
-        guard roll >= 8, exists else {
-            trace.append("reject \(request.transaction)")
-            served[request.transaction] = (false, sequence, connection)
-            replies.append(Reply(transaction: request.transaction, ok: false, barrier: sequence))
-            return
-        }
-        if owner.move(request.surface, to: request.pane, index: request.index) {
-            // cmux-tui's move-tab emits tree-changed (sometimes) and the
-            // moved tab's tab-changed echoing the transaction.
-            if Int.random(in: 0..<4, using: &random) == 0 { emit(.treeChanged(transaction: nil)) }
-            let echo = Int.random(in: 0..<5, using: &random) != 0
-            emit(tabChanged(request.surface, transaction: echo ? request.transaction : nil))
-        }
-        trace.append("serve \(request.transaction) -> \(owner)")
-        served[request.transaction] = (true, sequence, connection)
-        replies.append(Reply(transaction: request.transaction, ok: true, barrier: sequence))
-    }
-
-    /// Another client changes the layout.
-    mutating func external() {
-        switch Int.random(in: 0..<5, using: &random) {
-        case 0:
-            guard let surface = owner.allTabs.randomElement(using: &random) else { return }
-            let pane = Layout.panes.randomElement(using: &random)!
-            if owner.move(surface, to: pane, index: Int.random(in: 0...4, using: &random)) {
-                emit(tabChanged(surface, transaction: nil))
-            }
-        case 1:
-            // A close keeps every pane non-empty here (the store's pane
-            // removal is not under test).
-            let candidates = owner.openPanes.filter { (owner.tabs[$0]?.count ?? 0) > 1 }
-            guard let pane = candidates.randomElement(using: &random),
-                  let surface = owner.tabs[pane]?.randomElement(using: &random) else { return }
-            let index = owner.tabs[pane]!.firstIndex(of: surface)!
-            owner.tabs[pane]!.remove(at: index)
-            emit(.tabClosed(TabDelta(workspace: 1, screen: 5, pane: pane, surface: surface, index: index, entity: TabSnapshot(surface: surface))))
-        case 2:
-            // A pane closes with its tabs (tab-closed each, then pane-closed);
-            // one pane stays open.
-            guard owner.openPanes.count > 1, let pane = owner.openPanes.randomElement(using: &random) else { return }
-            while let surface = owner.tabs[pane]?.last {
-                let index = owner.tabs[pane]!.count - 1
-                owner.tabs[pane]!.removeLast()
-                emit(.tabClosed(TabDelta(workspace: 1, screen: 5, pane: pane, surface: surface, index: index, entity: TabSnapshot(surface: surface))))
-            }
-            owner.tabs[pane] = nil
-            emit(.paneClosed(PaneDelta(workspace: 1, screen: 5, pane: pane, index: nil, entity: PaneSnapshot(id: pane))))
-        case 3:
-            // A closed pane opens again with one new tab.
-            guard let pane = Layout.panes.filter({ owner.tabs[$0] == nil }).randomElement(using: &random) else { return }
-            let surface = SurfaceID(rawValue: nextSurface)
-            nextSurface += 1
-            owner.tabs[pane] = [surface]
-            emit(.paneAdded(PaneDelta(workspace: 1, screen: 5, pane: pane, index: nil,
-                                      entity: PaneSnapshot(id: pane, tabs: [TabSnapshot(surface: surface)]))))
-        default:
-            guard let pane = owner.openPanes.randomElement(using: &random) else { return }
-            let surface = SurfaceID(rawValue: nextSurface)
-            nextSurface += 1
-            let index = Int.random(in: 0...owner.tabs[pane]!.count, using: &random)
-            owner.tabs[pane]!.insert(surface, at: index)
-            emit(.tabAdded(TabDelta(workspace: 1, screen: 5, pane: pane, surface: surface, index: index, entity: TabSnapshot(surface: surface))))
-        }
-        trace.append("external -> \(owner)")
-    }
-
-    /// `history` holds what a store that applied every delta up to each
-    /// sequence shows: a `tree-changed` carries no delta (the store keeps
-    /// its layout and resyncs), so it repeats the previous layout.
-    mutating func emit(_ event: DaemonEvent) {
-        let previous = history[sequence]
-        sequence += 1
-        if case .treeChanged = event, let previous {
-            history[sequence] = previous
-        } else {
-            history[sequence] = owner
-        }
-        events.append(DaemonEventEnvelope(sequence: sequence, event: event))
-    }
-
-    func tabChanged(_ surface: SurfaceID, transaction: ClientTransactionID?) -> DaemonEvent {
-        let pane = owner.pane(of: surface)!
-        return .tabChanged(TabDelta(workspace: 1, screen: 5, pane: pane, surface: surface, index: owner.tabs[pane]!.firstIndex(of: surface),
-                                    entity: TabSnapshot(surface: surface), clientTransactionID: transaction))
-    }
-
-    // MARK: Checks
-
-    mutating func check(_ log: SettleLog) throws {
-        let shown = visible()
-        // Conservation.
-        try require(shown.allTabs.count == Set(shown.allTabs).count, "duplicated tab in \(shown)")
-        try require(Set(shown.allTabs) == Set(confirmed.allTabs), "visible \(shown) lost or gained tabs vs confirmed \(confirmed)")
-        // No intent settles twice, and none before the store could know
-        // its outcome (its echo, its rejection, or its reply plus every
-        // event up to the reply's barrier).
-        for transaction in sent {
-            let count = log.count(transaction)
-            try require(count <= 1, "\(transaction) settled twice")
-            // Checked once, with what the store knew when it settled.
-            guard count == 1, settledSeen.insert(transaction).inserted else { continue }
-            guard let outcome = served[transaction] else { throw failure("\(transaction) settled before the owner served it") }
-            let known = outcome.ok
-                ? echoesDelivered.contains(transaction) || knownBySnapshot.contains(transaction)
-                    || (repliesDelivered.contains(transaction) && outcome.connection == connection && mirrorSequence >= outcome.barrier)
-                : repliesDelivered.contains(transaction)
-            try require(known, "\(transaction) settled before its outcome reached the store: served \(String(describing: served[transaction])) replied \(repliesDelivered.contains(transaction)) echo \(echoesDelivered.contains(transaction)) snap \(knownBySnapshot.contains(transaction)) await \(awaitingSnapshot.contains(transaction)) conn \(connection) mirror \(mirrorSequence)")
-        }
-        // An unsettled intent stays visible (the last one per tab wins).
-        let open = Set(store.intentLog.entries.map(\.transaction))
-        pending.removeAll { !open.contains($0.transaction) }
-        var last: [SurfaceID: PaneID] = [:]
-        for intent in pending { last[intent.surface] = intent.pane }
-        for (surface, pane) in last where confirmed.pane(of: surface) != nil && confirmed.tabs[pane] != nil {
-            try require(shown.pane(of: surface) == pane, "pending move of \(surface) to \(pane) not visible in \(shown)")
-        }
-        // Visible = confirmed + pending intents in order, exactly.
-        var expected = confirmed
-        for intent in pending { _ = expected.move(intent.surface, to: intent.pane, index: intent.index) }
-        try require(shown == expected, "visible \(shown) != confirmed \(confirmed) + intents = \(expected)")
-        // Convergence.
-        if pending.isEmpty, !resyncPending {
-            try require(shown == confirmed, "empty log but visible \(shown) != owner at \(mirrorSequence) \(confirmed)")
-            try require(confirmed == history[mirrorSequence], "confirmed \(confirmed) != owner at \(mirrorSequence)")
-        }
-    }
-
     func require(_ condition: Bool, _ message: @autoclosure () -> String) throws {
         guard condition else { throw failure(message()) }
     }
 
-    func failure(_ message: String) -> PropertyFailure {
+    func failure(_ message: String) -> IntentPropertyFailure {
         let recent = trace.suffix(16).joined(separator: "\n")
         Issue.record(Comment(rawValue: "seed \(seed): \(message)\n\(recent)"))
-        return PropertyFailure()
+        return IntentPropertyFailure()
     }
-
-    // MARK: Projection
-
-    func visible() -> Layout {
-        var tabs: [PaneID: [SurfaceID]] = [:]
-        for pane in Layout.panes { tabs[pane] = store.pane(pane)?.tabs.map(\.surface) }
-        return Layout(tabs: tabs)
-    }
-
-    func tree(_ layout: Layout) -> DaemonTree {
-        var tree = template
-        var workspace = tree.workspaces[0]
-        let model = workspace.screens[0].panes[0]
-        workspace.screens[0].panes = layout.openPanes.map { pane in
-            var snapshot = model
-            snapshot.id = pane
-            snapshot.resourceID = nil
-            snapshot.tabGroups = []
-            snapshot.tabs = (layout.tabs[pane] ?? []).map { TabSnapshot(surface: $0) }
-            return snapshot
-        }
-        workspace.screens = [workspace.screens[0]]
-        tree.workspaces = [workspace]
-        return tree
-    }
-}
-
-private struct PropertyFailure: Error {}
-
-/// Counts settlements per transaction (the store's `onIntentSettled`).
-@MainActor private final class SettleLog {
-    private var counts: [ClientTransactionID: Int] = [:]
-    func record(_ transaction: ClientTransactionID) { counts[transaction, default: 0] += 1 }
-    func count(_ transaction: ClientTransactionID) -> Int { counts[transaction] ?? 0 }
 }

@@ -28,8 +28,18 @@ extension DaemonStore {
         }
         verifyMirrorUnchanged(before: "intent")
         guard intentLog.append(intent, transaction: transaction) else { return }
-        intentLog.setUndo(applyOverlay(intent), at: intentLog.entries.count - 1)
+        intentLog.setUndo(IntentOverlay.apply(intent, to: self), at: intentLog.entries.count - 1)
+        recomputeSidebarIfNeeded()
         recordMirror()
+        workspaceListMayHaveChanged()
+    }
+
+    /// The overlay moved a workspace or changed its group: one sidebar
+    /// flattening once the visible state is complete.
+    private func recomputeSidebarIfNeeded() {
+        guard sidebarNeedsRecompute else { return }
+        sidebarNeedsRecompute = false
+        recomputeSidebar()
     }
 
     /// The command for `transaction` replied: its effects are bounded by
@@ -39,6 +49,13 @@ extension DaemonStore {
     public func noteSettled(_ transaction: ClientTransactionID, at sequence: UInt64) {
         intentLog.settle(transaction, at: sequence)
         settleDueIntents()
+    }
+
+    /// The command for `transaction` replied on a connection that is gone
+    /// (no sequence to wait for): the intent settles with the next snapshot
+    /// applied, which a later connection requests after the reply.
+    public func noteSettledAtNextSnapshot(_ transaction: ClientTransactionID) {
+        intentLog.settleAtSnapshot(transaction)
     }
 
     /// The command for `transaction` failed: the intent leaves the log and
@@ -93,8 +110,10 @@ extension DaemonStore {
         let confirmedTabs = debugTabCensus()
         restoreOverlay()
         overlayLifted = false
+        recomputeSidebarIfNeeded()
         checkOverlayConservation(confirmed: confirmedTabs)
         recordMirror()
+        workspaceListMayHaveChanged()
         // Observers see the visible state with the other intents on it.
         let settled = intentSettlements
         intentSettlements.removeAll()
@@ -115,7 +134,7 @@ extension DaemonStore {
     /// Undoes every overlay apply, newest first.
     private func liftOverlay() {
         for index in intentLog.entries.indices.reversed() {
-            if let undo = intentLog.entries[index].undo { self.undo(undo) }
+            if let undo = intentLog.entries[index].undo { IntentOverlay.undo(undo, in: self) }
             intentLog.setUndo(nil, at: index)
         }
     }
@@ -123,34 +142,7 @@ extension DaemonStore {
     /// Applies every pending intent in order, recording each inverse.
     private func restoreOverlay() {
         for index in intentLog.entries.indices {
-            intentLog.setUndo(applyOverlay(intentLog.entries[index].kind), at: index)
-        }
-    }
-
-    /// Applies one intent to the records. Idempotent and conservation-safe:
-    /// a tab or target that is not in the mirror, or a tab already at its
-    /// place, changes nothing (returns nil).
-    private func applyOverlay(_ intent: Intent) -> IntentUndo? {
-        switch intent {
-        case .moveTab(let surface, let toPane, let index):
-            guard let target = panesByHandle[toPane], let source = pane(containing: surface),
-                  let from = source.tabs.firstIndex(where: { $0.surface == surface }) else { return nil }
-            let final = source === target ? min(max(index, 0), target.tabs.count - 1) : min(max(index, 0), target.tabs.count)
-            if source === target, from == final { return nil }
-            guard let tab = source.removeTab(surface: surface) else { return nil }
-            target.insertTab(tab, at: final)
-            return .moveTab(surface: surface, fromPane: source.handle, fromIndex: from, toPane: target.handle)
-        }
-    }
-
-    private func undo(_ undo: IntentUndo) {
-        switch undo {
-        case .moveTab(let surface, let fromPane, let fromIndex, let toPane):
-            guard let source = panesByHandle[fromPane], let target = panesByHandle[toPane],
-                  let tab = target.removeTab(surface: surface) else {
-                return reportMirrorViolation("intent overlay undo found surface \(surface) missing from pane \(toPane)")
-            }
-            source.insertTab(tab, at: fromIndex)
+            intentLog.setUndo(IntentOverlay.apply(intentLog.entries[index].kind, to: self), at: index)
         }
     }
 }

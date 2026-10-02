@@ -24,7 +24,7 @@ extension SettingsSchema {
                     SettingChoice(NewColumnWidthMode.fitScreen.rawValue, SettingsText.text("settings.choice.fitScreen", "Fit Visible Columns")),
                     SettingChoice(NewColumnWidthMode.fixed.rawValue, SettingsText.text("settings.choice.fixedWidth", "Fixed Width")),
                 ]),
-                default: .string(ColumnLayoutSettings.newColumnWidthFallback.rawValue), keywords: ["niri", "width", "column"]
+                default: .string(ColumnLayoutSettings.newColumnWidthFallback.rawValue), keywords: ["width", "column"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.stickyEdgePath, section: .general, group: columns,

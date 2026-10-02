@@ -62,7 +62,7 @@ enum TabMoves {
         })
     }
 
-    /// New niri column after `afterColumn` (nil = right of `anchor`'s column).
+    /// New strip column after `afterColumn` (nil = right of `anchor`'s column).
     static func toNewColumn(_ tab: TabModel, anchor pane: PaneModel, afterColumn: DaemonColumnID? = nil, services: AppServices,
                             transaction: ClientTransactionID = .generate(), completion: @escaping Completion = { _ in }) {
         let daemon = services.machines.daemon(forTab: tab)

@@ -4,19 +4,28 @@
 import { WORKED_SESSION } from "../mockFixture";
 
 export type TabKind = "agent" | "terminal" | "browser";
-export type WorkspaceTab = { id: string; kind: TabKind; title: string; sessionId?: string; url?: string };
-export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string };
+export type WorkspaceTab = {
+  id: string;
+  kind: TabKind;
+  title: string;
+  sessionId?: string;
+  url?: string;
+  /** A browser tab's profile, fixed when the tab is made (data-model.md 5). */
+  browserProfile?: string;
+};
+/** `browserProfile` is the workspace's own default, over its room's. */
+export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string; browserProfile?: string };
 export type Stack = { workspaces: Workspace[]; activeId: string };
 
-const agent = (sessionId: string, title: string): WorkspaceTab => ({
+export const agent = (sessionId: string, title: string): WorkspaceTab => ({
   id: `agent-${sessionId}`,
   kind: "agent",
   title,
   sessionId,
 });
-const terminal = (id: string, title: string): WorkspaceTab => ({ id, kind: "terminal", title });
-const browser = (id: string, title: string, url: string): WorkspaceTab => ({ id, kind: "browser", title, url });
-const workspace = (id: string, ...tabs: WorkspaceTab[]): Workspace => ({ id, tabs, activeTabId: tabs[0]!.id });
+export const terminal = (id: string, title: string): WorkspaceTab => ({ id, kind: "terminal", title });
+export const browser = (id: string, title: string, url: string): WorkspaceTab => ({ id, kind: "browser", title, url });
+export const workspace = (id: string, ...tabs: WorkspaceTab[]): Workspace => ({ id, tabs, activeTabId: tabs[0]!.id });
 
 /** What a few hours of work leave open, on the #16642 fixture's sessions. */
 export const seedStack: Stack = {
@@ -46,7 +55,7 @@ export const seedStack: Stack = {
     ),
     workspace(
       "ws-home",
-      agent("mock-home-screen", "Match the Codex home screen"),
+      agent("mock-home-screen", "Polish the home screen"),
       browser("b-home", "atlas-web", "localhost:4321"),
     ),
     workspace("ws-docs", browser("b-docs", "Ghostty configuration", "ghostty.org/docs/config")),
@@ -104,4 +113,16 @@ export function selectTab(stack: Stack, workspaceId: string, tabId?: string): St
 /** A workspace's name in the stack: its agent session when it has one, else its first tab. */
 export function workspaceLead(workspace: Workspace): WorkspaceTab {
   return workspace.tabs.find((tab) => tab.kind === "agent") ?? workspace.tabs[0]!;
+}
+
+/** Classic cmux's new workspace: a terminal, at the top of the stack. */
+export function newTerminalWorkspace(stack: Stack): Stack {
+  const id = `ws-new-${stack.workspaces.length + 1}`;
+  return { activeId: id, workspaces: [workspace(id, terminal(`t-${id}`, "~ · zsh")), ...stack.workspaces] };
+}
+
+/** Classic cmux opens on a terminal: the first terminal-led workspace, with its terminal tab showing. */
+export function terminalFirst(stack: Stack): Stack {
+  const lead = stack.workspaces.find((candidate) => candidate.tabs[0]!.kind === "terminal");
+  return lead ? selectTab(stack, lead.id, lead.tabs[0]!.id) : stack;
 }

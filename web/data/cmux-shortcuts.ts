@@ -369,6 +369,15 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeTab", combos: [["⌘", "W"]], description: { en: "Close tab", ja: "タブを閉じる" } },
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       {
+        id: "tab.search",
+        combos: [["⌘", "⇧", "A"]],
+        description: { en: "Search tabs", ja: "タブを検索" },
+        note: {
+          en: "every tab in every window, workspace and pane, with recently closed tabs below; matches title, URL, folder and process. Return focuses the tab, Cmd-W closes the selected row. A focused Simulator keeps Cmd-Shift-A for Toggle Appearance",
+          ja: "すべてのウインドウ、ワークスペース、ペインのタブと、その下に最近閉じたタブを表示。タイトル、URL、フォルダ、プロセスで検索します。Return でタブに移動し、Cmd-W で選択した行を閉じます。フォーカス中の Simulator では Cmd-Shift-A は外観の切り替えのままです",
+        },
+      },
+      {
         id: "reopenClosedBrowserPanel",
         combos: [["⌘", "⇧", "T"]],
         description: { en: "Reopen last closed", ja: "最後に閉じた項目を再度開く" },
@@ -380,7 +389,7 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "simulatorRotateRight", combos: [["⌘", "→"]], description: { en: "Simulator: rotate right", ja: "Simulator: 右に回転" }, note: { en: "focused Simulator", ja: "フォーカス中のSimulator" } },
       { id: "simulatorToggleAppearance", combos: [["⌘", "⇧", "A"]], description: { en: "Simulator: toggle appearance", ja: "Simulator: 外観を切り替え" }, note: { en: "focused Simulator", ja: "フォーカス中のSimulator" } },
       { id: "simulatorToggleSoftwareKeyboard", combos: [["⌘", "K"]], description: { en: "Simulator: toggle software keyboard", ja: "Simulator: ソフトウェアキーボードを切り替え" }, note: { en: "focused Simulator", ja: "フォーカス中のSimulator" } },
-      { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
+      { id: "focusTextBoxInput", combos: [["⌥", "⌘", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
       { id: "cycleTextBoxSubmitAction", combos: [["⇧", "Tab"]], description: { en: "Cycle TextBox submit action", ja: "TextBoxの送信アクションを切り替え" } },
       { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
@@ -596,7 +605,7 @@ export const shortcutCategories: ShortcutCategory[] = [
     shortcuts: [
       {
         id: "openDiffViewer",
-        combos: [["⌃", "⌘", "⇧", "D"]],
+        combos: [["⌃", "⌘", "⇧", "G"]],
         description: { en: "Open diff viewer", ja: "差分ビューアを開く" },
       },
       {

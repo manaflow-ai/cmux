@@ -38,11 +38,24 @@ public final class OnboardingModel {
     public var isFirst: Bool { step == steps.first }
     public var isLast: Bool { step == steps.last }
 
-    /// Continue: keeps the step's choice (the import starts here and keeps
-    /// running in the background), then moves on or finishes.
+    /// The primary button: Import while the import step has a checked
+    /// choice it has not run, else Continue (Done on the last step).
+    public var primaryTitle: String {
+        if step == .importData, importer.canStart { return OnboardingStrings.importButton }
+        return isLast ? OnboardingStrings.done : OnboardingStrings.continueButton
+    }
+
+    /// The primary button. On the import step with a choice to run it
+    /// starts the import and stays, so the rows show it; otherwise it keeps
+    /// the step's choice (a running import keeps going in the background)
+    /// and moves on or finishes.
     public func next() {
         switch step {
-        case .importData: importer.start()
+        case .importData where importer.justStarted:
+            return
+        case .importData where importer.canStart:
+            importer.start()
+            return
         case .theme: theme.commit()
         default: break
         }
