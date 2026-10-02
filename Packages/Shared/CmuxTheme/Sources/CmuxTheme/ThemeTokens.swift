@@ -9,7 +9,7 @@ import Foundation
 /// the foreground, muted toward the background only as far as WCAG contrast
 /// allows. No accent hue: blue appears only if the theme's own colors are
 /// blue, and the status colors come from the theme's ANSI palette.
-public nonisolated struct ThemeTokens: Hashable, Sendable {
+public struct ThemeTokens: Hashable, Sendable {
     /// Dark when the background is darker than the foreground.
     public var isDark: Bool
 
@@ -26,6 +26,7 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var elevatedBackground: ThemeRGB
 
     // Text
+    /// Titles and body text: the foreground, pushed to 4.5:1 when needed.
     public var textPrimary: ThemeRGB
     /// Captions, inactive titles. At least 4.5:1 on every fill.
     public var textSecondary: ThemeRGB
@@ -33,31 +34,43 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     public var textTertiary: ThemeRGB
 
     // Fills (translucent foreground over the surface)
+    /// Under the pointer.
     public var hoverFill: ThemeRGB
+    /// The selected row or tab.
     public var selectionFill: ThemeRGB
     /// Multi-selected rows that are not the active one.
     public var secondarySelectionFill: ThemeRGB
+    /// While pressed; text holds its contrast on it.
     public var pressedFill: ThemeRGB
+    /// Behind counts and small labels.
     public var badgeFill: ThemeRGB
+    /// Hairlines between sections.
     public var separator: ThemeRGB
     /// The subtle hairline around each pane.
     public var paneBorder: ThemeRGB
+    /// The keyboard focus outline.
     public var focusRing: ThemeRGB
     /// Tint laid over Liquid Glass so it takes the theme's cast.
     public var glassTint: ThemeRGB
+    /// Drop shadows under floating cards.
     public var shadow: ThemeRGB
     /// Selected text in chrome text fields (the terminal's selection color
     /// when the config sets one).
     public var textSelection: ThemeRGB
 
     // Status, from the ANSI palette
+    /// Needs-attention marks (ANSI yellow).
     public var attention: ThemeRGB
+    /// Errors and destructive actions (ANSI red).
     public var danger: ThemeRGB
+    /// Success marks (ANSI green).
     public var success: ThemeRGB
     /// ANSI 0...15.
     public var ansi: [ThemeRGB]
 
+    /// `background-opacity`, 0...1; the surfaces carry it as their alpha.
     public var backgroundOpacity: Double
+    /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
 
     /// Minimum contrast for primary and secondary chrome text.
@@ -65,8 +78,17 @@ public nonisolated struct ThemeTokens: Hashable, Sendable {
     /// Minimum contrast for tertiary text and status marks.
     public static let minimumMarkContrast = 3.0
 
+    /// Ghostty's default theme's tokens, used until the config is read.
     public static let fallback = derive(from: .ghosttyDefault)
 
+    /// Every chrome color for a terminal theme.
+    ///
+    /// ```swift
+    /// let tokens = ThemeTokens.derive(from: ThemeInput(terminalTheme: .monokai))
+    /// ```
+    ///
+    /// - Parameter input: The terminal theme.
+    /// - Returns: The tokens, with every text tier holding its contrast.
     public static func derive(from input: ThemeInput) -> ThemeTokens {
         let bg = input.background
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
