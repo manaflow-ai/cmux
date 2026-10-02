@@ -393,6 +393,7 @@ let package = Package(
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
+                .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
                 .process("ThemeActions.xcstrings"),
                 .process("WorkspaceActions.xcstrings"),

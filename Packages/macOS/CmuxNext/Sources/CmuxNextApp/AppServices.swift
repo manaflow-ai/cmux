@@ -76,6 +76,8 @@ final class AppServices {
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
+    /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md).
+    let sidebarLayout = SidebarLayoutService()
     /// Recently closed screens (Reopen Closed Screen).
     let closedScreens = ClosedScreenHistory()
     /// Trailing tab-strip buttons from `ui.surfaceTabBar.buttons`.
