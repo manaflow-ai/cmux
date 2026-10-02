@@ -2685,6 +2685,16 @@ class SetClientSizingRequest:
 
 
 @dataclass(frozen=True)
+class SetColumnStickyRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-column-sticky/request'
+    pane: Id
+    sticky: bool
+    edge: Union[str, None, MissingType] = field(default=MISSING)
+    mode: Union[str, None, MissingType] = field(default=MISSING)
+    transaction: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SetDefaultColorsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-default-colors/request'
     fg: Union[ColorHex, None, MissingType] = field(default=MISSING)
@@ -2840,6 +2850,7 @@ class ShutdownDaemonRequest:
     generation: str
     force: Union[bool, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    keep_layout: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3984,6 +3995,7 @@ __all__ = [
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',
+    'SetColumnStickyRequest',
     'SetDefaultColorsRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',

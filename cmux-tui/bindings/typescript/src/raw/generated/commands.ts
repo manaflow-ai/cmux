@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1. */
+/* cmux-tui mux protocol 12, IR 1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0. */
 
 
 import type * as T from "./types.js";
@@ -1345,6 +1345,17 @@ export interface SetClientSizingRequest extends CmuxRequestBase {
 }
 export type SetClientSizingResult = T.EmptyResult;
 
+/** Protocol v12; authority: control. */
+export interface SetColumnStickyRequest extends CmuxRequestBase {
+  cmd: "set-column-sticky";
+  "edge"?: (string) | null;
+  "mode"?: (string) | null;
+  "pane": T.Id;
+  "sticky": boolean;
+  "transaction"?: (bigint) | null;
+}
+export type SetColumnStickyResult = T.JsonValue;
+
 /** Protocol v5; authority: control. */
 export interface SetDefaultColorsRequest extends CmuxRequestBase {
   cmd: "set-default-colors";
@@ -1513,6 +1524,7 @@ export interface ShutdownDaemonRequest extends CmuxRequestBase {
   "end_terminals"?: boolean;
   "force"?: boolean;
   "generation": string;
+  "keep_layout"?: boolean;
   "pid": number;
 }
 
@@ -1892,6 +1904,7 @@ export type CmuxRequest =
   | SetCellPixelsRequest
   | SetClientInfoRequest
   | SetClientSizingRequest
+  | SetColumnStickyRequest
   | SetDefaultColorsRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
@@ -3090,6 +3103,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 10;
     capability: null;
+    stream: null;
+  };
+  "set-column-sticky": {
+    request: SetColumnStickyRequest;
+    result: SetColumnStickyResult;
+    authority: "control";
+    since: 12;
+    capability: "sticky-columns-v1";
     stream: null;
   };
   "set-default-colors": {

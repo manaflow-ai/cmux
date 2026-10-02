@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1'
+IR_SHA256 = '1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0'
 
 
 @dataclass(frozen=True)
@@ -1953,6 +1953,21 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'set-column-sticky': CommandMetadata(
+        'set-column-sticky',
+        'control',
+        12,
+        'sticky-columns-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'edge': CommandFieldMetadata(None, None),
+            'mode': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+            'sticky': CommandFieldMetadata(None, None),
+            'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
     'set-default-colors': CommandMetadata(
         'set-default-colors',
         'control',
@@ -2198,6 +2213,7 @@ COMMANDS = {
             'end_terminals': CommandFieldMetadata(12, 'terminal-reap-v1'),
             'force': CommandFieldMetadata(10, 'daemon-handoff-force-v1'),
             'generation': CommandFieldMetadata(None, None),
+            'keep_layout': CommandFieldMetadata(12, 'end-terminals-keep-layout-v1'),
             'pid': CommandFieldMetadata(None, None),
         },
     ),

@@ -9526,6 +9526,69 @@
     "width must be finite."
    ]
   },
+  "set-column-sticky": {
+   "authority": "control",
+   "since": 12,
+   "capability": "sticky-columns-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "sticky": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "edge": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mode": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "edge is \"left\" or \"right\" (default \"right\"); mode is \"docked\" or \"overlay\" (default \"docked\").",
+    "See spec/commands.md for the result object."
+   ]
+  },
   "undo-layout": {
    "authority": "control",
    "since": 9,
@@ -12297,6 +12360,17 @@
       "default": false,
       "since": 12,
       "capability": "terminal-reap-v1"
+     },
+     "keep_layout": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "capability": "end-terminals-keep-layout-v1"
      }
     },
     "additional_properties": false
@@ -12311,6 +12385,7 @@
     "force bypasses native-browser ownership only; the identity fence and trusted-local authority still apply.",
     "Clients must require daemon-handoff-force-v1 before sending force:true.",
     "end_terminals:true ends every terminal and removes its tabs before the handoff; without it terminal hosts stay alive for the next owner. Clients must require terminal-reap-v1 before sending end_terminals:true.",
+    "keep_layout:true (with end_terminals:true) ends every terminal but keeps the tabs of placed terminals, so the next owner shows the same screens, splits and tabs, each dead until a frontend starts a new shell in it; keep_layout without end_terminals is refused. Clients must require end-terminals-keep-layout-v1 before sending keep_layout:true.",
     "The daemon exits only after the success response is queued."
    ]
   },

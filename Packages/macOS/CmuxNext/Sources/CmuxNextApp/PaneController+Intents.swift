@@ -7,7 +7,7 @@ import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
-// with an optimistic patch where the store has one.
+// shown at once through a store intent where the store has one.
 extension PaneController {
     func handle(_ intent: TabStripIntent) {
         switch intent {
@@ -41,6 +41,11 @@ extension PaneController {
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .trailingButton(let id):
             services.tabBarButtons.perform(id, paneKey: paneKey)
+        case .focusLocation:
+            let window = services.windowController(showing: self)
+            StripLocation.request(pane: paneKey, isFocused: window?.focus.state.pane == paneKey,
+                                  focus: { window?.focus.send(.focusPane(paneKey, source: .intent)) },
+                                  perform: { _ = services.registry.perform($0, invocation: $1) })
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -215,7 +220,7 @@ extension PaneController {
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.reconcile() }
+            if unknown { await daemon.store.refresh() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
@@ -245,7 +250,7 @@ extension PaneController {
             return
         }
         services.registry.track(Task {
-            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -263,7 +268,7 @@ extension PaneController {
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
         Task { [daemon] in
-            await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)
             }
         }
@@ -278,13 +283,14 @@ extension PaneController {
             select(id)
             let target = ActionTargetRef(kind: .tab, id: id.rawValue)
             guard let tab = tab(id), tab.kind == .browser else {
-                return registry.makeContextMenu(for: .tab, target: target)
+                // Hibernation discards a page; a terminal has none.
+                let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: ["hibernateTab", "wakeTab"])
+                return registry.makeContextMenu(for: .tab, target: target, entries: entries)
             }
             // A browser tab offers the engine it is not on.
             let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
-            // Terminal themes do not apply to a page.
-            let hidden: Set<ContextMenuEntry> = [.action(other), .choices("terminal.setTheme"), .action("terminal.clearTheme")]
-            let entries = ContextMenuCatalog.shared.entries(for: .tab).filter { !hidden.contains($0) }
+            // Terminal themes and keep-running do not apply to a page.
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: [other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"])
             return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
         case .group(let group), .savedGroup(let group):
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue))

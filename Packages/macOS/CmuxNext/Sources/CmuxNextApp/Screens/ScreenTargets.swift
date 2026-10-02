@@ -50,14 +50,10 @@ extension AppActionContext {
         let explicit = [invocation.target, invocation["group"]?.targetValue].compactMap(\.self).first { $0.kind == .screenGroup }
             ?? invocation["group"]?.stringValue.map { ActionTargetRef(kind: .screenGroup, id: $0) }
         if let explicit {
-            for daemon in services.machines.daemons {
-                for workspace in daemon.store.workspaces {
-                    if let group = workspace.screenGroups.first(where: { $0.id.rawValue == explicit.id }) {
-                        return ScreenGroupRef(workspace: workspace, group: group, daemon: daemon, content: content(showing: workspace))
-                    }
-                }
+            guard let found = GroupOwnership.screenGroup(ScreenGroupID(rawValue: explicit.id), machines: services.machines) else {
+                return refuse(ScreenStrings.noScreenGroup(explicit.id))
             }
-            return refuse(ScreenStrings.noScreenGroup(explicit.id))
+            return ScreenGroupRef(workspace: found.workspace, group: found.group, daemon: found.daemon, content: content(showing: found.workspace))
         }
         guard let ref = screen(invocation) else { return nil }
         guard let id = ref.screen.group, let group = ref.workspace.screenGroups.first(where: { $0.id == id })

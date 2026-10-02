@@ -169,7 +169,7 @@ mirror. Target, decided by the store inside the commit that causes it:
 | --- | --- |
 | Last tab closed by a client (Cmd-W, CLI, TUI) | remove the tab; the workspace empties and closes (user decision 8.3, same for every client) |
 | Last process exits normally and its tab is not kept (`keep_on_exit` false) | same as above, caused by the session host's typed `exited` event |
-| Terminal host lost (outcome `unknown`: crash, kill, reboot) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
+| Terminal host lost (outcome `unknown`: crash, kill, reboot), or a process ended by a signal at or after the daemon began shutting down (logout, `server stop`, SIGTERM to the daemon; the shutdown start is recorded durably so a restarted daemon classifies exits found at adoption) | nothing is removed: the tab becomes `dead` with a Respawn action, or respawns per policy; the workspace never empties (principle 3) |
 | A move, drag or tear-off takes the last tab out | the move op names the source workspace as closing; it closes in the same commit (tear-off is one op) |
 | `workspace.create` | creates the workspace with its first terminal in one op; there is no empty workspace for a client to repair |
 | Legacy empty workspace found at open (older builds, hard kill) | the store gives it a terminal once at open, recorded in the journal |
@@ -340,8 +340,16 @@ COORDINATION.md line.
    (`apply(&LayoutState, &LayoutOp) -> Result<(LayoutState, Vec<LayoutEvent>), Reject>`)
    with the first op set MoveTab, MoveTabToSplit, MoveTabToColumn,
    MoveTabToNewWorkspace, MoveTabToWorkspace, CloseTab (each with an idempotency key);
-   `mux/tab_drag.rs` validates through it. This stream then adds kani, tab-group ops and
-   the remaining layout ops.
+   `mux/tab_drag.rs` validates through it. This stream then adds tab-group ops and the
+   remaining layout ops. Kani result (2026-10-01, branch `feat-cmux-next-kani`
+   28ec1c620f5, harnesses in `src/proofs.rs`): infeasible on the crate as written. Kani
+   0.68.0 on a 32 vCPU Testbox finished no harness, not even a concrete one-tab layout
+   (timeouts at 7 and 8 minutes, unwind 8 and 3), because symbolic execution cannot rule
+   out `BTreeMap`/`BTreeSet` internal-node paths. Evidence for invariants 1-3 and 5 is
+   therefore the reducer proptest (20,000 reducer cases, 5,000 daemon sequences) plus
+   `TabLayout.tla` and `OwnershipConvergence.tla`. Kani becomes feasible only with a
+   fixed-capacity array representation checked equal to the real reducer by proptest;
+   not scheduled.
 3. `mutation-echo-v1` in the dispatcher: central transaction tag on every caused event,
    `request-settled` for every request; additive capability, advertised in
    `awaitingPin` until the pin carries it.

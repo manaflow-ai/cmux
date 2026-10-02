@@ -16,7 +16,10 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   accentText: "--agent-accent-text",
   danger: "--agent-danger",
   warning: "--agent-warning",
+  highlight: "--agent-highlight",
+  highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
+  palette: null,
 };
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
@@ -31,10 +34,21 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   root.classList.toggle("light", !theme.isDark);
   root.style.colorScheme = theme.isDark ? "dark" : "light";
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
-    if (!variable || theme[key] === undefined) {
+    if (!variable) {
+      continue;
+    }
+    // A key this theme leaves out must not keep the last theme's value.
+    if (theme[key] === undefined) {
+      root.style.removeProperty(variable);
       continue;
     }
     root.style.setProperty(variable, String(theme[key]));
+  }
+  // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
+  for (let index = 0; index < 16; index += 1) {
+    const color = theme.palette?.[index];
+    if (color) root.style.setProperty(`--agent-ansi-${index}`, color);
+    else root.style.removeProperty(`--agent-ansi-${index}`);
   }
 }
 

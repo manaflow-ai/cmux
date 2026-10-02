@@ -36,8 +36,10 @@ import PackageDescription
 //     cmux://bookmarks page, bookmarks bar, edit bubble; no daemon; the App supplies the store)
 //   CmuxNextResources -> Wakeups, Design (hover-card CPU/memory: aggregation, on-demand sampler, lines;
 //     no daemon; the App supplies the samples). Tabs and Sidebar show it.
-//   CmuxNextAgentPane -> Design, Actions (WKWebView host for the React agent pane and the acpmux
+//   CmuxNextAgentPane -> Design, Actions, Dictation (WKWebView host for the React agent pane and the acpmux
 //     handshake; the page talks to acpmux itself; no daemon)
+//   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
+//     the session state machine; no UI)
 
 /// Settings shared by every UI target: Swift 6 mode, main-actor by default.
 let uiSwiftSettings: [SwiftSetting] = [
@@ -72,6 +74,7 @@ let package = Package(
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
+        .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -126,7 +129,7 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextDesign", "CmuxNextActions"],
+            dependencies: ["CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-pane"),
@@ -135,8 +138,21 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAgentPaneTests",
-            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign"],
+            dependencies: ["CmuxNextAgentPane", "CmuxNextActions", "CmuxNextDesign", "CmuxNextDictation"],
             swiftSettings: uiSwiftSettings
+        ),
+        // Dictation (the composer's mic): the on-device speech engines and
+        // the session state machine. Engines are actors fed by a real-time
+        // audio tap, so the module is not main-actor by default.
+        .target(
+            name: "CmuxNextDictation",
+            dependencies: ["CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextDictationTests",
+            dependencies: ["CmuxNextDictation"],
+            swiftSettings: daemonSwiftSettings
         ),
         // CodeRouter and provider accounts (plans/cmux-next/coderouter.md):
         // presence-only detection of local sign-ins (Codex, Claude Code, API
@@ -325,13 +341,20 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextDesign",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextWakeups",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Theme derivation (Ghostty colors -> chrome tokens), contrast, live reload.
         .testTarget(
             name: "CmuxNextDesignTests",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: [
+                "CmuxNextDesign",
+                .product(name: "CmuxTheme", package: "CmuxTheme"),
+                .product(name: "CMUXMobileCore", package: "CMUXMobileCore"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         .target(

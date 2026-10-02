@@ -1,14 +1,30 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
-import { MOCK_SESSION_CWD, mockSessions } from "./mockSessions";
+import {
+  claudeModels,
+  codexModels,
+  mockSessions,
+  newSessionSummary,
+  sessionHistory,
+  sessionSummary,
+  workedTurn,
+  WORKED_SESSION,
+  type SeedStep,
+} from "./mockFixture";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
 // JSON-RPC and streams a scripted turn as ACP events, so every frame of a mock
-// turn goes through the same reducer and renderers as a real agent's.
+// turn goes through the same reducer and renderers as a real agent's. It starts seeded with
+// the workspace in mockFixture.ts, so the pane opens populated.
 
-const sessionId = "mock-session";
+const sessionId = WORKED_SESSION;
 const harnesses = [
+  { id: "claude", name: "Claude Code", models: claudeModels },
+  { id: "codex", name: "Codex", models: codexModels },
+];
+/// A recorded MockScript replays against the catalog and session it was recorded with.
+const scriptHarnesses = [
   { id: "claude", name: "Claude Code", models: [{ id: "claude-sonnet", name: "Claude Sonnet" }] },
   { id: "codex", name: "Codex", models: [{ id: "gpt-6-astra", name: "GPT-6-Astra" }] },
 ];
@@ -22,13 +38,14 @@ const commands = [
   { name: "pr-comments", description: "Get comments from a GitHub pull request" },
   { name: "review", description: "Review a pull request" },
 ];
-const session = {
+/// The one empty session a recorded MockScript replays into.
+const scriptSession = {
   sessionId,
-  title: "Polish the agent pane sidebar",
+  title: "Mock session",
   harness: "claude",
   model: "claude-sonnet",
   status: "idle",
-  cwd: MOCK_SESSION_CWD,
+  turnCount: 0,
 };
 
 /// The host config the page connects with in mock mode.
@@ -128,18 +145,20 @@ export class MockAcpmuxSocket {
   onerror: (() => void) | null = null;
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
-  // The mock session is the newest, so it opens selected; the seeded ones fill the sidebar.
-  private sessions: Array<{ sessionId: string } & Record<string, unknown>> = [
-    { ...session, updatedAt: Date.now() },
-    ...mockSessions(Date.now()),
-  ];
+  private sessions: Record<string, any>[] = [];
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
-  private running?: { cancelled: boolean };
+  private running?: { cancelled: boolean; target: string };
+  /// Seeded sessions whose turn is still open (running, or waiting on a permission).
+  private openTurns = new Set<string>();
+  /// A new chat opens in the project of the session the reader last opened.
+  private attached = sessionId;
   private closed = false;
   /// Prompts run one at a time, as the daemon queues them.
   private queue: Promise<unknown> = Promise.resolve();
+  /// Prompts sent and not yet finished; one sent while another runs is reported queued.
+  private pending = 0;
 
   /// `delay` paces the scripted turn; tests pass one that resolves at once.
   constructor(
@@ -148,21 +167,58 @@ export class MockAcpmuxSocket {
     private readonly script?: MockScript,
   ) {
     // A replayed turn starts from an empty session, as the recording did.
-    if (!script) {
-      // What Claude lists at start, so the composer's + and `/` menu have something to show.
-      this.record(sessionId, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } });
-      this.record(sessionId, { update: text("Mock agent session. Type a prompt to see the pane render a turn.") });
-    }
+    if (script) this.sessions = [{ ...scriptSession }];
+    else this.seed(Date.now());
     queueMicrotask(() => {
       this.readyState = 1;
       this.onopen?.();
     });
   }
 
+  /// The fixture's sessions, each with its history; the worked session also lists Claude's commands.
+  private seed(now: number): void {
+    for (const entry of mockSessions) {
+      this.sessions.push(sessionSummary(entry, now, 1));
+      if (entry.sessionId === sessionId) this.listCommands(sessionId, now - 7 * 60_000);
+      const steps: SeedStep[] = entry.sessionId === sessionId ? workedTurn : sessionHistory(entry);
+      for (const { ago, ...step } of steps) this.record(entry.sessionId, step as Step, now - ago);
+      if (entry.status === "running" || entry.permission) this.openTurns.add(entry.sessionId);
+    }
+  }
+
+  /// Claude lists its slash commands when a session starts, so the composer's + and `/` work.
+  private listCommands(target: string, at?: number): void {
+    this.record(target, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } }, at);
+  }
+
+  /// Ends a seeded open turn: its permission is answered or withdrawn, its waiting tool settles,
+  /// and the session goes idle. A turn already closed stays as it is.
+  private closeSeededTurn(target: string, status: "completed" | "cancelled", allowed = false): void {
+    if (!this.openTurns.delete(target)) return;
+    const tool = this.events.find(
+      (event) =>
+        event.sessionId === target &&
+        event.kind === "tool_call" &&
+        (event.msg as any)?.params?.update?.status === "pending",
+    );
+    const toolCallId = (tool?.msg as any)?.params?.update?.toolCallId;
+    if (toolCallId)
+      this.emit(target, {
+        update: { sessionUpdate: "tool_call_update", toolCallId, status: allowed ? "completed" : "failed" },
+      });
+    const pending = this.events.find((event) => event.sessionId === target && event.kind === "permission_request");
+    if (pending)
+      this.emit(target, { mux: "permission_decision", msg: { permissionId: (pending.msg as any).permissionId } });
+    this.emit(target, { mux: "turn_result", msg: { status } });
+    this.touch(target, { status: "idle", pendingPermissions: 0 });
+  }
+
   send(raw: string): void {
     const request = JSON.parse(raw) as { id?: number; method: string; params?: Record<string, any> };
     if (request.method === "session/cancel") {
-      if (this.running) this.running.cancelled = true;
+      const target = String(request.params?.sessionId ?? sessionId);
+      if (this.running?.target === target) this.running.cancelled = true;
+      else this.closeSeededTurn(target, "cancelled");
       return;
     }
     if (request.id === undefined) return;
@@ -184,30 +240,34 @@ export class MockAcpmuxSocket {
       case "_acpmux/watch":
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
-        return { harnesses };
+        return { harnesses: this.script ? scriptHarnesses : harnesses };
       case "_acpmux/attach": {
-        // A seeded session has no recorded turn or permission to show, so opening one settles it.
-        const index = this.sessions.findIndex((entry) => entry.sessionId === target);
-        if (
-          index >= 0 &&
-          target !== sessionId &&
-          (this.sessions[index].status === "running" || this.sessions[index].status === "waiting")
-        ) {
-          this.sessions[index] = { ...this.sessions[index], status: "idle", pendingPermissions: 0 };
-          this.deliver({
-            jsonrpc: "2.0",
-            method: "_acpmux/session_changed",
-            params: { kind: "updated", session: this.sessions[index] },
-          });
-        }
-        return { session: this.sessions[index], events: this.events.filter((event) => event.sessionId === target) };
+        this.attached = target;
+        // Opening a session reads it; it keeps its place in the list.
+        if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
+          this.touch(target, { unread: false }, false);
+        return {
+          session: this.sessions.find((entry) => entry.sessionId === target),
+          events: this.events.filter((event) => event.sessionId === target),
+        };
       }
       case "_acpmux/events":
-        return {
-          events: this.events.filter((event) => event.sessionId === target && event.seq > Number(params.afterSeq ?? 0)),
-        };
+        return this.page(target, params);
+      case "_acpmux/permission_respond":
+        this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));
+        return {};
       case "session/new": {
-        const created = { ...session, sessionId: `mock-session-${this.sessions.length + 1}`, title: "New chat" };
+        // A new chat opens in the project of the session it was started from.
+        const from = this.sessions.find((entry) => entry.sessionId === this.attached) ?? this.sessions[0];
+        const created = newSessionSummary(
+          `mock-session-${this.sessions.length + 1}`,
+          String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
+          Date.now(),
+        );
+        // It runs on the same machine, with the harness's model the catalog offers.
+        if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
+        if (this.script) created.model = scriptHarnesses[0]!.models[0]!.id;
+        if (!this.script) this.listCommands(String(created.sessionId));
         this.sessions.push(created);
         this.deliver({
           jsonrpc: "2.0",
@@ -217,9 +277,19 @@ export class MockAcpmuxSocket {
         return { sessionId: created.sessionId };
       }
       case "session/prompt": {
-        const turn = this.queue.then(() =>
-          this.prompt(target, String(params.prompt?.[0]?.text ?? ""), params._meta?.acpmux?.promptId),
-        );
+        const text = String(params.prompt?.[0]?.text ?? "");
+        const promptId = params._meta?.acpmux?.promptId;
+        const queued = this.pending > 0 && promptId !== undefined;
+        if (queued) this.emit(target, { mux: "queued", msg: { promptId, text } });
+        this.pending += 1;
+        const turn = this.queue
+          .then(() => {
+            if (queued) this.emit(target, { mux: "dequeued", msg: { promptId } });
+            return this.prompt(target, text, promptId);
+          })
+          .finally(() => {
+            this.pending -= 1;
+          });
         this.queue = turn.catch(() => undefined);
         return turn;
       }
@@ -232,7 +302,14 @@ export class MockAcpmuxSocket {
     // A prompt queued behind a closed daemon never starts.
     if (this.closed) return { stopReason: "cancelled" };
     this.turns += 1;
-    const running = { cancelled: false };
+    // A prompt into a seeded open turn ends that turn first, as a new prompt supersedes it.
+    this.closeSeededTurn(target, "cancelled");
+    this.touch(target, {
+      turnCount: Number(this.sessions.find((entry) => entry.sessionId === target)?.turnCount ?? 0) + 1,
+      unread: false,
+      status: "running",
+    });
+    const running = { cancelled: false, target };
     this.running = running;
     const started = Date.now();
     this.emit(target, { mux: "user_message", msg: { text: prompt, promptId } });
@@ -250,7 +327,32 @@ export class MockAcpmuxSocket {
       endAt !== undefined ? started + endAt : undefined,
     );
     this.running = undefined;
+    this.touch(target, { status: "idle" });
     return { stopReason: running.cancelled ? "cancelled" : "end_turn" };
+  }
+
+  /// Updates a session's summary and tells the client, as the daemon does.
+  private touch(target: string, fields: Record<string, unknown>, moved = true): void {
+    const index = this.sessions.findIndex((entry) => entry.sessionId === target);
+    if (index < 0) return;
+    const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
+    this.sessions[index] = changed;
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
+  }
+
+  /// A page of a session's events, as `_acpmux/events` returns it: after `afterSeq`, or the
+  /// newest `limit` before `beforeSeq`; `kinds` keeps the commands or the transcript.
+  private page(target: string, params: Record<string, any>): { events: EventRecord[]; more: boolean } {
+    const kinds: string[] = Array.isArray(params.kinds) ? params.kinds : [];
+    const wanted = (event: EventRecord) =>
+      kinds.length === 0 ||
+      (event.kind === "available_commands_update" ? kinds.includes(event.kind) : kinds.includes("transcript"));
+    const own = this.events.filter((event) => event.sessionId === target && wanted(event));
+    if (params.beforeSeq === undefined)
+      return { events: own.filter((event) => event.seq > Number(params.afterSeq ?? 0)), more: false };
+    const older = own.filter((event) => event.seq < Number(params.beforeSeq));
+    const limit = Math.max(1, Number(params.limit ?? older.length));
+    return { events: older.slice(-limit), more: older.length > limit };
   }
 
   private record(target: string, step: Step, at = Date.now()): EventRecord {

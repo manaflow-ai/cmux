@@ -89,6 +89,11 @@ final class QuitAlert {
         }
     }
 
+    /// SIGTERM while the alert is open: Quit, keep sessions.
+    func answerKeepingSessions() {
+        finish(.quit(.keep, remember: false))
+    }
+
     /// Clicks the button `id` ("quit", "cancel", "end", "end-keep-layout",
     /// "end-everything"). False when the alert shown has no such button.
     @discardableResult

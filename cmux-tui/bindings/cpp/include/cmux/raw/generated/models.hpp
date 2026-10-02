@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1";
+inline constexpr std::string_view kProtocolIrSha256 = "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -309,6 +309,7 @@ struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
+struct SetColumnStickyRequest;
 struct SetDefaultColorsRequest;
 struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
@@ -3043,6 +3044,15 @@ struct SetClientSizingRequest {
     friend bool operator==(const SetClientSizingRequest&, const SetClientSizingRequest&) = default;
 };
 
+struct SetColumnStickyRequest {
+    Field<std::string> edge{};
+    Field<std::string> mode{};
+    Id pane{};
+    bool sticky{};
+    Field<std::uint64_t> transaction{};
+    friend bool operator==(const SetColumnStickyRequest&, const SetColumnStickyRequest&) = default;
+};
+
 struct SetDefaultColorsRequest {
     Field<ColorHex> bg{};
     std::optional<bool> complete{};
@@ -3203,6 +3213,7 @@ struct ShutdownDaemonRequest {
     std::optional<bool> end_terminals{};
     std::optional<bool> force{};
     std::string generation{};
+    std::optional<bool> keep_layout{};
     std::uint32_t pid{};
     friend bool operator==(const ShutdownDaemonRequest&, const ShutdownDaemonRequest&) = default;
 };
@@ -5491,6 +5502,12 @@ template <>
 struct Codec<SetClientSizingRequest> {
     static Result<Json> encode(const SetClientSizingRequest& value);
     static Result<SetClientSizingRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetColumnStickyRequest> {
+    static Result<Json> encode(const SetColumnStickyRequest& value);
+    static Result<SetColumnStickyRequest> decode(const Json& value);
 };
 
 template <>

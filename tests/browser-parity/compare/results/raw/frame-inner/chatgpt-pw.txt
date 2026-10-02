@@ -1,0 +1,2 @@
+- button "Inside frame"
+- textbox "Frame field"

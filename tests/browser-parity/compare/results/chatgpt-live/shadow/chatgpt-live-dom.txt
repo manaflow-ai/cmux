@@ -1,0 +1,2 @@
+<input node_id=1 aria-label="Shadow input" />
+<button node_id=2>Shadow button</button>

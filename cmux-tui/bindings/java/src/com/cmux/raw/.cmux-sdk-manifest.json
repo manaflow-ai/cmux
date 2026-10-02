@@ -347,8 +347,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "95eadfc148effbfa43d3bf6aee8bd1dd6db1d971b5420a3391836f024397fe9f",
-      "size": 49796
+      "sha256": "adf8de470e15b5dfcd3de6ab1ef088a6b1ede3b22ae90f8518d567421cea303a",
+      "size": 50128
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -607,8 +607,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "63c1521c82c77830c1fbdd61219c8e14499dccef88e2f3cb068b9f9d6bcf4680",
-      "size": 43989
+      "sha256": "b66f8deec0e8ec317c5b2025f6706e1c32c58054f771c4a0588f215a8d1c9222",
+      "size": 44213
     },
     {
       "path": "GetBrowserProviderRequest.java",
@@ -1152,7 +1152,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "4b20f0f2f9dd4f9f3a3b671ab442c0e2a0fed17dc1f149903a09b772f6240058",
+      "sha256": "142d49e6cb8110e6ec93bb5a73dd65f419dc2a1f0c3ee734f9c58d0a1308f30c",
       "size": 4696
     },
     {
@@ -1541,6 +1541,11 @@
       "size": 4048
     },
     {
+      "path": "SetColumnStickyRequest.java",
+      "sha256": "be3c8cd258a5a089238e97d7bde89f9f7725e1b3f1fba9e097ed37e9f3feb501",
+      "size": 4587
+    },
+    {
       "path": "SetDefaultColorsRequest.java",
       "sha256": "7bf8cf1b85137e678d95b11d322c22de199abe39868cbe33ce5d93cbf2576db7",
       "size": 7555
@@ -1647,8 +1652,8 @@
     },
     {
       "path": "ShutdownDaemonRequest.java",
-      "sha256": "efa65138d400ef64737755ffb1122ebcaeea84d28bf24ef5d40d45de52a04de6",
-      "size": 4016
+      "sha256": "9d9a8e3a56e08dc1a054f4a7cedbb95f053942411aeb5e6480851a55c72c1fb2",
+      "size": 4695
     },
     {
       "path": "ShutdownDaemonResult.java",
@@ -2147,7 +2152,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "813ecf93e56fd007de1dc8654da3403126c62fd638d3ab1937e9d421200d92d1",
+  "ir_sha256": "1c4d8fb6357de87491d0758b1d543e268eba4e9a79cd240552d4233989698de0",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

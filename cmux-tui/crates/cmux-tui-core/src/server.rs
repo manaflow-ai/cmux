@@ -97,10 +97,12 @@ pub use loopback_forward::{
 mod browser_profiles;
 mod launch_snapshot;
 mod personal;
+mod screen_json;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
 };
+use screen_json::screen_json;
 mod terminal_create;
 mod terminal_resources;
 mod url_open;
@@ -111,6 +113,9 @@ pub const GUARDED_BROWSER_POINTER_CAPABILITY: &str = "browser-pointer-frame-guar
 pub const DAEMON_HANDOFF_FORCE_CAPABILITY: &str = "daemon-handoff-force-v1";
 pub const VIEWPORT_SPLITS_CAPABILITY: &str = "viewport-splits-v1";
 pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
+/// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
+/// most one viewport column per edge stays pinned while the others scroll.
+pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -168,6 +173,11 @@ pub const TERMINAL_IDLE_CLOSE_CAPABILITY: &str = "terminal-idle-close-v1";
 /// field on `new-tab`, `split`, and `create-terminal`, the `terminal-reaped`
 /// event, and `end_terminals` on `shutdown-daemon`.
 pub const TERMINAL_REAP_CAPABILITY: &str = "terminal-reap-v1";
+/// Advertises `keep_layout` on `shutdown-daemon`: with `end_terminals`,
+/// every terminal ends but the placed ones keep their tabs, so the next
+/// owner shows the same screens, splits and tabs, each dead until a
+/// frontend starts a new shell in it.
+pub const END_TERMINALS_KEEP_LAYOUT_CAPABILITY: &str = "end-terminals-keep-layout-v1";
 /// Advertises `close-tabs` and `end_terminals` on `close-pane`,
 /// `close-screen`, `close-workspace`, and `close-tab-group`: many
 /// placements and the terminals they end close in one durable commit.
@@ -346,6 +356,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         GUARDED_BROWSER_POINTER_CAPABILITY,
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
+        STICKY_COLUMNS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -370,6 +381,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         TERMINAL_RESOURCES_CAPABILITY,
         TERMINAL_PLACEMENT_ENV_CAPABILITY,
@@ -1033,6 +1045,10 @@ enum Command {
         /// hosts for the next owner (`terminal-reap-v1`). For test teardown.
         #[serde(default)]
         end_terminals: bool,
+        /// With `end_terminals`, keep the tabs of placed terminals so the
+        /// next owner shows the same layout (`end-terminals-keep-layout-v1`).
+        #[serde(default)]
+        keep_layout: bool,
     },
     Ping,
     SetClientInfo {
@@ -1747,6 +1763,19 @@ enum Command {
     SetViewportPaneWidth {
         pane: PaneId,
         width: f32,
+        #[serde(default)]
+        transaction: Option<u64>,
+    },
+    /// `sticky-columns-v1`: pin or unpin the viewport column containing
+    /// `pane`. `edge` and `mode` stay strings so a bad value answers with
+    /// `error_code:"invalid-argument"` instead of a decode error.
+    SetColumnSticky {
+        pane: PaneId,
+        sticky: bool,
+        #[serde(default)]
+        edge: Option<String>,
+        #[serde(default)]
+        mode: Option<String>,
         #[serde(default)]
         transaction: Option<u64>,
     },
@@ -11085,6 +11114,11 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| {
             error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
         })
+        .or_else(|| {
+            error
+                .downcast_ref::<crate::ColumnStickyError>()
+                .and_then(|error| error.code().map(str::to_string))
+        })
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -11559,9 +11593,12 @@ fn pane_json(
                     ContentPublicId::Terminal(id) => Some(id),
                     ContentPublicId::Browser(_) => None,
                 });
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart; its identity is the index's.
             let tab_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
-                .map(|identity| &identity.tab_id);
+                .map(|identity| &identity.tab_id)
+                .or_else(|| state.resource_indexes.tab_ids.get(sid));
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str());
@@ -11577,11 +11614,21 @@ fn pane_json(
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
+            // `end-terminals-keep-layout-v1`: a kept tab whose terminal has
+            // ended, to restart a shell in.
+            let relaunch = state
+                .resource_indexes
+                .tab_ids
+                .get(sid)
+                .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
+                .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
+                .map(|kept| json!({"cwd": kept.cwd}));
             json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
                 "pinned": pinned,
+                "relaunch": relaunch,
                 "cwd": directory.and_then(|directory| directory.cwd.as_deref()),
                 "git_branch": directory.and_then(|directory| directory.git_branch.as_deref()),
                 "git_detached": directory.is_some_and(|directory| directory.git_detached),
@@ -11628,62 +11675,6 @@ fn pane_json(
             })
         }).collect::<Vec<_>>(),
     })
-}
-
-fn screen_json(
-    state: &State,
-    screen: &Screen,
-    active: bool,
-    group: Option<&str>,
-    short_ids: &HashMap<u64, String>,
-    notifications: &TreeDecorations,
-) -> Value {
-    let mut pane_ids = Vec::new();
-    screen.root.pane_ids(&mut pane_ids);
-    let presentation = notifications.presentation.screens.screen(screen.public_id.as_str());
-    let mut value = json!({
-        "id": screen.id,
-        "resource_id": screen.public_id,
-        "short_id": short_ids.get(&screen.id).cloned().unwrap_or_default(),
-        "name": screen.name,
-        "color": presentation.and_then(|presentation| presentation.color.as_deref()),
-        "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),
-        "pinned": presentation.is_some_and(|presentation| presentation.pinned),
-        "group": group,
-        "active": active,
-        "active_pane": screen.active_pane,
-        "zoomed_pane": screen.zoomed_pane,
-        "layout": node_json(&screen.root, screen.active_pane),
-        "panes": pane_ids.iter().map(|id| pane_json(state, *id, short_ids, notifications)).collect::<Vec<_>>(),
-    });
-    if !screen.viewport_splits.is_empty() {
-        value["viewport_splits"] = json!(
-            screen
-                .viewport_splits
-                .iter()
-                .map(|(split, width)| json!({"split": split, "width": width}))
-                .collect::<Vec<_>>()
-        );
-        if let Some(width) = screen.viewport_base_width {
-            value["viewport_base_width"] = json!(width);
-        }
-    }
-    if screen.layout_columns_active() {
-        value["columns"] = json!(
-            screen
-                .layout_columns
-                .iter()
-                .map(|column| {
-                    json!({
-                        "id": column.id,
-                        "width": column.width,
-                        "layout": node_json(&column.root, screen.active_pane),
-                    })
-                })
-                .collect::<Vec<_>>()
-        );
-    }
-    value
 }
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
@@ -13294,7 +13285,11 @@ fn handle_command_with_cancellation(
                 "launch_snapshot_path": mux.launch_snapshot_path(),
             }))
         }
-        Command::ShutdownDaemon { pid, generation, force, end_terminals } => {
+        Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
+            anyhow::ensure!(
+                end_terminals || !keep_layout,
+                "bad request: keep_layout requires end_terminals"
+            );
             let actual_identity = mux.begin_daemon_handoff(
                 client,
                 DaemonHandoffRequest::fenced(pid, generation, force),
@@ -13303,7 +13298,12 @@ fn handle_command_with_cancellation(
             // can start while the hosts end. A failure releases it and keeps
             // this daemon serving.
             let ended_terminals = if end_terminals {
-                match mux.end_all_terminals() {
+                let ended = if keep_layout {
+                    mux.end_all_terminals_keeping_layout()
+                } else {
+                    mux.end_all_terminals()
+                };
+                match ended {
                     Ok(ended) => Some(ended.len()),
                     Err(error) => {
                         mux.cancel_daemon_handoff(client);
@@ -14603,6 +14603,19 @@ fn handle_command_with_cancellation(
             )?;
             Ok(json!({}))
         }
+        Command::SetColumnSticky { pane, sticky, edge, mode, transaction } => {
+            let sticky = crate::mux::parse_column_sticky(sticky, edge.as_deref(), mode.as_deref())?;
+            let outcome = mux.set_column_sticky(
+                pane,
+                sticky,
+                transaction.map(|transaction| (client, transaction)),
+            )?;
+            let mut data = json!({"column": outcome.column, "sticky": outcome.sticky});
+            if let Some(transaction) = transaction {
+                data["transaction"] = json!(transaction);
+            }
+            Ok(data)
+        }
         Command::UndoLayout { pane, revision, confirm_close } => {
             match mux.undo_layout(pane, revision, confirm_close)? {
                 LayoutUndoResult::Undone { screen, revision } => Ok(json!({
@@ -15259,7 +15272,11 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::CloseSurface { surface } => {
-            get_surface(mux, surface)?;
+            // A kept-layout tab (`end-terminals-keep-layout-v1`) has no
+            // runtime surface after a restart but is still a placed tab.
+            if get_surface(mux, surface).is_err() && !surface_has_view_placement(mux, surface) {
+                anyhow::bail!("unknown surface {surface}");
+            }
             if !mux.close_surface(surface)? {
                 anyhow::bail!("unknown surface {surface}");
             }
@@ -16535,6 +16552,10 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/sticky_columns_tests.rs"]
+mod sticky_columns_tests;
 
 #[cfg(test)]
 #[path = "server/personal_terminal_tests.rs"]
@@ -24361,6 +24382,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
@@ -24383,6 +24405,7 @@ mod tests {
                 generation,
                 force: false,
                 end_terminals: false,
+                keep_layout: false,
             },
             &requester_writer,
         )
