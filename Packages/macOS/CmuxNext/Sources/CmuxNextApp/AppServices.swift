@@ -123,6 +123,8 @@ final class AppServices {
     let contextMenus: BrowserContextMenuBuilder
     /// Sized browser popups (OAuth, payment) in floating panels.
     let popups: BrowserPopupPanels
+    /// The link-hint session (`f`, `F`) on a focused Chromium page.
+    let linkHints = LinkHintController()
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
@@ -253,7 +255,11 @@ final class AppServices {
         chromiumWarmup = ChromiumWarmup(engine: cache.cef)
         notifications.start(services: self)
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
-        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in self?.notifications.noteMouseDown(in: window) }
+        (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
+            self?.notifications.noteMouseDown(in: window)
+            // A click anywhere ends link hints (it may move the keyboard).
+            self?.linkHints.cancel()
+        }
     }
 
     // MARK: Lookup
