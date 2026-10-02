@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { dashboardClient } from "../lib/rpc";
 import { useDashboardUrl } from "../lib/url";
 import {
@@ -45,6 +45,8 @@ export type DashboardTeamScope =
     readonly teams: readonly DashboardCatalogTeam[];
     readonly selected: DashboardCatalogTeam;
     readonly switchTeam: (team: DashboardCatalogTeam) => Promise<void>;
+    readonly refreshError: boolean;
+    readonly retryRefresh: () => void;
   };
 
 const CATALOG_TIMEOUT_MS = 10_000;
@@ -69,6 +71,7 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
   const pendingSwitches = useRef(0);
   const confirmedSwitchState = useRef<ConfirmedTeamSwitchState | null>(null);
   const switchPersistenceTail = useRef<Promise<void>>(Promise.resolve());
+  const [refreshError, setRefreshError] = useState(false);
   const queryKey = ["dashboard-team-catalog", userId] as const;
   const { data, isPending } = useQuery({
     queryKey,
@@ -185,12 +188,23 @@ export function useDashboardTeamScope(userId: string | null): DashboardTeamScope
       // The picker and URL already reflect the confirmed team. Reconcile the
       // server-rendered dashboard in the background so a slow page dependency
       // cannot keep the completed switch in its pending state.
-      void url.refresh().catch(() => undefined);
+      void url.refresh().then(
+        () => setRefreshError(false),
+        () => setRefreshError(true),
+      );
     }
     finish();
   };
 
-  return { status: "ready", teams, selected, switchTeam };
+  const retryRefresh = () => {
+    setRefreshError(false);
+    void url.refresh().then(
+      () => setRefreshError(false),
+      () => setRefreshError(true),
+    );
+  };
+
+  return { status: "ready", teams, selected, switchTeam, refreshError, retryRefresh };
 }
 
 /** Teams the dashboard can show: route users and account-only managers. */
