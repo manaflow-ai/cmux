@@ -7,8 +7,6 @@ import tempfile
 import time
 import unittest
 
-import pytest
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".github/labels.json"
 WORKFLOW = ROOT / ".github/workflows/auto-triage.yml"
@@ -308,7 +306,7 @@ class ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "labels.json"
             path.write_text(json.dumps(manifest))
-            with self.assertRaises(SystemExit):
+            with self.assertRaisesRegex(SystemExit, r"duplicate label .*names are case-insensitive"):
                 sync.load_manifest(path)
 
     def test_dry_run_refuses_case_only_duplicates_before_any_api_call(self):
@@ -324,8 +322,16 @@ class ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "labels.json"
             path.write_text(json.dumps(manifest))
-            with pytest.raises(SystemExit):
+            with self.assertRaisesRegex(SystemExit, r"duplicate label .*names are case-insensitive"):
                 sync.main(["--manifest", str(path), "--dry-run"])
+
+    def test_non_string_label_name_has_validation_error(self):
+        sync = load("sync_labels", "scripts/ci/sync_labels.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "labels.json"
+            path.write_text(json.dumps({"labels": [{"name": 5, "color": "0e8a16"}]}))
+            with self.assertRaisesRegex(SystemExit, "every label needs a non-empty string name"):
+                sync.load_manifest(path)
 
 
 class CommentTests(unittest.TestCase):
