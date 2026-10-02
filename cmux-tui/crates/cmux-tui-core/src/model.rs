@@ -97,12 +97,17 @@ pub struct ColumnSticky {
 /// screen with fewer than two columns, at most one column per edge, and at
 /// least one scrolling (non-sticky) column.
 pub(crate) fn sticky_columns_are_consistent(columns: &[LayoutColumn]) -> bool {
-    let sticky = columns.iter().filter_map(|column| column.sticky).collect::<Vec<_>>();
+    sticky_flags_are_consistent(&columns.iter().map(|column| column.sticky).collect::<Vec<_>>())
+}
+
+/// [`sticky_columns_are_consistent`] over the flags of a screen's columns.
+pub(crate) fn sticky_flags_are_consistent(flags: &[Option<ColumnSticky>]) -> bool {
+    let sticky = flags.iter().flatten().collect::<Vec<_>>();
     if sticky.is_empty() {
         return true;
     }
-    columns.len() >= 2
-        && sticky.len() < columns.len()
+    flags.len() >= 2
+        && sticky.len() < flags.len()
         && [StickyEdge::Left, StickyEdge::Right]
             .iter()
             .all(|edge| sticky.iter().filter(|flag| flag.edge == *edge).count() <= 1)

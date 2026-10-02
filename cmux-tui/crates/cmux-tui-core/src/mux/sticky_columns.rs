@@ -14,7 +14,7 @@
 use super::*;
 use crate::model::{
     ColumnSticky, LayoutColumn, LayoutMutationKey, LayoutResizeOwner, StickyEdge, StickyMode,
-    sticky_columns_are_consistent,
+    sticky_columns_are_consistent, sticky_flags_are_consistent,
 };
 
 /// Internal journal operation name. It is not a public resource operation:
@@ -29,6 +29,8 @@ pub enum ColumnStickyError {
     LastScrollingColumn,
     /// An `edge` or `mode` value is not one of the documented strings.
     InvalidArgument { field: &'static str, value: String },
+    /// The reducer was given a column index outside the screen.
+    NoSuchColumn { index: usize },
     /// The durable commit failed; details are reported as a status event.
     CommitFailed,
 }
@@ -40,7 +42,9 @@ impl ColumnStickyError {
 
     pub fn code(&self) -> Option<&'static str> {
         match self {
-            Self::ColumnNotFound { .. } => Some(Self::COLUMN_MISSING_CODE),
+            Self::ColumnNotFound { .. } | Self::NoSuchColumn { .. } => {
+                Some(Self::COLUMN_MISSING_CODE)
+            }
             Self::LastScrollingColumn => Some(Self::LAST_SCROLLING_CODE),
             Self::InvalidArgument { .. } => Some(Self::INVALID_ARGUMENT_CODE),
             Self::CommitFailed => None,
@@ -61,6 +65,7 @@ impl fmt::Display for ColumnStickyError {
             Self::InvalidArgument { field, value } => {
                 write!(formatter, "bad {field} {value:?} (want \"docked\" or \"overlay\")")
             }
+            Self::NoSuchColumn { index } => write!(formatter, "no viewport column {index}"),
             Self::CommitFailed => formatter.write_str("could not persist the sticky column"),
         }
     }
@@ -108,27 +113,45 @@ pub fn parse_column_sticky(
     Ok(sticky.then_some(ColumnSticky { edge, mode }))
 }
 
-/// Set the flag of `columns[index]`. Setting an edge unsticks the column that
-/// held it (replace). Fails without a usable result when no scrolling column
-/// would remain; callers apply it to a copy.
-fn apply_column_sticky(
-    columns: &mut [LayoutColumn],
+/// The pure reducer of `set-column-sticky`: the screen's column flags in
+/// order, plus the op (`index` gets `sticky`), give the flags after the op or
+/// the reject. Setting an edge unsticks the column that held it (replace).
+/// It reads and returns flags only, so pane membership, tabs, widths and
+/// column order cannot change.
+pub(crate) fn reduce_column_sticky(
+    flags: &[Option<ColumnSticky>],
     index: usize,
     sticky: Option<ColumnSticky>,
-) -> Result<(), ColumnStickyError> {
+) -> Result<Vec<Option<ColumnSticky>>, ColumnStickyError> {
+    if index >= flags.len() {
+        return Err(ColumnStickyError::NoSuchColumn { index });
+    }
+    let mut next = flags.to_vec();
     if let Some(flag) = sticky {
-        for (candidate, column) in columns.iter_mut().enumerate() {
-            if candidate != index && column.sticky.is_some_and(|held| held.edge == flag.edge) {
-                column.sticky = None;
+        for (candidate, held) in next.iter_mut().enumerate() {
+            if candidate != index && held.is_some_and(|held| held.edge == flag.edge) {
+                *held = None;
             }
         }
     }
-    columns[index].sticky = sticky;
-    if columns.iter().all(|column| column.sticky.is_some()) {
+    next[index] = sticky;
+    if next.iter().all(Option::is_some) {
         return Err(ColumnStickyError::LastScrollingColumn);
     }
+    debug_assert!(sticky_flags_are_consistent(&next));
+    Ok(next)
+}
+
+fn column_flags(columns: &[LayoutColumn]) -> Vec<Option<ColumnSticky>> {
+    columns.iter().map(|column| column.sticky).collect()
+}
+
+fn write_column_flags(columns: &mut [LayoutColumn], flags: Vec<Option<ColumnSticky>>) {
+    debug_assert_eq!(columns.len(), flags.len());
+    for (column, flag) in columns.iter_mut().zip(flags) {
+        column.sticky = flag;
+    }
     debug_assert!(sticky_columns_are_consistent(columns));
-    Ok(())
 }
 
 fn sticky_column_location(
@@ -163,12 +186,8 @@ impl Mux {
         let unchanged = self.with_state(|state| {
             let (workspace, screen, column) = sticky_column_location(state, pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
-            let mut columns = screen.layout_columns.clone();
-            apply_column_sticky(&mut columns, column, sticky)?;
-            let unchanged = columns
-                .iter()
-                .zip(&screen.layout_columns)
-                .all(|(after, before)| after.sticky == before.sticky);
+            let flags = column_flags(&screen.layout_columns);
+            let unchanged = reduce_column_sticky(&flags, column, sticky)? == flags;
             let outcome = ColumnStickyOutcome {
                 screen: screen.id,
                 column: screen.layout_columns[column].id,
@@ -199,7 +218,9 @@ impl Mux {
                     let mut projected = state.clone();
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
-                    apply_column_sticky(&mut target.layout_columns, column, sticky)?;
+                    let current = column_flags(&target.layout_columns);
+                    let flags = reduce_column_sticky(&current, column, sticky)?;
+                    write_column_flags(&mut target.layout_columns, flags);
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = ColumnStickyOutcome {
                         screen: target.id,
@@ -240,5 +261,129 @@ impl Mux {
             self.emit(MuxEvent::LayoutChanged(outcome.screen));
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn all_flags() -> Vec<Option<ColumnSticky>> {
+        let mut flags = vec![None];
+        for edge in [StickyEdge::Left, StickyEdge::Right] {
+            for mode in [StickyMode::Docked, StickyMode::Overlay] {
+                flags.push(Some(ColumnSticky { edge, mode }));
+            }
+        }
+        flags
+    }
+
+    /// Every flag assignment of `count` columns, consistent or not.
+    fn assignments(count: usize) -> Vec<Vec<Option<ColumnSticky>>> {
+        (0..count).fold(vec![Vec::new()], |prefixes, _| {
+            prefixes
+                .into_iter()
+                .flat_map(|prefix| {
+                    all_flags().into_iter().map(move |flag| {
+                        let mut next = prefix.clone();
+                        next.push(flag);
+                        next
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /// Checks one op from one consistent state; returns whether it was
+    /// accepted.
+    fn check_op(
+        flags: &[Option<ColumnSticky>],
+        index: usize,
+        sticky: Option<ColumnSticky>,
+    ) -> bool {
+        let replaced = |candidate: usize| {
+            candidate != index
+                && sticky.zip(flags[candidate]).is_some_and(|(set, held)| set.edge == held.edge)
+        };
+        let scrolls_after = |candidate: usize| {
+            if candidate == index {
+                sticky.is_none()
+            } else {
+                flags[candidate].is_none() || replaced(candidate)
+            }
+        };
+        let Ok(next) = reduce_column_sticky(flags, index, sticky) else {
+            assert_eq!(
+                reduce_column_sticky(flags, index, sticky),
+                Err(ColumnStickyError::LastScrollingColumn)
+            );
+            assert!(!(0..flags.len()).any(scrolls_after), "{flags:?} {index} {sticky:?}");
+            return false;
+        };
+        assert_eq!(next.len(), flags.len());
+        assert!(sticky_flags_are_consistent(&next), "{flags:?} -> {next:?}");
+        assert!(next.iter().any(Option::is_none), "one column must scroll");
+        assert_eq!(next[index], sticky);
+        for candidate in (0..flags.len()).filter(|candidate| *candidate != index) {
+            let expected = if replaced(candidate) { None } else { flags[candidate] };
+            assert_eq!(next[candidate], expected, "{flags:?} {index} {sticky:?}");
+        }
+        let replayed = reduce_column_sticky(&next, index, sticky).unwrap();
+        assert_eq!(replayed, next, "replaying an op changes nothing");
+        true
+    }
+
+    /// Exhaustive check of the reducer for screens of up to five columns:
+    /// from every consistent state, every op either yields a consistent
+    /// state that differs only where the op says, or is rejected exactly
+    /// when no scrolling column would remain. Replaying an accepted op is a
+    /// no-op.
+    #[test]
+    fn sticky_column_reducer_keeps_invariants_for_every_state_and_op() {
+        let (mut accepted, mut rejected) = (0, 0);
+        for count in 1..=5 {
+            let states = assignments(count);
+            for flags in states.iter().filter(|flags| sticky_flags_are_consistent(flags)) {
+                for index in 0..count {
+                    for sticky in all_flags() {
+                        if check_op(flags, index, sticky) {
+                            accepted += 1;
+                        } else {
+                            rejected += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert_eq!((accepted, rejected), (4455, 20), "every state and op was checked");
+    }
+
+    #[test]
+    fn sticky_column_reducer_rejects_an_index_outside_the_screen() {
+        assert_eq!(
+            reduce_column_sticky(&[None, None], 2, None),
+            Err(ColumnStickyError::NoSuchColumn { index: 2 })
+        );
+    }
+
+    #[test]
+    fn sticky_column_normalization_restores_invariants_after_any_removal() {
+        let column = |sticky| LayoutColumn {
+            id: 1,
+            width: 0.5,
+            root: Node::Leaf(1),
+            zellij_auto_layout: None,
+            sticky,
+        };
+        for count in 0..=4 {
+            for flags in assignments(count) {
+                let mut columns = flags.iter().copied().map(column).collect::<Vec<_>>();
+                crate::model::normalize_sticky_columns(&mut columns);
+                assert!(sticky_columns_are_consistent(&columns), "{flags:?}");
+                for (before, after) in flags.iter().zip(&columns) {
+                    assert!(after.sticky.is_none() || after.sticky == *before);
+                }
+            }
+        }
     }
 }

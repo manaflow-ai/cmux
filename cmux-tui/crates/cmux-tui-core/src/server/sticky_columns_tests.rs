@@ -303,3 +303,104 @@ fn sticky_column_rejects_unknown_edge_and_mode() {
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(wire.sticky(), vec![None, None]);
 }
+
+/// Tab ids in the tree, sorted.
+fn tab_ids(screen: &Value) -> Vec<u64> {
+    let mut ids = screen["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+        .map(|tab| tab["surface"].as_u64().unwrap())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids
+}
+
+fn layout_has_pane(layout: &Value) -> bool {
+    match layout["type"].as_str() {
+        Some("leaf") => layout["pane"].is_u64(),
+        Some("stack") => layout["panes"].as_array().is_some_and(|panes| !panes.is_empty()),
+        Some("split") => layout_has_pane(&layout["a"]) && layout_has_pane(&layout["b"]),
+        _ => false,
+    }
+}
+
+/// Runs a deterministic pseudo-random sequence of `set-column-sticky`
+/// requests (accepted and rejected) and checks after every request: the tab
+/// set is unchanged, every column still holds a pane, column order and
+/// widths are unchanged, at most one column holds each edge, at least one
+/// column scrolls, and repeating the same request commits nothing. Returns
+/// the accepted and rejected counts.
+fn run_sticky_sequence(mut wire: Wire, mut seed: u64) -> (usize, usize) {
+    let tabs = tab_ids(&wire.screen());
+    let columns = wire.columns();
+    let column_panes = wire.mux.with_state(|state| {
+        state.workspaces[0].screens[0]
+            .layout_columns
+            .iter()
+            .map(|column| column.root.first_visible_pane())
+            .collect::<Vec<_>>()
+    });
+    let edges = ["left", "right"];
+    let modes = ["docked", "overlay"];
+    let mut next = |bound: usize| {
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        (seed >> 33) as usize % bound
+    };
+    let (mut accepted, mut rejected) = (0, 0);
+    for _ in 0..120 {
+        let request = json!({
+            "cmd": "set-column-sticky",
+            "pane": column_panes[next(column_panes.len())],
+            "sticky": next(4) != 0,
+            "edge": edges[next(2)],
+            "mode": modes[next(2)],
+        });
+        let response = wire.send(request.clone());
+        if response["ok"] == true {
+            accepted += 1;
+        } else {
+            rejected += 1;
+            assert_eq!(response["error_code"], "sticky-column-last-scrolling", "{response}");
+        }
+
+        assert_eq!(tab_ids(&wire.screen()), tabs, "a sticky change never adds or removes a tab");
+        let after = wire.columns();
+        assert_eq!(after.len(), columns.len());
+        for (before, column) in columns.iter().zip(&after) {
+            assert_eq!(before["id"], column["id"], "column order is unchanged");
+            assert_eq!(before["width"], column["width"]);
+            assert!(layout_has_pane(&column["layout"]), "every column holds a pane");
+        }
+        let flags = wire.sticky();
+        assert!(flags.iter().any(Option::is_none), "at least one column scrolls");
+        for edge in edges {
+            let holders = flags.iter().flatten().filter(|flag| flag["edge"] == edge).count();
+            assert!(holders <= 1, "{edge} is held by {holders} columns");
+        }
+
+        let revision = wire.mux.with_state(|state| state.resource_revision);
+        let replay = wire.send(request);
+        assert_eq!(replay["ok"], response["ok"], "{replay}");
+        assert_eq!(wire.sticky(), flags, "repeating a request changes nothing");
+        assert_eq!(wire.mux.with_state(|state| state.resource_revision), revision);
+    }
+    (accepted, rejected)
+}
+
+#[test]
+fn sticky_column_ops_preserve_layout_invariants_on_two_columns() {
+    let (wire, _) = Wire::with_columns(2);
+    let (accepted, rejected) = run_sticky_sequence(wire, 0x5eed);
+    assert!(accepted > 0 && rejected > 0, "{accepted} accepted, {rejected} rejected");
+}
+
+#[test]
+fn sticky_column_ops_preserve_layout_invariants_on_four_columns() {
+    let (wire, panes) = Wire::with_columns(4);
+    wire.mux.split(panes[1], SplitDir::Down, Some((38, 10))).unwrap();
+    wire.mux.new_tab(Some(panes[2]), None, Some((38, 22))).unwrap();
+    // Two edges hold at most two of four columns, so nothing is rejected.
+    assert_eq!(run_sticky_sequence(wire, 0xc01), (120, 0));
+}
