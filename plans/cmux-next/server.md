@@ -165,7 +165,7 @@ Limits: `PairingDO` creation is rate-limited per source IP and per account; appr
 
 ### 7.1 The manifest `server` block
 
-Decided by the coordinator: `cmux-app.json` gets a public `server` block, and `contributes.paneKinds` gets renderer `native` (first-party and Verified apps only). First example: Tasks (`dev.cmux.tasks`, Rust `cmux-tasks serve`, plans/cmux-next/tasks.md on feat-cmux-next-tasks).
+Decided by the coordinator: `cmux-app.json` gets a public `server` block, and `contributes.paneKinds` gets renderer `native` (first-party and Verified apps only). First example: Tasks (`dev.cmux.tasks`, recommended rename `cmux/tasks` in 7.9, Rust `cmux-tasks serve`, plans/cmux-next/tasks.md on feat-cmux-next-tasks).
 
 ```jsonc
 "server": {
@@ -179,8 +179,8 @@ Decided by the coordinator: `cmux-app.json` gets a public `server` block, and `c
 ```
 
 Rules this lane applies:
-- Exactly one host per team runs an app's server: the **app server** is the single writer of every op in its catalog. `owner_for(op)` resolves `app:<id>` to the host that holds the app's lease (7.2) and routes the op there (over the link and `HostDO`, or the local socket when the caller is on that host).
-- `kind: native` runs a binary from the app bundle. It is allowed for first-party and Verified apps only (the same rule as `native` panes), because it is third-party native code (spec/app-platform.md non-goal for other tiers).
+- Exactly one host per tenancy key (team by default; user and machine in 7.8) runs an app's server: the **app server** is the single writer of every op in its catalog. `owner_for(op)` resolves `app:<id>` to the host that holds the app's lease (7.2) and routes the op there (over the link and `HostDO`, or the local socket when the caller is on that host).
+- `kind: native` runs a binary from the app bundle. This lane recommends first-party apps only (7.9 G13); Verified apps would need a sandboxed kind.
 - The server speaks the app's catalog over a Unix socket that the supervisor creates and passes as `CMUX_APP_SOCKET` (JSON lines or `cmux.wire/1`, the Tasks protocol shape: request, reply, `settled {tx, seq}`, events with `after_seq`).
 
 ### 7.2 Host election, failover, and no two writers
@@ -252,6 +252,40 @@ The supervisor gives every app server two stores. Each is fenced by the lease ep
 - G6. `local` contradicts single writer for teams larger than one (a sleeping laptop would hold the lease). RECOMMEND `local` = eligible only for a team of one or an explicit admin pin.
 - G7. No resource or network declaration. RECOMMEND `resources {memoryMiB, cpuPercent}` and `net: ["host:port"]` (default none), enforced by the sandbox.
 - G8. Name: `cmux-server` as a host kind is spelled `server` in `TeamDO` host records. RECOMMEND `hosts: ["team-vm", "server", "local"]`.
+
+### 7.8 Tenancy: team, user and machine app servers
+
+Input from lane 3 (plans/cmux-next/first-party-apps.md section 10, PR https://github.com/manaflow-ai/cmux/pull/16786): Tasks is per team, notes is per user (`cmux-notes serve`), usage is per machine (`cmux-usage serve`); search, coderouter and inbox have no server. Proposed field: `server.instances: "team" | "user" | "machine"` (default `team`). This lane adopts it.
+
+Single-writer election is per **tenancy key**. Exactly one host runs the app server for each key, and the key's owner holds the lease:
+
+| `instances` | Tenancy key | Lease owner | Who may host | Election |
+| --- | --- | --- | --- | --- |
+| `team` | (team, app) | `TeamDO` | team VM, team servers, `local` only for a team of one (7.2) | 7.2 |
+| `user` | (user, app) | `UserDO` | the user's own hosts only: the user's paired servers (owner = user), the user's personal team VM (team of one), the user's Macs | below |
+| `machine` | (host, app) | that host's `apps` role | that host only | none: the host is the key; a local `flock` on the data directory stops a second process on the same machine |
+
+Per-user servers (notes) when the user has several devices:
+1. Placement order: a user pin (`app.server.place {app, host}` on `UserDO`, origin user); else the user's always-on host (a paired server the user owns, then their personal team VM); else the user's **home Mac** (setting `apps.userHomeHost`; default the first Mac the user made a server, else the Mac where the user installed the app). The server never follows the active device: moving the writer each time the user switches devices would thrash the lease and the data.
+2. Other devices (the iPhone, a second Mac, the web) are clients: `owner_for(note.*)` routes their ops through the link to the lease host, like any remote owner.
+3. When the lease host sleeps or is offline, the user's ops refuse with `owner_unreachable` (U5: nothing queues), and clients show the last read-only snapshot from `HostDO`'s cache (spec/sync-and-transport.md section 5). This is the same rule as D10 local conversations. The product consequence: a user who wants notes writable from the phone while the Mac sleeps needs an always-on host; the Notes app offers "Keep notes on <server>" when the user has one, and the menubar shows "Notes are on this Mac" while the home host is a Mac.
+4. Failover: automatic only between always-on hosts (same lease protocol as 7.2 with `UserDO` as lease owner, same three fences). A Mac never takes or loses a user lease automatically, because sleep is normal for a Mac; the move is `app.server.move` by the user, which drains the old host if it is awake or restores from the R2 copy (7.3) if it is not.
+5. Data for `user` apps ships to the user's R2 prefix (`users/<user>/apps/<app>/epoch-<n>/`), never the team prefix, so a team admin or the team VM cannot read it.
+
+Per-machine servers (usage): each machine that has the app installed runs its own server with `data: cache`; catalog ops carry a `host` target (default: the caller's machine), and `owner_for` routes to that host. No election and no failover, because each instance owns only its machine's data.
+
+### 7.9 Lane 3 gaps and this lane's recommendations
+
+These extend 7.7 (G1 to G8):
+- Tenancy: adopt `server.instances` as above (G9).
+- Catalog-only apps: adopt top-level `catalog` without `server` plus `requires: [op names]`; the supervisor runs nothing for them (G10).
+- Data classes: merge with G1 into one object: `data: {class: "durable" | "cache" | "none", files: bool, postgres: "schema" | "database" | false, durability: "zero-loss" | "bounded", sync: "none" | "user" | "team"}`. `cache` is local, lossy, never backed up and deleted on uninstall; `sync` names who may read projections, and the writer stays the lease host (G1).
+- Server principal: adopt `app:<id>/server`, acting on behalf of the tenancy key's owner (team, user or machine owner), with its own `server.scopes` shown at consent next to the client scopes; local file reads are listed paths that the OS sandbox of 7.4 enforces (G11).
+- Lifecycle: adopt `server.activation: "always" | "onDemand"`. `onDemand` starts the server on the first routed op or subscriber and stops it after the last subscriber leaves and a one-shot idle deadline passes (default 60 s); `always` runs while the host holds the lease. Crash policy, upgrades and logs are 7.4 to 7.6 (G12).
+- Per-platform binaries: same as G3.
+- Tier rule for native code: RECOMMEND `server.kind: native` for first-party apps only; Verified apps get a server only through a sandboxed kind (`workerd` or WASM, later), because a Verified publisher's native binary is third-party native code that the platform spec excludes. Native panes stay as the coordinator decided (G13; this narrows 7.1).
+- Id grammar: RECOMMEND renaming Tasks to `cmux/tasks`. The manifest grammar `<publisher>/<name>` is already implemented, validated and used by the store, the scope ids (`app:<id>`) and global contribution ids (`<app>#<id>`); `cmux` is the reserved first-party publisher; reverse-DNS ids would need a second grammar everywhere. Keep `dev.cmux.tasks` only if a platform bundle id needs it, as a derived value (G14).
+- Schema: the manifest schema rejects a `server` key today (unknown top-level keys are errors). The app platform lead adds `server`, `catalog`, `requires` and `data` to `cmux-app.schema.json` with the decisions above; until then lane 3 and Tasks keep their blocks in plans (G15).
 
 ## 8. Postgres (SV2)
 
@@ -373,7 +407,7 @@ Posting: every raise or change of an alert is `feed.notify` through the lane 9 f
 | health facts and the alert set | the `health` role on that server (single writer) | the feed and the menubar are projections |
 | feed items | the feed owner (lane 9) | the server posts and resolves through its API |
 | Postgres cluster, app roles and databases, backups | the `postgres` role on that server | apps are clients |
-| app server lease (host, epoch) | `TeamDO` | hosts and `owner_for` are projections |
+| app server lease (host, epoch) | `TeamDO` (team apps), `UserDO` (user apps), the host itself (machine apps) | hosts and `owner_for` are projections |
 | app server process | the `apps` role on the lease host | |
 | app installs and app grants | `UserDO` / `TeamDO` (spec/app-platform.md) | the supervisor is a projection |
 | applied store generation | the `updater` role on that server | reported to the control plane |
