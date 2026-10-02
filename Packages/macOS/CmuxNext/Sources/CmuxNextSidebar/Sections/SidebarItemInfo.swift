@@ -41,6 +41,9 @@ extension SidebarBuiltIn {
         case .history: "clock.arrow.circlepath"
         case .bookmarks: "bookmark"
         case .appStore: "bag"
+        case .newTerminal: "apple.terminal"
+        case .newBrowser: "globe"
+        case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
         }
     }
@@ -55,6 +58,9 @@ extension SidebarBuiltIn {
         case .history: SectionStrings.history
         case .bookmarks: SectionStrings.bookmarks
         case .appStore: SectionStrings.appStore
+        case .newTerminal: SectionStrings.newTerminal
+        case .newBrowser: SectionStrings.newBrowser
+        case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
         }
     }
