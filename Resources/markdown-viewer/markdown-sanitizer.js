@@ -248,6 +248,10 @@
   //   url(ctx):         returns the value to keep for a URL attribute, or null.
   //                     ctx = { namespace, tag, name, value }
   //   element(source, clean): optional post hook; return false to drop.
+  //   inlineSVGAsImage: render each top-level inline <svg> as an <img> with a
+  //                     data: URL instead of dropping it. WebKit draws SVG in
+  //                     image context with scripts, links, external loads,
+  //                     and interaction disabled, so the markup stays inert.
   function createProfile(spec) {
     spec = spec || {};
     return {
@@ -257,8 +261,36 @@
       allowStyle: spec.allowStyle === true,
       classToken: spec.classToken || MARKDOWN_CLASS_TOKEN,
       url: typeof spec.url === 'function' ? spec.url : function() { return null; },
-      element: typeof spec.element === 'function' ? spec.element : null
+      element: typeof spec.element === 'function' ? spec.element : null,
+      inlineSVGAsImage: spec.inlineSVGAsImage === true
     };
+  }
+
+  var MAX_INLINE_SVG_IMAGE_BYTES = 512 * 1024;
+
+  function utf8Base64(text) {
+    var bytes = new TextEncoder().encode(text);
+    var binary = '';
+    for (var i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return global.btoa(binary);
+  }
+
+  // Serializes an inert <svg> subtree as standalone XML and wraps it in an
+  // <img>. Image context is what keeps it inert; nothing here filters SVG.
+  function inlineSVGImage(source, doc) {
+    var Serializer = global.XMLSerializer;
+    if (!Serializer || typeof global.btoa !== 'function' || typeof TextEncoder === 'undefined') {
+      return null;
+    }
+    var xml = new Serializer().serializeToString(source);
+    if (xml.length > MAX_INLINE_SVG_IMAGE_BYTES) { return null; }
+    var img = doc.createElement('img');
+    img.setAttribute('src', 'data:image/svg+xml;base64,' + utf8Base64(xml));
+    img.setAttribute('alt', '');
+    img.setAttribute('class', 'cmux-inline-svg');
+    return img;
   }
 
   function parseInert(html, targetDocument) {
@@ -329,6 +361,10 @@
       if (!allowed) { return null; }
       clean = doc.createElement(lower);
       copyAttributes(profile, source, clean, HTML_NS, lower, allowed);
+    } else if (namespace === SVG_NS && !profile.svgElements && profile.inlineSVGAsImage && lower === 'svg') {
+      // Returned directly: the element hook and URL policy never see it, and
+      // its children are not walked (see sanitizeToFragment).
+      return inlineSVGImage(source, doc);
     } else if (namespace === SVG_NS && profile.svgElements) {
       var canonical = profile.svgElements[lower];
       if (!canonical) { return null; }
@@ -371,6 +407,10 @@
       var clean = cleanElement(profile, node, doc);
       if (!clean) { continue; }
       parent.appendChild(clean);
+      if (node.namespaceURI === SVG_NS && clean.namespaceURI === HTML_NS) {
+        // Inline SVG rendered as an image; its subtree lives in the data URL.
+        continue;
+      }
       if (clean.namespaceURI === SVG_NS && clean.localName === 'style') {
         var css = sanitizeCSS(node.textContent || '');
         if (css) { clean.appendChild(doc.createTextNode(css)); }
@@ -414,6 +454,7 @@
       htmlGlobalAttributes: MARKDOWN_GLOBAL_ATTRIBUTES,
       classToken: MARKDOWN_CLASS_TOKEN,
       url: spec.url,
+      inlineSVGAsImage: spec.inlineSVGAsImage === true,
       element: function(source, clean) {
         var tag = clean.localName;
         if (tag === 'input') {

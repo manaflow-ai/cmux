@@ -919,6 +919,7 @@ html { scroll-behavior: smooth; }
   // nodes, which are inserted directly so nothing is re-parsed live.
   var markdownSanitizerProfile = CmuxMarkdownSanitizer.markdownProfile({
     extraAttributes: { div: ['data-vega-mode'] },
+    inlineSVGAsImage: true,
     url: function(ctx) {
       var value = String(ctx.value == null ? '' : ctx.value);
       if (ctx.tag === 'img' && ctx.name === 'src') {

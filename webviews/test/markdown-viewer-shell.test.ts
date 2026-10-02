@@ -50,6 +50,22 @@ describe("markdown viewer renders untrusted markdown without active content", ()
     });
   }
 
+  test("inline SVG renders as an inert image", () => {
+    const { render } = shell();
+    const content = render(
+      '<svg width="40" height="20" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="20" fill="teal"/><script>alert(1)</script><a href="#"><animate attributeName="href" to="javascript:alert(1)"/><text>x</text></a></svg>\n\nafter',
+    );
+    expect(unsafeNodes(content)).toEqual([]);
+    expect(content.querySelector("svg, script, animate, a")).toBeNull();
+    const img = content.querySelector("img.cmux-inline-svg");
+    expect(img).not.toBeNull();
+    const src = img?.getAttribute("src") ?? "";
+    expect(src.startsWith("data:image/svg+xml;base64,")).toBe(true);
+    const xml = Buffer.from(src.slice("data:image/svg+xml;base64,".length), "base64").toString("utf8");
+    expect(xml).toContain('<rect width="40" height="20" fill="teal"');
+    expect(content.textContent).toContain("after");
+  });
+
   test("frontmatter is routed through the sanitizer", () => {
     const { dom, render } = shell();
     const hljs = (dom.window as unknown as { hljs: { highlight: (...args: unknown[]) => { value: string } } }).hljs;
