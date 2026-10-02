@@ -23,7 +23,12 @@ extension ControlRouter {
             }
             request.origin = name
         }
-        request.focus = params["focus"]?.boolValue ?? false
+        if let focus = params["focus"], !focus.isNull {
+            guard let value = focus.boolValue else {
+                throw ControlError.invalidParams(ControlStrings.text("control.error.focusShape", "focus must be true or false"))
+            }
+            request.focus = value
+        }
         if let rawTarget = params["target"], !rawTarget.isNull {
             request.target = try target(from: rawTarget, allowedKinds: action.targets, knownKinds: knownKinds, action: action.id)
         }

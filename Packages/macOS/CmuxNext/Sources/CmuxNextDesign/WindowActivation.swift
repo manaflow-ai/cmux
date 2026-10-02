@@ -12,6 +12,9 @@ public struct WindowActivation {
     public nonisolated enum Intent: Sendable, Equatable {
         /// A window appears (launch, restore, new window).
         case present
+        /// A window appears that this client's user did not ask to see
+        /// (automation, Option on a tear-off): behind the others, never key.
+        case presentBehind
         /// Brings a window forward inside the app (key, no app activation).
         case raise
         /// The user or a CLI verb brings a window forward, focuses it and
@@ -36,9 +39,12 @@ public struct WindowActivation {
     /// on an agent's test screen), a focused one is ordered front without
     /// the keys.
     public nonisolated static func plan(_ intent: Intent, noActivate: Bool, testScreen: Bool) -> Plan {
+        if intent == .presentBehind {
+            return Plan(order: noActivate && testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
+        }
         guard noActivate else { return Plan(order: .makeKeyAndOrderFront, activatesApp: intent == .focus) }
         switch intent {
-        case .present: return Plan(order: testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
+        case .present, .presentBehind: return Plan(order: testScreen ? .orderFrontRegardless : .orderBack, activatesApp: false)
         case .raise, .focus: return Plan(order: .orderFrontRegardless, activatesApp: false)
         }
     }

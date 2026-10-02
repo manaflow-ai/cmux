@@ -155,6 +155,9 @@ extension WindowManager {
             return
         }
         protectIfUnknown([workspaceID], window: state.id)
+        // Not reported yet: it lands when the daemon reports it, shown only
+        // when asked (reconcileMembership).
+        if !shows, pendingClaims[workspaceID] != nil { quietClaims.insert(workspaceID) }
         if registry.value.owner(of: workspaceID) == state.id {
             if shows { select(workspaceID, in: state) }
             return
@@ -188,13 +191,14 @@ extension WindowManager {
     /// of both kinds opens nothing (refused with a message).
     @discardableResult
     func openWindow(id: String = UUID().uuidString.lowercased(), workspaces: [String], frame: CGRect? = nil,
-                    incognito: Bool = false) -> WindowController? {
+                    incognito: Bool = false, behind: Bool = false) -> WindowController? {
         let kinds = Set(workspaces.compactMap { registry.value.owner(of: $0) }.map(registry.value.isIncognito))
         if kinds.count > 1 || (incognito && kinds == [false]) {
             services.registry.refuse(RefusalStrings.incognitoMismatch)
             return nil
         }
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
+        if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
         transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame) }
         guard let controller = controller(for: id) else { return nil }
@@ -284,12 +288,14 @@ extension WindowManager {
             }
         }
         for id in live { pendingClaims[id] = nil }
-        // A claimed workspace is selected in its window.
+        // A claimed workspace is selected in its window, unless it was
+        // claimed quietly (`claim(select: false)`).
         let before = registry.value
         var preferred: [String: [String]] = [:]
         for id in live where before.owner(of: id) == nil {
-            if let window = placements[id] { preferred[window, default: []].append(id) }
+            if let window = placements[id], !quietClaims.contains(id) { preferred[window, default: []].append(id) }
         }
+        for id in live { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()

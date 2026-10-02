@@ -41,17 +41,17 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
             let windows = ctx.services.windows!
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
-            // Read before the await: whether this run may change the view.
+            // Read before the await: whether this run may change the view,
+            // and the window it acts in.
             let allowed = ctx.services.viewChangeAllowed
+            let source = ctx.services.landingWindow(tab: tab.id, workspaceID: nil)
+            let preferred = (source ?? windows.active)?.state
+            if allowed, let source, let pane = ctx.services.locateTab(tab.id)?.1 { source.focus.followMovedTab(tab.id, from: pane.id) }
             ctx.registry.track(Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else {
                     return "move-tab-to-new-workspace failed (see the app log)"
                 }
-                windows.placeMoved(key.rawValue, from: origin, preferred: windows.active?.state, newWindow: false, select: allowed)
-                if let reveal = ctx.services.actionReveal(.newWorkspace(groupID: nil, index: nil), allowed: allowed, landed: true,
-                                                          window: windows.active) {
-                    ctx.services.applyReveal(reveal, tab: tab.id, workspaceID: key.rawValue, fallback: windows.active)
-                }
+                windows.placeMoved(key.rawValue, from: origin, preferred: preferred, newWindow: false, select: allowed)
                 return nil
             })
         })
@@ -59,9 +59,12 @@ extension TabHandlers {
             guard let (tab, _) = ctx.daemonTab(invocation), ctx.connection() != nil else { return }
             let windows = ctx.services.windows!
             let origin = windows.moveOrigin(of: ctx.services.workspaceID(ofTab: tab.id))
+            // Read before the await: a run this client's user did not start
+            // opens the window behind, never key.
+            let allowed = ctx.services.viewChangeAllowed
             Task {
                 guard let key = await TabMoves.toNewWorkspace(tab, services: ctx.services) else { return }
-                windows.placeMoved(key.rawValue, from: origin, preferred: nil, newWindow: true)
+                windows.placeMoved(key.rawValue, from: origin, preferred: nil, newWindow: true, select: allowed)
             }
         })
     }
@@ -116,18 +119,25 @@ extension TabHandlers {
 
 extension TabHandlers {
     /// The view change after a tab move an action started, captured before
-    /// any await (`viewChangeAllowed`): call the result with whether the
-    /// move landed. A run this client's user did not start changes nothing.
+    /// any await (`viewChangeAllowed`, the landing window): focus follows
+    /// the tab into the window that will show it (an expectation set now,
+    /// so a newer user choice wins), and the returned closure, called with
+    /// whether the move landed, shows the workspace and makes the window
+    /// key once the store holds the result. A run this client's user did
+    /// not start changes nothing.
     @MainActor
     static func revealer(_ ctx: AppActionContext, tab: TabModel, outcome: TabDragOutcome,
                          workspaceID: String?) -> @MainActor (Bool) -> Void {
-        let allowed = ctx.services.viewChangeAllowed
-        let window = ctx.services.windows.active
-        let source = ctx.services.locateTab(tab.id)?.1
-        if allowed, let source, let controller = window { controller.focus.followMovedTab(tab.id, from: source.id) }
+        let services = ctx.services
+        let allowed = services.viewChangeAllowed
+        let source = services.landingWindow(tab: tab.id, workspaceID: nil)
+        let landing = services.landingWindow(tab: tab.id, workspaceID: workspaceID) ?? source
+        if allowed, let landing, let pane = services.locateTab(tab.id)?.1 { landing.focus.followMovedTab(tab.id, from: pane.id) }
+        let daemon = services.machines.daemon(forTab: tab)
         return { landed in
-            guard let reveal = ctx.services.actionReveal(outcome, allowed: allowed, landed: landed, window: window) else { return }
-            ctx.services.applyReveal(reveal, tab: tab.id, workspaceID: workspaceID, fallback: window)
+            guard let reveal = services.actionReveal(outcome, allowed: allowed, landed: landed, window: landing, source: source) else { return }
+            // After the store holds the result, like a drop.
+            daemon.whenApplied(.generate()) { services.applyReveal(reveal, workspaceID: workspaceID, fallback: landing) }
         }
     }
 }

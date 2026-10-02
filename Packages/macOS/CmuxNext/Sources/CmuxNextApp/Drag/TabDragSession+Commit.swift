@@ -141,7 +141,8 @@ extension TabDragSession {
     /// A tab torn off an incognito window opens an incognito window.
     func openTornOff(workspace key: WorkspaceKey, frame: CGRect, drag: Drag) -> WindowController? {
         let incognito = drag.source.window.map { services.windows.isIncognito(window: $0.state.id) } ?? false
-        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito)
+        // Option files it away: the new window opens behind, never key.
+        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway)
     }
 
     // MARK: Lookup
@@ -163,6 +164,10 @@ extension TabDragSession {
     /// The view change after a landed drop (`DropRevealPolicy`): drags are
     /// always the user's; Option files the tabs away.
     func revealLanded(_ drag: Drag, outcome: TabDragOutcome, dropWindow: WindowController?) {
+        // A move onto another machine is a reference move, not this
+        // client's layout: no view change (product decision 2026-10-01).
+        if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
+           services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
         let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
             .flatMap(services.windows.controller(for:)) ?? dropWindow
         let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
@@ -170,7 +175,7 @@ extension TabDragSession {
                                            noActivate: WindowPlacement.noActivate,
                                            landingOnActiveSpace: landing?.window?.isOnActiveSpace ?? true)
         guard let reveal = DropRevealPolicy.decide(facts) else { return }
-        services.applyReveal(reveal, tab: drag.revealTabs.first, workspaceID: drag.landedWorkspaceID, fallback: dropWindow)
+        services.applyReveal(reveal, workspaceID: drag.landedWorkspaceID, fallback: dropWindow)
     }
 
     func paneController(stripID: UUID) -> PaneController? {

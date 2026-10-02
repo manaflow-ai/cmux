@@ -27,9 +27,12 @@ extension TabDragSession {
         switch outcome {
         case .cancel, .moveWindow, .moveWorkspaceToNewWindow, .moveWorkspace:
             source?.focus.send(.dragEnded(.cancelled))
-        case .workspace:
-            // Into a workspace this window does not show: focus stays here.
+        case .workspace(let id):
+            // Into another workspace: its window shows it once the move
+            // lands (`revealLanded`) and focus follows the tab there.
             source?.focus.send(.dragEnded(.movedAway))
+            let landing = services.landingWindow(tab: tabs.first ?? "", workspaceID: id) ?? drop
+            landing?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: sourcePane?.paneKey)))
         case .tearOff:
             // The new window focuses it once it opens (`focusTornOff`).
             source?.focus.send(.dragEnded(.movedAway))

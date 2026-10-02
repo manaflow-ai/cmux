@@ -59,7 +59,9 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
 
     /// Whether the run may change this client's focus, selection, shown
     /// workspace or key window.
-    public var allowsViewChange: Bool { origin == .user || focusRequested }
+    public var allowsViewChange: Bool {
+        origin == .user || focusRequested || arguments["focus"]?.boolValue == true
+    }
 
     public subscript(_ name: String) -> ActionValue? {
         arguments[name]

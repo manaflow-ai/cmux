@@ -167,7 +167,7 @@ extension WindowManager {
     /// the workspace).
     func placeMoved(_ key: String, from origin: MoveOrigin, preferred: WindowState?, newWindow: Bool, select shows: Bool = true) {
         if newWindow {
-            openWindow(workspaces: [key], incognito: origin.incognito)
+            openWindow(workspaces: [key], incognito: origin.incognito, behind: !shows)
             return
         }
         if let preferred, isIncognito(window: preferred.id) == origin.incognito {
