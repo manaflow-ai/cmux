@@ -206,13 +206,15 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
-            if canCreateCloudMachine {
-                CloudNewMachineButton {
+            CloudNewMachineButton {
+                if canCreateCloudMachine {
                     _ = AppDelegate.shared?.performNewCloudMachineAction(
                         tabManager: tabManager,
                         preferredWindow: tabManager?.window,
                         debugSource: "cloudTree.newMachineButton"
                     )
+                } else {
+                    ProUpgradePresenter.present(source: .newMachineAtLimit)
                 }
             }
         }
