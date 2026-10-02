@@ -325,11 +325,11 @@ Screenshots come from a throwaway demo executable that links `CmuxNextPalette` w
 
 | # | Step | State |
 | --- | --- | --- |
-| 1 | This proposal, the private research note | this PR |
-| 2 | `CmuxNextPalette/Scopes/`: descriptor, graph, `PaletteNavReducer`, example and property tests | this PR |
-| 3 | Palette UI on the reducer: chip variants, entry variants, scope list, `?` scope, Debug Settings tunables, screenshots | after lane 2's PR 16796 lands (it changes the same palette files) |
-| 4 | Port Search Tabs to scope `tabs`; "Go to Tab…" and Cmd-Shift-A open it | after 16796 |
-| 5 | Catalog `palette.open`, `palette.scopes`, `palette.query`, `palette.run`; control socket; CLI request | after 3 |
+| 1 | This proposal, the private research note | PR 16824 |
+| 2 | `CmuxNextPalette/Scopes/`: descriptor, graph, `PaletteNavReducer`, example and property tests | PR 16824 |
+| 3 | Palette UI on the reducer: `PaletteModel` runs the reducer's effects (one page per level, the root built only when shown), chip styles, entry styles, keyword hint, footer prefix hints, scope list (`?`), item actions as a scope, Debug Settings tunables | this PR |
+| 4 | Search Tabs is scope `tabs` (`@`, `tabs` Tab); Cmd-Shift-A opens it above the root, so Backspace shows the full palette | this PR |
+| 5 | Catalog `palette.open`, `palette.scopes`, `palette.query`, `palette.run`; control socket; CLI request | next |
 | 6 | Extension contribution: schema `contributes.paletteScopes`, runtime `palette.*`/`act`, Swift bridge from the app registry, sample app, harness with shared vectors | after 5, with the app platform lead |
 
 ## 9. Decisions
