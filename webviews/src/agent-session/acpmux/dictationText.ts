@@ -129,10 +129,10 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
     if (!midWord) return { rest, glued: false };
     return anchor.continues ? { rest, glued: true } : { rest: rest.replace(/^[\p{L}\p{N}]+/u, ""), glued: false };
   }
-  // Scripts without spaces: by character (code point), after the handed text's last character.
+  // Scripts without spaces: by character (grapheme), after the handed text's last characters.
   if (unspaced.test(handed) && !/\s/u.test(handed.trim())) {
-    const characters = [...text], mine = [...handed];
-    const at = sameOccurrence(mine, characters, (a, b) => a === b);
+    const characters = graphemes(text);
+    const at = anchorAfter(graphemes(handed), characters, (a, b) => a === b);
     return { rest: at < 0 ? "" : characters.slice(at + 1).join(""), glued: false };
   }
   const old = words(handed), next = words(text);
@@ -142,25 +142,36 @@ function remainder(text: string, anchor: DictationAnchor): { rest: string; glued
   let spelled = "";
   for (let index = 0; index < next.length && target; index += 1) {
     spelled += plain(next[index]!);
-    if (spelled === target) return wholeWords(next.slice(index + 1));
+    if (spelled === target) {
+      // Trailing punctuation-only words ("hello world .") were matched by nothing; skip their copies.
+      let skip = index + 1;
+      for (let trailing = old.length - 1; trailing >= 0 && !plain(old[trailing]!) && skip < next.length && !plain(next[skip]!); trailing -= 1) skip += 1;
+      return wholeWords(next.slice(skip));
+    }
     if (!target.startsWith(spelled)) break;
   }
   // Respelled ("I'm" as "I am", "21" as "twenty one"): what follows the handed text's last word
   // is new. Without that word nothing is.
-  const at = plain(old.at(-1) ?? "") ? sameOccurrence(old, next, (a, b) => plain(a) === plain(b)) : -1;
+  const at = plain(old.at(-1) ?? "") ? anchorAfter(old, next, (a, b) => plain(a) === plain(b)) : -1;
   return wholeWords(at < 0 ? [] : next.slice(at + 1));
 }
 
-/// Where `handed`'s last item sits in `next`: the same occurrence of it (the third "the" if it
-/// was the third), or -1 when `next` has fewer, so a revised last item adds nothing.
-function sameOccurrence(handed: string[], next: string[], same: (a: string, b: string) => boolean): number {
-  const last = handed.at(-1);
+const graphemes = (text: string) => Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text), (part) => part.segment);
+
+/// Where `handed` ends in `next`, or -1 when that is unclear (a revision then adds nothing): the
+/// latest place its last item follows its second-to-last one, or else its last item when that
+/// appears exactly once on both sides ("I'm going" as "I am going").
+function anchorAfter(handed: string[], next: string[], same: (a: string, b: string) => boolean): number {
+  const last = handed.at(-1), before = handed.at(-2);
   if (last === undefined) return -1;
-  let wanted = handed.filter((item) => same(item, last)).length;
-  for (let index = 0; index < next.length; index += 1) {
-    if (same(next[index]!, last) && (wanted -= 1) === 0) return index;
+  if (before !== undefined) {
+    for (let index = next.length - 1; index > 0; index -= 1) {
+      if (same(next[index]!, last) && same(next[index - 1]!, before)) return index;
+    }
   }
-  return -1;
+  const mine = handed.filter((item) => same(item, last)).length;
+  const theirs = next.flatMap((item, index) => (same(item, last) ? [index] : []));
+  return mine === 1 && theirs.length === 1 ? theirs[0]! : -1;
 }
 
 /// Whole words: a word boundary goes before them.

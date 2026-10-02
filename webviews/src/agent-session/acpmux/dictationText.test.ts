@@ -178,8 +178,15 @@ describe("dictation text", () => {
     // The last handed word revised, with an earlier copy: nothing is added rather than repeated.
     expect(revise("the cat and the", "The cat and the", "The cat and then we left")).toBe("The cat and the");
     expect(revise("send it to me and to", "Send it to me and to", "Send it to me and two")).toBe("Send it to me and to");
-    expect(revise("I'm sure you're sure", "I'm sure you're Sure", "I am sure you are sure now")).toBe("I'm sure you're Sure now");
-    expect(revise("it's fine, it's fine", "It's fine, it's fine", "it is fine, it is fine okay")).toBe("It's fine, it's fine okay");
+    // Respelled with the last word repeated: unclear, so nothing rather than a repeat.
+    expect(revise("I'm sure you're sure", "I'm sure you're Sure", "I am sure you are sure now")).toBe("I'm sure you're Sure");
+    expect(revise("it's fine, it's fine", "It's fine, it's fine", "it is fine, it is fine okay")).toBe("It's fine, it's fine");
+    // An expansion that adds an earlier copy of the last word: the last two words place it.
+    expect(revise("I'm sure I", "I'm Sure I", "I am sure I will")).toBe("I'm Sure I will");
+    expect(revise("you're right, you", "You're right, you", "you are right, you know")).toBe("You're right, you know");
+    expect(revise("don't do", "Don't do", "do not do it")).toBe("Don't do");
+    expect(revise("for the four", "For the four", "four the four people")).toBe("For the four people");
+    expect(revise("hello world .", "Hi world .", "Hello world . more")).toBe("Hi world . more");
     // A longer revision adds the words past the handed ones.
     expect(revise("I scream for", "We scream for", "ice cream for you")).toBe("We scream for you");
   });
@@ -192,6 +199,10 @@ describe("dictation text", () => {
     expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天的天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
     expect(run(caretAt(""), [update("listening", "今天天气"), update("listening", "今天气很好")], edit("明天天气")).prompt.value).toBe("明天天气很好");
     expect(run(caretAt(""), [update("listening", "天气很好天"), update("listening", "天气真好")], edit("天气不好天")).prompt.value).toBe("天气不好天");
+    // Common corrections (他/她, 的/得) place the new characters after the last two.
+    expect(run(caretAt(""), [update("listening", "他说她"), update("listening", "她说她很好")], edit("他說她")).prompt.value).toBe("他說她很好");
+    expect(run(caretAt(""), [update("listening", "跑得快的"), update("listening", "跑的快的人")], edit("跑得很快的")).prompt.value).toBe("跑得很快的人");
+    expect(run(caretAt(""), [update("listening", "打开Chrome"), update("listening", "打开Google Chrome浏览器")], edit("打開Chrome")).prompt.value).toBe("打開Chrome浏览器");
     // Characters outside the Basic Multilingual Plane count as one.
     expect(run(caretAt(""), [update("listening", "𠮷野"), update("listening", "𠮷の野家")], edit("吉野")).prompt.value).toBe("吉野家");
     expect(run(caretAt(""), [update("listening", "こんにちは"), update("listening", "こんにちは世界")], edit("こんばんは")).prompt.value).toBe("こんばんは世界");
