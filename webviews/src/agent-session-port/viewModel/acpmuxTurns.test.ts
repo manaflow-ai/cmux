@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../data/acpmux";
 import { deriveTurn } from "../conversation/derive";
-import { isNewChat, toolItem, turnsFromRows, unifiedHunks } from "./acpmuxTurns";
+import { commonEditRoot, isNewChat, toolItem, turnsFromRows, unifiedHunks } from "./acpmuxTurns";
 import { settledTurns } from "../pane/ChatView";
 
 const row = (fields: Partial<AcpmuxRow> & Pick<AcpmuxRow, "id" | "kind" | "at">): AcpmuxRow => ({
@@ -158,4 +158,34 @@ test("unifiedHunks has one header per hunk and no file header", () => {
 test("a session with no messages is a new chat", () => {
   expect(isNewChat({ rows: [] } as never)).toBe(true);
   expect(isNewChat({ rows: workedTurn } as never)).toBe(false);
+});
+
+test("without a reported cwd, edits read relative to the folder they share", () => {
+  const edit = (id: string, path: string): AcpmuxRow =>
+    row({
+      id,
+      kind: "activity",
+      at: 2,
+      items: [
+        {
+          kind: "tool",
+          text: "",
+          tool: {
+            id,
+            title: "Edit",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path, oldText: "a\n", newText: "b\n" }],
+          },
+        },
+      ],
+    });
+  const rows = [
+    row({ id: "u", kind: "user", at: 1, text: "go" }),
+    edit("e1", "/w/repo/src/a.ts"),
+    edit("e2", "/w/repo/test/b.ts"),
+  ];
+  expect(commonEditRoot(rows)).toBe("/w/repo");
+  const view = deriveTurn(turnsFromRows(rows)[0]!);
+  expect(view.edits.map((file) => file.path)).toEqual(["src/a.ts", "test/b.ts"]);
 });

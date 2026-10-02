@@ -164,11 +164,31 @@ export function toolItem(activity: AcpmuxActivity, cwd?: string): ThreadItem | u
   }
 }
 
+/** The deepest folder every edited path of the rows shares: the working folder to show
+ * edits relative to when the session reports no cwd. */
+export function commonEditRoot(rows: readonly AcpmuxRow[]): string | undefined {
+  const paths = rows.flatMap((row) =>
+    (row.items ?? []).flatMap((item) => (item.tool?.diffs ?? []).map((diff) => diff.path)),
+  );
+  const absolute = paths.filter((path) => path.startsWith("/"));
+  if (!absolute.length) return undefined;
+  let parts = absolute[0]!.split("/").slice(0, -1);
+  for (const path of absolute.slice(1)) {
+    const other = path.split("/");
+    let shared = 0;
+    while (shared < parts.length && parts[shared] === other[shared]) shared++;
+    parts = parts.slice(0, shared);
+  }
+  const root = parts.join("/");
+  return root.length > 1 ? root : undefined;
+}
+
 /**
  * Turns of the session, oldest first. A turn starts at a user row and runs to the next one;
  * rows before the first user row (a resumed session's older context) form a turn of their own.
  */
-export function turnsFromRows(rows: readonly AcpmuxRow[], cwd?: string): PortTurn[] {
+export function turnsFromRows(rows: readonly AcpmuxRow[], reportedCwd?: string): PortTurn[] {
+  const cwd = reportedCwd ?? commonEditRoot(rows);
   const turns: PortTurn[] = [];
   const messageAt = new Map<string, number>();
   let current: PortTurn | undefined;
