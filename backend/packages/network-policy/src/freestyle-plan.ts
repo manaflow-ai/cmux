@@ -16,6 +16,7 @@ export interface FsEndpoint {
   readonly vpcId?: string
   readonly tunnelId?: string
   readonly cidr?: string
+  readonly public?: true
   readonly port?: number
   readonly protocol?: Proto
 }

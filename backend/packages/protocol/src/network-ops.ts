@@ -253,6 +253,8 @@ export const ReconcileRecordParams = Schema.Struct({
   deferred: Schema.Int,
   vpc_id: Schema.NullOr(Schema.String),
   tunnels: Schema.Array(Schema.Struct({ install: InstallId, tunnel: DeviceTunnel })),
+  /** Ids of unmanaged Freestyle rules that grant access to team resources (audit; never changed). */
+  foreign: Schema.optionalKey(Schema.Array(Schema.String)),
   error: Schema.optionalKey(Schema.String)
 })
 

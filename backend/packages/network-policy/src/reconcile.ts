@@ -40,6 +40,8 @@ export interface ReconcileReport {
   readonly drift: ReadonlyArray<FsAction>
   readonly vpc: { readonly id: string; readonly cidr: string | null; readonly cidrV6: string } | null
   readonly tunnels: ReadonlyArray<DeviceTunnel>
+  /** Unmanaged rules touching team resources (see ActualRead.foreign). */
+  readonly foreign: ReadonlyArray<FsRule>
   readonly startedAt: number
   readonly ms: number
 }
@@ -68,9 +70,25 @@ export const withKeepalive = (config: string): string => {
   return lines.join("\n")
 }
 
-export const readActual = async (api: FreestyleNetworkApi, team: string): Promise<FsActual & { tunnelDetails: ReadonlyArray<FsTunnelDetail> }> => {
-  const [vpc, tunnels, rules] = await Promise.all([api.getVpc(vpcSlug(team)), api.listTunnels(`${vpcSlug(team)}-`), api.listRules(`${MANAGED_MARKER} team=${teamTag(team)} `)])
-  return { vpc, tunnels, rules, tunnelDetails: tunnels }
+export interface ActualRead extends FsActual {
+  readonly tunnelDetails: ReadonlyArray<FsTunnelDetail>
+  /**
+   * Unmanaged rules (no cmux-np marker) that name the team VPC, a team tunnel
+   * or a team machine: they can admit traffic the policy does not. Reported
+   * for audit, never changed (the account is shared).
+   */
+  readonly foreign: ReadonlyArray<FsRule>
+}
+
+export const readActual = async (api: FreestyleNetworkApi, team: string, machineIds: ReadonlyArray<string> = []): Promise<ActualRead> => {
+  const [vpc, tunnels, all] = await Promise.all([api.getVpc(vpcSlug(team)), api.listTunnels(`${vpcSlug(team)}-`), api.listAllRules()])
+  const prefix = `${MANAGED_MARKER} team=${teamTag(team)} `
+  const rules = all.filter((r) => r.description.startsWith(prefix))
+  const ours = new Set<string>([...(vpc ? [vpc.id] : []), ...tunnels.map((t) => t.tunnelId), ...machineIds])
+  const names = (e: FsRule["source"]) => [e.vpcId, e.tunnelId, e.vmId].some((x) => x !== undefined && ours.has(x))
+  // A rule naming one of ours from somewhere else, or ours as its destination, is foreign power over the team network.
+  const foreign = all.filter((r) => !r.description.startsWith(MANAGED_MARKER) && (names(r.destination) || (names(r.source) && !names(r.destination) && r.destination.public !== true)))
+  return { vpc, tunnels, rules, tunnelDetails: tunnels, foreign }
 }
 
 const errorOf = (e: unknown) =>
@@ -148,7 +166,8 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
   const outcomes: Array<ActionOutcome> = []
   let drift: ReadonlyArray<FsAction> = []
   let deferred: FsPlan["deferred"] = []
-  let actual = await readActual(api, team)
+  const machineIds = dir.machines.flatMap((m) => (m.provider_id ? [m.provider_id] : []))
+  let actual = await readActual(api, team, machineIds)
   let passes = 0
   let converged = false
 
@@ -187,7 +206,7 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
       break
     }
     passes++
-    actual = await readActual(api, team)
+    actual = await readActual(api, team, machineIds)
   }
 
   const vpc = actual.vpc
@@ -216,6 +235,7 @@ export const reconcile = async (api: FreestyleNetworkApi, team: string, compiled
     drift,
     vpc: vpc ? { id: vpc.id, cidr: vpc.cidr, cidrV6: vpc.cidrV6 } : null,
     tunnels: tunnels.sort((a, b) => (a.install < b.install ? -1 : 1)),
+    foreign: actual.foreign,
     startedAt,
     ms: now() - startedAt
   }

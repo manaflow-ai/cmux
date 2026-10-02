@@ -99,7 +99,10 @@ export class TeamDO extends OwnerDO<TeamState> {
     if (failed) this.backoff(seq, now)
     else this.reconcileRetry = null
     // A clean drift check that changed nothing is not recorded: the ledger keeps every key.
-    if (!pending && report.outcomes.length === 0 && report.drift.length === 0) return
+    const foreign = report.foreign.map((r) => r.id).sort()
+    const foreignChanged = JSON.stringify(foreign) !== JSON.stringify(n.reconcile.last?.foreign ?? [])
+    if (!pending && report.outcomes.length === 0 && report.drift.length === 0 && !foreignChanged) return
+    if (foreign.length > 0) console.warn(JSON.stringify({ msg: "network: unmanaged Freestyle rules grant access to team resources", team, rules: foreign }))
     this.record({
       desired_seq: seq,
       started_at: report.startedAt,
@@ -109,6 +112,7 @@ export class TeamDO extends OwnerDO<TeamState> {
       actions: report.outcomes.map((o) => ({ op: o.action.op, ok: o.ok, ms: o.ms, ...(o.error ? { error: `${o.error.status} ${o.error.code}` } : {}) })),
       drift: report.drift.map((a) => a.op),
       deferred: report.deferred.length,
+      foreign,
       vpc_id: report.vpc?.id ?? null,
       tunnels: report.tunnels.map((t) => ({
         install: t.install,

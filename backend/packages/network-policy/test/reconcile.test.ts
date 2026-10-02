@@ -67,6 +67,20 @@ describe("reconcile against an in-memory Freestyle", () => {
     expect(r.outcomes.filter((o) => !o.ok).length).toBe(2)
   })
 
+  it("reports unmanaged rules that grant access to team resources, without touching them", async () => {
+    const fs = new FakeFreestyle()
+    await reconcile(fs, TEAM, compiled(), directory)
+    const vpc = [...fs.vpcs.values()][0]!
+    fs.rules.set("fw-legacy", { id: "fw-legacy", source: { vpcId: "vpc-elsewhere" }, destination: { vmId: "vm-team" }, description: "" })
+    fs.rules.set("fw-egress", { id: "fw-egress", source: { vmId: "vm-team" }, destination: { public: true }, description: "" })
+    fs.rules.set("fw-unrelated", { id: "fw-unrelated", source: { vpcId: "vpc-x" }, destination: { vpcId: "vpc-x" }, description: "" })
+    fs.foreignRuleIds.add("fw-legacy").add("fw-egress").add("fw-unrelated")
+    const r = await reconcile(fs, TEAM, compiled(), directory, { expectConverged: true })
+    expect(r.foreign.map((x) => x.id)).toEqual(["fw-legacy"])
+    expect(r.outcomes).toEqual([])
+    expect(vpc.id).toBeTruthy()
+  })
+
   it("rotates a tunnel key when the device sends a new one", async () => {
     const fs = new FakeFreestyle()
     await reconcile(fs, TEAM, compiled(), directory)

@@ -57,6 +57,8 @@ export interface ReconcileStatus {
     readonly failures: ReadonlyArray<string>
     readonly drift: ReadonlyArray<string>
     readonly deferred: number
+    /** Unmanaged Freestyle rules that grant access to team resources: the policy is not the only gate while any exist. */
+    readonly foreign?: ReadonlyArray<string>
     readonly error?: string
   } | null
   readonly vpc_id: string | null
@@ -311,6 +313,7 @@ export const reduceNetwork = <S extends TeamLike>(state: S, op: string, params: 
           failures,
           drift: r.drift,
           deferred: r.deferred,
+          ...(r.foreign && r.foreign.length > 0 ? { foreign: r.foreign } : {}),
           ...(r.error ? { error: r.error } : {})
         }
       }

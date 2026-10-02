@@ -26,8 +26,8 @@ export interface FreestyleNetworkApi {
   rotateTunnelKey(id: string, clientPublicKey: string): Promise<FsTunnelDetail>
   attachVpc(tunnelId: string, vpcId: string): Promise<FsTunnelDetail>
   deleteTunnel(id: string): Promise<void>
-  /** Every rule whose description starts with `prefix`. */
-  listRules(prefix: string): Promise<ReadonlyArray<FsRule>>
+  /** Every firewall rule in the account (managed or not); the reconciler filters. */
+  listAllRules(): Promise<ReadonlyArray<FsRule>>
   createRule(spec: FsRuleSpec, idempotencyKey: string): Promise<FsRule>
   deleteRule(id: string): Promise<void>
 }
@@ -201,12 +201,12 @@ export const createFreestyleClient = (opts: FreestyleClientOptions): FreestyleNe
         if (!(e instanceof FreestyleError && e.status === 404)) throw e
       })
     },
-    async listRules(prefix) {
+    async listAllRules() {
       const out: Array<FsRule> = []
       for (let offset = 0; ; offset += 2000) {
         const r = await call<{ rules: Array<RawRule>; totalCount: number }>("GET", `/v5/firewall/rules?limit=2000&offset=${offset}`)
         const page = r.data?.rules ?? []
-        for (const x of page) if (x.description?.startsWith(prefix)) out.push({ id: x.id, source: clean(x.source), destination: clean(x.destination), description: x.description })
+        for (const x of page) out.push({ id: x.id, source: clean(x.source), destination: clean(x.destination), description: x.description ?? "" })
         if (page.length < 2000) break
       }
       return out

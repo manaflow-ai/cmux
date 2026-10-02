@@ -110,8 +110,8 @@ export class FakeFreestyle implements FreestyleNetworkApi {
       for (const [rid, r] of this.rules) if (r.source.tunnelId === id || r.destination.tunnelId === id) this.rules.delete(rid)
     })
   }
-  async listRules(prefix: string) {
-    return this.step("listRules", () => [...this.rules.values()].filter((r) => r.description.startsWith(prefix)))
+  async listAllRules() {
+    return this.step("listRules", () => [...this.rules.values()])
   }
   async createRule(spec: FsRuleSpec) {
     return this.step("createRule", () => {
