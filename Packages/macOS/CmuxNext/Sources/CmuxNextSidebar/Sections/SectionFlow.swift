@@ -94,17 +94,29 @@ nonisolated enum SectionFlow {
             let leftover = max(0, width - used)
             var cursor: CGFloat
             var spacing = gap
+            // Where fill puts all of the leftover, between labeled chips and
+            // the icon-only tiles after them.
+            var split: Int?
             switch align {
             case .leading: cursor = x
             case .center: cursor = x + leftover / 2
             case .trailing: cursor = x + leftover
             case .fill:
                 cursor = x
-                // One item stays leading; two or more spread to both edges.
-                if line.count > 1 { spacing = gap + leftover / CGFloat(line.count - 1) }
+                // Labeled items stay leading and icon-only items after them
+                // group at the trailing edge (Settings, then the studio and
+                // the avatar); otherwise two or more spread to both edges
+                // and one stays leading.
+                let tiles = line.map { if case .tile = kind($0.id) { true } else { false } }
+                if let first = tiles.firstIndex(of: true), first > 0, !tiles[first...].contains(false) {
+                    split = first
+                } else if line.count > 1 {
+                    spacing = gap + leftover / CGFloat(line.count - 1)
+                }
             }
             let lineY = y + CGFloat(index) * (lineHeight + gap)
-            for (item, itemWidth) in zip(line, w) {
+            for (position, (item, itemWidth)) in zip(line, w).enumerated() {
+                if position == split { cursor += leftover }
                 rows.append(SidebarRegionRow(kind: kind(item.id), frame: CGRect(x: cursor, y: lineY, width: itemWidth, height: lineHeight)))
                 cursor += itemWidth + spacing
             }
