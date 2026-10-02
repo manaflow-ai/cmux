@@ -91,7 +91,8 @@ mod apps {
     }));
         let mut seen = Vec::new();
         let ready = host.until("ready", &|_| json!({}), &mut seen);
-        assert_eq!(ready["runtime"], "1.0.0");
+        // The embedded runtime reports its own version (`__cmuxAppRuntimeVersion`).
+        assert!(ready["runtime"].as_str().is_some_and(|v| v.split('.').count() == 3), "{ready}");
         host.send(json!({ "t": "mount", "mount": "m1", "export": "renderStatus", "ctx": {} }));
         let agents = json!({ "value": [
         { "id": "agent_1", "state": "working", "terminal_id": "term_1", "source_session": "a" },
