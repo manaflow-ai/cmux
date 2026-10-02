@@ -280,11 +280,11 @@ final class TerminalTabOverviewViewController: UIViewController {
             accessibilityIdentifier: "MobileTerminalOverviewLayout"
         )
         layoutButton.menu = UIMenu(children: [
-            UIAction(
+            UIMenu(
                 title: "Organize Tabs",
-                subtitle: "Never",
-                image: UIImage(systemName: "rectangle.stack")
-            ) { _ in },
+                image: UIImage(systemName: "rectangle.stack"),
+                children: [UIAction(title: "Never") { _ in }]
+            ),
         ])
         layoutButton.showsMenuAsPrimaryAction = true
         topBar.addSubview(layoutButton)
@@ -375,8 +375,6 @@ final class TerminalTabOverviewViewController: UIViewController {
         // transition instead of layering a second hand-built pill on top.
         groupControl.backgroundColor = .clear
         groupControl.selectedSegmentTintColor = nil
-        groupControl.layer.cornerRadius = 0
-        groupControl.layer.borderWidth = 0
         groupControl.clipsToBounds = false
         groupControl.setTitleTextAttributes(
             [.foregroundColor: UIColor.secondaryLabel, .font: UIFont.systemFont(ofSize: 16, weight: .semibold)],
