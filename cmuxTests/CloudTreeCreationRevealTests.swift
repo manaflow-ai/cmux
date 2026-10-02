@@ -22,7 +22,6 @@ struct CloudTreeCreationRevealTests {
         defer { tree.close() }
         let outline = try tree.outline()
         try tree.click(tree.machineID)
-        outline.collapseItem(try tree.node(tree.groupID))
         outline.collapseItem(try tree.node(tree.machineID))
         tree.fixture.window.setContentSize(NSSize(width: 380, height: 80))
         tree.fixture.container.layoutSubtreeIfNeeded()
@@ -41,7 +40,6 @@ struct CloudTreeCreationRevealTests {
         #expect(tree.selection == tree.createdID)
         #expect(tree.fixture.coordinator.selectedNodeID == tree.createdID)
         #expect(outline.isItemExpanded(try tree.node(tree.machineID)))
-        #expect(outline.isItemExpanded(try tree.node(tree.groupID)))
         let row = outline.row(forItem: try tree.node(tree.createdID))
         #expect(outline.rect(ofRow: row).maxY > viewportHeight, "The new row starts below the initial viewport")
         #expect(outline.visibleRect.contains(outline.rect(ofRow: row)))
@@ -101,7 +99,6 @@ struct CloudTreeCreationRevealTests {
         defer { tree.close() }
         let outline = try tree.outline()
         try tree.click(tree.machineID)
-        outline.collapseItem(try tree.node(tree.groupID))
         outline.collapseItem(try tree.node(tree.machineID))
         tree.fixture.window.setContentSize(NSSize(width: 380, height: 80))
         tree.fixture.container.layoutSubtreeIfNeeded()
@@ -201,7 +198,6 @@ struct CloudTreeCreationRevealTests {
         let fixture = CloudSidebarOrderingFixture()
         let pendingLocalWorkspaceID = UUID()
         var machineID: String { CloudTreeNodeBuilder.nodeID(machine: fixture.machine) }
-        var groupID: String { CloudTreeNodeBuilder.nodeID(workspacesGroup: fixture.machine) }
         var createdID: String { fixture.folderID("ws_3") }
 
         init(initial: CloudWorkspaceCreationReveal? = nil) {

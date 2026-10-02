@@ -6,16 +6,21 @@ extension CloudTreeNode.Kind {
     /// Readings describe a machine without representing a selectable pane.
     var isSelectable: Bool {
         switch self {
-        case .resource, .devicesEmpty: return false
+        case .resource, .devicesEmpty, .machineDetailTabs, .machineEndSpacer: return false
+        // Ports status rows (Discovering…, No reachable ports) are information
+        // with their own button, not a row to select.
+        case .placeholder(_, let placeholder) where placeholder.portStatus != nil: return false
         default: return true
         }
     }
 
     /// Port, resource, and terminal inventories start closed so discovery and
     /// remote scans happen only after the person explicitly opens that group.
+    /// Workspaces and Displays start closed too, so opening a machine shows a
+    /// short summary first and each part opens on request.
     var isExpandedByDefault: Bool {
         switch self {
-        case .portsGroup, .terminalsPool, .resourcesPool:
+        case .portsGroup, .terminalsPool, .resourcesPool, .workspace, .displaysPool:
             return false
         default:
             return true

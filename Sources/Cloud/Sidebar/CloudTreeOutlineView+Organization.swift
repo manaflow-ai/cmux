@@ -8,9 +8,9 @@ extension CloudTreeOutlineView.Coordinator {
         guard node.canOrganize,
               let parent = CloudSidebarOrganizationTree(nodes: organizationNodes).parent(of: node.id) else { return [] }
         let state = organization.state
-        let pinned = state.isPinned(node.id, parent: parent.id)
-        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.id)
-            .filter { state.isPinned($0, parent: parent.id) == pinned }
+        let pinned = state.isPinned(node.id, parent: parent.organizationGroupID)
+        let peers = state.ordered(parent.children.filter(\.canOrganize).map(\.id), parent: parent.organizationGroupID)
+            .filter { state.isPinned($0, parent: parent.organizationGroupID) == pinned }
         let index = peers.firstIndex(of: node.id)
         func item(_ title: String, _ action: CloudSidebarOrganizationAction, enabled: Bool = true) -> NSMenuItem {
             let item = CloudTreeMenuItem(title: title) { [weak self] in

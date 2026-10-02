@@ -196,6 +196,13 @@ struct MachinesPanelView: View {
     private var authenticatedContent: some View {
         if includesCloud {
             controlBar
+            CloudNewMachineButton {
+                _ = AppDelegate.shared?.performNewCloudMachineAction(
+                    tabManager: tabManager,
+                    preferredWindow: tabManager?.window,
+                    debugSource: "cloudTree.newMachineButton"
+                )
+            }
         }
         if includesCloud {
             MachinesPanelBanners(
@@ -294,7 +301,6 @@ struct MachinesPanelView: View {
             chromeBackgroundColor: chromeBackgroundColor,
             isRefreshing: viewModel.isLoading || devicesModel.isRefreshing,
             onRefresh: refreshMachines,
-            onNewMachine: requestNewMachine,
             status: { cloudStatus }
         )
     }
@@ -466,7 +472,6 @@ struct MachinesPanelView: View {
                 debugSource: "cloudTree.cloudMachinesSection"
             )
         }
-        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],

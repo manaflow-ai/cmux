@@ -48,19 +48,20 @@ struct CloudSidebarOrganizationDrop {
             let onSibling = sibling.id == proposedItem.id && proposedChildIndex == NSOutlineViewDropOnItemIndex
             index = siblingIndex + (onSibling && !dropAfterItem ? 0 : 1)
         }
-        let pinned = state.isPinned(sourceID, parent: parent.id)
+        let group = parent.organizationGroupID
+        let pinned = state.isPinned(sourceID, parent: group)
         let before = parent.children.prefix(index).last { $0.canOrganize && $0.id != sourceID }
         let after = parent.children.dropFirst(index).first { $0.canOrganize && $0.id != sourceID }
         let action: CloudSidebarOrganizationAction
-        if let after, state.isPinned(after.id, parent: parent.id) == pinned {
+        if let after, state.isPinned(after.id, parent: group) == pinned {
             action = .before(after.id)
-        } else if let before, state.isPinned(before.id, parent: parent.id) == pinned {
+        } else if let before, state.isPinned(before.id, parent: group) == pinned {
             action = .after(before.id)
         } else { return nil }
         let siblings = parent.children.filter(\.canOrganize).map(\.id)
         var preview = state
-        guard preview.apply(action, id: sourceID, siblings: siblings, parent: parent.id),
-              preview.ordered(siblings, parent: parent.id) != state.ordered(siblings, parent: parent.id) else { return nil }
+        guard preview.apply(action, id: sourceID, siblings: siblings, parent: group),
+              preview.ordered(siblings, parent: group) != state.ordered(siblings, parent: group) else { return nil }
         self.sourceID = sourceID
         self.parent = parent
         children = parent.children

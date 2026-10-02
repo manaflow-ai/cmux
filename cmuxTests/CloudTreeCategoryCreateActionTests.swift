@@ -13,34 +13,19 @@ import Testing
 @MainActor
 @Suite("Cloud sidebar category create rows")
 struct CloudTreeCategoryCreateActionTests {
-    @Test("Cloud Machines leads with its one New Cloud Machine row, whatever the fleet holds", arguments: [0, 1, 3])
-    func cloudMachinesCategoryLeadsWithOneMachineAction(machineCount: Int) throws {
+    @Test("Cloud Machines has no New Cloud Machine row; the panel's button owns creation", arguments: [0, 1, 3])
+    func cloudMachinesCategoryHasNoMachineRow(machineCount: Int) throws {
         let fixture = Fixture()
         defer { fixture.close() }
         fixture.apply(machines: fixture.machines(machineCount))
 
         let section = try #require(fixture.cloudSection)
-        let action = try #require(section.children.first)
-        #expect(action.kind == .createAction(.newCloudVM))
-        let everyNewCloudMachine = CloudTreeNodeBuilder.flattened(fixture.coordinator.nodes).filter {
-            $0.kind == .createAction(.newCloudVM)
-        }
-        #expect(everyNewCloudMachine.map(\.id) == [action.id], "No second New Cloud Machine row anywhere in the tree")
-        // The row sits directly under the header it belongs to.
-        #expect(fixture.row(for: action) == fixture.row(for: section) + 1)
-        let cell = try fixture.cell(for: action)
-        #expect(cell.accessibilityLabel() == CloudTreeCreateAction.newCloudVM.title)
-        #expect(cell.accessibilityLabel() == String(localized: "cloudTree.action.newCloudMachine", defaultValue: "New Cloud Machine"))
-        #expect(CloudTreeCreateAction.newCloudVM.accessibilityIdentifier == "CloudMachinesNewCloudVMAction")
-        let createHost = try fixture.createHost(for: action)
-        #expect(createHost.passesThrough == false)
-        let outline = try #require(fixture.coordinator.outlineView)
-        let hitPoint = createHost.convert(
-            NSPoint(x: createHost.bounds.midX, y: createHost.bounds.midY),
-            to: outline
-        )
-        let hit = try #require(outline.hitTest(hitPoint))
-        #expect(outline.validateProposedFirstResponder(hit, for: nil))
+        // New Cloud Machine is `CloudNewMachineButton` above the tree, and the
+        // empty fleet's double-click-only placeholder goes with the row.
+        #expect(section.children.allSatisfy { $0.id != "cloud-machines-section/empty" })
+        let createRows = section.children.filter { $0.structureTag == "createAction" }
+        #expect(createRows.allSatisfy { $0.kind == .createAction(.newWorkspaceOnResolvedMachine) })
+        if machineCount == 0 { #expect(section.children.isEmpty) }
     }
 
     /// The section's New Workspace resolves its machine like Cmd-N, so it is
@@ -60,10 +45,8 @@ struct CloudTreeCategoryCreateActionTests {
         let workspaceActions = section.children.filter { $0.kind == .createAction(.newWorkspaceOnResolvedMachine) }
         if state.offersNewWorkspace {
             #expect(workspaceActions.count == 1)
-            // Directly below New Cloud Machine, above the machines themselves.
-            #expect(section.children.prefix(2).map(\.kind) == [
-                .createAction(.newCloudVM), .createAction(.newWorkspaceOnResolvedMachine)
-            ])
+            // Directly under the header, above the machines themselves.
+            #expect(section.children.first?.kind == .createAction(.newWorkspaceOnResolvedMachine))
             let action = try #require(workspaceActions.first)
             let cell = try fixture.cell(for: action)
             #expect(cell.accessibilityLabel() == String(localized: "cloudTree.menu.newWorkspace", defaultValue: "New Workspace"))
@@ -93,18 +76,21 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(!fixture.events.cloudVMActionCalled)
     }
 
-    @Test("Each Cloud machine's Workspaces category ends with New Workspace")
+    @Test("Each Cloud machine's workspaces end with New Workspace")
     func workspacesCategoryHasPersistentWorkspaceAction() throws {
         let fixture = Fixture()
         defer { fixture.close() }
         fixture.apply(machines: [fixture.machine])
 
         let machine = try #require(fixture.machineNode)
-        let workspaces = try #require(machine.children.first { node in
-            if case .workspacesGroup = node.kind { return true }
+        // The sidebar shows a machine's workspaces directly under its row,
+        // followed by New Workspace (`CloudTreeMachineDetailLayout`).
+        let action = try #require(machine.children.first { node in
+            if case .createAction(.newWorkspace) = node.kind { return true }
             return false
         })
-        let action = try #require(workspaces.children.last)
+        let actionIndex = try #require(machine.children.firstIndex(of: action))
+        #expect(machine.children.prefix(actionIndex).allSatisfy { if case .workspace = $0.kind { true } else { false } })
         #expect(action.kind == .createAction(.newWorkspace(.cloud(fixture.machineID))))
         #expect(fixture.row(for: action) >= 0)
         #expect(try fixture.cell(for: action).accessibilityLabel() == CloudTreeCreateAction.newWorkspace(.cloud(fixture.machineID)).title)
@@ -115,32 +101,13 @@ struct CloudTreeCategoryCreateActionTests {
         let fixture = Fixture()
         defer { fixture.close() }
 
-        fixture.apply(machines: [])
-        let cloudSection = try #require(fixture.cloudSection)
-        let newVM = try #require(cloudSection.children.first { node in
-            if case .createAction(.newCloudVM) = node.kind { return true }
-            return false
-        })
         let outline = try #require(fixture.coordinator.outlineView)
-        let newVMRow = outline.row(forItem: newVM)
-        #expect(newVM.kind.isSelectable)
-        // Down from the Cloud Machines header reaches the action first.
-        outline.selectRowIndexes(IndexSet(integer: outline.row(forItem: cloudSection)), byExtendingSelection: false)
-        fixture.coordinator.moveSelection(by: 1)
-        #expect(outline.selectedRow == newVMRow)
-        fixture.coordinator.openSelection()
-        #expect(fixture.events.cloudVMActionCalled)
-        // The empty-state line follows the action and stays selectable.
-        fixture.coordinator.moveSelection(by: 1)
-        #expect(outline.selectedRow == newVMRow + 1)
-
         fixture.apply(machines: [fixture.machine])
         let machine = try #require(fixture.machineNode)
-        let workspaces = try #require(machine.children.first { node in
-            if case .workspacesGroup = node.kind { return true }
+        let newWorkspace = try #require(machine.children.first { node in
+            if case .createAction(.newWorkspace) = node.kind { return true }
             return false
         })
-        let newWorkspace = try #require(workspaces.children.last)
         let newWorkspaceRow = outline.row(forItem: newWorkspace)
         #expect(newWorkspace.kind.isSelectable)
         outline.selectRowIndexes(IndexSet(integer: newWorkspaceRow - 1), byExtendingSelection: false)
@@ -170,32 +137,20 @@ struct CloudTreeCategoryCreateActionTests {
         let workspaces = try #require(device.children.first { if case .workspacesGroup = $0.kind { return true }; return false })
         let action = try #require(workspaces.children.last)
         #expect(action.kind == .createAction(.newWorkspace(.device(instance))))
-        #expect(CloudTreeNodeBuilder.flattened(nodes).allSatisfy {
-            if case .createAction(.newCloudVM) = $0.kind { return false }
-            return true
-        })
+        #expect(CloudTreeNodeBuilder.flattened(nodes).filter { $0.structureTag == "createAction" }.count == 1)
     }
 
-    @Test("Category rows route through the existing Cloud VM and workspace action closures")
+    @Test("Category rows route through the existing workspace action closure")
     func categoryActionsRouteToExistingFlows() throws {
         let fixture = Fixture()
         defer { fixture.close() }
 
-        fixture.apply(machines: [])
-        let newVM = try #require(fixture.cloudSection?.children.first { node in
-            if case .createAction(.newCloudVM) = node.kind { return true }
-            return false
-        })
-        fixture.coordinator.open(newVM)
-        #expect(fixture.events.cloudVMActionCalled)
-
         fixture.apply(machines: [fixture.machine])
         let machine = try #require(fixture.machineNode)
-        let workspaces = try #require(machine.children.first { node in
-            if case .workspacesGroup = node.kind { return true }
+        let newWorkspace = try #require(machine.children.first { node in
+            if case .createAction(.newWorkspace) = node.kind { return true }
             return false
         })
-        let newWorkspace = try #require(workspaces.children.last)
         fixture.coordinator.open(newWorkspace)
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
     }
