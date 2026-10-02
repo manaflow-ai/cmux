@@ -21,6 +21,7 @@ export type AcpmuxSessionEntry = {
   branch?: string;
   /** Set only when the session runs in a git worktree: the worktree's path. */
   worktree?: string;
+  /** Pinned by the fixture's flag, or tagged `pinned` through `_acpmux/tag`; listed under Pinned instead of its project. */
   pinned?: boolean;
   pullRequest?: SessionPullRequest;
   /** A line of the session's latest reply, for previews. */
@@ -40,7 +41,10 @@ export const text = (value: unknown) => (typeof value === "string" && value ? va
 /** "local" or "cloud", else undefined. */
 export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
-export type SessionGroup = { key: string; label: string; cwd?: string; sessions: AcpmuxSessionEntry[] };
+export type SessionGroup = { key: string; label: string; cwd?: string; host?: string; sessions: AcpmuxSessionEntry[] };
+
+/** The tag that pins a session to the top of the list. */
+export const PINNED_TAG = "pinned";
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
@@ -67,7 +71,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     hostKind: hostKind(session.hostKind),
     branch: text(session.branch),
     worktree: text(session.worktree),
-    pinned: session.pinned === true,
+    pinned: session.pinned === true || (Array.isArray(session.tags) && session.tags.includes(PINNED_TAG)),
     pullRequest: pullRequest(session.pullRequest),
     preview: text(session.preview),
   };
@@ -108,20 +112,37 @@ export function projectLabel(cwd: string | undefined): string {
   return parts[parts.length - 1] ?? trimmed;
 }
 
-/** Sessions under one header per folder. Groups follow their most recent session; sessions stay newest first. */
+/** Newest first. */
+function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
+  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+}
+
+/** Sessions under one header per folder and machine. Groups follow their most recent session; sessions stay newest first. */
 export function groupByProject(sessions: AcpmuxSessionEntry[]): SessionGroup[] {
-  const sorted = [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   const groups = new Map<string, SessionGroup>();
-  for (const session of sorted) {
-    const key = (session.cwd ?? "").replace(/\/+$/, "");
+  for (const session of byRecency(sessions)) {
+    const cwd = (session.cwd ?? "").replace(/\/+$/, "");
+    // The same folder on two machines is two projects.
+    const key = session.host ? `${session.host}:${cwd}` : cwd;
     let group = groups.get(key);
     if (!group) {
-      group = { key, label: projectLabel(key), cwd: key || undefined, sessions: [] };
+      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, host: session.host, sessions: [] };
       groups.set(key, group);
     }
     group.sessions.push(session);
   }
   return [...groups.values()];
+}
+
+/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. */
+export function sidebarSections(sessions: AcpmuxSessionEntry[]): {
+  pinned: AcpmuxSessionEntry[];
+  groups: SessionGroup[];
+} {
+  return {
+    pinned: byRecency(sessions.filter((session) => session.pinned)),
+    groups: groupByProject(sessions.filter((session) => !session.pinned)),
+  };
 }
 
 /** The row's mark: a pending permission or a wait for one needs the user; then work in progress, a lost agent, and work that ended unseen. */

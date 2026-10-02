@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "./direct";
 import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
-import { GROUP_ROWS, groupByProject, sessionMark } from "./sessionList";
+import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -69,8 +69,8 @@ describe("mock transport", () => {
     const client = await connectMock(snapshots);
     client.snapshot();
     const snapshot = snapshots.at(-1)!;
-    // Five projects and 18 sessions, in every state the sidebar draws.
-    expect(snapshot.sessions).toHaveLength(18);
+    // Five projects and 20 sessions, in every state the sidebar draws.
+    expect(snapshot.sessions).toHaveLength(20);
     expect(new Set(snapshot.sessions.map((entry) => entry.cwd)).size).toBe(5);
     const marks = snapshot.sessions.map((entry) => sessionMark(entry, false));
     for (const mark of ["input", "running", "error", "unread"] as const) expect(marks).toContain(mark);
@@ -83,10 +83,12 @@ describe("mock transport", () => {
       snapshot.sessions.filter((entry) => entry.pullRequest?.reviewReady).map((entry) => entry.pullRequest!.number),
     ).toEqual([18204, 212, 88]);
     expect(snapshot.sessions.every((entry) => entry.preview)).toBe(true);
-    // The largest project is long enough to fold behind Show more.
-    expect(groupByProject(snapshot.sessions).find((group) => group.label === "cmux")!.sessions.length).toBeGreaterThan(
-      GROUP_ROWS + 1,
-    );
+    // Pinned sessions list on their own; cmux on this Mac is still long enough to fold behind Show more.
+    const sections = sidebarSections(snapshot.sessions);
+    expect(sections.pinned).toHaveLength(2);
+    expect(
+      sections.groups.find((group) => group.label === "cmux" && group.host === "This Mac")!.sessions.length,
+    ).toBeGreaterThan(GROUP_ROWS + 1);
     // The worked session: its context, one finished turn with tools and three edited files.
     expect(snapshot.summary).toMatchObject({
       cwd: "~/code/cmux",

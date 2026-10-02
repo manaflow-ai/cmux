@@ -6,6 +6,7 @@ import {
   sessionEntry,
   sessionMark,
   sessionTitle,
+  sidebarSections,
   visibleSessions,
   type AcpmuxSessionEntry,
 } from "./sessionList";
@@ -122,6 +123,14 @@ describe("summary entries", () => {
       preview: "Last reply",
     });
   });
+  test("read the pinned tag and the host", () => {
+    const entry = sessionEntry({ sessionId: "s", tags: ["work", "pinned"], host: "cobalt-butte" });
+    expect([entry.pinned, entry.host]).toEqual([true, "cobalt-butte"]);
+    expect(sessionEntry({ sessionId: "s", tags: "pinned", host: "" })).toMatchObject({
+      pinned: false,
+      host: undefined,
+    });
+  });
 
   test("keep where a session runs and its pull request, and drop malformed ones", () => {
     const entry = sessionEntry({
@@ -154,5 +163,23 @@ describe("summary entries", () => {
       { number: 3, title: "", state: "open" },
     ])
       expect(sessionEntry({ sessionId: "s", pullRequest }).pullRequest).toBeUndefined();
+  });
+});
+
+describe("sections", () => {
+  test("pinned sessions leave their project, and one folder on two machines is two projects", () => {
+    const { pinned, groups } = sidebarSections([
+      { sessionId: "a", cwd: "/src/acpmux", updatedAt: 5 },
+      { sessionId: "b", cwd: "/src/acpmux", host: "cobalt-butte", updatedAt: 4 },
+      { sessionId: "c", cwd: "/src/acpmux", pinned: true, updatedAt: 3 },
+      { sessionId: "d", cwd: "/src/web", pinned: true, updatedAt: 9 },
+    ]);
+    expect(pinned.map((session) => session.sessionId)).toEqual(["d", "c"]);
+    expect(
+      groups.map((group) => [group.label, group.host, group.sessions.map((session) => session.sessionId)]),
+    ).toEqual([
+      ["acpmux", undefined, ["a"]],
+      ["acpmux", "cobalt-butte", ["b"]],
+    ]);
   });
 });
