@@ -1076,8 +1076,14 @@ describe("acpmux turn counts", () => {
       { id: "s", version: 1, at: 3, kind: "turnSummary", durationMs: 3000, toolCount: 1 },
     ];
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() })));
-      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe("› Worked with 1 tool call");
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, { rows: turn, onToggleActivity: () => {}, expanded: new Set<string>() }),
+        ),
+      );
+      expect(dom.window.document.querySelector(".acpmux-activity-toggle")?.textContent).toBe(
+        "› Worked with 1 tool call",
+      );
       expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("Worked for 3s · 1 tool call");
     } finally {
       await act(async () => root.unmount());
@@ -1090,7 +1096,15 @@ describe("acpmux turn counts", () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
     try {
-      await act(async () => root.render(createElement(VirtualTranscript, { rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }], onToggleActivity: () => {}, expanded: new Set<string>() })));
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: [{ id: "s", version: 1, at: 3, kind: "turnSummary", toolCount: 2 }],
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
       expect(dom.window.document.querySelector(".acpmux-summary")?.textContent).toBe("2 tool calls");
     } finally {
       await act(async () => root.unmount());
