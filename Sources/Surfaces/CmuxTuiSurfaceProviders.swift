@@ -24,9 +24,6 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     let machineID: String
     var machine: SurfaceMachineID { summary.machine }
     private(set) var info: SurfaceMachineInfo
-    /// Last build identity returned by a live Cloud attach. It survives graph
-    /// refreshes and remains nil when the daemon did not report one.
-    private var observedDaemonBuild: SurfaceDaemonBuild?
     var summary: RemoteTuiMachine
     /// This machine's notification sync: VM rows in, local notifications and
     /// `notification.ack` round trips out. Fed after every accepted state.
@@ -273,7 +270,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             stats: nil,
             remoteWorkspaces: info.remoteWorkspaces,
             portDiscoveryState: portDiscovery.state,
-            observedDaemonBuild: observedDaemonBuild
+            observedDaemonBuild: info.observedDaemonBuild
         )
         if shouldMarkStale {
             catalog.markCloudStateStale(on: machine, reason: "machine_\(summary.status)", info: info)
@@ -356,6 +353,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
         let vmClient = summary.cloudSummary == nil ? nil : VMClient.shared
         let privateAddress = summary.preferredPrivateAddress
+        var observedDaemonBuild = info.observedDaemonBuild
         portDiscovery.reconcile(
             supportsPreviews: supportsPortPreviews,
             isAwake: isAwake,
@@ -445,9 +443,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return false }
-            if let daemonBuild = connected.daemonBuild {
-                observedDaemonBuild = daemonBuild
-            }
+            observedDaemonBuild = connected.daemonBuild ?? observedDaemonBuild
             // The port scan and graph snapshot use independent daemon requests.
             // Start both after the link is ready. The graph publishes as soon as
             // the snapshot lands; ports publish when their scan finishes. The
