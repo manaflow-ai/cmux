@@ -93,6 +93,7 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
+        ServerActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

@@ -512,6 +512,7 @@ let package = Package(
                 .process("ProfileActions.xcstrings"),
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
+                .process("ServerActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
