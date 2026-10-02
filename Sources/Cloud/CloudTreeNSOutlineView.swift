@@ -487,10 +487,10 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     func panelContentLeading(atRow row: Int) -> CGFloat? {
         guard let level = tabRowLevel(ofChildAt: row) else { return nil }
         let leading = CloudTreeMachineDetailTabsView.panelContentLeading(tabRowLevel: level, style: treeStyle)
-        // Resource readings have no icon, so their text takes the icon's
-        // inset to line up with the other tabs' rows.
+        // Resource readings have no icon, so their text starts where the
+        // other rows' glyphs do: on the first tab's title.
         if let node = item(atRow: row) as? CloudTreeNode, case .resource = node.kind {
-            return leading + GlobalFontMagnification.scaledSize(max(0, treeStyle.iconSlot - treeStyle.iconSize) / 2 + 2)
+            return leading + GlobalFontMagnification.scaledSize(max(0, treeStyle.iconSlot - treeStyle.iconSize) / 2)
         }
         return leading
     }
