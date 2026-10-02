@@ -53,7 +53,7 @@ export type RowChange = { added: AcpmuxRow[]; updated: AcpmuxRow[]; removed: str
 
 export type PreparedRow = {
   text: string;
-  /// The row's markdown blocks, as `MarkdownBlocks` in App.tsx renders them.
+  /// The row's markdown blocks, as the estimator measures them (conversation/Markdown.tsx draws them).
   blocks: Token[];
   /// Measured text by its source, kept across a streaming row's versions; null where it can't be measured.
   prepared: Map<string, PreparedText | null>;
@@ -65,28 +65,34 @@ export type ConversationLayout = {
   totalHeight: number;
 };
 
-const MEASURE_FONT = '13px "Helvetica Neue"';
-const MESSAGE_LINE_HEIGHT = 20;
-/// Vertical padding of a user bubble (`.acpmux-user-bubble` in styles.css).
-const USER_BUBBLE_PADDING = 18;
+/// Metrics of conversation/conversation.css (`--cv-font-size`, `--cv-line-height`, `.cv-*`).
+const MEASURE_FONT = "14px system-ui";
+const MESSAGE_LINE_HEIGHT = 22.75;
+/// Vertical padding of a user bubble (`.cv-user__bubble`).
+const USER_BUBBLE_PADDING = 20;
 const chromeHeight = (row: AcpmuxRow) => row.kind === "user" ? USER_BUBBLE_PADDING : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
-const USER_BUBBLE_SHARE = 0.78;
-const USER_BUBBLE_SIDES = 24;
-/// Space between a row's markdown blocks, the browser's list indent and the quote's rule and padding.
-const BLOCK_GAP = 8;
-const LIST_INDENT = 40;
-const QUOTE_INDENT = 14;
-/// Code blocks: 12px monospace that never wraps, in a pre with 9px padding.
-const CODE_LINE_HEIGHT = 16;
-const CODE_PADDING = 18;
+const USER_BUBBLE_SHARE = 0.7;
+const USER_BUBBLE_SIDES = 32;
+/// Space between a row's markdown blocks, the list indent and the quote's bar and padding.
+const BLOCK_GAP = 14;
+const LIST_INDENT = 28;
+const QUOTE_INDENT = 21;
+/// Code cards: a 45.5px header over 12px monospace on 20px lines that never wraps, 13px inset.
+const CODE_LINE_HEIGHT = 20;
+const CODE_CHROME = 58.5;
+const CODE_PADDING = 13;
+/// Table rows: 23px lines with 17px of padding.
+const TABLE_ROW_HEIGHT = 40;
 const CODE_CHAR_WIDTH = 7.3;
 const SCROLLBAR_HEIGHT = 15;
 /// Where text can't be measured (no canvas), a generous character width.
 const FALLBACK_CHAR_WIDTH = 8;
-/// Rows are at most 760px wide, inside 18px side gutters (`.acpmux-row` in styles.css).
-const MAX_ROW_WIDTH = 760;
-export const transcriptRowWidth = (paneWidth: number) => Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 36));
+/// Rows are at most 720px wide, inside 26.5px side gutters (`--cv-column` and `--cv-gutter`
+/// in conversation/conversation.css).
+const MAX_ROW_WIDTH = 720;
+const ROW_GUTTER = 26.5;
+export const transcriptRowWidth = (paneWidth: number) => Math.max(120, Math.min(MAX_ROW_WIDTH, paneWidth - 2 * ROW_GUTTER));
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
 export function markdownBlocks(source: string): Token[] {
@@ -132,8 +138,8 @@ export function safeHref(href: string): string | undefined {
   try { return /^https?:$/i.test(new URL(href, "https://cmux.invalid").protocol) ? href : undefined; } catch { return undefined; }
 }
 
-/// The text `renderInline` in App.tsx draws for `tokens`, as the estimator measures it. Inline
-/// code draws in 11.5px monospace (styles.css), no wider per character than the prose font's digits,
+/// The text `renderInline` in conversation/Markdown.tsx draws for `tokens`, as the estimator
+/// measures it. Inline code draws in 12px monospace (conversation.css), no wider per character than the prose font's digits,
 /// so each of its characters measures as a "0". A monospace space is a full cell, so a code
 /// space measures as a "0" and a space, which keeps the line break.
 export function measuredText(tokens: Token[] | undefined, fallback: string): string {
@@ -177,12 +183,13 @@ function blockHeight(block: Token, width: number, prepared: Map<string, Prepared
     case "code": {
       const lines = (block as Tokens.Code).text.split("\n");
       const scrolls = lines.some((line) => line.length * CODE_CHAR_WIDTH > width - CODE_PADDING);
-      return CODE_PADDING + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
+      return CODE_CHROME + lines.length * CODE_LINE_HEIGHT + (scrolls ? SCROLLBAR_HEIGHT : 0);
     }
+    case "table": return (1 + (block as Tokens.Table).rows.length) * TABLE_ROW_HEIGHT;
     case "paragraph":
     case "text":
     case "heading": return textHeight(measuredText("tokens" in block ? block.tokens : undefined, (block as Tokens.Text).text), width, prepared);
-    // MarkdownBlocks draws any other block as its source.
+    // Anything else is estimated as its source; the drawn height replaces it once mounted.
     default: return textHeight(block.raw, width, prepared);
   }
 }
