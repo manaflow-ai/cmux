@@ -2,7 +2,8 @@ import CmuxNextControl
 import CmuxNextDaemon
 
 // The launch snapshot (`launch-snapshot-v1`, plans/cmux-next/cmux-tui-contract.md):
-// the last layout drawn before the first connection, then replaced in place.
+// the last layout drawn before the first connection, then replaced in place;
+// and the first connect begun in `main` with the remembered daemon socket.
 extension DaemonService {
     /// Applies the daemon's launch snapshot as a provisional tree, so the
     /// first frame shows the last layout instead of the connecting state.
@@ -22,6 +23,16 @@ extension DaemonService {
     func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
         guard let session = launchSnapshotSession, identity.session == session else { return }
         launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
+    }
+
+    /// Begins the local daemon's first connect attempt off the main thread,
+    /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
+    /// prestart:)` takes it over. Nil when the launcher cannot be made (the
+    /// later `start` reports why).
+    nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
+                                     terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) -> DaemonPrestart? {
+        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
+        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironmentProvider))
     }
 
     /// Records the local daemon's socket for the next launch

@@ -107,16 +107,6 @@ final class DaemonService {
         start(first: first) { DaemonConnection(configuration: configuration, endpointProvider: launcher.endpointProvider) }
     }
 
-    /// Begins the local daemon's first connect attempt off the main thread,
-    /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
-    /// prestart:)` takes it over. Nil when the launcher cannot be made (the
-    /// later `start` reports why).
-    nonisolated static func prestart(launch: LaunchIdentity, terminalEnvironment: [String: String],
-                                     terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String]) -> DaemonPrestart? {
-        guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment) else { return nil }
-        return DaemonPrestart(launcher: launcher, configuration: DaemonConnection.Configuration(terminalEnvironment: terminalEnvironmentProvider))
-    }
-
 
     /// Connects with `makeConnection`, retrying the first connect until it
     /// succeeds (`DaemonStartup`), then mirrors the connection into `store`.
