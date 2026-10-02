@@ -7,6 +7,7 @@ const runtimeSource = readFileSync(new URL("../dist/cmux-app-runtime.js", import
 
 export type Op = { op: string; id: string; type?: string; props?: Record<string, unknown>; children?: string[] }
 export type OpHandler = (params: any, options: any) => { ok: boolean; body: unknown } | Promise<{ ok: boolean; body: unknown }>
+export type PaletteBatch = { reqId: number; generation: number; items: any[]; isFinal: boolean; replace: boolean }
 
 export class FakeHost {
   readonly ctx: vm.Context
@@ -16,7 +17,15 @@ export class FakeHost {
   readonly subscriptions = new Map<number, { stream: string; filter: any }>()
   readonly timers = new Map<number, { ms: number; repeat: boolean }>()
   readonly commandResults = new Map<number, { ok: boolean; body: any }>()
+  readonly paletteBatches: PaletteBatch[] = []
+  readonly paletteResults = new Map<number, { ok: boolean; body: any }>()
   handlers: Record<string, OpHandler> = {}
+  /** Answers ops with no entry in `handlers` (default: operation.unsupported). */
+  fallback?: (name: string, params: any, options: any) => { ok: boolean; body: unknown } | Promise<{ ok: boolean; body: unknown }>
+  /** Observers for hosts built on this one (the @cmux/app-test harness). */
+  onPaletteBatch?: (batch: PaletteBatch) => void
+  onPaletteDone?: (reqId: number, ok: boolean, body: any) => void
+  onCommandDone?: (cbId: number, ok: boolean, body: any) => void
   private nextSub = 1
   private nextTimer = 1
 
@@ -30,6 +39,10 @@ export class FakeHost {
         const h = host.handlers[name]
         const reply = (r: { ok: boolean; body: unknown }) => host.global.__cmuxAppResolve(cbId, r.ok, JSON.stringify(r.body))
         if (!h) {
+          if (host.fallback) {
+            Promise.resolve(host.fallback(name, params, options)).then(reply)
+            return
+          }
           queueMicrotask(() => reply({ ok: false, body: { code: "operation.unsupported", message: `no handler for ${name}`, retryable: false } }))
           return
         }
@@ -60,7 +73,19 @@ export class FakeHost {
         host.logs.push([level, message])
       },
       commandDone(cbId: number, ok: boolean, json: string) {
-        host.commandResults.set(cbId, { ok, body: JSON.parse(json) })
+        const body = JSON.parse(json)
+        host.commandResults.set(cbId, { ok, body })
+        host.onCommandDone?.(cbId, ok, body)
+      },
+      paletteBatch(reqId: number, generation: number, itemsJSON: string, isFinal: boolean, replace: boolean) {
+        const batch = { reqId, generation, items: JSON.parse(itemsJSON), isFinal, replace }
+        host.paletteBatches.push(batch)
+        host.onPaletteBatch?.(batch)
+      },
+      paletteDone(reqId: number, ok: boolean, json: string) {
+        const body = JSON.parse(json)
+        host.paletteResults.set(reqId, { ok, body })
+        host.onPaletteDone?.(reqId, ok, body)
       }
     }
     this.ctx = vm.createContext({ __cmuxAppNative: native, queueMicrotask })
@@ -115,6 +140,27 @@ export class FakeHost {
 
   dispatch(mountId: string, nodeId: string, event: string, payload: unknown = {}) {
     this.global.__cmuxAppDispatch(mountId, nodeId, event, JSON.stringify(payload))
+  }
+
+  /** Runs a command export; `ctx` is the invocation context (`{gesture}`). */
+  runCommand(exportName: string, args: unknown = {}, cbId = 1, ctx?: Record<string, unknown>) {
+    this.global.__cmuxAppRunCommand(exportName, JSON.stringify(args), cbId, ctx ? JSON.stringify(ctx) : undefined)
+  }
+
+  paletteOpen(scope: string, kind: "snapshot" | "query", query: string, generation: number, reqId: number, ctx: Record<string, unknown> = {}): string {
+    return this.global.__cmuxAppPaletteOpen(scope, kind, query, generation, JSON.stringify(ctx), reqId)
+  }
+
+  paletteCancel(reqId: number) {
+    this.global.__cmuxAppPaletteCancel(reqId)
+  }
+
+  paletteDetail(scope: string, itemId: string, reqId: number) {
+    this.global.__cmuxAppPaletteDetail(scope, itemId, reqId)
+  }
+
+  batchesFor(reqId: number): PaletteBatch[] {
+    return this.paletteBatches.filter((b) => b.reqId === reqId)
   }
 
   emit(stream: string, payload: unknown = {}) {

@@ -67472,127 +67472,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Overlay"
+            "value": "Floating"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تراكب"
+            "value": "عائم"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sloj"
+            "value": "Plutajuće"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlejring"
+            "value": "Flydende"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlay"
+            "value": "Schwebend"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superpuesta"
+            "value": "Flotante"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Superposée"
+            "value": "Flottant"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sovrapposta"
+            "value": "Mobile"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "オーバーレイ"
+            "state": "translated",
+            "value": "フローティング"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្រទាប់លើ"
+            "value": "អណ្ដែត"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "오버레이"
+            "value": "플로팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Overlegg"
+            "value": "Flytende"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nakładka"
+            "value": "Pływający"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sobreposta"
+            "value": "Flutuante"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Наложение"
+            "value": "Плавающий"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ซ้อนทับ"
+            "value": "ลอย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kaplama"
+            "value": "Yüzen"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Накладання"
+            "value": "Плаваючий"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lớp phủ"
+            "value": "Nổi"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "叠加"
+            "value": "浮动"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "疊加"
+            "value": "浮動"
           }
         }
       }
@@ -72833,6 +72833,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "SSH Public Key"
+          }
+        }
+      }
+    },
+    "action.newTab.page": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Page"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブページ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحة علامة تبويب جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica novog taba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny faneside"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue-Tab-Seite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Página de nueva pestaña"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Page Nouvel onglet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pagina Nuova scheda"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 페이지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny fane-side"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona nowej karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Página de nova aba"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страница новой вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme Sayfası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінка нової вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁頁面"
           }
         }
       }

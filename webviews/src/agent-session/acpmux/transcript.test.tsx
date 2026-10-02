@@ -20,6 +20,7 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "customElements",
     "Node",
+    "MutationObserver",
     "IntersectionObserver",
     "ResizeObserver",
     "requestAnimationFrame",
@@ -34,6 +35,8 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
+  // Code blocks and edit diffs watch the pane's theme attribute.
+  MutationObserver: dom.window.MutationObserver,
   IntersectionObserver: class {
     observe() {}
     unobserve() {}

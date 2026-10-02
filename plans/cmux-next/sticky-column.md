@@ -88,7 +88,7 @@ never sticky; column order is unchanged, so older clients render the column in p
 
 Palette and CLI (`cmux action run` or the verbs): Make Column Sticky (`column make-sticky`,
 optional `edge` left|right, `mode` docked|overlay), Make Column Sticky on Left
-(`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Sticky Overlay
+(`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Floating Sticky Column
 (`column toggle-sticky-overlay`: the targeted column if sticky, else the screen's sticky column,
 else the column as a right overlay), Toggle Column Scroll Bar (`settings toggle-column-scrollbar`).
 Column and pane context menus. Directional focus treats the left sticky column as before the
