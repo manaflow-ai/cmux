@@ -296,6 +296,19 @@ impl Harness {
             .collect()
     }
 
+    /// Events arrive on the driver's dispatcher thread: wait until `name` has
+    /// been delivered `count` times, then return a snapshot.
+    fn events_after(&self, name: &str, count: usize) -> Vec<DriverEvent> {
+        for _ in 0..2000 {
+            let events = self.events.lock().unwrap().clone();
+            if events.iter().filter(|e| e.name == name).count() >= count {
+                return events;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("{name} was not delivered {count} time(s)");
+    }
+
     fn mark(&self) -> usize {
         self.wire.browser.lock().unwrap().sent.len()
     }
@@ -352,7 +365,8 @@ fn open_with_url_navigates_and_info_reports_the_document() {
     assert_eq!(info["viewport"], json!({"width": 1280.0, "height": 800.0}));
     assert_eq!(info["deviceScaleFactor"], 2.0);
 
-    let names: Vec<String> = h.events.lock().unwrap().iter().map(|e| e.name.clone()).collect();
+    let names: Vec<String> =
+        h.events_after("tab.loadState", 1).iter().map(|e| e.name.clone()).collect();
     assert!(names.contains(&"tab.navigated".to_string()));
     assert!(names.contains(&"tab.loadState".to_string()));
     assert!(!names.contains(&"tab.created".to_string()), "tabs.open is not a popup");
@@ -589,9 +603,7 @@ fn dialogs_are_reported_and_answered() {
         json!({"targetId": target, "world": "page", "source": "() => alert('hello')"}),
     );
     let opened = h
-        .events
-        .lock()
-        .unwrap()
+        .events_after("dialog.opened", 1)
         .iter()
         .find(|e| e.name == "dialog.opened")
         .cloned()
@@ -622,9 +634,7 @@ fn closing_a_tab_removes_it_and_reports_tab_closed() {
     assert_eq!(tabs.as_array().unwrap().len(), 1);
     assert_eq!(tabs[0]["targetId"], second.as_str());
     let closed: Vec<Value> = h
-        .events
-        .lock()
-        .unwrap()
+        .events_after("tab.closed", 1)
         .iter()
         .filter(|e| e.name == "tab.closed")
         .map(|e| e.payload.clone())
