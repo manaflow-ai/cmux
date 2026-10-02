@@ -151,10 +151,13 @@ final class SidebarBridge {
     }
 
     /// Saves what the sidebar shows (placeholders and live-only detail
-    /// left out) once the launch is over; never for an incognito window.
+    /// left out) once the launch is over, only for an open registered
+    /// window and never an incognito one (a closing incognito window leaves
+    /// the incognito set before its sidebar goes away).
     private func recordSnapshot() {
         let registry = services.windows.registry
-        guard let state, !registry.isLaunching, !registry.value.isIncognito(state.id) else { return }
+        guard let state, !registry.isLaunching, registry.value.window(state.id)?.isOpen == true,
+              !registry.value.isIncognito(state.id) else { return }
         let snapshot = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
         guard snapshot != lastRecorded else { return }
         lastRecorded = snapshot
