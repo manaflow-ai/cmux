@@ -26,7 +26,7 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     static func normalizedVMID(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty,
-              trimmed.range(of: "^(ssh:[a-f0-9]{64}|[A-Za-z0-9._-]{1,128})\\z", options: .regularExpression) != nil else {
+              trimmed.range(of: "^(ssh:[a-f0-9]{64}|device:[A-Za-z0-9._-]{1,128}@[A-Za-z0-9._-]{1,128}|[A-Za-z0-9._-]{1,128})\\z", options: .regularExpression) != nil else {
             return nil
         }
         return trimmed

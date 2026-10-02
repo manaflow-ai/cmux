@@ -543,6 +543,129 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
+  test.each(["cookie", "native"])("hydrates an ID-only selected team for paid VM list limits (%s)", async (auth) => {
+    const listTeams = mock(async () => [
+      { id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } },
+      { id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } },
+    ]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+    runVmWorkflow.mockResolvedValue([{
+      providerVmId: "provider-vm-team-1", provider: "freestyle",
+      image: "snapshot-test", status: "running", createdAt: 1_777_000_000_000,
+    }]);
+
+    const response = await GET(new Request("https://cmux.test/api/vm", {
+      headers: auth === "native" ? {
+        authorization: "Bearer access-token", "x-stack-refresh-token": "refresh-token",
+      } : {},
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      limits: { planId: "team", maxActiveVms: 200, activeVmCount: 1, freeAccessWindowDays: 0, freeAccessExpiresAt: null },
+      vms: [{ freeAccessExpiresAt: null }],
+    });
+    expect(listUserVms).toHaveBeenCalledWith("user-1", "team-1");
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([undefined, "team-1"])("hydrates an ID-only selected team with bounded auth (requested %s)", async (requestedTeamId) => {
+    const listTeams = mock(async () => [{
+      id: "team-1", displayName: "Paid team",
+      clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+    }]);
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId, subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4,
+      selectedTeamId: "team-1",
+      teams: [{ id: "team-1", displayName: "Paid team", billingPlanId: "team", billingSeats: 4 }],
+    });
+    expect(listTeams).toHaveBeenCalledWith({ query: "team-1", limit: 100 });
+    expect(listTeams).toHaveBeenCalledTimes(1);
+  });
+
+  test("hydrates the ID-only selected team even when bounded auth requests another team", async () => {
+    const listTeams = mock(async (options?: { query?: string }) => options?.query === "team-other"
+      ? [{ id: "team-other", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : [{ id: "team-1", displayName: "Paid team", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }]);
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"), {
+      requestedTeamId: "team-other",
+      subrouterAuthorizationSignal: new AbortController().signal,
+    });
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "team", billingSeats: 4 });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { query: "team-other", limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { query: "team-1", limit: 100 });
+  });
+
+  test("paginates complete membership when hydrating an ID-only selected team", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => options?.cursor === "page-2"
+      ? [{ id: "team-second", clientReadOnlyMetadata: { cmuxVmPlan: "free" } }]
+      : Object.assign([{ id: "team-1", clientReadOnlyMetadata: { cmuxPlan: "team" } }], { nextCursor: "page-2" }));
+    getUser.mockResolvedValue({ ...authedStackUser(), selectedTeam: { id: "team-1" }, listTeams });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user?.teamIds).toEqual(["team-1", "team-second"]);
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "page-2", limit: 100 });
+  });
+
+  test("falls back to the user plan when complete team pagination is incomplete", async () => {
+    const listTeams = mock(async (options?: { cursor?: string }) => Object.assign([
+      {
+        id: options?.cursor ? "team-other" : "team-first",
+        clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 },
+      },
+    ], { nextCursor: "stuck" }));
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams,
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({
+      billingTeamId: "team-1",
+      billingPlanId: "free",
+      billingSeats: null,
+    });
+    expect(listTeams).toHaveBeenNthCalledWith(1, { cursor: undefined, limit: 100 });
+    expect(listTeams).toHaveBeenNthCalledWith(2, { cursor: "stuck", limit: 100 });
+  });
+
+  test("does not borrow another paid team's details when the selected team is absent from the lookup", async () => {
+    getUser.mockResolvedValue({
+      ...authedStackUser(),
+      clientReadOnlyMetadata: { cmuxPlan: "free" },
+      selectedTeam: { id: "team-1" },
+      listTeams: async () => [{ id: "team-other", clientReadOnlyMetadata: { cmuxPlan: "team", cmuxSeats: 4 } }],
+    });
+
+    const user = await verifyRequest(new Request("https://cmux.test/api/vm"));
+
+    expect(user).toMatchObject({ billingTeamId: "team-1", billingPlanId: "free", billingSeats: null });
+  });
+
   test("tunnel POST and GET forward the complete fresh membership, not only the selected team", async () => {
     const user = authedStackUser();
     getUser.mockResolvedValue({
@@ -1399,15 +1522,15 @@ describe("VM REST auth", () => {
       displayName: "Ada Lovelace",
     });
     runVmWorkflow.mockResolvedValue([
-      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1" },
-      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2" },
+      { providerVmId: "mine", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-1", cmuxTuiContract: "snapshot-v2" },
+      { providerVmId: "theirs", provider: "freestyle", image: "sh-fb3dcf7b47894114889b10186626af5b", imageVersion: "v", status: "running", createdAt: 1_777_000_000_000, createdByUserId: "user-2", cmuxTuiContract: null },
     ]);
     const response = await GET(new Request("https://cmux.test/api/vm"));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       vms: [
-        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" } },
-        { id: "theirs", createdBy: { userId: "user-2", displayName: null } },
+        { id: "mine", createdBy: { userId: "user-1", displayName: "Ada Lovelace" }, cmuxTuiContract: "snapshot-v2" },
+        { id: "theirs", createdBy: { userId: "user-2", displayName: null }, cmuxTuiContract: null },
       ],
     });
   });
@@ -2133,6 +2256,7 @@ describe("VM REST auth", () => {
       slug: "giddy-cherry-emu",
       addressIpv4: "10.16.170.11",
       addressIpv6: null,
+      cmuxTuiContract: "snapshot-v2",
     });
     const response = await vmIdRoute.GET(
       new Request("https://cmux.test/api/vm/provider-vm-status"),
@@ -2145,6 +2269,7 @@ describe("VM REST auth", () => {
       kind: "desktop",
       capabilities: vmCapabilitiesFor("freestyle"),
       address: { ipv4: "10.16.170.11", ipv6: null },
+      cmuxTuiContract: "snapshot-v2",
     });
   });
 

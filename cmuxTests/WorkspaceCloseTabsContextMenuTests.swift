@@ -20,6 +20,13 @@ private let mainActorTestMainQueueSpin: TimeInterval = 0.1
 struct WorkspaceCloseTabsContextMenuTests {
     private let closeWorkspaceOnLastSurfaceKey = "closeWorkspaceOnLastSurfaceShortcut"
 
+    private func drainMainQueueForCloseTest(timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+    }
+
     @Test
     func closeOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
         try withCleanClosedHistory {
@@ -89,8 +96,8 @@ struct WorkspaceCloseTabsContextMenuTests {
                 for: tab,
                 inPane: fixture.paneId
             )
-            drainMainQueue()
-            drainMainQueue()
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
+            drainMainQueueForCloseTest(timeout: mainActorTestMainQueueSpin)
 
             #expect(promptCount == 1)
             #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
@@ -183,7 +190,7 @@ struct WorkspaceCloseTabsContextMenuTests {
             let tabId = fixture.tabIds[2]
 
             #expect(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
-            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue()
 
             let entry = try #require(ClosedItemHistoryStore.shared.menuSnapshot().items.first)
             #expect(entry.title == "Tab 3")
@@ -205,9 +212,9 @@ struct WorkspaceCloseTabsContextMenuTests {
 
                 workspace.markTabCloseButtonClose(surfaceId: surfaceId)
                 _ = workspace.closePanel(panelId)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
-                drainMainQueue(timeout: mainActorTestMainQueueSpin)
+                drainMainQueue()
+                drainMainQueue()
+                drainMainQueue()
 
                 #expect(workspace.panels[panelId] == nil)
                 #expect(workspace.panels.count == 1)
@@ -322,8 +329,8 @@ struct WorkspaceCloseTabsContextMenuTests {
             for: anchorTab,
             inPane: fixture.paneId
         )
-        drainMainQueue(timeout: mainActorTestMainQueueSpin)
-        drainMainQueue(timeout: mainActorTestMainQueueSpin)
+        drainMainQueue()
+        drainMainQueue()
 
         #expect(promptCount == 1, "Expected one confirmation prompt for \(action)")
     }
@@ -336,6 +343,15 @@ struct WorkspaceCloseTabsContextMenuTests {
                 fixture.workspace.panelIdFromSurfaceId(closedTabId) == nil,
                 "Expected targeted tab \(closedTabId) to be removed"
             )
+        }
+    }
+
+    private func drainMainQueue() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(mainActorTestMainQueueSpin)
+        while !drained && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
     }
 
@@ -358,7 +374,7 @@ struct WorkspaceCloseTabsContextMenuTests {
         let deadline = Date().addingTimeInterval(timeout)
         repeat {
             if condition() { return }
-            drainMainQueue(timeout: mainActorTestMainQueueSpin)
+            drainMainQueue()
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
         } while Date() < deadline
     }
