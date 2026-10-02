@@ -384,4 +384,45 @@ describe("team policy over the API (workerd)", () => {
     expect(read.policy.values["github.repoAllowList"]).toEqual({ value: ["acme/web"], mode: "enforced" })
     expect(read.integration_managed_by).toBe("sso")
   })
+
+  it("ConnectionDO tells TeamDO when an SSO lock appears; an admin release (audited) hands control back to TeamPolicy", async () => {
+    const session = await sessionToken("stack-policy-release")
+    expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
+    const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
+    await call("/v1/ops", session, {
+      op: "team.policy.update",
+      params: { changes: [set("github.repoAllowList", ["acme/web"])], expected_version: 0 },
+      idempotency_key: crypto.randomUUID(),
+      origin: "user"
+    })
+    const teamStub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
+    await settleIntegration(session, teamStub, (v) => v.source === "team_policy")
+    // An SSO lock appears in ConnectionDO (nothing writes these yet: its own system op).
+    const connStub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)) as unknown as DurableObjectStub
+    const inDO: (stub: DurableObjectStub, fn: (instance: any) => Promise<void>) => Promise<void> = runInDurableObject as any
+    await inDO(connStub, async (instance) => {
+      const res = instance.submitSystem("integration.policy.apply_managed", { source: "sso", policy: { allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: true, repo_allowlist: ["acme/api"] } }, applied_by: "ssoc_test" }, "sso-lock-2")
+      expect(res.frames.some((f: any) => f.t === "reject")).toBe(false)
+    })
+    // ConnectionDO's notice reaches TeamDO without any new TeamPolicy version.
+    const managedBy = async () => (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.integration_managed_by
+    await settle(async () => { await runDurableObjectAlarm(connStub); return (await managedBy()) === "sso" }, teamStub)
+
+    const released = await call("/v1/ops", session, { op: "team.integration.release_lock", params: { reason: "left the IdP" }, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(released.json.ok).toBe(true)
+    await settle(async () => {
+      await runDurableObjectAlarm(connStub)
+      const conn = (await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value
+      return conn.source === "team_policy" && (await managedBy()) === null
+    }, teamStub)
+    const conn = (await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value
+    expect(conn.github.repo_allowlist).toEqual(["acme/web"])
+    await inDO(teamStub as unknown as DurableObjectStub, async (_i: any, state: any) => {
+      const ops = state.storage.sql.exec("SELECT payload FROM own_outbox WHERE kind = 'audit.append'").toArray().map((r: any) => JSON.parse(String(r.payload)).op)
+      expect(ops).toContain("team.integration.release_lock")
+    })
+    // Nothing to release now.
+    const again = await call("/v1/ops", session, { op: "team.integration.release_lock", params: {}, idempotency_key: crypto.randomUUID(), origin: "user" })
+    expect(again.json.ok).toBe(false)
+  })
 })
