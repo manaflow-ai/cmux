@@ -10,6 +10,8 @@ final class MacTranscriptTableView: NSTableView {
     override func scrollWheel(with event: NSEvent) {
         if interaction?.handleHorizontalScroll(event, in: self) == true { return }
         super.scrollWheel(with: event)
+        // Mouse wheels scroll without live-scroll notifications.
+        interaction?.userDidScroll()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -241,6 +243,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     @objc private func liveScrollStarted() { isLiveScrolling = true }
+
+    func userDidScroll() {
+        if !isLiveScrolling { isPinnedToBottom = isNearBottom() }
+    }
 
     @objc private func liveScrollEnded() {
         isLiveScrolling = false
