@@ -359,7 +359,8 @@ impl ConversationStore {
             let window = cmux_conversation::BUDGET_WINDOW as u32;
             let mut recent = load_page(&transaction, conversation, head.last_seq + 1, window)?;
             recent.reverse();
-            cmux_conversation::check_agent_budget(&head, actor, &recent, now_ms).map_err(rejected)?;
+            cmux_conversation::check_agent_budget(&head, actor, &recent, now_ms)
+                .map_err(rejected)?;
         }
         let target = match op.target_message_id() {
             Some(id) => load_message_by_id(&transaction, id)?,

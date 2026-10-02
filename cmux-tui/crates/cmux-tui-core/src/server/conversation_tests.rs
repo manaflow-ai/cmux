@@ -19,12 +19,9 @@ fn conversation_mux() -> (Arc<Mux>, u64) {
 /// A second trusted local connection bound to agent `participant` with a token
 /// the local user (`user_client`) minted.
 fn agent_client(mux: &Arc<Mux>, user_client: u64, participant: &str) -> u64 {
-    let minted = run(
-        mux,
-        user_client,
-        json!({"cmd":"conversation-agent-token","participant":participant}),
-    )
-    .unwrap();
+    let minted =
+        run(mux, user_client, json!({"cmd":"conversation-agent-token","participant":participant}))
+            .unwrap();
     let client = mux.control_clients.register(ClientTransport::Unix, writer());
     let token = minted["token"].clone();
     run(mux, client, json!({"cmd":"conversation-bind","participant":participant,"token":token}))
