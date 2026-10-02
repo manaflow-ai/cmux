@@ -41,10 +41,11 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
   const modes = allModes.filter((choice) => choice !== plan);
   const currentId = summary?.modes?.currentModeId;
   const planning = plan !== undefined && currentId === plan.id;
-  // Leaving Plan returns to the permission mode the session had before it.
-  const lastMode = useRef<string | undefined>(undefined);
-  if (currentId && !planning) lastMode.current = currentId;
-  const mode = modes.find((choice) => choice.id === (planning ? lastMode.current : currentId));
+  // Leaving Plan returns to the permission mode this session had before it, never another session's.
+  const lastMode = useRef<{ sessionId?: string; mode?: string }>({});
+  if (lastMode.current.sessionId !== summary?.sessionId) lastMode.current = { sessionId: summary?.sessionId };
+  if (currentId && !planning) lastMode.current.mode = currentId;
+  const mode = modes.find((choice) => choice.id === (planning ? lastMode.current.mode : currentId));
   const effort = summary?.configOptions?.find(
     (option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort",
   );
@@ -80,7 +81,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
           className="acpmux-plan"
           aria-pressed={planning}
           title={PICKER_LABELS.planHint}
-          onClick={() => onMode(planning ? (lastMode.current ?? modes[0]?.id ?? plan.id) : plan.id)}
+          onClick={() => onMode(planning ? (lastMode.current.mode ?? modes[0]?.id ?? plan.id) : plan.id)}
         >
           {planning ? <PlanIcon /> : <BuildIcon />}
           <span>{planning ? PICKER_LABELS.plan : PICKER_LABELS.build}</span>
@@ -123,7 +124,7 @@ export function ComposerPickers({ snapshot, onModel, onMode, onEffort }: Props) 
 
 /// Plan modes (Claude's "plan") read and propose without editing; the toggle sits apart from the permission chip.
 export function isPlan(modeId: string): boolean {
-  return /^plan|[-_]plan$/i.test(modeId);
+  return /(^|[-_])plan$/i.test(modeId);
 }
 
 /// How much of the context window the session has used, as Claude draws it: a ring that fills.
@@ -143,17 +144,19 @@ export function ContextRing({ used, size }: { used: number; size: number }) {
     >
       <svg width={18} height={18} viewBox="0 0 18 18" aria-hidden="true" focusable="false">
         <circle cx="9" cy="9" r={radius} fill="none" stroke="currentColor" strokeOpacity={0.28} strokeWidth={2} />
-        <circle
-          cx="9"
-          cy="9"
-          r={radius}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeDasharray={`${circumference * fraction} ${circumference}`}
-          transform="rotate(-90 9 9)"
-        />
+        {fraction > 0 && (
+          <circle
+            cx="9"
+            cy="9"
+            r={radius}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+            strokeLinecap="round"
+            strokeDasharray={`${circumference * fraction} ${circumference}`}
+            transform="rotate(-90 9 9)"
+          />
+        )}
       </svg>
     </span>
   );
