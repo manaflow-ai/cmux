@@ -2106,10 +2106,13 @@ img.ProseMirror-separator {
 .acpmux-diff-header{display:flex;align-items:center;gap:8px;height:48px;box-sizing:border-box;padding:0 8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-diff-back{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:pointer}
 .acpmux-diff-back:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
-.acpmux-diff-scope{display:inline-flex;align-items:center;gap:8px;height:29px;padding:0 12px;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 9%,transparent);white-space:nowrap}
+.acpmux-diff-scope{display:inline-flex;align-items:center;gap:8px;height:29px;padding:0 12px;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-diff-scope strong{font-weight:500}
 .acpmux-diff-counts{display:inline-flex;gap:4px;white-space:nowrap;font-variant-numeric:tabular-nums}
-.acpmux-diff-tools{margin-left:auto;display:flex;align-items:center;gap:2px;height:33px;box-sizing:border-box;padding:0 2.5px;border-radius:16.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 9%,transparent)}
+.acpmux-diff-tools{margin-left:auto;display:flex;align-items:center;gap:2px;height:33px;box-sizing:border-box;padding:0 2.5px;border-radius:16.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge)}
+/* The changes view's scope pill and toolbar ring; appearance.borders none clears it, the fill stays. */
+:root{--acpmux-pill-edge:color-mix(in srgb,var(--agent-text) 9%,transparent)}
+:root[data-borders=none]{--acpmux-pill-edge:transparent}
 .acpmux-diff-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;border-radius:50%;background:none;color:var(--agent-muted);cursor:pointer}
 .acpmux-diff-tool:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
 .acpmux-diff-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
@@ -2382,6 +2385,11 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .cv-checkbox.is-checked {
   background: var(--cv-check-fill);
   box-shadow: inset 0 0 0 1px var(--cv-check-ring);
+}
+/* appearance.borders none: the box is a fill instead of a ring, so an open task still shows. */
+:root[data-borders="none"] .cv-checkbox {
+  box-shadow: none;
+  background: var(--cv-check-fill);
 }
 
 .cv-quote {
