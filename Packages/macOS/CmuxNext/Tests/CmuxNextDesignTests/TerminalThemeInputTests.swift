@@ -32,4 +32,15 @@ import CmuxNextDesign
         #expect(input.backgroundOpacity == 0.8)
         #expect(input.backgroundBlur == 20)
     }
+
+    // The phone renders an invalid theme as Monokai (`validatedOrDefault()`),
+    // so its chrome must derive from Monokai too: never shift the palette
+    // past a bad entry, or mix the theme's colors with a fallback's.
+    @Test func anInvalidThemeReadsAsTheThemeThePhoneRenders() {
+        var theme = TerminalTheme.monokai
+        theme.background = "#1e1e2e"
+        theme.palette[0] = "not a color"
+        #expect(!theme.isValid)
+        #expect(ThemeInput(terminalTheme: theme) == ThemeInput(terminalTheme: theme.validatedOrDefault()))
+    }
 }
