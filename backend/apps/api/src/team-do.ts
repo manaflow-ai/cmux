@@ -268,17 +268,17 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /** RPCs from the unauthenticated SSO routes (sso-routes.ts). */
-  async ssoStart(entity: string, email: string, redirectUri: string, returnTo: string) {
-    return ssoStart(this.loginDeps(entity), email, redirectUri, returnTo)
+  async ssoStart(entity: string, email: string, callbackBase: string, returnTo: string, clientChallenge: string) {
+    return ssoStart(this.loginDeps(entity), email, callbackBase, returnTo, clientChallenge)
   }
 
-  async ssoCallback(entity: string, state: string, code: string) {
-    return ssoCallback(this.loginDeps(entity), state, code)
+  async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
+    return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
   }
 
-  async ssoRedeem(entity: string, code: string) {
+  async ssoRedeem(entity: string, code: string, clientVerifier: string) {
     this.bind(entity)
-    return ssoRedeem(this.ctx.storage.sql, code, Date.now())
+    return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

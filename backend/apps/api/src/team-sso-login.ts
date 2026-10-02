@@ -5,6 +5,7 @@ import { connectionForDomain } from "./domains/team-sso.ts"
 import type { StackServer } from "./stack-server.ts"
 import type { Http } from "./team-domain-external.ts"
 import { openCurrentClientSecret } from "./team-sso-external.ts"
+import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 
 /**
  * Enterprise SSO sign-in, slice 2c-2b (spec/enterprise.md 3.3): OIDC
@@ -22,8 +23,9 @@ const REDEEM_TTL_MS = 2 * 60_000
 const enc = new TextEncoder()
 
 export const ensureLoginTables = (sql: SqlStorage) => {
-  sql.exec(`CREATE TABLE IF NOT EXISTS sso_logins (state TEXT PRIMARY KEY, connection TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, redirect_uri TEXT NOT NULL, return_to TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
-  sql.exec(`CREATE TABLE IF NOT EXISTS sso_redeem (code TEXT PRIMARY KEY, access_token TEXT NOT NULL, refresh_token TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+  sql.exec(`CREATE TABLE IF NOT EXISTS sso_logins2 (state TEXT PRIMARY KEY, connection TEXT NOT NULL, nonce TEXT NOT NULL, verifier TEXT NOT NULL, client_challenge TEXT NOT NULL, redirect_uri TEXT NOT NULL, return_to TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+  // Keyed by a hash of the code; the tokens are sealed and bound to the starting client's challenge.
+  sql.exec(`CREATE TABLE IF NOT EXISTS sso_redeem2 (code_hash TEXT PRIMARY KEY, client_challenge TEXT NOT NULL, sealed TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
   sql.exec(`CREATE TABLE IF NOT EXISTS sso_identities (connection TEXT NOT NULL, subject TEXT NOT NULL, stack_user TEXT NOT NULL, email TEXT NOT NULL, linked_at INTEGER NOT NULL, PRIMARY KEY (connection, subject))`)
 }
 
@@ -45,19 +47,22 @@ export interface LoginDeps {
 export type LoginError = { ok: false; code: string; message: string }
 
 /** GET /v1/sso/start: the IdP authorization URL for an email in one of this team's verified domains. */
-export const ssoStart = async (deps: LoginDeps, email: string, redirectUri: string, returnTo: string): Promise<{ ok: true; url: string } | LoginError> => {
+export const ssoStart = async (deps: LoginDeps, email: string, callbackBase: string, returnTo: string, clientChallenge: string): Promise<{ ok: true; url: string } | LoginError> => {
   const domain = email.slice(email.lastIndexOf("@") + 1).toLowerCase()
   const c = connectionForDomain(deps.state, domain)
   if (!c || !c.oidc.authorization_endpoint) return { ok: false, code: "sso.not_configured", message: "this email does not sign in with SSO" }
   ensureLoginTables(deps.sql)
-  deps.sql.exec(`DELETE FROM sso_logins WHERE expires_at <= ?`, deps.now)
+  deps.sql.exec(`DELETE FROM sso_logins2 WHERE expires_at <= ?`, deps.now)
+  deps.sql.exec(`DELETE FROM sso_redeem2 WHERE expires_at <= ?`, deps.now)
+  // One redirect_uri per connection (mix-up defense: the callback path names the connection).
+  const redirectUri = `${callbackBase}/${c.id}`
   // The team rides in the state so the callback reaches this TeamDO; the random part is the secret.
   const state = `${deps.team}.${random()}`
   const nonce = random()
   const verifier = random()
   deps.sql.exec(
-    `INSERT INTO sso_logins (state, connection, nonce, verifier, redirect_uri, return_to, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    state, c.id, nonce, verifier, redirectUri, returnTo, deps.now + LOGIN_TTL_MS
+    `INSERT INTO sso_logins2 (state, connection, nonce, verifier, client_challenge, redirect_uri, return_to, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    state, c.id, nonce, verifier, clientChallenge, redirectUri, returnTo, deps.now + LOGIN_TTL_MS
   )
   const url = new URL(c.oidc.authorization_endpoint)
   url.searchParams.set("response_type", "code")
@@ -73,15 +78,18 @@ export const ssoStart = async (deps: LoginDeps, email: string, redirectUri: stri
 }
 
 /** GET /v1/sso/callback: code -> ID token -> Stack user and session -> one-time redeem code. */
-export const ssoCallback = async (deps: LoginDeps, state: string, code: string): Promise<{ ok: true; returnTo: string; redeem: string } | LoginError> => {
+export const ssoCallback = async (deps: LoginDeps, state: string, code: string, pathConnection: string, iss: string | null): Promise<{ ok: true; returnTo: string; redeem: string } | LoginError> => {
   ensureLoginTables(deps.sql)
   const fail = (c: string, message: string): LoginError => ({ ok: false, code: c, message })
   // One use only, whatever happens next (replay protection).
-  const row = deps.sql.exec<{ connection: string; nonce: string; verifier: string; redirect_uri: string; return_to: string; expires_at: number }>(
-    `DELETE FROM sso_logins WHERE state = ? RETURNING connection, nonce, verifier, redirect_uri, return_to, expires_at`, state
+  const row = deps.sql.exec<{ connection: string; nonce: string; verifier: string; client_challenge: string; redirect_uri: string; return_to: string; expires_at: number }>(
+    `DELETE FROM sso_logins2 WHERE state = ? RETURNING connection, nonce, verifier, client_challenge, redirect_uri, return_to, expires_at`, state
   ).toArray()[0]
   if (!row || row.expires_at <= deps.now) return fail("sso.state_invalid", "the sign-in link expired; start again")
+  // Mix-up defense: the callback arrived on this connection's own path, and the IdP named itself (RFC 9207) correctly.
+  if (pathConnection !== row.connection) return fail("sso.state_invalid", "the sign-in link does not belong to this connection")
   const c = deps.state.sso_connections?.[row.connection]
+  if (c && iss !== null && iss !== c.oidc.issuer) return fail("sso.state_invalid", "the identity provider is not the one this sign-in started with")
   if (!c || c.state !== "active" || !c.oidc.token_endpoint || !c.oidc.jwks_uri) return fail("sso.not_configured", "this SSO connection is not active")
   const secret = await openCurrentClientSecret({ team: deps.team, kek: deps.kek, sql: deps.sql, state: deps.state }, c.id)
   if (!secret) return fail("sso.not_configured", "the connection has no client secret")
@@ -110,7 +118,14 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string):
     if (!jwksRes.ok) return fail("sso.idp_error", "the identity provider's keys are unavailable")
     const jwks = createLocalJWKSet((await jwksRes.json()) as JSONWebKeySet)
     // OIDC Core 3.1.3.7: issuer and audience exact, signature by the IdP's keys, not expired, our nonce.
-    const { payload } = await jwtVerify(idToken, jwks, { issuer: c.oidc.issuer, audience: c.oidc.client_id, clockTolerance: 60 })
+    const { payload } = await jwtVerify(idToken, jwks, {
+      issuer: c.oidc.issuer,
+      audience: c.oidc.client_id,
+      clockTolerance: 60,
+      algorithms: ["RS256", "PS256", "ES256", "EdDSA"],
+      requiredClaims: ["exp", "iat", "sub"],
+      maxTokenAge: "10m"
+    })
     if (payload.nonce !== row.nonce) return fail("sso.token_invalid", "the ID token's nonce does not match this sign-in")
     if (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== c.oidc.client_id) return fail("sso.token_invalid", "the ID token's authorized party is not cmux")
     if (typeof payload.sub !== "string" || !payload.sub) return fail("sso.token_invalid", "the ID token has no subject")
@@ -130,15 +145,21 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string):
   let linked = false
   try {
     if (!stackUser) {
-      stackUser = (await deps.stack.findUserByEmail(claims.email))?.id ?? (await deps.stack.createUser(claims.email, claims.name)).id
+      const existing = await deps.stack.findUserByEmail(claims.email)
+      // Pre-hijacking defense: link only to an account whose email Stack verified. Linking a verified-email
+      // account is accepted: the team controls the domain's DNS, so it could already reset that account by mail.
+      if (existing && !existing.email_verified) return fail("sso.account_conflict", "an unverified cmux account already uses this email; verify that account's email or ask support")
+      stackUser = existing?.id ?? (await deps.stack.createUser(claims.email, claims.name)).id
       deps.sql.exec(`INSERT OR IGNORE INTO sso_identities (connection, subject, stack_user, email, linked_at) VALUES (?, ?, ?, ?, ?)`, c.id, subject, stackUser, claims.email, deps.now)
       linked = true
     }
     const maxHours = deps.state.policy?.values["sso.sessionMaxAgeHours"]?.value
     const session = await deps.stack.createSession(stackUser, typeof maxHours === "number" ? maxHours * 3_600_000 : undefined)
+    if (!deps.kek) return fail("sso.not_configured", "SSO needs INTEGRATIONS_KEK on this deployment")
     const redeem = `${deps.team}.${random()}`
-    deps.sql.exec(`DELETE FROM sso_redeem WHERE expires_at <= ?`, deps.now)
-    deps.sql.exec(`INSERT INTO sso_redeem (code, access_token, refresh_token, expires_at) VALUES (?, ?, ?, ?)`, redeem, session.access_token, session.refresh_token, deps.now + REDEEM_TTL_MS)
+    const codeHash = await sha256(redeem)
+    const sealed = await seal(deps.kek, JSON.stringify(session), enc.encode(`cmux-sso-redeem-v1|${deps.team}|${codeHash}`))
+    deps.sql.exec(`INSERT INTO sso_redeem2 (code_hash, client_challenge, sealed, expires_at) VALUES (?, ?, ?, ?)`, codeHash, row.client_challenge, JSON.stringify(sealed), deps.now + REDEEM_TTL_MS)
     const audit = deps.submitSystem("sso.signed_in", { connection: c.id, subject, stack_user: stackUser, linked }, `sso-signin:${state}`)
     if (audit.frames.some((f): f is RejectFrame => f.t === "reject")) console.error(JSON.stringify({ msg: "sso sign-in audit refused", connection: c.id }))
     return { ok: true, returnTo: row.return_to, redeem }
@@ -148,10 +169,22 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string):
   }
 }
 
-/** POST /v1/sso/redeem: the Stack tokens, once. */
-export const ssoRedeem = (sql: SqlStorage, code: string, now: number): { ok: true; access_token: string; refresh_token: string } | LoginError => {
+/**
+ * POST /v1/sso/redeem: the Stack tokens, once, and only to the client that
+ * started the flow (it proves the verifier of the challenge it sent to
+ * /start). A forwarded callback link (login CSRF) or a code caught by another
+ * app that claims the cmux:// scheme is useless without that verifier.
+ */
+export const ssoRedeem = async (sql: SqlStorage, kek: string | undefined, team: string, code: string, clientVerifier: string, now: number): Promise<{ ok: true; access_token: string; refresh_token: string } | LoginError> => {
   ensureLoginTables(sql)
-  const row = sql.exec<{ access_token: string; refresh_token: string; expires_at: number }>(`DELETE FROM sso_redeem WHERE code = ? RETURNING access_token, refresh_token, expires_at`, code).toArray()[0]
-  if (!row || row.expires_at <= now) return { ok: false, code: "sso.state_invalid", message: "the sign-in code expired or was used" }
-  return { ok: true, access_token: row.access_token, refresh_token: row.refresh_token }
+  const bad: LoginError = { ok: false, code: "sso.state_invalid", message: "the sign-in code expired, was used, or belongs to another client" }
+  if (!kek) return bad
+  const codeHash = await sha256(code)
+  const row = sql.exec<{ client_challenge: string; sealed: string; expires_at: number }>(`SELECT client_challenge, sealed, expires_at FROM sso_redeem2 WHERE code_hash = ?`, codeHash).toArray()[0]
+  if (!row || row.expires_at <= now) return bad
+  // Wrong verifier: refused without consuming the code (the rightful client can still redeem).
+  if ((await sha256(clientVerifier)) !== row.client_challenge) return bad
+  sql.exec(`DELETE FROM sso_redeem2 WHERE code_hash = ?`, codeHash)
+  const session = JSON.parse(await open(kek, JSON.parse(row.sealed) as SealedSecret, enc.encode(`cmux-sso-redeem-v1|${team}|${codeHash}`))) as { access_token: string; refresh_token: string }
+  return { ok: true, access_token: session.access_token, refresh_token: session.refresh_token }
 }

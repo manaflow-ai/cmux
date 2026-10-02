@@ -8,7 +8,7 @@ import type { Env } from "./env.ts"
  * Stack's server REST API (users, auth/sessions); tests use a fake.
  */
 export interface StackServer {
-  findUserByEmail(email: string): Promise<{ id: string } | undefined>
+  findUserByEmail(email: string): Promise<{ id: string; email_verified: boolean } | undefined>
   createUser(email: string, displayName: string | undefined): Promise<{ id: string }>
   createSession(userId: string, expiresInMillis: number | undefined): Promise<{ access_token: string; refresh_token: string }>
 }
@@ -32,10 +32,10 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
   }
   return {
     findUserByEmail: async (email) => {
-      const r = await call<{ items?: Array<{ id: string; primary_email?: string | null }> }>("GET", `/users?query=${encodeURIComponent(email)}&limit=20`)
+      const r = await call<{ items?: Array<{ id: string; primary_email?: string | null; primary_email_verified?: boolean }> }>("GET", `/users?query=${encodeURIComponent(email)}&limit=100`)
       // The query is a search: keep only an exact primary email match.
       const hit = (r.items ?? []).find((u) => (u.primary_email ?? "").toLowerCase() === email.toLowerCase())
-      return hit ? { id: hit.id } : undefined
+      return hit ? { id: hit.id, email_verified: hit.primary_email_verified === true } : undefined
     },
     createUser: async (email, displayName) =>
       call<{ id: string }>("POST", "/users", { primary_email: email, primary_email_verified: true, ...(displayName ? { display_name: displayName } : {}) }),
