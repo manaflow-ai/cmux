@@ -4397,5 +4397,101 @@
       "zh-Hans": "Command-line syntax is invariant across locales; the translated catalog entry is still required.",
       "zh-Hant": "Command-line syntax is invariant across locales; the translated catalog entry is still required."
     }
+  },
+  "cloudTree.menu.copyShareURL": {
+    "source": "Copy Share URL",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort": {
+    "source": "Preparing the share URL…",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.provisioning": {
+    "source": "The share URL is still being provisioned (state: %@). Try again in a moment.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.publicMismatch": {
+    "source": "An unprotected publication already uses %@. Remove it or create a protected share first.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
   }
 }

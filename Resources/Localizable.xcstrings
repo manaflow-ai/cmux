@@ -609673,6 +609673,506 @@
           }
         }
       }
+    },
+    "cloudTree.menu.copyShareURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Share URL"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.sharePort": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing the share URL…"
+          }
+        }
+      }
+    },
+    "cloudTree.operation.sharePort.provisioning": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The share URL is still being provisioned (state: %@). Try again in a moment."
+          }
+        }
+      }
+    },
+    "cloudTree.operation.sharePort.publicMismatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unprotected publication already uses %@. Remove it or create a protected share first."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

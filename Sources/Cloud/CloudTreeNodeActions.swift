@@ -516,41 +516,35 @@ struct CloudTreeNodeActions {
             sharePort: { resource in
                 guard let port = resource.forwardedPort else { return }
                 let label = String(localized: "cloudTree.operation.sharePort", defaultValue: "Preparing the share URL…")
-                onWillMutate(label)
-                Task { @MainActor in
-                    defer { onDidMutate() }
-                    do {
-                        guard let client = VMClient.shared else {
-                            throw VMClientError.notSignedIn
-                        }
-                        let existing = try await client.listPublications().first {
-                            $0.vmID == resource.machine.rawValue && $0.port == port
-                        }
-                        var publication: VMPublication
-                        if let existing {
-                            publication = existing
-                        } else {
-                            publication = try await client.createPublication(
-                                vmID: resource.machine.rawValue,
-                                port: port,
-                                hostname: nil,
-                                accessMode: nil,
-                                teamID: nil
-                            )
-                        }
-                        if publication.state != "active" {
-                            publication = try await client.verifyPublication(id: publication.id)
-                        }
-                        guard publication.state == "active" else {
-                            throw CloudTreeSharePortError.provisioning(state: publication.state)
-                        }
-                        Self.copyToPasteboard(publication.url)
-                    } catch is CancellationError {
-                    } catch let failure as CloudDiagnosticFailure {
-                        onFailure(failure.label)
-                    } catch {
-                        onFailure((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+                let key = "share-port-\(resource.machine.rawValue)-\(port)"
+                _ = runKeyed(key, label) { _ in
+                    guard let client = VMClient.shared else {
+                        throw VMClientError.notSignedIn
                     }
+                    let matches = try await client.listPublications(vmID: resource.machine.rawValue, port: port)
+                    let protected = matches.first { $0.accessMode == .personal || $0.accessMode == .team }
+                    if let publicPublication = matches.first(where: { $0.accessMode == .public }), protected == nil {
+                        throw CloudTreeSharePortError.publicPublication(hostname: publicPublication.hostname)
+                    }
+                    var publication: VMPublication
+                    if let protected {
+                        publication = protected
+                    } else {
+                        publication = try await client.createPublication(
+                            vmID: resource.machine.rawValue,
+                            port: port,
+                            hostname: nil,
+                            accessMode: nil,
+                            teamID: nil
+                        )
+                    }
+                    if publication.state != "active" {
+                        publication = try await client.verifyPublication(id: publication.id)
+                    }
+                    guard publication.state == "active" else {
+                        throw CloudTreeSharePortError.provisioning(state: publication.state)
+                    }
+                    Self.copyToPasteboard(publication.url)
                 }
             },
             refresh: refresh
@@ -646,11 +640,14 @@ struct CloudTreeNodeActions {
 
 private enum CloudTreeSharePortError: LocalizedError {
     case provisioning(state: String)
+    case publicPublication(hostname: String)
 
     var errorDescription: String? {
         switch self {
         case .provisioning(let state):
             return String(format: String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned (state: %@). Try again in a moment."), state)
+        case .publicPublication(let hostname):
+            return String(format: String(localized: "cloudTree.operation.sharePort.publicMismatch", defaultValue: "An unprotected publication already uses %@. Remove it or create a protected share first."), hostname)
         }
     }
 }

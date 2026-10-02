@@ -171,11 +171,17 @@ export async function runVmPublicationWorkflow<A, E>(
 
 export function listPublications(input: {
   readonly principal: PublicationPrincipal;
+  readonly vmId?: string;
+  readonly port?: number;
 }) {
   return Effect.gen(function* () {
     const repository = yield* CloudVmPublicationRepository;
     const targets = yield* repository.listOwnedPublications(input.principal.userId);
-    return targets.filter((target) => publicationInCurrentAccount(target, input.principal)).map(publicationDto);
+    return targets
+      .filter((target) => publicationInCurrentAccount(target, input.principal))
+      .filter((target) => !input.vmId || target.vm.providerVmId === input.vmId)
+      .filter((target) => input.port === undefined || target.publication.port === input.port)
+      .map(publicationDto);
   });
 }
 
