@@ -1,4 +1,4 @@
-import type { AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -60,6 +60,42 @@ export function applySupersededMessage(rows: Map<string, AcpmuxRow>, messageRows
 export function initialSession(selected: string | undefined, sessions: { sessionId: string }[], newSession?: boolean): string | undefined {
   if (selected) return selected;
   return newSession ? undefined : sessions[0]?.sessionId;
+}
+
+/// The file changes in a tool call's content (ACP `diff` items), placed by the call's locations.
+export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | undefined {
+  if (!Array.isArray(content)) return undefined;
+  const lines = new Map<string, number>();
+  for (const location of Array.isArray(locations) ? locations : []) if (typeof location?.path === "string" && Number.isInteger(location.line) && location.line > 0 && !lines.has(location.path)) lines.set(location.path, location.line);
+  const diffs = content.filter((item: any) => item?.type === "diff" && typeof item.path === "string" && typeof item.newText === "string").map((item: any): AcpmuxFileDiff => ({ path: item.path, oldText: typeof item.oldText === "string" ? item.oldText : undefined, newText: item.newText, line: lines.get(item.path) }));
+  return diffs.length ? diffs : undefined;
+}
+
+/// Diffs placed again by an update that brings only locations.
+function placeDiffs(diffs: AcpmuxFileDiff[] | undefined, locations: any): AcpmuxFileDiff[] | undefined {
+  if (!diffs || !Array.isArray(locations)) return diffs;
+  return toolDiffs(diffs.map((diff) => ({ type: "diff", ...diff })), locations) ?? diffs;
+}
+
+/// A tool call folded with an update to it. ACP updates carry only the fields that changed;
+/// content, when present, replaces the call's content.
+export function mergeToolItem(previous: AcpmuxActivity | undefined, update: any, callId: string, output: string): AcpmuxActivity {
+  const before = previous?.tool;
+  const title = update.title ?? update.name;
+  return {
+    kind: "tool",
+    text: String(title ?? previous?.text ?? callId),
+    tool: {
+      id: callId,
+      title: String(update.title ?? before?.title ?? callId),
+      kind: update.kind ?? before?.kind,
+      status: String(update.status ?? before?.status ?? "in_progress"),
+      inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
+      output: output || (update.content === undefined ? before?.output : undefined),
+      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      diffs: update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations),
+    },
+  };
 }
 
 function textFromContent(content: any): string {
@@ -411,7 +447,7 @@ export class AcpmuxDirectClient {
       const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: existing?.toolCount ?? 0, items: [...(existing?.items ?? []), { kind: "thought", text }] }); this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
-      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = { kind: "tool", text: String(update.title ?? update.name ?? callId), tool: { id: callId, title: String(update.title ?? callId), kind: update.kind, status: String(update.status ?? "in_progress"), inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : undefined, output: text || undefined } };
+      const callId = String(update.toolCallId ?? `tool-${event.seq}`); const id = this.streamingActivity ?? `activity-${event.seq}`; const existing = this.rows.get(id); const items = [...(existing?.items ?? [])]; const itemIndex = items.findIndex((item) => item.tool?.id === callId); const item = mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text);
       if (itemIndex >= 0) items[itemIndex] = item; else items.push(item);
       this.rows.set(id, { id, version: (existing?.version ?? 0) + 1, at: event.at, kind: "activity", toolCount: items.filter((entry) => entry.kind === "tool").length, items }); this.streamingActivity = id;
     } else if (event.kind === "plan") this.rows.set(`plan-${event.seq}`, { id: `plan-${event.seq}`, version: 1, at: event.at, kind: "plan", text: text || JSON.stringify(update.entries ?? update.content ?? "") });
