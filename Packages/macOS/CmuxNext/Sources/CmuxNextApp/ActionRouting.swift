@@ -20,13 +20,8 @@ enum ActionRouting {
             }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
-            // Only a user's run (or one asking `focus: true`) may change this
-            // client's view; handlers read it before any await.
-            let previousReveal = services.viewChangeAllowed
-            services.viewChangeAllowed = invocation.allowsViewChange
             body()
             services.routedDaemon = previous
-            services.viewChangeAllowed = previousReveal
         }
     }
 

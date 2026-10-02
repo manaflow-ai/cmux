@@ -65,6 +65,14 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
     /// control socket gives it ``ActionDescriptor/resultDeadline``.
     public var waitsForResult: Bool = false
+    /// The action's purpose is to change this client's view: focus a pane
+    /// or tab, select a tab, show a workspace, bring a window forward
+    /// (tab.focus, Go to Tab, workspace next/previous, pane focus moves).
+    /// Such a run may change the view whatever its origin; any other run
+    /// only when its origin is the user or it asks with `focus: true`
+    /// (plans/cmux-next/OWNERSHIP-PRINCIPLES.md, ``ActionRunScope``).
+    /// The catalog marks these in `ActionCatalog.focusActionIDs`.
+    public var focuses: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
 

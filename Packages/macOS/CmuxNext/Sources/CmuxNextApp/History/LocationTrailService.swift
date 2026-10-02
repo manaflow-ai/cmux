@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -102,7 +103,7 @@ final class LocationTrailService {
     /// Shows the tab: its window comes forward, its workspace and tab are
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
-        guard let (_, paneModel) = services.locateTab(location.key.tab),
+        guard ViewChangePolicy.allowed(), let (_, paneModel) = services.locateTab(location.key.tab),
               let workspace = services.daemon(for: paneModel).store.workspace(containing: paneModel.handle),
               let window = services.windows.reveal(workspaceID: workspace.id) else { return false }
         window.state.selection.select(location.key.tab, in: paneModel.id)
