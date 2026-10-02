@@ -243,10 +243,7 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// `list-personal` and the `*-browser-profile` commands
 /// (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
-/// One bookmark tree per browser profile in the home session: the
-/// `*-bookmark` commands, `list-bookmarks`, `import-bookmarks` and the
-/// `bookmarks-changed` event (plans/cmux-next/bookmarks.md section 2.1).
-pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
+pub use bookmarks::BOOKMARKS_CAPABILITY;
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -2029,123 +2026,18 @@ enum Command {
     },
     /// Every personal record of the home session (`profiles-v1`).
     ListPersonal,
-    /// Create a browser profile (`browser-profiles-v1`). A caller-chosen
-    /// `browser_profile` id makes a retry return the stored record.
-    CreateBrowserProfile {
-        name: String,
-        #[serde(default)]
-        browser_profile: Option<String>,
-        #[serde(default)]
-        color: Option<String>,
-        #[serde(default)]
-        icon: Option<String>,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        source: Option<Value>,
-    },
-    /// Update a browser profile. An absent field is unchanged; JSON null
-    /// clears it.
-    UpdateBrowserProfile {
-        browser_profile: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        color: Option<Option<String>>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        icon: Option<Option<String>>,
-    },
-    /// Move a browser profile to an insertion index among browser profiles.
-    MoveBrowserProfile {
-        browser_profile: String,
-        index: usize,
-    },
-    /// Delete a browser profile (not `default`); clears the workspace and
-    /// room defaults that name it.
-    DeleteBrowserProfile {
-        browser_profile: String,
-    },
-    /// The bookmark tree of one browser profile (`bookmarks-v1`).
-    ListBookmarks {
-        browser_profile_id: String,
-    },
-    /// Create a bookmark or folder. A caller-chosen `bookmark` id makes a
-    /// retry return the stored node. (`id` is the request envelope's.)
-    CreateBookmark {
-        #[serde(default)]
-        origin: Option<String>,
-        #[serde(default)]
-        mutation_id: Option<String>,
-        browser_profile_id: String,
-        parent: String,
-        kind: String,
-        title: String,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        url: Option<String>,
-        #[serde(default)]
-        favicon_key: Option<String>,
-        #[serde(default)]
-        source_key: Option<String>,
-        #[serde(default)]
-        created_ms: Option<u64>,
-        #[serde(default)]
-        bookmark: Option<String>,
-    },
-    /// Update a bookmark. An absent field is unchanged; JSON null clears
-    /// `favicon_key` or `last_used_ms`.
-    UpdateBookmark {
-        #[serde(default)]
-        origin: Option<String>,
-        #[serde(default)]
-        mutation_id: Option<String>,
-        bookmark: String,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        url: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        favicon_key: Option<Option<String>>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        last_used_ms: Option<Option<u64>>,
-    },
-    /// Move a bookmark to a final index under a parent of the same profile.
-    /// Every bookmark mutation takes an optional idempotency key
-    /// (`origin` + `mutation_id`).
-    MoveBookmark {
-        #[serde(default)]
-        origin: Option<String>,
-        #[serde(default)]
-        mutation_id: Option<String>,
-        bookmark: String,
-        parent: String,
-        index: usize,
-    },
-    /// Delete a bookmark and its subtree.
-    DeleteBookmark {
-        #[serde(default)]
-        origin: Option<String>,
-        #[serde(default)]
-        mutation_id: Option<String>,
-        bookmark: String,
-    },
-    /// Write an imported bookmark tree in one transaction.
-    ImportBookmarks {
-        #[serde(default)]
-        origin: Option<String>,
-        #[serde(default)]
-        mutation_id: Option<String>,
-        browser_profile_id: String,
-        parent: String,
-        #[serde(default)]
-        index: Option<usize>,
-        #[serde(default)]
-        source_key: Option<String>,
-        #[serde(default)]
-        replace: bool,
-        nodes: Vec<Value>,
-    },
+    /// Browser profile records (`browser-profiles-v1`, server/browser_profiles.rs).
+    CreateBrowserProfile(browser_profiles::CreateParams),
+    UpdateBrowserProfile(browser_profiles::UpdateParams),
+    MoveBrowserProfile(browser_profiles::MoveParams),
+    DeleteBrowserProfile(browser_profiles::DeleteParams),
+    /// Bookmark trees (`bookmarks-v1`, server/bookmarks.rs).
+    ListBookmarks(bookmarks::ListParams),
+    CreateBookmark(bookmarks::CreateParams),
+    UpdateBookmark(bookmarks::UpdateParams),
+    MoveBookmark(bookmarks::MoveParams),
+    DeleteBookmark(bookmarks::DeleteParams),
+    ImportBookmarks(bookmarks::ImportParams),
     /// Create a room. A caller-chosen `profile` id makes a retry idempotent.
     CreateProfile {
         name: String,
@@ -11206,11 +11098,7 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
                 .downcast_ref::<crate::ColumnStickyError>()
                 .and_then(|error| error.code().map(str::to_string))
         })
-        .or_else(|| {
-            error
-                .downcast_ref::<crate::workspace_registry::BookmarkError>()
-                .map(|error| error.code().to_string())
-        })
+        .or_else(|| bookmarks::error_code(error))
 }
 
 /// Answers a request line that did not decode into a command. The reply
@@ -15098,110 +14986,16 @@ fn handle_command_with_cancellation(
             }))
         }
         Command::ListPersonal => personal::list(mux),
-        Command::CreateBrowserProfile { name, browser_profile, color, icon, index, source } => {
-            browser_profiles::create(
-                mux,
-                crate::workspace_registry::BrowserProfileInput {
-                    id: browser_profile,
-                    name,
-                    color,
-                    icon,
-                    index,
-                    source,
-                },
-            )
-        }
-        Command::UpdateBrowserProfile { browser_profile, name, color, icon } => {
-            browser_profiles::update(
-                mux,
-                &browser_profile,
-                crate::workspace_registry::BrowserProfileUpdate { name, color, icon },
-            )
-        }
-        Command::MoveBrowserProfile { browser_profile, index } => {
-            browser_profiles::move_to(mux, &browser_profile, index)
-        }
-        Command::DeleteBrowserProfile { browser_profile } => {
-            browser_profiles::delete(mux, &browser_profile)
-        }
-        Command::ListBookmarks { browser_profile_id } => bookmarks::list(mux, &browser_profile_id),
-        Command::CreateBookmark {
-            origin,
-            mutation_id,
-            browser_profile_id,
-            parent,
-            kind,
-            title,
-            index,
-            url,
-            favicon_key,
-            source_key,
-            created_ms,
-            bookmark,
-        } => bookmarks::apply(
-            mux,
-            origin,
-            mutation_id,
-            crate::workspace_registry::BookmarkOp::Create(
-                crate::workspace_registry::BookmarkInput {
-                    id: bookmark,
-                    browser_profile_id,
-                    parent,
-                    index,
-                    kind,
-                    title,
-                    url,
-                    favicon_key,
-                    source_key,
-                    created_ms,
-                },
-            ),
-        ),
-        Command::UpdateBookmark {
-            origin,
-            mutation_id,
-            bookmark,
-            title,
-            url,
-            favicon_key,
-            last_used_ms,
-        } => bookmarks::apply(
-            mux,
-            origin,
-            mutation_id,
-            crate::workspace_registry::BookmarkOp::Update {
-                bookmark,
-                update: crate::workspace_registry::BookmarkUpdate {
-                    title,
-                    url,
-                    favicon_key,
-                    last_used_ms,
-                },
-            },
-        ),
-        Command::MoveBookmark { origin, mutation_id, bookmark, parent, index } => bookmarks::apply(
-            mux,
-            origin,
-            mutation_id,
-            crate::workspace_registry::BookmarkOp::Move { bookmark, parent, index },
-        ),
-        Command::DeleteBookmark { origin, mutation_id, bookmark } => bookmarks::apply(
-            mux,
-            origin,
-            mutation_id,
-            crate::workspace_registry::BookmarkOp::Delete { bookmark },
-        ),
-        Command::ImportBookmarks {
-            origin,
-            mutation_id,
-            browser_profile_id,
-            parent,
-            index,
-            source_key,
-            replace,
-            nodes,
-        } => bookmarks::import_op(browser_profile_id, parent, index, source_key, replace, nodes)
-            .and_then(|op| bookmarks::apply(mux, origin, mutation_id, op)),
+        Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
+        Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
+        Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
+        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
+        Command::ListBookmarks(params) => bookmarks::list(mux, params),
+        Command::CreateBookmark(params) => bookmarks::create(mux, params),
+        Command::UpdateBookmark(params) => bookmarks::update(mux, params),
+        Command::MoveBookmark(params) => bookmarks::move_to(mux, params),
+        Command::DeleteBookmark(params) => bookmarks::delete(mux, params),
+        Command::ImportBookmarks(params) => bookmarks::import(mux, params),
         Command::CreateProfile {
             name,
             profile,
@@ -16641,10 +16435,10 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "personal-changed",
             "personal_revision": personal_revision,
         }),
-        MuxEvent::BookmarksChanged { browser_profile_id, bookmarks_revision } => json!({
+        MuxEvent::BookmarksChanged(change) => json!({
             "event": "bookmarks-changed",
-            "browser_profile_id": browser_profile_id,
-            "bookmarks_revision": bookmarks_revision,
+            "browser_profile_id": change.browser_profile_id,
+            "bookmarks_revision": change.bookmarks_revision,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
@@ -16739,10 +16533,6 @@ mod personal_terminal_tests;
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
-
-#[cfg(test)]
-#[path = "server/bookmark_tests.rs"]
-mod bookmark_tests;
 
 #[cfg(test)]
 mod tests {

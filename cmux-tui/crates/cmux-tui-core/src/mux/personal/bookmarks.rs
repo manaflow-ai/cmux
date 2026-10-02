@@ -5,14 +5,23 @@
 //! and the new `bookmarks_revision`, after which frontends refetch
 //! `list-bookmarks`.
 
-use super::*;
+use super::super::*;
+
+/// Payload of `MuxEvent::BookmarksChanged`: the bookmark tree of one
+/// browser profile in the home session changed (`bookmarks-v1`). Consumers
+/// refetch `list-bookmarks`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BookmarksChange {
+    pub browser_profile_id: String,
+    pub bookmarks_revision: u64,
+}
 
 impl Mux {
     /// The `bookmarks_revision` and every node of one profile's tree.
     pub fn list_bookmarks(
         &self,
         browser_profile_id: &str,
-    ) -> anyhow::Result<(u64, Vec<crate::workspace_registry::Bookmark>)> {
+    ) -> anyhow::Result<(u64, Vec<crate::workspace_registry::personal_bookmarks::Bookmark>)> {
         self.workspace_registry.lock().unwrap().list_bookmarks(browser_profile_id)
     }
 
@@ -39,6 +48,9 @@ impl Mux {
     /// Announce a committed change to one profile's bookmark tree. The
     /// caller has already notified journal readers.
     pub(crate) fn emit_bookmarks_changed(&self, browser_profile_id: String, revision: u64) {
-        self.emit(MuxEvent::BookmarksChanged { browser_profile_id, bookmarks_revision: revision });
+        self.emit(MuxEvent::BookmarksChanged(BookmarksChange {
+            browser_profile_id,
+            bookmarks_revision: revision,
+        }));
     }
 }

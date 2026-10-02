@@ -232,7 +232,7 @@ pub struct PersonalSnapshot {
     pub workspaces: Vec<PersonalWorkspace>,
     pub terminals: Vec<PersonalTerminal>,
     /// Browser profile records (`browser-profiles-v1`), `default` included.
-    pub browser_profiles: Vec<super::PersonalBrowserProfile>,
+    pub browser_profiles: Vec<super::personal_browser_profiles::PersonalBrowserProfile>,
 }
 
 // MARK: Validation

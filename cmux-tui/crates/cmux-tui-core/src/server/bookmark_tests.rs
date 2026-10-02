@@ -1,7 +1,7 @@
 //! Wire tests for the bookmark tree of each browser profile in the home
 //! session (`bookmarks-v1`, plans/cmux-next/bookmarks.md sections 1 and 2.1).
 
-use super::*;
+use super::super::*;
 
 const WORK: &str = "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d";
 const FOLDER: &str = "bm_00000000000000000000000000000001";

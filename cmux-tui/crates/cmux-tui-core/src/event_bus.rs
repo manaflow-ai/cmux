@@ -212,7 +212,7 @@ impl SurfaceSessionScope {
             | MuxEvent::WindowTitleRequested(_)
             | MuxEvent::FrontendProjectionChanged { .. }
             | MuxEvent::PersonalChanged { .. }
-            | MuxEvent::BookmarksChanged { .. }
+            | MuxEvent::BookmarksChanged(_)
             | MuxEvent::TerminalRegistryChanged { .. }
             | MuxEvent::TerminalReaped { .. }
             | MuxEvent::PairingRequested(_)
