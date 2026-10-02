@@ -109,7 +109,8 @@ export class MuxHost {
   /** Every acpmux session's last status and, for running children, the seq their turn started after. */
   private readonly sessionStatus = new Map<string, SessionStatus>();
   private readonly sessionInfo = new Map<string, SessionSummary>();
-  private readonly childTurnStart = new Map<string, number>();
+  /** Per child: the event seq when its previous turn ended (its next turn's events come after it). */
+  private readonly childTurnFloor = new Map<string, number>();
 
   private readyResolve!: () => void;
   /** Resolves once both owners are connected and the first catch-up ran. */
@@ -313,7 +314,7 @@ export class MuxHost {
   /** Prompts the mux when the message wakes it, then moves agent_mux's read cursor past it. */
   private async handleMessage(summary: Summary, message: Message): Promise<void> {
     if (message.seq <= (this.handled.get(summary.id) ?? 0)) return;
-    if (wakes(summary, message, (id) => this.authors.get(id) === AGENT_MUX)) {
+    if (!this.state.isAnswered(message.id) && wakes(summary, message, (id) => this.authors.get(id) === AGENT_MUX)) {
       const author = summary.participants.find((p) => p.id === message.author);
       const text = `[conversation ${summary.id} from ${author?.display_name ?? message.author}] ${messageText(message)}`;
       this.state.data.prompts[message.id] = { conversation: summary.id, text, seq: message.seq };
@@ -481,7 +482,7 @@ export class MuxHost {
         op: { kind: "message.send", client_msg_id: key, parts },
       });
     }
-    if (output.turn.promptId) delete this.state.data.prompts[output.turn.promptId];
+    if (output.turn.promptId) this.state.markAnswered(output.turn.promptId);
     this.state.data.acpmuxSeq = Math.max(this.state.data.acpmuxSeq, output.seq);
     this.state.save();
     await this.flushOutbox();
@@ -545,8 +546,6 @@ export class MuxHost {
     const before = this.sessionStatus.get(session.sessionId);
     this.sessionStatus.set(session.sessionId, session.status);
     this.sessionInfo.set(session.sessionId, session);
-    if (session.status === "running" && before !== "running")
-      this.childTurnStart.set(session.sessionId, session.lastSeq ?? 0);
     if (!this.isChild(session)) return;
     const child = this.state.data.children[session.sessionId] ?? this.registerChild(session);
     if (turnEnded(before, session.status)) await this.childFinished(session, child);
@@ -592,9 +591,10 @@ export class MuxHost {
     const acpmux = this.acpmux;
     let reply = "";
     if (acpmux) {
-      const after = this.childTurnStart.get(session.sessionId) ?? Math.max(0, (session.lastSeq ?? 0) - 5_000);
+      const after = this.childTurnFloor.get(session.sessionId) ?? 0;
       reply = lastReply(await acpmux.events(session.sessionId, after).catch(() => [] as AcpmuxEvent[]));
     }
+    this.childTurnFloor.set(session.sessionId, session.lastSeq ?? 0);
     this.editWork(session, child, workStatus(session.status), excerpt(reply, 200) || undefined);
     const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq}`;
     this.state.data.prompts[promptId] = {
