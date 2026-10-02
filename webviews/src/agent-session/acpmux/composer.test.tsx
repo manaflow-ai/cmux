@@ -325,4 +325,32 @@ describe("acpmux composer slash menu", () => {
     expect(sent).toEqual(["/review main"]);
     expect(textarea().value).toBe("");
   });
+
+  test("keeps a pending permission card attached to the composer", async () => {
+    const decisions: string[] = [];
+    await act(async () =>
+      root.render(
+        createElement(Composer, {
+          snapshot: snapshot(),
+          chips: () => null,
+          onSend: () => {},
+          onStop: () => {},
+          permission: {
+            permissionId: "permission-1",
+            title: "Allow the command?",
+            pending: true,
+            options: [{ id: "once", name: "Allow once", allow: true }],
+          },
+          onPermission: (permissionId: string, optionId: string) => decisions.push(`${permissionId}:${optionId}`),
+        }),
+      ),
+    );
+    const card = dom.window.document.querySelector(".acpmux-composer > .acpmux-permission");
+    expect(card).not.toBeNull();
+    expect(card?.parentElement?.classList.contains("acpmux-composer")).toBe(true);
+    const button = card?.querySelector("button");
+    expect(button).not.toBeNull();
+    await act(async () => (button as HTMLButtonElement).click());
+    expect(decisions).toEqual(["permission-1:once"]);
+  });
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { AcpmuxSnapshot } from "./model";
+import type { AcpmuxPermission, AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
 import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
@@ -26,6 +26,9 @@ type Props = {
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
   onSend(text: string): void;
   onStop(): void;
+  /// A pending action floats above the composer without changing its position.
+  permission?: AcpmuxPermission;
+  onPermission?(permissionId: string, optionId: string): void;
   /// The bar's left button, such as attach; by default + opens the agent's commands. `null` leaves the slot empty.
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
@@ -41,7 +44,17 @@ type Props = {
 /// Shift+Enter breaks the line. The menu opens while the prompt is a single
 /// leading `/word`, filters as it grows, and picking a command writes `/name `
 /// so its arguments can follow.
-export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, accessory, onAttach }: Props) {
+export function Composer({
+  snapshot,
+  chips: Chips,
+  onSend,
+  onStop,
+  permission,
+  onPermission,
+  leading,
+  accessory,
+  onAttach,
+}: Props) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -185,6 +198,24 @@ export function Composer({ snapshot, chips: Chips, onSend, onStop, leading, acce
   };
   return (
     <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+      {permission?.pending && (
+        <div className="acpmux-permission">
+          <div className="acpmux-permission-card">
+            <strong>{permission.title || "Permission required"}</strong>
+            <div className="acpmux-permission-buttons">
+              {permission.options.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onPermission?.(permission.permissionId, option.id)}
+                >
+                  {option.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       {open && (
         <SlashMenu
           matches={matches}

@@ -10,7 +10,6 @@ import {
   plainEditLabels,
   transcriptRowWidth,
   visibleLayoutRange,
-  type AcpmuxPermission,
   type AcpmuxRow,
   type AcpmuxSnapshot,
 } from "./model";
@@ -580,26 +579,6 @@ export function VirtualTranscript({
   );
 }
 
-function PermissionCard({ permission }: { permission: AcpmuxPermission }) {
-  return (
-    <div className="acpmux-permission-card">
-      <strong>{permission.title || "Permission required"}</strong>
-      <div className="acpmux-permission-buttons">
-        {permission.options.map((option) => (
-          <button
-            key={option.id}
-            onClick={() =>
-              void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })
-            }
-          >
-            {option.name}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) {
   return (
     <ComposerPickers
@@ -968,16 +947,13 @@ function AcpmuxPane() {
             ))}
           </div>
         )}
-        {snapshot.permission?.pending && (
-          <div className="acpmux-permission">
-            <PermissionCard permission={snapshot.permission} />
-          </div>
-        )}
         <Composer
           snapshot={composerSnapshot}
           chips={ComposerChips}
           onSend={(text) => void callNative("chat.send", { text })}
           onStop={() => void callNative("chat.cancel")}
+          permission={snapshot.permission}
+          onPermission={(permissionId, optionId) => void callNative("chat.permission", { permissionId, optionId })}
         />
       </div>
     </section>
