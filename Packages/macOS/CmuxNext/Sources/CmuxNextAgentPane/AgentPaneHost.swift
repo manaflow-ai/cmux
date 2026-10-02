@@ -68,10 +68,10 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if !startsDaemon, let task = inFlight[true] { return try await task.value }
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else {
-            logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
+            Self.logger.error("acpmux environment unresolved startsDaemon=\(startsDaemon, privacy: .public)")
             throw AgentPaneHostError.acpmuxNotFound
         }
-        logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
+        Self.logger.info("acpmux environment resolved executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
         // task-owner: stored in inFlight and cleared when it settles; callers await its value
         let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon) }
         inFlight[startsDaemon] = task
