@@ -39,12 +39,8 @@ final class WindowManager {
     /// reconcile places each in that window (opening it when it is not
     /// registered yet) and selects it.
     var pendingClaims: [String: String] = [:]
-    /// Pending claims that must not show the workspace when it arrives
-    /// (`claim(select: false)`).
-    var quietClaims: Set<String> = []
-    /// Windows to order in behind the others when they appear (opened by
-    /// automation or an Option tear-off).
-    var behindWindows: Set<String> = []
+    /// Pending claims not to show on arrival; windows to open behind (automation, Option).
+    var quietClaims: Set<String> = [], behindWindows: Set<String> = []
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
