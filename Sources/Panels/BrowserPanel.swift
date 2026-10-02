@@ -5035,8 +5035,12 @@ final class BrowserPanel: Panel, ObservableObject {
         suppressOmnibarAutofocus(for: 1.5)
         noteWebViewFocused()
 
-        DispatchQueue.main.async { [weak self, weak window, weak webView] in
-            guard let self, let window, let webView else { return }
+        let windowIdentifier = ObjectIdentifier(window)
+        DispatchQueue.main.async { [weak self, weak webView] in
+            guard let self,
+                  let webView,
+                  let window = webView.window,
+                  ObjectIdentifier(window) == windowIdentifier else { return }
             guard self.webViewFocusRequestGeneration == requestGeneration else { return }
             guard webView.window === window else { return }
             let didBecomeFirstResponder: Bool
