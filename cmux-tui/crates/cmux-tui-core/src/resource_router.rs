@@ -756,13 +756,9 @@ pub(crate) fn is_resource_protocol_message(message: &str) -> bool {
 }
 
 #[cfg(test)]
-pub(crate) fn handle_resource_message(
-    mux: &Arc<Mux>,
-    message: &str,
-) -> Result<Value, ResourceError> {
-    let request = parse_resource_request(message)?;
-    handle_parsed_resource_request(mux, request)
-}
+mod test_support;
+#[cfg(test)]
+pub(crate) use test_support::handle_resource_message;
 
 pub(crate) fn handle_parsed_resource_request(
     mux: &Arc<Mux>,
@@ -1052,6 +1048,8 @@ const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WindowRecordDelete
+        | ResourceOperation::SidebarLayoutGet
+        | ResourceOperation::SidebarLayoutUpdate
         | ResourceOperation::WorkspaceStatusList
         | ResourceOperation::WorkspaceStatusSet
         | ResourceOperation::WorkspaceStatusClear

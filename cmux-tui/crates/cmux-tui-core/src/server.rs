@@ -270,8 +270,7 @@ pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
 /// status, progress and log, with `extra.state` on session snapshots and
 /// `state_upsert`/`state_delete` changes on `session.events`.
 pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
-/// `window_record.list|put|delete`: one personal record per app window with
-/// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
+/// `window_record.list|put|delete`: one record per app window, own revision.
 pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
 /// `owner` on frontend browser records: the raw `new-frontend-browser-tab`
 /// and `update-frontend-browser-tab` field, `tab.update {owner}`, and the
@@ -425,6 +424,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         LAUNCH_SNAPSHOT_CAPABILITY,
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
+        crate::state::sidebar_layout_store::CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {

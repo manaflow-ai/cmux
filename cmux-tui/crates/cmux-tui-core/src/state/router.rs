@@ -17,8 +17,8 @@ use crate::state::store::StateCommit;
 use crate::state::tab_state_store::TabStateUpdate;
 use crate::state::window_records::WindowRecordChange;
 use crate::state::{
-    closed_history_store, personal_state_store, screen_state_store, tab_state_store,
-    window_record_store,
+    closed_history_store, personal_state_store, screen_state_store, sidebar_layout_store,
+    tab_state_store, window_record_store,
 };
 use crate::workspace_registry::{ResourcePatchCommit, WorkspacePresentationUpdate};
 use crate::{Mux, ResourceSelectors, WorkspaceMutation};
@@ -73,6 +73,8 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::WindowRecordList
             | Op::WindowRecordPut
             | Op::WindowRecordDelete
+            | Op::SidebarLayoutGet
+            | Op::SidebarLayoutUpdate
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
             | Op::WorkspaceStatusClear
@@ -486,6 +488,17 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        // Sidebar section layout (personal, sidebar-layout-v1)
+        Op::SidebarLayoutGet => {
+            ensure_session(mux, selectors)?;
+            read(mux, sidebar_layout_store::snapshot)
+        }
+        Op::SidebarLayoutUpdate => {
+            ensure_session(mux, selectors)?;
+            let op = fields.get("op").cloned().unwrap_or_default();
+            let commit = mux.state_sidebar_layout_update(&mutation(&request)?, &op).map_err(state_error)?;
             state_result(mux, commit)
         }
         // B4: workspace status

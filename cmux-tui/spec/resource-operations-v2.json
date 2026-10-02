@@ -27,7 +27,8 @@
     "room",
     "screen_group",
     "closed",
-    "window_record"
+    "window_record",
+    "sidebar_layout"
   ],
   "types": {
     "JsonValue": {
@@ -6357,8 +6358,34 @@
         "screen_group",
         "closed",
         "workspace_status",
-        "window_record"
+        "window_record",
+        "sidebar_layout"
       ]
+    },
+    "SidebarLayoutSnapshot": {
+      "kind": "object",
+      "fields": {
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Increases by one per committed change; 0 for the defaults."
+        },
+        "sections": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "The sections in order: {id, title?, shows_title, region top|middle|bottom, look built_in|list, arrangement {layout list|inline|grid, align leading|center|trailing|fill, gap?, columns?}, room?, max_rows?, content items|workspaces, items [{id, ref {kind, value}, shows_label}]} (plans/cmux-next/sidebar-sections.md 4). Validated by the owner's reducer; unknown item ref kinds are kept."
+        }
+      },
+      "extra": false
     },
     "StateEntitySnapshot": {
       "kind": "union",
@@ -6398,6 +6425,10 @@
         {
           "kind": "ref",
           "name": "WindowRecordSnapshot"
+        },
+        {
+          "kind": "ref",
+          "name": "SidebarLayoutSnapshot"
         }
       ],
       "constraints": [
@@ -6838,7 +6869,8 @@
                 "room",
                 "screen_group",
                 "closed",
-                "window_record"
+                "window_record",
+                "sidebar_layout"
               ]
             }
           },
@@ -7009,7 +7041,8 @@
                 "room",
                 "screen_group",
                 "closed",
-                "window_record"
+                "window_record",
+                "sidebar_layout"
               ]
             }
           },
@@ -12630,6 +12663,84 @@
         "mutation.indeterminate",
         "operation.failed",
         "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "SidebarLayoutSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "sidebar_layout.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "sidebar_layout",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "op": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "One layout op tagged by kind: section.add {section, index}, section.update {id, patch {title?, look?, room?, max_rows?, shows_title?, layout?, align?, gap?, columns?}; null clears}, section.move {id, region, index}, section.remove {id}, item.add {item, section, index}, item.move {id, section, index}, item.remove {id}, item.update {id, shows_label}, layout.reset {}. Indexes clamp; a move's index excludes the moved entry."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A rejected op is validation.invalid with the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, too_many) and writes nothing.",
+          "An op that changes nothing commits with no session.events change and the same revision."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "SidebarLayoutSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",

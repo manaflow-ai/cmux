@@ -389,6 +389,10 @@ pub enum ResourceOperation {
     WindowRecordPut,
     #[serde(rename = "window_record.delete")]
     WindowRecordDelete,
+    #[serde(rename = "sidebar_layout.get")]
+    SidebarLayoutGet,
+    #[serde(rename = "sidebar_layout.update")]
+    SidebarLayoutUpdate,
     #[serde(rename = "room.create")]
     RoomCreate,
     #[serde(rename = "room.delete")]
@@ -593,6 +597,7 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SidebarLayoutGet
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet
@@ -616,26 +621,8 @@ impl ResourceOperation {
 }
 
 #[cfg(test)]
-mod resource_operation_wire_name_tests {
-    use super::ResourceOperation;
-
-    #[test]
-    fn wire_name_round_trips_through_serde() {
-        for name in [
-            "machine.list",
-            "session.journal.append",
-            "workspace.create",
-            "terminal.output_read",
-            "browser.close",
-            "stream.cancel",
-        ] {
-            let operation: ResourceOperation =
-                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
-            assert_eq!(operation.wire_name(), name);
-            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
-        }
-    }
-}
+#[path = "resource_operation_wire_name_tests.rs"]
+mod resource_operation_wire_name_tests;
 
 impl ResourceOperation {
     pub const fn wire_name(self) -> &'static str {
@@ -772,6 +759,8 @@ impl ResourceOperation {
             Self::WindowRecordList => "window_record.list",
             Self::WindowRecordPut => "window_record.put",
             Self::WindowRecordDelete => "window_record.delete",
+            Self::SidebarLayoutGet => "sidebar_layout.get",
+            Self::SidebarLayoutUpdate => "sidebar_layout.update",
             Self::RoomCreate => "room.create",
             Self::RoomDelete => "room.delete",
             Self::RoomFollow => "room.follow",

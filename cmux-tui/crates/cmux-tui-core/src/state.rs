@@ -2,8 +2,8 @@
 //! the v2 state operations and their storage. Workspace identity, ephemeral
 //! workspaces, workspace status, progress and log, tab pins, tab state and
 //! tab groups, saved tab groups, personal workspace groups, placements and
-//! rooms, screen metadata and screen groups, closed history, and window
-//! records.
+//! rooms, screen metadata and screen groups, closed history, window
+//! records, and the sidebar section layout.
 //!
 //! Nothing in this tree owns a PTY, a terminal host or a session runtime.
 //! Handlers reach layout through [`crate::Mux`] methods and commit through
@@ -21,6 +21,9 @@ mod prelude;
 pub(crate) mod router;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+pub(crate) mod sidebar_layout;
+pub(crate) mod sidebar_layout_ops;
+pub(crate) mod sidebar_layout_store;
 pub(crate) mod store;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;
