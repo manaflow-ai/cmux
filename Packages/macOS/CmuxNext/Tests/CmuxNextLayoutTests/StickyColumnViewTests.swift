@@ -119,20 +119,15 @@ struct StickyColumnViewTests {
     }
 
     @Test func theScrollbarShowsOnScrollAndHidesWhenOff() async {
-        let clock = ManualClock()
-        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto, scrollbarClock: clock)
+        let (view, window) = makeRoot(StickyColumn(edge: .right, mode: .docked), scrollbar: .auto)
         defer { window.close() }
         let screen = view.screenViews["s"]!
         #expect(screen.scrollbar?.isShown == false)
         view.model.focus("c")
         await settle { screen.scroll.target > 0 }
         runToRest(view)
-        // Reproduces #16607: the idle delay elapses before the check, as it
-        // did when a loaded runner stalled the settle loop past 1.2 s.
-        await settle {
-            clock.advance(by: StripScrollbarView.idleDelay)
-            return screen.scrollbar?.isShown == false
-        }
+        // The `auto` fade waits on makeRoot's manual clock, which never advances,
+        // so a loaded runner can't hide the thumb before this check (#16607).
         #expect(screen.scrollbar?.isShown == true)
         let report = screen.scrollbarReport
         // The track spans the strip's uncovered range only.
