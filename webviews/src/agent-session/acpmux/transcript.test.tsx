@@ -976,7 +976,7 @@ describe("acpmux turn diff", () => {
       (review as HTMLElement).focus();
       await act(async () => review!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
       const panel = document.querySelector("section.acpmux-diff-panel")!;
-      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("2 files changed");
+      expect(panel.querySelector(".acpmux-diff-header strong")?.textContent).toBe("Last turn");
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
       // Each edit is one Pierre diff with the pane's own file header, in turn order.
       expect(
@@ -1371,6 +1371,153 @@ describe("acpmux turn diff", () => {
       expect(document.querySelector(".acpmux-edited-more")?.textContent).toBe("Show fewer files");
     } finally {
       await act(async () => root.unmount());
+    }
+  });
+
+  test("the scope menu loads a git scope, fails with Retry, shows an empty scope, and returns to the turn", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const asked: unknown[] = [];
+    const answers: (() => Promise<unknown>)[] = [
+      () => Promise.reject(new Error("Not a git repository")),
+      () =>
+        Promise.resolve({
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            {
+              path: "src/app.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n-a\n+A\n b\n",
+            },
+          ],
+        }),
+      () => Promise.resolve({ scope: "staged", files: [] }),
+    ];
+    host.cmuxAcpmuxActions = {
+      "git.scope.diff": (params) => {
+        asked.push(params);
+        return answers.shift()!();
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const paths = () =>
+        [...panel.querySelectorAll<HTMLElement>(".acpmux-diff-file")].map((node) => node.dataset.path);
+      const pill = panel.querySelector<HTMLElement>('.acpmux-diff-header [aria-haspopup="menu"]')!;
+      expect(pill).not.toBeNull();
+      expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
+      const items = () => [...panel.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitemradio"]')];
+      // The menu lists the scopes in Codex's order, in three groups, and opens on the chosen one.
+      pill.focus();
+      await click(pill);
+      expect(pill.getAttribute("aria-expanded")).toBe("true");
+      expect(items().map((item) => item.textContent)).toEqual([
+        "Last turn",
+        "Uncommitted",
+        "Unstaged",
+        "Staged",
+        "Committed",
+        "Branch",
+      ]);
+      expect(panel.querySelectorAll('[role="menu"] hr').length).toBe(2);
+      expect(items().map((item) => item.getAttribute("aria-checked"))).toEqual([
+        "true",
+        "false",
+        "false",
+        "false",
+        "false",
+        "false",
+      ]);
+      expect(document.activeElement).toBe(items()[0]);
+      // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
+      await click(items()[1]!);
+      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(items()).toEqual([]);
+      expect(document.activeElement).toBe(pill);
+      expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
+      const failure = panel.querySelector('[role="alert"]');
+      expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
+      expect(paths()).toEqual([]);
+      await click([...failure!.querySelectorAll("button")].find((button) => button.textContent === "Retry")!);
+      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      expect(panel.querySelector('[role="alert"]')).toBeNull();
+      expect(paths()).toEqual(["/repo/src/app.ts"]);
+      expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/app.ts");
+      expect(panel.querySelector(".acpmux-diff-file diffs-container")).not.toBeNull();
+      expect(pill.querySelector(".acpmux-diff-add")?.textContent).toBe("+1");
+      // A scope with nothing in it says so.
+      await click(pill);
+      await key(document.activeElement!, "ArrowDown");
+      await key(document.activeElement!, "ArrowDown");
+      expect(document.activeElement?.textContent).toBe("Staged");
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
+      // Last turn is the transcript's own files again, without asking the host.
+      await click(pill);
+      await key(document.activeElement!, "Home");
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect(asked.length).toBe(3);
+      expect(paths()).toEqual(["/repo/src/main.ts"]);
+      expect(pill.querySelector("strong")?.textContent).toBe("Last turn");
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
     }
   });
 });
