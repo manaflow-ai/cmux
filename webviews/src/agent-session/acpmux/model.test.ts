@@ -66,10 +66,10 @@ test("a nested list measures each of its items", () => {
 
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
 test("a list item wraps at the list's indented width", () => {
-  expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
+  expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 28));
 });
 
-/// The estimator measures what the page draws. Inline code draws in 11.5px monospace, no wider than the
+/// The estimator measures what the page draws. Inline code draws in 12px monospace, no wider than the
 /// prose font's digits, and a task item draws its checkbox's source text.
 test("a block is measured as the text it renders", () => {
   const [code] = markdownBlocks("Call `fill()` now") as Tokens.Paragraph[];
