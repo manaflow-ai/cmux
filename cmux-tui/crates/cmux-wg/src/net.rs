@@ -41,8 +41,8 @@ use crate::pacing::Pacer;
 use crate::probing;
 use crate::stream::{Outbound, WgStream};
 use crate::timers::TimerSchedule;
-use crate::watchdog::Watchdog;
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
+use crate::watchdog::Watchdog;
 use crate::wire::{ip_address, packet_source, socket_addr};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
@@ -481,10 +481,11 @@ impl Driver {
                 }
             };
             let watchdog = self.watchdog.deadline(self.pacer.srtt());
-            let next_tick = [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline, watchdog]
-                .into_iter()
-                .flatten()
-                .min();
+            let next_tick =
+                [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline, watchdog]
+                    .into_iter()
+                    .flatten()
+                    .min();
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,
