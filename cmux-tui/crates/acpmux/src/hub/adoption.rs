@@ -95,11 +95,8 @@ pub(super) fn session_cwd(
             dirs::home_dir().unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
         }
     };
-    let cwd = if cwd.is_absolute() {
-        cwd
-    } else {
-        std::env::current_dir().unwrap_or_default().join(cwd)
-    };
+    let cwd =
+        if cwd.is_absolute() { cwd } else { std::env::current_dir().unwrap_or_default().join(cwd) };
     if !cwd.is_dir() {
         return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
