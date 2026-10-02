@@ -1,0 +1,8 @@
+{
+  "oracle": {},
+  "cmux": {
+    "popup-store-cookie": [
+      "brepl_store=session"
+    ]
+  }
+}
