@@ -5947,8 +5947,8 @@ struct ContentView: View {
                     kindLabel: cloudWorkspaceKind,
                     keywords: keywords,
                     dismissOnRun: true,
-                    action: { [weak self] in
-                        self?.openCommandPaletteCloudWorkspace(target)
+                    action: {
+                        self.openCommandPaletteCloudWorkspace(target)
                     }
                 )
             )
