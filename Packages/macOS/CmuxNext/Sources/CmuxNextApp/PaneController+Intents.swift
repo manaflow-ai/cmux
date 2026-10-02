@@ -7,7 +7,7 @@ import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
 // session browser tabs) changes in place; everything else is one command
-// with an optimistic patch where the store has one.
+// shown at once through a store intent where the store has one.
 extension PaneController {
     func handle(_ intent: TabStripIntent) {
         switch intent {
@@ -209,7 +209,7 @@ extension PaneController {
             // A close that missed its deadline under daemon load usually still
             // lands: keep the tabs hidden until a snapshot ordered after the
             // closes says which ones remain, instead of flashing them back.
-            if unknown { await daemon.reconcile() }
+            if unknown { await daemon.store.refresh() }
             pendingClosed.subtract(keys)
             for key in keys { services.cache.release(key) }
             if failed || unknown { resyncStrip() }
@@ -239,7 +239,7 @@ extension PaneController {
             return
         }
         services.registry.track(Task {
-            let ok = await daemon.perform("set-tab-pinned", patch: .setTabPinned(surface: surface, pinned: pinned)) { connection, _ in
+            let ok = await daemon.intend("set-tab-pinned", .setTabPinned(surface: surface, pinned: pinned)) { connection in
                 _ = try await connection.setTabPinned(surface, pinned)
             }
             if !ok { resyncStrip() }
@@ -257,7 +257,7 @@ extension PaneController {
     func commitRename(_ id: StripTabID, name: String) {
         guard let surface = tab(id)?.surface else { return }
         Task { [daemon] in
-            await daemon.perform("rename-surface", patch: .renameTab(surface: surface, name: name)) { connection, _ in
+            await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name)
             }
         }
