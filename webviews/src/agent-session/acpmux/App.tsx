@@ -1,19 +1,23 @@
 import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
-import type { Token, Tokens } from "marked";
 import { applyAgentTheme } from "../shared/theme";
-import { diffRows, layoutConversation, markdownBlocks, paneHeader, placeRows, plainEditLabels, safeHref, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
+import { diffRows, layoutConversation, paneHeader, placeRows, plainEditLabels, transcriptRowWidth, visibleLayoutRange, type AcpmuxPermission, type AcpmuxRow, type AcpmuxSnapshot } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
-import { MockAcpmuxSocket, mockHost } from "./mock";
+import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
+import { Composer } from "./Composer";
+import { ComposerPickers } from "./ComposerPickers";
 import { SessionSidebar } from "./SessionSidebar";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import { Counts, DiffPanel } from "./DiffPanel";
 import { ChevronDown, DiffFile } from "./changeIcons";
+import { Markdown } from "./conversation/Markdown";
+import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
+import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -31,6 +35,8 @@ declare global {
     cmuxAcpmuxRegistry?: { register(kind: string, renderer: MeasurableRenderer, options?: { measure?: (row: AcpmuxRow, width: number) => number }): void; configure(options: Record<string, unknown>): void };
     cmuxAcpmuxDebug?: AcpmuxDebug;
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    /// Mock mode only: a recorded turn the in-page daemon replays (webviews/scripts/agent-pane).
+    cmuxAcpmuxMockScript?: MockScript;
     React?: typeof React;
   }
 }
@@ -46,49 +52,23 @@ function callNative<T>(method: string, params: Record<string, unknown> = {}): Pr
   });
 }
 
-/// `measuredText` in model.ts mirrors this walk; keep them drawing and measuring the same text.
-function renderInline(tokens: Token[] | undefined, fallback: string): React.ReactNode {
-  if (!tokens?.length) return fallback;
-  return tokens.map((token, index) => {
-    if (token.type === "codespan") return <code key={index}>{token.text}</code>;
-    if (token.type === "link") {
-      const href = safeHref(token.href);
-      return href ? <a key={index} href={href} rel="noreferrer">{renderInline(token.tokens, token.text)}</a> : token.text;
-    }
-    if ("tokens" in token) return <React.Fragment key={index}>{renderInline(token.tokens, "text" in token ? token.text : token.raw ?? "")}</React.Fragment>;
-    return token.raw ?? ("text" in token ? token.text : "");
-  });
-}
-
-/// `listHeight` in model.ts measures the same items: inline text, then any nested list.
-function MarkdownList({ list }: { list: Tokens.List }) {
-  const items = list.items.map((item, index) => <li key={index}>{item.tokens.map((token, tokenIndex) => token.type === "list" ? <MarkdownList key={tokenIndex} list={token as Tokens.List} /> : <React.Fragment key={tokenIndex}>{renderInline([token], "")}</React.Fragment>)}</li>);
-  return list.ordered ? <ol start={typeof list.start === "number" && list.start !== 1 ? list.start : undefined}>{items}</ol> : <ul>{items}</ul>;
-}
-
-function MarkdownBlocks({ source }: { source: string }) {
-  return <>{markdownBlocks(source).map((token, index) => {
-    if (token.type === "code") return <pre key={index}><code>{token.text}</code></pre>;
-    if (token.type === "heading") return <div className={`acpmux-heading acpmux-heading-${token.depth}`} key={index}>{renderInline(token.tokens, token.text)}</div>;
-    if (token.type === "paragraph" || token.type === "text") return <p key={index}>{renderInline(token.tokens, token.text)}</p>;
-    if (token.type === "list") return <MarkdownList key={index} list={token as Tokens.List} />;
-    if (token.type === "blockquote") return <blockquote key={index}>{renderInline(token.tokens, token.text)}</blockquote>;
-    if (token.type === "hr") return <hr key={index} />;
-    return <p key={index}>{token.raw}</p>;
-  })}</>;
-}
-
+/// A prompt draws as the user typed it, in a bubble at the right; a reply as Markdown.
 const MessageRow = memo(function MessageRow({ row }: RowProps) {
-  return <div className={`acpmux-markdown ${row.kind === "user" ? "acpmux-user-bubble" : ""}`}><MarkdownBlocks source={row.text ?? ""} /></div>;
+  if (row.kind === "user") return <div className="cv-user"><div className="cv-user__bubble">{row.text ?? ""}</div></div>;
+  return <Markdown>{row.text ?? ""}</Markdown>;
 }, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
-const toolCalls = (count = 0) => count === 1 ? "1 tool call" : `${count} tool calls`;
+/// Tool calls and thoughts as Codex's quiet rows (inside an open "Worked for", or live).
+const ToolActivityRow = memo(function ToolActivityRow({ row }: RowProps) {
+  return <ToolRows row={row} />;
+}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version);
 
-const ToolActivityRow = memo(function ToolActivityRow({ row, onToggleActivity, expanded }: RowProps) {
-  return <div className="acpmux-activity"><button className="acpmux-activity-toggle" aria-expanded={expanded} onClick={() => onToggleActivity(row.id)}>{expanded ? "⌄" : "›"} Worked with {toolCalls(row.toolCount)}</button>{expanded && <div className="acpmux-activity-items">{(row.items ?? []).map((item) => <div className="acpmux-activity-item" key={`${row.id}-${item.text}`}><span className="acpmux-glyph">{item.kind === "tool" ? "▣" : "✦"}</span>{item.text}{item.tool?.output && <pre>{item.tool.output}</pre>}</div>)}</div>}</div>;
-}, (previous, next) => previous.row.id === next.row.id && previous.row.version === next.row.version && previous.expanded === next.expanded);
+/// "Worked for 15s": opens the turn's commentary and tool calls (turnView in conversation/turns.ts).
+const WorkedRow = memo(function WorkedRow({ row, onToggleActivity, expanded }: RowProps) {
+  return <WorkedFor row={row} expanded={expanded} onToggle={() => onToggleActivity(row.id)} />;
+}, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.expanded === b.expanded && a.onToggleActivity === b.onToggleActivity);
 
-const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <div className="acpmux-summary">{row.durationMs === undefined ? toolCalls(row.toolCount) : `Worked for ${Math.round(row.durationMs / 1000)}s · ${toolCalls(row.toolCount)}`}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
+const SummaryRow = memo(function SummaryRow({ row }: RowProps) { return <TurnFooter row={row} />; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const NoticeRow = memo(function NoticeRow({ row }: RowProps) { return <div className="acpmux-muted">{row.text}</div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const PermissionRow = memo(function PermissionRow({ row }: RowProps) { const permission = row.permission; return <div className="acpmux-permission-card"><strong>{permission?.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission?.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version);
 const EDITED_FILES_SHOWN = 3;
@@ -127,7 +107,7 @@ const EditedFilesRow = memo(function EditedFilesRow({ row, onOpenDiff }: RowProp
   </div>;
 }, (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.onOpenDiff === b.onOpenDiff);
 
-const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
+const defaultRegistry: NativeRegistry = { user: MessageRow, assistant: MessageRow, activity: ToolActivityRow, [WORKED]: WorkedRow, editedFiles: EditedFilesRow, turnSummary: SummaryRow, notice: NoticeRow, plan: NoticeRow, typing: NoticeRow, permission: PermissionRow };
 
 /// A row's height as the page drew it, valid while the row's content version and width hold.
 type DrawnHeight = { version: number; width: number; height: number };
@@ -153,7 +133,7 @@ function RowFrame({ row, kind, index, setSize, top, rowWidth, expanded, observer
 
 /// Who spoke, for assistive technology: each article is one message in the transcript feed.
 const speaker = (kind: string) => kind === "user" ? "You" : kind === "assistant" ? "Agent" : undefined;
-const rowKind = (row: AcpmuxRow) => row.kind === "activity" && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
+const rowKind = (row: AcpmuxRow) => row.kind === "activity" && !isFoldedCopy(row) && row.items?.some((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ? "editedFiles" : row.kind;
 const currentRegistry = (): NativeRegistry => ({ ...defaultRegistry, ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined) });
 
 /// Where a scroller sits, read while its content still matches `totalHeight`.
@@ -308,7 +288,7 @@ export function VirtualTranscript({ rows, onToggleActivity, onOpenDiff, expanded
 
 function PermissionCard({ permission }: { permission: AcpmuxPermission }) { return <div className="acpmux-permission-card"><strong>{permission.title || "Permission required"}</strong><div className="acpmux-permission-buttons">{permission.options.map((option) => <button key={option.id} onClick={() => void callNative("chat.permission", { permissionId: permission.permissionId, optionId: option.id })}>{option.name}</button>)}</div></div>; }
 
-function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { const modelOptions = snapshot.catalog.find((harness) => harness.id === snapshot.summary?.harness)?.models ?? []; const modeOptions = snapshot.summary?.modes?.availableModes ?? []; const effort = snapshot.summary?.configOptions?.find((option) => option.category === "thought_level" || option.id === "effort" || option.id === "reasoning_effort"); return <div className="acpmux-chips">{modelOptions.length > 0 && <select className="acpmux-model" aria-label="Model" value={snapshot.summary?.model ?? ""} onChange={(event) => void callNative("chat.model", { modelId: event.target.value })}>{modelOptions.map((model) => <option key={model.id} value={model.id}>{model.name || model.id}</option>)}</select>}{modeOptions.length > 0 && <select className="acpmux-mode" aria-label="Mode" value={snapshot.summary?.modes?.currentModeId ?? ""} onChange={(event) => void callNative("chat.mode", { modeId: event.target.value })}>{modeOptions.map((mode) => <option key={mode.id} value={mode.id}>{mode.name || mode.id}</option>)}</select>}{effort && <select className="acpmux-effort" aria-label="Effort" value={effort.currentValue ?? ""} onChange={(event) => void callNative("chat.effort", { configId: effort.id, value: event.target.value })}>{effort.options.map((option) => <option key={option.value} value={option.value}>{option.name || option.value}</option>)}</select>}</div>; }
+function DefaultComposerChips({ snapshot }: { snapshot: AcpmuxSnapshot }) { return <ComposerPickers snapshot={snapshot} onModel={(modelId) => void callNative("chat.model", { modelId })} onMode={(modeId) => void callNative("chat.mode", { modeId })} onEffort={(configId, value) => void callNative("chat.effort", { configId, value })} />; }
 
 /** Whether the pane is wide enough to show the session list beside the transcript. */
 const WIDE_PANE = "(min-width: 640px)";
@@ -322,6 +302,8 @@ export function AcpmuxApp() {
 function AcpmuxPane() {
   const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({ type: "snapshot", protocolVersion: 1, rows: [], sessions: [], connection: "connecting", isWorking: false, queue: [], catalog: [], canLoadOlder: false });
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // Codex's turn shape: work folds under "Worked for" until opened.
+  const transcriptRows = useMemo(() => turnView(snapshot.rows, expanded), [snapshot.rows, expanded]);
   // The open changes view: a turn of one session, and the control that opened it.
   const [diffView, setDiffView] = useState<{ sessionId?: string; rowId: string; path?: string; opener?: HTMLElement }>();
   const sessionIdRef = useRef(snapshot.sessionId);
@@ -429,7 +411,7 @@ function AcpmuxPane() {
           delete window.cmuxAcpmuxActions;
           retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
           retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-        }, mock ? () => new MockAcpmuxSocket() as unknown as WebSocket : undefined);
+        }, mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined);
         if (cancelled) { client.close(); return; }
         directClient.current = client;
         catalogClientId.current += 1;
@@ -461,11 +443,10 @@ function AcpmuxPane() {
     void connectHost();
     return () => { cancelled = true; if (retryTimer !== undefined) window.clearTimeout(retryTimer); directClient.current?.close(); directClient.current = undefined; delete window.cmuxAcpmuxActions; };
   }, []);
-  const send = (event: React.FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = event.currentTarget; const textarea = form.elements.namedItem("prompt") as HTMLTextAreaElement; const text = textarea.value.trim(); if (!text) return; textarea.value = ""; void callNative("chat.send", { text }); };
   const ComposerChips = ((window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as React.ComponentType<{ snapshot: AcpmuxSnapshot }> | undefined) ?? DefaultComposerChips;
   const sidebarShown = sidebar === "open" || (sidebar === "auto" && wide);
   const toggleSidebar = () => setSidebar(sidebarShown ? "closed" : "open");
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot);
-  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={snapshot.rows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<form className="acpmux-composer" onSubmit={send}><ComposerChips snapshot={composerSnapshot} /><textarea aria-label="Prompt" name="prompt" rows={2} placeholder="Ask anything" /><button type="submit">Send</button>{snapshot.isWorking && <button type="button" className="acpmux-cancel" onClick={() => void callNative("chat.cancel")}>Stop</button>}</form></div></section>;
+  return <section className="acpmux-shell" data-sidebar={sidebar}><SessionSidebar sessions={snapshot.sessions} selectedId={snapshot.sessionId} onSelect={selectSession} />{sidebar === "open" && <button type="button" className="acpmux-sidebar-scrim" aria-label="Close sessions" tabIndex={-1} onClick={closeOverlay} />}<div className="acpmux-main"><div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}><header className="acpmux-header"><div><button type="button" className="acpmux-sidebar-toggle" ref={sidebarToggle} aria-label="Sessions" title="Sessions" aria-controls="acpmux-sidebar" aria-expanded={sidebarShown} onClick={toggleSidebar} /><strong className="acpmux-title">{header.title}</strong>{header.status && <span className="acpmux-status">{header.status}</span>}</div></header><VirtualTranscript rows={transcriptRows} canLoadOlder={snapshot.canLoadOlder} expanded={expanded} registry={registry} onOpenDiff={openDiff} onToggleActivity={(id) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })} />{diffView && diffFiles && <DiffPanel files={diffFiles} initialPath={diffView.path} onClose={closeDiff} />}</div>{snapshot.queue.length > 0 && <div className="acpmux-queue">{snapshot.queue.map((entry) => <span className="acpmux-queued" key={entry.id}>Queued: {entry.prompt}</span>)}</div>}{snapshot.permission?.pending && <div className="acpmux-permission"><PermissionCard permission={snapshot.permission} /></div>}<Composer snapshot={composerSnapshot} chips={ComposerChips} onSend={(text) => void callNative("chat.send", { text })} onStop={() => void callNative("chat.cancel")} /></div></section>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { Tokens } from "marked";
-import { diffRows, layoutConversation, markdownBlocks, measuredText, paneHeader, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "./model";
+import { diffRows, editedCardHeight, layoutConversation, markdownBlocks, measuredText, paneHeader, visibleLayoutRange, visibleRowRange, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "./model";
 
 const row = (id: string, version: number): AcpmuxRow => ({ id, version, at: 0, kind: "assistant", text: id });
 
@@ -66,10 +66,10 @@ test("a nested list measures each of its items", () => {
 
 /// List items are indented 40px (the browser's list padding), so their text wraps sooner.
 test("a list item wraps at the list's indented width", () => {
-  expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 40));
+  expect(height("assistant", `- ${paragraph}`, 724)).toBeGreaterThanOrEqual(height("assistant", paragraph, 724 - 28));
 });
 
-/// The estimator measures what the page draws. Inline code draws in 11.5px monospace, no wider than the
+/// The estimator measures what the page draws. Inline code draws in 12px monospace, no wider than the
 /// prose font's digits, and a task item draws its checkbox's source text.
 test("a block is measured as the text it renders", () => {
   const [code] = markdownBlocks("Call `fill()` now") as Tokens.Paragraph[];
@@ -118,5 +118,20 @@ describe("acpmux pane header", () => {
     expect(paneHeader(snapshot({ connection: "connecting" })).status).toBe("Connecting");
     expect(paneHeader(snapshot({ connection: "connecting: Error: refused" })).status).toBe("Connecting");
     expect(paneHeader(snapshot({ connection: "disconnected", isWorking: true })).status).toBe("Reconnecting");
+  });
+});
+
+describe("turn row estimates", () => {
+  const tool = (id: string, kind: string) => ({ kind: "tool", text: id, tool: { id, title: id, kind, status: "completed" } });
+  const estimate = (row: AcpmuxRow) => layoutConversation([row], 720).heights[0]!;
+  test("the fold line and tool rows estimate their drawn heights", () => {
+    expect(estimate({ id: "worked-u", version: 1, at: 0, kind: "worked" })).toBe(35);
+    expect(estimate({ id: "t", version: 1, at: 0, kind: "activity", items: [1, 2, 3, 4, 5].map((n) => tool(`r${n}`, "read")) })).toBe(140);
+  });
+  test("an edit copied into an open fold estimates as tool rows, not the edited-files card", () => {
+    const items = [tool("e1", "edit"), tool("e2", "edit")];
+    expect(estimate({ id: "e:fold", version: 1, at: 0, kind: "activity", items })).toBe(62);
+    // Outside the fold it is the edited-files card: two diffless files listed under its head.
+    expect(estimate({ id: "e", version: 1, at: 0, kind: "activity", items })).toBe(14 + editedCardHeight(0, 2));
   });
 });

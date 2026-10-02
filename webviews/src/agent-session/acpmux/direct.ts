@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { sessionEntry, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 
@@ -17,6 +18,9 @@ type Session = Record<string, any> & { sessionId: string };
 type Reply = { id: number; result?: any; error?: { message?: string } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
+
+/// The slash commands are not transcript, so the pane asks for their updates by kind.
+const COMMANDS_KIND = "available_commands_update";
 
 export function permissionFromMessage(message: any, selectedSessionId: string): AcpmuxPermission | undefined {
   const envelope = message ?? {};
@@ -127,6 +131,9 @@ export class AcpmuxDirectClient {
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private commands: SlashCommand[] = [];
+  /// Set once an update for this session is applied, so an older fetched list cannot replace it.
+  private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
   private optimisticPromptTexts = new Map<string, string>();
   private firstSeq?: number;
@@ -238,6 +245,8 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.toolRows.clear();
     this.pendingPermission = undefined;
+    this.commands = [];
+    this.commandsApplied = false;
   }
 
   private scheduleReconnect(): void {
@@ -341,9 +350,11 @@ export class AcpmuxDirectClient {
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
-    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript"], eventStream: true });
+    const result = await this.request("_acpmux/attach", { sessionId, limit: 400, kinds: ["transcript", COMMANDS_KIND], eventStream: true });
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     const page: EventRecord[] = result?.events ?? [];
+    // An agent usually lists its commands once, at start, which is older than the page.
+    if (!page.some((event) => event.kind === COMMANDS_KIND) && typeof result?.lastSeq === "number" && result.lastSeq > 0) void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
     this.queue = (detail.queue ?? []).map((entry: any) => ({ id: String(entry.promptId), prompt: String(entry.prompt ?? "") }));
@@ -352,6 +363,17 @@ export class AcpmuxDirectClient {
     this.attachedGeneration = generation;
     this.emit("attached");
     return page;
+  }
+
+  /// The newest command list at or before `lastSeq`, unless a live update already arrived.
+  private async fetchCommands(sessionId: string, generation: number, lastSeq: number): Promise<void> {
+    const result = await this.request("_acpmux/events", { sessionId, beforeSeq: lastSeq + 1, limit: 1, kinds: [COMMANDS_KIND] });
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId || this.commandsApplied) return;
+    const event: EventRecord | undefined = result?.events?.at(-1);
+    const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
+    if (!commands) return;
+    this.commands = commands;
+    this.emit("commands");
   }
 
   private sessionChanged(params: any): void {
@@ -446,6 +468,8 @@ export class AcpmuxDirectClient {
       return;
     }
     if (!update) return;
+    const commands = commandsFromUpdate(update);
+    if (commands) { this.commands = commands; this.commandsApplied = true; return; }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
@@ -496,7 +520,7 @@ export class AcpmuxDirectClient {
   private emit(connection = "connected"): void {
     const summary = this.summary;
     const effort = (summary?.configOptions ?? []).find((option: any) => option.category === "thought_level" || option.id === "reasoning_effort");
-    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => { let entry = this.sessionEntries.get(session); if (!entry) { entry = sessionEntry(session); this.sessionEntries.set(session, entry); } return entry; }), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: [], canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
+    this.listener({ type: "snapshot", protocolVersion: 1, rows: [...this.rows.values()].sort((a, b) => a.at - b.at), sessions: this.sessions.map((session) => { let entry = this.sessionEntries.get(session); if (!entry) { entry = sessionEntry(session); this.sessionEntries.set(session, entry); } return entry; }), summary: summary ? { sessionId: summary.sessionId, title: summary.title, name: summary.name, harness: summary.harness, model: summary.model, effort: effort?.currentValue, status: summary.status, modes: summary.modes, configOptions: summary.configOptions } : undefined, connection, sessionId: this.selectedSessionId, isWorking: this.turnOpen || summary?.status === "running", queue: this.queue, permission: this.pendingPermission, catalog: [], commands: this.commands, canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1 });
   }
 
   snapshot(): void { this.emit(); }

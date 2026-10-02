@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextResources
 import Observation
 
@@ -110,6 +110,12 @@ public final class SidebarView: NSView {
     @discardableResult
     public func showHoverCard(for id: WorkspaceID) -> Bool {
         list.showHoverCard(for: id)
+    }
+
+    /// The app's one hover card coordinator (the App injects it).
+    public var hoverCards: HoverCardCoordinator {
+        get { list.hoverCards }
+        set { list.hoverCards = newValue }
     }
 
     /// True while the workspace hover card samples resources.
