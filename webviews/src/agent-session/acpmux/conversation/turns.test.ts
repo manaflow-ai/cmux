@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
-import { formatDuration, turnView, workedLabel } from "./turns";
+import { DATE, formatDuration, turnView as shape, workedLabel } from "./turns";
+import { dateLabel } from "./DateLine";
+
+/// The turn shape without its date lines, which "date lines" covers.
+const turnView = (...args: Parameters<typeof shape>) => shape(...args).filter((entry) => entry.kind !== DATE);
 
 const row = (id: string, kind: string, at: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
   id,
@@ -104,5 +108,33 @@ describe("turn view", () => {
 
   test("durations read as Codex writes them", () => {
     expect([0, 999, 15_000, 76_000, 3_780_000].map(formatDuration)).toEqual(["0s", "0s", "15s", "1m 16s", "1h 3m"]);
+  });
+});
+
+describe("date lines", () => {
+  const at = (day: number, hour: number) => new Date(2026, 8, day, hour, 55).getTime();
+  const prompt = (id: string, when: number) => row(id, "user", when, { text: id });
+  const dates = (rows: AcpmuxRow[]) =>
+    shape(rows, new Set()).flatMap((entry) => (entry.kind === DATE ? [entry.id] : []));
+
+  test("the first prompt of each day is dated", () => {
+    const rows = [prompt("a", at(13, 19)), prompt("b", at(13, 21)), prompt("c", at(14, 9)), prompt("d", at(14, 10))];
+    expect(dates(rows)).toEqual(["date-a", "date-c"]);
+    // The line sits right above its prompt.
+    expect(ids(shape(rows, new Set())).slice(0, 2)).toEqual(["date-a", "a"]);
+  });
+
+  test("rows before the first prompt are not dated", () => {
+    expect(ids(shape([row("g", "assistant", at(13, 8)), prompt("a", at(13, 9))], new Set()))).toEqual([
+      "g",
+      "date-a",
+      "a",
+    ]);
+  });
+
+  test("the label reads as Codex's, with the year only when it is not this one", () => {
+    const label = dateLabel(at(13, 19), at(20, 9));
+    expect(label).toMatch(/^Sun, Sep 13 at 7:55\sPM$/);
+    expect(dateLabel(new Date(2025, 8, 13, 19, 55).getTime(), at(20, 9))).toContain("2025");
   });
 });

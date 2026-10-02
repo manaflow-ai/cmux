@@ -199,6 +199,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   }
   // The 27px disclosure line.
   if (row.kind === WORKED) return 35;
+  // The 20px date line with 8px above it.
+  if (row.kind === DATE) return 36;
   // Card padding and border, title, button row.
   if (row.kind === "permission") return 87;
   if (row.kind === "turnSummary" || row.kind === "notice" || row.kind === "plan" || row.kind === "typing") return 37;
@@ -387,7 +389,7 @@ export function visibleLayoutRange(
 }
 import { layout, prepare, type PreparedText } from "@chenglou/pretext";
 import { lexer, type Token, type Tokens } from "marked";
-import { isFoldedCopy, WORKED } from "./conversation/turns";
+import { DATE, isFoldedCopy, WORKED } from "./conversation/turns";
 import type { AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 

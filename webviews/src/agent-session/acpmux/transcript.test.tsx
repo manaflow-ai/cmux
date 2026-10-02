@@ -1530,3 +1530,34 @@ describe("acpmux new chat", () => {
     expect(projectName(undefined)).toBeUndefined();
   });
 });
+
+describe("acpmux date lines", () => {
+  /// Codex dates the first prompt of a day; the pane showed no date at all.
+  test("the first prompt of a day draws its date above it", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const at = new Date(2026, 8, 13, 19, 55).getTime();
+    const rows: AcpmuxRow[] = [
+      { id: "u", version: 1, at, kind: "user", text: "find SOTA harness research" },
+      { id: "u2", version: 1, at: at + 60_000, kind: "user", text: "and RLMs?" },
+    ];
+    try {
+      await act(async () =>
+        root.render(
+          createElement(VirtualTranscript, {
+            rows: turnView(rows, new Set()),
+            onToggleActivity: () => {},
+            expanded: new Set<string>(),
+          }),
+        ),
+      );
+      const lines = [...dom.window.document.querySelectorAll("time.cv-date-line")];
+      expect(lines.length).toBe(1);
+      expect(lines[0]!.getAttribute("datetime")).toBe(new Date(at).toISOString());
+      expect(lines[0]!.textContent).toContain("Sep 13");
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+});

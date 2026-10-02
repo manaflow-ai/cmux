@@ -7,6 +7,8 @@ import type { AcpmuxRow } from "../model";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
+/// A row added by this pass: the date line over the first prompt of each day.
+export const DATE = "date";
 /// Activity rows shown inside an open disclosure are copies under this suffix, so the
 /// edited-files card after the answer keeps the original id.
 const FOLDED = ":fold";
@@ -43,8 +45,13 @@ export function turnView(rows: readonly AcpmuxRow[], expanded: ReadonlySet<strin
   let index = 0;
   // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
   while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+  let day: string | undefined;
   while (index < rows.length) {
     const user = rows[index++]!;
+    // The first prompt of each local day is dated, as Codex does over a prompt.
+    const today = new Date(user.at).toDateString();
+    if (today !== day) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
+    day = today;
     const turn: AcpmuxRow[] = [];
     // A prompt not yet accepted (sent while this turn runs, or refused) sorts among this turn's
     // rows by its send time; it neither ends the turn nor folds into it, and draws after it.

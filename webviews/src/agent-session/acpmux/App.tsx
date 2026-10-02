@@ -31,7 +31,8 @@ import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { DATE, WORKED, isFoldedCopy, turnView } from "./conversation/turns";
+import { DateLine } from "./conversation/DateLine";
 
 type Reply<T> = { ok: true; value: T } | { ok: false; error?: { userMessage?: string } };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
@@ -126,6 +127,14 @@ const WorkedRow = memo(
     a.row.version === b.row.version &&
     a.expanded === b.expanded &&
     a.onToggleActivity === b.onToggleActivity,
+);
+
+/// "Sun, Sep 13 at 7:55 PM" over the first prompt of a day (turnView in conversation/turns.ts).
+const DateRow = memo(
+  function DateRow({ row }: RowProps) {
+    return <DateLine row={row} />;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.at === b.row.at,
 );
 
 const SummaryRow = memo(
@@ -259,6 +268,7 @@ const defaultRegistry: NativeRegistry = {
   assistant: MessageRow,
   activity: ToolActivityRow,
   [WORKED]: WorkedRow,
+  [DATE]: DateRow,
   editedFiles: EditedFilesRow,
   turnSummary: SummaryRow,
   notice: NoticeRow,
