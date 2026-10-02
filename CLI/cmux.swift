@@ -31561,6 +31561,21 @@ struct CMUXCLI {
             "--session",
             sessionId,
         ]
+        // A cmux-created Codex fork carries its parent and launch claim in the
+        // environment. Forward them to the detached monitor so it can watch
+        // the owner process for the child rollout and publish the child hook
+        // binding. Without this, the first fork may render, but a fork of that
+        // child has no durable parent association to discover.
+        if let forkParent = env[CodexForkSessionWatcher.parentSessionEnvironmentKey],
+           !forkParent.isEmpty {
+            monitorArgs += ["--fork-parent", forkParent]
+            if let launchID = env[CodexForkSessionWatcher.launchIDEnvironmentKey], !launchID.isEmpty {
+                monitorArgs += ["--fork-launch-id", launchID]
+            }
+            if let ownerPID = env["CMUX_CODEX_PID"], !ownerPID.isEmpty {
+                monitorArgs += ["--fork-owner-pid", ownerPID]
+            }
+        }
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
