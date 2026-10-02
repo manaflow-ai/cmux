@@ -1,8 +1,8 @@
 //! Mirrors the app's SidebarLayoutReducerTests and SectionFlowTests reducer
-//! cases, plus a proptest for invariants L1-L4 and the revision rule.
+//! cases, the shared fixture, and a seeded property test for invariants
+//! L1-L4 and the revision rule.
 
 use super::*;
-use proptest::prelude::*;
 use serde_json::json;
 
 fn op(value: serde_json::Value) -> Op {
@@ -151,101 +151,118 @@ fn limits_reset_and_unknown_refs() {
     assert!(find(&label, "sec_bottom").items[1].shows_label);
 }
 
-fn arb_op(step: usize) -> impl Strategy<Value = Op> {
-    let section_id = prop::sample::select(vec!["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"]);
-    let item_id = prop::sample::select(vec!["itm_home", "itm_settings", "itm_account", "itm_r0", "itm_r1", "itm_ghost"]);
-    let region = prop::sample::select(vec![Region::Top, Region::Middle, Region::Bottom]);
-    let reference = prop::sample::select(vec!["home", "settings", "history", "ws_1"]);
-    let index = -1i64..5;
-    (0u8..9, section_id, item_id, region, reference, index, any::<bool>(), 0i64..53).prop_map(
-        move |(choice, section, item, region, reference, index, flag, rows)| match choice {
-            0 => Op::SectionAdd {
-                section: Section {
-                    id: format!("sec_r{}", step % 2),
-                    title: None,
-                    shows_title: true,
-                    region,
-                    look: Look::List,
-                    arrangement: Arrangement::default(),
-                    room: None,
-                    max_rows: None,
-                    content: if flag && rows == 0 { Content::Workspaces } else { Content::Items },
-                    items: vec![],
-                },
-                index,
-            },
-            1 => Op::SectionUpdate {
-                id: section.into(),
-                patch: SectionPatch {
-                    max_rows: Update::Set(rows),
-                    title: Update::Set(format!("T{step}")),
-                    layout: Some(if flag { ArrangementLayout::Grid } else { ArrangementLayout::Inline }),
-                    gap: Update::Set(rows - 2),
-                    columns: if flag { Update::Clear } else { Update::Set(rows % 14) },
-                    ..Default::default()
-                },
-            },
-            2 => Op::SectionMove { id: section.into(), region, index },
-            3 => Op::SectionRemove { id: section.into() },
-            4 | 5 => Op::ItemAdd {
-                item: Item {
-                    id: format!("itm_r{}", step % 2),
-                    reference: ItemRef { kind: "built_in".into(), value: reference.into() },
-                    shows_label: flag,
-                },
-                section: section.into(),
-                index,
-            },
-            6 => Op::ItemMove { id: item.into(), section: section.into(), index },
-            7 => Op::ItemRemove { id: item.into() },
-            _ => {
-                if rows == 0 {
-                    Op::Reset
-                } else {
-                    Op::ItemUpdate { id: item.into(), shows_label: flag }
-                }
-            }
-        },
-    )
+/// SplitMix64, so a failure reproduces from its seed (no proptest
+/// dependency in this crate).
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: u64) -> u64 {
+        self.next() % n
+    }
+
+    fn pick<'a>(&mut self, values: &[&'a str]) -> &'a str {
+        values[self.below(values.len() as u64) as usize]
+    }
+
+    fn flag(&mut self) -> bool {
+        self.below(2) == 1
+    }
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
-    /// Random op sequences keep L1 (one workspaces section, never
-    /// room-scoped), L2 (unique ids; moves conserve items), L3 (one ref per
-    /// section), L4 limits, and bump the revision by one per change.
-    #[test]
-    fn random_ops_keep_invariants(ops in prop::collection::vec((0usize..1000).prop_flat_map(arb_op), 1..200)) {
+fn random_op(rng: &mut Rng, step: usize) -> Op {
+    let section = rng.pick(&["sec_top", "sec_workspaces", "sec_bottom", "sec_r0", "sec_r1", "sec_ghost"]).to_string();
+    let item = rng.pick(&["itm_home", "itm_settings", "itm_account", "itm_r0", "itm_r1", "itm_ghost"]).to_string();
+    let region = [Region::Top, Region::Middle, Region::Bottom][rng.below(3) as usize];
+    let reference = rng.pick(&["home", "settings", "history", "ws_1"]).to_string();
+    let index = rng.below(6) as i64 - 1;
+    let flag = rng.flag();
+    let rows = rng.below(53) as i64;
+    match rng.below(9) {
+        0 => Op::SectionAdd {
+            section: Section {
+                id: format!("sec_r{}", step % 2),
+                title: None,
+                shows_title: true,
+                region,
+                look: Look::List,
+                arrangement: Arrangement::default(),
+                room: None,
+                max_rows: None,
+                content: if flag && rows == 0 { Content::Workspaces } else { Content::Items },
+                items: vec![],
+            },
+            index,
+        },
+        1 => Op::SectionUpdate {
+            id: section,
+            patch: SectionPatch {
+                max_rows: Update::Set(rows),
+                title: Update::Set(format!("T{step}")),
+                layout: Some(if flag { ArrangementLayout::Grid } else { ArrangementLayout::Inline }),
+                gap: Update::Set(rows - 2),
+                columns: if flag { Update::Clear } else { Update::Set(rows % 14) },
+                ..Default::default()
+            },
+        },
+        2 => Op::SectionMove { id: section, region, index },
+        3 => Op::SectionRemove { id: section },
+        4 | 5 => Op::ItemAdd {
+            item: Item { id: format!("itm_r{}", step % 2), reference: ItemRef { kind: "built_in".into(), value: reference }, shows_label: flag },
+            section,
+            index,
+        },
+        6 => Op::ItemMove { id: item, section, index },
+        7 => Op::ItemRemove { id: item },
+        _ if rows == 0 => Op::Reset,
+        _ => Op::ItemUpdate { id: item, shows_label: flag },
+    }
+}
+
+/// Random op sequences keep L1 (one workspaces section, never
+/// room-scoped), L2 (unique ids; moves conserve items), L3 (one ref per
+/// section), L4 limits, and bump the revision by one per change.
+#[test]
+fn random_ops_keep_invariants() {
+    for seed in [1u64, 7, 42, 1_234, 98_765, 31_337, 271_828, 3_141_592] {
+        let mut rng = Rng(seed);
         let mut doc = defaults();
-        for op in ops {
+        for step in 0..400 {
+            let op = random_op(&mut rng, step);
             let before = doc.clone();
             let Ok(next) = reduce(&doc, &op) else { continue };
             doc = next;
-            prop_assert_eq!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).count(), 1);
-            prop_assert!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).all(|s| s.room.is_none()));
+            assert_eq!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).count(), 1, "seed {seed}");
+            assert!(doc.sections.iter().filter(|s| s.content == Content::Workspaces).all(|s| s.room.is_none()));
             let all = ids(&doc);
             let mut unique = all.clone();
             unique.sort();
             unique.dedup();
-            prop_assert_eq!(unique.len(), all.len());
+            assert_eq!(unique.len(), all.len(), "seed {seed}");
             for section in &doc.sections {
                 let mut refs: Vec<_> = section.items.iter().map(|i| (i.reference.kind.clone(), i.reference.value.clone())).collect();
                 let count = refs.len();
                 refs.sort();
                 refs.dedup();
-                prop_assert_eq!(refs.len(), count);
+                assert_eq!(refs.len(), count, "seed {seed}");
             }
-            prop_assert!(doc.sections.len() <= MAX_SECTIONS && all.len() <= MAX_ITEMS);
-            prop_assert!(doc.sections.iter().all(|s| s.arrangement.is_valid() && s.max_rows.is_none_or(|r| MAX_ROWS.contains(&r))));
+            assert!(doc.sections.len() <= MAX_SECTIONS && all.len() <= MAX_ITEMS);
+            assert!(doc.sections.iter().all(|s| s.arrangement.is_valid() && s.max_rows.is_none_or(|r| MAX_ROWS.contains(&r))));
             if matches!(op, Op::ItemMove { .. } | Op::SectionMove { .. }) {
                 let mut a = all.clone();
                 let mut b = ids(&before);
                 a.sort();
                 b.sort();
-                prop_assert_eq!(a, b);
+                assert_eq!(a, b, "seed {seed}");
             }
-            let expected = before.revision + u64::from(doc.sections != before.sections);
-            prop_assert_eq!(doc.revision, expected);
+            assert_eq!(doc.revision, before.revision + u64::from(doc.sections != before.sections), "seed {seed}");
         }
     }
 }
