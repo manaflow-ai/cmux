@@ -187,6 +187,11 @@ describe("dictation text", () => {
     expect(revise("don't do", "Don't do", "do not do it")).toBe("Don't do");
     expect(revise("for the four", "For the four", "four the four people")).toBe("For the four people");
     expect(revise("hello world .", "Hi world .", "Hello world . more")).toBe("Hi world . more");
+    // A repeated last pair whose final copy was revised: nothing rather than a repeat.
+    expect(revise("talk to the team and to the", "Talk to the team and to the", "Talk to the team, and to them later")).toBe("Talk to the team and to the");
+    expect(revise("what I mean is what I", "What I mean is what I", "What I mean is, what I'd")).toBe("What I mean is what I");
+    expect(revise("I'm sure I", "I'm Sure I", "I am sure I'd like")).toBe("I'm Sure I");
+    expect(revise("i'm going to the", "I'm going to the", "I am going to the store and then to the mall")).toBe("I'm going to the");
     // A longer revision adds the words past the handed ones.
     expect(revise("I scream for", "We scream for", "ice cream for you")).toBe("We scream for you");
   });
@@ -203,6 +208,7 @@ describe("dictation text", () => {
     expect(run(caretAt(""), [update("listening", "他说她"), update("listening", "她说她很好")], edit("他說她")).prompt.value).toBe("他說她很好");
     expect(run(caretAt(""), [update("listening", "跑得快的"), update("listening", "跑的快的人")], edit("跑得很快的")).prompt.value).toBe("跑得很快的人");
     expect(run(caretAt(""), [update("listening", "打开Chrome"), update("listening", "打开Google Chrome浏览器")], edit("打開Chrome")).prompt.value).toBe("打開Chrome浏览器");
+    expect(run(caretAt(""), [update("listening", "他的书和他的"), update("listening", "他的书和她的笔")], edit("他的書和他的")).prompt.value).toBe("他的書和他的");
     // Characters outside the Basic Multilingual Plane count as one.
     expect(run(caretAt(""), [update("listening", "𠮷野"), update("listening", "𠮷の野家")], edit("吉野")).prompt.value).toBe("吉野家");
     expect(run(caretAt(""), [update("listening", "こんにちは"), update("listening", "こんにちは世界")], edit("こんばんは")).prompt.value).toBe("こんばんは世界");
