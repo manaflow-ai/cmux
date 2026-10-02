@@ -14,7 +14,7 @@ enum TabGroupMoves {
         guard let daemon = owner(of: group, target: pane, services: services),
               !refusesIncognitoCrossing(group, to: pane, services: services) else { return completion(false) }
         let target = pane.handle
-        run("move-tab-group", daemon: daemon, transaction: transaction, completion: completion) { connection in
+        run("move-tab-group", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroup(group, to: target, index: index, transaction: transaction)
         }
     }
@@ -33,7 +33,7 @@ enum TabGroupMoves {
             return completion(false)
         }
         let target = pane.handle
-        run("move-tab-group-to-split", daemon: daemon, transaction: transaction, completion: completion) { connection in
+        run("move-tab-group-to-split", daemon: daemon, completion: completion) { connection in
             _ = try await connection.moveTabGroupToSplit(group, pane: target, edge: edge, transaction: transaction)
         }
     }
@@ -45,7 +45,7 @@ enum TabGroupMoves {
         let target = pane.handle
         let spawn = services.newColumnWidth(nextTo: pane)
         let width = spawn.width
-        run("move-tab-group-to-column", daemon: daemon, transaction: transaction, completion: { ok in
+        run("move-tab-group-to-column", daemon: daemon, completion: { ok in
             if ok { spawn.commit() }
             completion(ok)
         }) { connection in
@@ -59,8 +59,7 @@ enum TabGroupMoves {
                                transaction: ClientTransactionID) async -> WorkspaceKey? {
         guard let daemon = GroupOwnership.daemon(holdingTabGroup: group, machines: services.machines) else { return nil }
         let before = Set(daemon.store.workspaces.compactMap(\.key))
-        let key = await daemon.commit("move-tab-group-to-new-workspace", patch: .custom { _ in }, transaction: transaction,
-                                               expectEcho: false) { connection -> WorkspaceKey? in
+        let key = await daemon.request("move-tab-group-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabGroupToNewWorkspace(group, workspaceGroup: workspaceGroup, index: index,
                                                                          transaction: transaction)
             if let key = result.key { return key }
@@ -84,10 +83,10 @@ enum TabGroupMoves {
         GroupOwnership.owner(ofTabGroup: group, sameMachineAs: services.daemon(for: pane), machines: services.machines)
     }
 
-    private static func run(_ label: String, daemon: DaemonService, transaction: ClientTransactionID,
+    private static func run(_ label: String, daemon: DaemonService,
                             completion: @escaping Completion, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         Task {
-            let ok = await daemon.commit(label, patch: .custom { _ in }, transaction: transaction, expectEcho: false, body) != nil
+            let ok = await daemon.request(label, body) != nil
             completion(ok)
         }
     }

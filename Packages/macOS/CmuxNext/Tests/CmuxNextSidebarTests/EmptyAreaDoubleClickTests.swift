@@ -133,7 +133,7 @@ import Testing
         let row = h.list.displayed.row(for: .workspace(id("b")))!
         h.click(h.point(y: row.y + row.height / 2), count: 2)
         #expect(h.newWorkspaces.isEmpty)
-        #expect(h.list.rename?.key == .workspace(id("b")))
-        h.list.endRename(commit: false)
+        #expect(h.list.inlineRename.session?.key == .workspace(id("b")))
+        h.list.inlineRename.end(commit: false)
     }
 }
