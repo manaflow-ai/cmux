@@ -200,7 +200,7 @@
       this.name = "CmuxError";
     }
   }
-  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request"]);
+  var HOST_OPS = new Set(["action.run", "action.list", "app.storage.get", "app.storage.set", "app.storage.delete", "app.storage.keys", "app.settings.set", "net.fetch", "integration.request", "clipboard.write"]);
   var state = {
     native: null,
     nextCallback: 1,
@@ -232,26 +232,43 @@
       return String(v);
     }
   };
-  function callRaw(name, params = {}, options = {}) {
+  var aborted = () => new CmuxError("aborted", "the request was cancelled");
+  function callWith(name, params, options, invocationGesture) {
     if (state.knownOps && !state.knownOps.has(name) && !HOST_OPS.has(name)) {
       return Promise.reject(new CmuxError("operation.unsupported", `${name} is not an operation of this cmux version`, { op: name }));
     }
     if (state.allowedOps && !state.allowedOps.has(name) && !HOST_OPS.has(name)) {
       return Promise.reject(new CmuxError("scope.missing", `this app cannot call ${name}`, { op: name }));
     }
-    if (state.gesture && options.gesture === undefined)
-      options = { ...options, gesture: state.gesture };
+    const { signal, ...rest } = options ?? {};
+    const gesture = invocationGesture ?? (typeof rest.gesture === "string" ? rest.gesture : undefined) ?? state.gesture ?? undefined;
+    delete rest.gesture;
+    if (gesture)
+      rest.gesture = gesture;
+    if (signal?.aborted)
+      return Promise.reject(aborted());
     const cbId = state.nextCallback++;
     return new Promise((resolve, reject) => {
-      state.pending.set(cbId, { resolve, reject });
+      const onAbort = () => {
+        if (state.pending.delete(cbId))
+          reject(aborted());
+      };
+      const settle = (fn) => (a) => {
+        signal?.removeEventListener("abort", onAbort);
+        fn(a);
+      };
+      state.pending.set(cbId, { resolve: settle(resolve), reject: settle(reject) });
+      signal?.addEventListener("abort", onAbort);
       try {
-        native().call(name, JSON.stringify(params ?? {}), JSON.stringify(options ?? {}), cbId);
+        native().call(name, JSON.stringify(params ?? {}), JSON.stringify(rest), cbId);
       } catch (e) {
         state.pending.delete(cbId);
+        signal?.removeEventListener("abort", onAbort);
         reject(e instanceof CmuxError ? e : new CmuxError("app.host", String(e)));
       }
     });
   }
+  var callRaw = (name, params = {}, options = {}) => callWith(name, params, options, undefined);
   var call = async (name, params, options) => (await callRaw(name, params, options)).value;
   function resolveCall(cbId, ok, json) {
     const p = state.pending.get(cbId);
@@ -341,84 +358,94 @@
       state.timers.delete(id);
     t.fn();
   }
-  async function netFetch(url, init = {}) {
-    const r = await call("net.fetch", { url, method: init.method ?? "GET", headers: init.headers ?? {}, body: init.body ?? null });
-    const body = r.body ?? "";
-    return { status: r.status, ok: r.status >= 200 && r.status < 300, headers: r.headers ?? {}, text: () => body, json: () => JSON.parse(body) };
+  var sharedMembers = {};
+  function createCmux(gesture) {
+    const g = (name, params, options) => callWith(name, params ?? {}, options, gesture());
+    const c = async (name, params, options) => (await g(name, params, options)).value;
+    const netFetch = async (url, init = {}) => {
+      const r = await c("net.fetch", { url, method: init.method ?? "GET", headers: init.headers ?? {}, body: init.body ?? null });
+      const body = r.body ?? "";
+      return { status: r.status, ok: r.status >= 200 && r.status < 300, headers: r.headers ?? {}, text: () => body, json: () => JSON.parse(body) };
+    };
+    const opFunction = (name) => {
+      const fn = (params, options) => c(name, params, options);
+      return Object.assign(fn, { opName: name, raw: (params, options) => g(name, params, options) });
+    };
+    const familyProxy = (prefix) => new Proxy(Object.create(null), {
+      get(_t, key) {
+        if (typeof key !== "string" || key === "then")
+          return;
+        return familyOrOp(`${prefix}.${key}`);
+      }
+    });
+    const familyOrOp = (name) => new Proxy(opFunction(name), {
+      get(target, key) {
+        if (key in target)
+          return target[key];
+        if (typeof key !== "string" || key === "then")
+          return;
+        return familyOrOp(`${name}.${key}`);
+      }
+    });
+    const builtins = {
+      call: c,
+      callRaw: g,
+      live,
+      log: (...parts) => log("info", ...parts),
+      CmuxError,
+      events: { on },
+      actions: { run: (id, args = {}) => c("action.run", { id, args }), list: () => c("action.list", {}) },
+      storage: {
+        get: (key) => c("app.storage.get", { key }),
+        set: (key, value) => c("app.storage.set", { key, value }),
+        delete: (key) => c("app.storage.delete", { key }),
+        keys: () => c("app.storage.keys", {})
+      },
+      net: { fetch: netFetch },
+      integrations: new Proxy(Object.create(null), {
+        get: (_t, provider) => typeof provider === "string" ? { request: (params) => c("integration.request", { provider, ...params }) } : undefined
+      }),
+      timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
+      app: {
+        get id() {
+          return state.app.id;
+        },
+        get version() {
+          return state.app.version;
+        },
+        get apiVersion() {
+          return state.apiVersion;
+        },
+        get locale() {
+          return state.locale;
+        },
+        settings: Object.assign(() => state.settings[0](), {
+          set: (values) => c("app.settings.set", { values })
+        })
+      },
+      gesture: () => state.gesture,
+      t: (key, fallbackOrParams, params) => {
+        const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key;
+        const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {};
+        return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k) => (k in values) ? String(values[k]) : m);
+      }
+    };
+    return new Proxy(builtins, {
+      get(target, key) {
+        if (typeof key !== "string")
+          return;
+        if (key in target)
+          return target[key];
+        if (key in sharedMembers)
+          return sharedMembers[key];
+        if (key === "then")
+          return;
+        return familyProxy(key);
+      }
+    });
   }
-  var opFunction = (name) => {
-    const fn = (params, options) => call(name, params, options);
-    return Object.assign(fn, { opName: name, raw: (params, options) => callRaw(name, params, options) });
-  };
-  var familyProxy = (prefix) => new Proxy(Object.create(null), {
-    get(_t, key) {
-      if (typeof key !== "string" || key === "then")
-        return;
-      return familyOrOp(`${prefix}.${key}`);
-    }
-  });
-  var familyOrOp = (name) => new Proxy(opFunction(name), {
-    get(target, key) {
-      if (key in target)
-        return target[key];
-      if (typeof key !== "string" || key === "then")
-        return;
-      return familyOrOp(`${name}.${key}`);
-    }
-  });
-  var builtins = {
-    call,
-    callRaw,
-    live,
-    log: (...parts) => log("info", ...parts),
-    CmuxError,
-    events: { on },
-    actions: { run: (id, args = {}) => call("action.run", { id, args }), list: () => call("action.list", {}) },
-    storage: {
-      get: (key) => call("app.storage.get", { key }),
-      set: (key, value) => call("app.storage.set", { key, value }),
-      delete: (key) => call("app.storage.delete", { key }),
-      keys: () => call("app.storage.keys", {})
-    },
-    net: { fetch: netFetch },
-    integrations: new Proxy(Object.create(null), {
-      get: (_t, provider) => typeof provider === "string" ? { request: (params) => call("integration.request", { provider, ...params }) } : undefined
-    }),
-    timer: { after: (ms, fn) => setTimer(ms, false, fn), every: (ms, fn) => setTimer(ms, true, fn), clear: clearTimer },
-    app: {
-      get id() {
-        return state.app.id;
-      },
-      get version() {
-        return state.app.version;
-      },
-      get apiVersion() {
-        return state.apiVersion;
-      },
-      get locale() {
-        return state.locale;
-      },
-      settings: Object.assign(() => state.settings[0](), {
-        set: (values) => call("app.settings.set", { values })
-      })
-    },
-    gesture: () => state.gesture,
-    t: (key, fallbackOrParams, params) => {
-      const fallback = typeof fallbackOrParams === "string" ? fallbackOrParams : key;
-      const values = (typeof fallbackOrParams === "object" ? fallbackOrParams : params) ?? {};
-      return (state.strings[key] ?? fallback).replace(/\{(\w+)\}/g, (m, k) => (k in values) ? String(values[k]) : m);
-    }
-  };
-  var cmux = new Proxy(builtins, {
-    get(target, key) {
-      if (typeof key !== "string")
-        return;
-      if (key in target)
-        return target[key];
-      if (key === "then")
-        return;
-      return familyProxy(key);
-    }
+  var cmux = createCmux(() => {
+    return;
   });
   var definitions = {
     workspaces: () => live("workspace.list", {}),
@@ -988,15 +1015,375 @@
     }
     return entry?.handler;
   }
+  var PALETTE_LIMITS = {
+    itemBytes: 2048,
+    snapshotItems: 1e4,
+    batchItems: 200,
+    detailBytes: 64 * 1024,
+    cachedQueries: 32
+  };
+  var KIND = "__cmuxPaletteKind";
+  var CACHED = "__cmuxPaletteCached";
+  var describe = (e) => e instanceof Error ? e.message : String(e);
+
+  class PaletteAbortSignal {
+    aborted = false;
+    reason = undefined;
+    onabort = null;
+    listeners = [];
+    addEventListener(type, fn) {
+      if (type === "abort" && !this.listeners.includes(fn))
+        this.listeners.push(fn);
+    }
+    removeEventListener(type, fn) {
+      if (type === "abort")
+        this.listeners = this.listeners.filter((l) => l !== fn);
+    }
+    throwIfAborted() {
+      if (this.aborted)
+        throw this.reason;
+    }
+    abort(reason = new CmuxError("aborted", "the request was cancelled")) {
+      if (this.aborted)
+        return;
+      this.aborted = true;
+      this.reason = reason;
+      const listeners = this.listeners;
+      this.listeners = [];
+      for (const fn of listeners) {
+        try {
+          fn();
+        } catch (e) {
+          log("error", `abort listener: ${describe(e)}`);
+        }
+      }
+      try {
+        this.onabort?.({ type: "abort" });
+      } catch (e) {
+        log("error", `onabort: ${describe(e)}`);
+      }
+    }
+  }
+  var tag = (fn, kind) => {
+    if (typeof fn !== "function")
+      throw new CmuxError("palette.invalid", `palette.${kind} needs a function`);
+    const wrapper = (...args) => fn(...args);
+    Object.defineProperty(wrapper, KIND, { value: kind });
+    return wrapper;
+  };
+  var kindOf = (fn) => typeof fn === "function" ? fn[KIND] : undefined;
+  function utf8Length(s) {
+    let n = 0;
+    for (let i = 0;i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 128)
+        n += 1;
+      else if (c < 2048)
+        n += 2;
+      else if (c >= 55296 && c <= 56319 && i + 1 < s.length) {
+        n += 4;
+        i++;
+      } else
+        n += 3;
+    }
+    return n;
+  }
+  function checkPlain(value, path, seen = []) {
+    const t = typeof value;
+    if (t === "function")
+      throw new CmuxError("palette.invalid", `${path} is a function; items carry ActionRefs (act(op, args)), never closures`, { path });
+    if (t === "symbol" || t === "bigint")
+      throw new CmuxError("palette.invalid", `${path} is a ${t}`, { path });
+    if (value === null || t !== "object")
+      return;
+    if (seen.includes(value))
+      throw new CmuxError("palette.invalid", `${path} is circular`, { path });
+    seen.push(value);
+    if (Array.isArray(value))
+      value.forEach((v, i) => checkPlain(v, `${path}[${i}]`, seen));
+    else
+      for (const [k, v] of Object.entries(value))
+        checkPlain(v, `${path}.${k}`, seen);
+    seen.pop();
+  }
+  function checkActionRef(ref, path) {
+    const r = ref;
+    if (!r || typeof r !== "object" || typeof r.id !== "string" || !r.id)
+      throw new CmuxError("palette.invalid", `${path} is not an ActionRef (use act(op, args))`, { path });
+    if (r.args !== undefined && (typeof r.args !== "object" || r.args === null || Array.isArray(r.args)))
+      throw new CmuxError("palette.invalid", `${path}.args must be an object`, { path });
+  }
+  function itemJSON(item, path) {
+    const it = item;
+    if (!it || typeof it !== "object" || Array.isArray(it))
+      throw new CmuxError("palette.invalid", `${path} is not an object`, { path });
+    if (typeof it.id !== "string" || !it.id)
+      throw new CmuxError("palette.invalid", `${path}.id must be a non-empty string`, { path });
+    if (typeof it.title !== "string")
+      throw new CmuxError("palette.invalid", `${path}.title must be a string`, { path });
+    checkPlain(it, path);
+    if (it.actions !== undefined) {
+      if (!Array.isArray(it.actions))
+        throw new CmuxError("palette.invalid", `${path}.actions must be an array of ActionRefs`, { path });
+      it.actions.forEach((a, i) => checkActionRef(a, `${path}.actions[${i}]`));
+    }
+    for (const key of ["drill", "enters"])
+      if (it[key] !== undefined && typeof it[key] !== "string")
+        throw new CmuxError("palette.invalid", `${path}.${key} must be a scope id`, { path });
+    const json = JSON.stringify(it);
+    const bytes = utf8Length(json);
+    if (bytes > PALETTE_LIMITS.itemBytes)
+      throw new CmuxError("palette.limit", `${path} is ${bytes} bytes; an item is at most ${PALETTE_LIMITS.itemBytes}`, { path, bytes });
+    return json;
+  }
+  function itemsJSON(items, limit, what) {
+    if (!Array.isArray(items))
+      throw new CmuxError("palette.invalid", `${what} must be an array of items`);
+    if (items.length > limit)
+      throw new CmuxError("palette.limit", `${what} has ${items.length} items; at most ${limit}`, { count: items.length, limit });
+    return items.map((item, i) => itemJSON(item, `${what}[${i}]`));
+  }
+  function act(op, args = {}, overrides = {}) {
+    if (typeof op !== "string" || !op)
+      throw new CmuxError("palette.invalid", "act needs an action id");
+    if (args === null || typeof args !== "object" || Array.isArray(args))
+      throw new CmuxError("palette.invalid", `act(${op}): args must be an object`);
+    checkPlain(args, `act(${op}).args`);
+    const ref = { id: op, args: { ...args } };
+    if (overrides.title !== undefined)
+      ref.title = String(overrides.title);
+    if (overrides.symbol !== undefined)
+      ref.symbol = String(overrides.symbol);
+    return ref;
+  }
+  var cachedMarker = Object.freeze({ [CACHED]: true });
+  var palette = {
+    snapshot: (fn) => tag(fn, "snapshot"),
+    query: (fn) => tag(fn, "query"),
+    detail: (fn) => tag(fn, "detail"),
+    cached: () => cachedMarker
+  };
+  var paletteState = {
+    scopes: new Map,
+    requests: new Map,
+    live: new Map,
+    cache: new Map
+  };
+  function setPaletteScopes(list) {
+    paletteState.scopes.clear();
+    if (!Array.isArray(list))
+      return;
+    for (const s of list)
+      if (s && typeof s.id === "string")
+        paletteState.scopes.set(s.id, s);
+  }
+  var exportsOf = () => globalThis.__cmuxAppExports ?? {};
+  var failure = (e) => e instanceof CmuxError ? { code: e.code, message: e.message, details: e.details ?? null } : { code: "palette.failed", message: describe(e) };
+  function send(req, items, isFinal, cached = false) {
+    if (req.closed)
+      return;
+    const n = state.native;
+    if (!n?.paletteBatch)
+      throw new CmuxError("app.host", "the host does not implement paletteBatch");
+    const replace = req.fresh || req.provisional && !cached;
+    req.fresh = false;
+    req.provisional = cached;
+    n.paletteBatch(req.id, req.generation, `[${items.join(",")}]`, isFinal, replace);
+  }
+  function sendChunked(req, items, isFinal, cached = false) {
+    if (!items.length) {
+      if (isFinal)
+        send(req, [], true);
+      return;
+    }
+    for (let i = 0;i < items.length; i += PALETTE_LIMITS.batchItems) {
+      const chunk = items.slice(i, i + PALETTE_LIMITS.batchItems);
+      send(req, chunk, isFinal && i + PALETTE_LIMITS.batchItems >= items.length, cached);
+    }
+  }
+  function finish(req, ok, body) {
+    if (req.closed)
+      return;
+    req.closed = true;
+    paletteState.requests.delete(req.id);
+    if (paletteState.live.get(req.key) === req.id)
+      paletteState.live.delete(req.key);
+    state.native?.paletteDone?.(req.id, ok, JSON.stringify(body ?? null));
+  }
+  function remember(scope, query, items) {
+    let perScope = paletteState.cache.get(scope);
+    if (!perScope)
+      paletteState.cache.set(scope, perScope = new Map);
+    perScope.delete(query);
+    perScope.set(query, items);
+    while (perScope.size > PALETTE_LIMITS.cachedQueries)
+      perScope.delete(perScope.keys().next().value);
+  }
+  function cachedFor(scope, query) {
+    const perScope = paletteState.cache.get(scope);
+    if (!perScope)
+      return;
+    let best;
+    for (const q of perScope.keys())
+      if (query.startsWith(q) && (best === undefined || q.length > best.length))
+        best = q;
+    return best === undefined ? undefined : perScope.get(best);
+  }
+  var isCachedMarker = (v) => !!v && typeof v === "object" && v[CACHED] === true;
+  async function pumpQuery(req, scope, query, source) {
+    const all = [];
+    const it = source;
+    try {
+      if (!source || typeof it.next !== "function") {
+        const items = itemsJSON(await source, PALETTE_LIMITS.batchItems, "the query result");
+        if (req.closed)
+          return;
+        remember(scope, query, items);
+        sendChunked(req, items, true);
+        finish(req, true, { count: items.length });
+        return;
+      }
+      for (;; ) {
+        const step = await it.next();
+        if (req.closed) {
+          await it.return?.();
+          return;
+        }
+        if (step.done)
+          break;
+        if (isCachedMarker(step.value)) {
+          const cached = cachedFor(scope, query);
+          if (cached?.length)
+            sendChunked(req, cached, false, true);
+          continue;
+        }
+        const items = itemsJSON(step.value, PALETTE_LIMITS.batchItems, "a query batch");
+        all.push(...items);
+        if (items.length)
+          sendChunked(req, items, false);
+      }
+      remember(scope, query, all);
+      send(req, [], true);
+      finish(req, true, { count: all.length });
+    } catch (e) {
+      if (req.closed)
+        return;
+      try {
+        await it.return?.();
+      } catch {}
+      finish(req, false, failure(e));
+    }
+  }
+  async function runSnapshot(req, fn, ctx) {
+    try {
+      const items = itemsJSON(await fn(ctx), PALETTE_LIMITS.snapshotItems, "the snapshot");
+      if (req.closed)
+        return;
+      sendChunked(req, items, true);
+      finish(req, true, { count: items.length });
+    } catch (e) {
+      finish(req, false, failure(e));
+    }
+  }
+  function paletteOpen(scopeId, kind, query, generation, ctxJSON, reqId) {
+    let ctxIn = {};
+    let ctxValid = true;
+    try {
+      const parsed = ctxJSON ? JSON.parse(ctxJSON) : {};
+      if (parsed && typeof parsed === "object")
+        ctxIn = parsed;
+      else
+        ctxValid = false;
+    } catch {
+      ctxValid = false;
+    }
+    const key = `${scopeId}\x00${ctxIn.session ?? ""}`;
+    const previous = paletteState.live.get(key);
+    if (previous !== undefined)
+      paletteCancel(previous);
+    const req = { id: reqId, key, signal: new PaletteAbortSignal, generation, closed: false, fresh: true, provisional: false };
+    paletteState.requests.set(reqId, req);
+    paletteState.live.set(key, reqId);
+    const reject = (code, message) => {
+      finish(req, false, { code, message, details: { scope: scopeId } });
+      return message;
+    };
+    if (!ctxValid)
+      return reject("palette.invalid", "ctxJSON is not a JSON object");
+    const decl = paletteState.scopes.get(scopeId);
+    if (!decl)
+      return reject("palette.scope", `the app declares no palette scope ${scopeId}`);
+    if (kind !== "snapshot" && kind !== "query")
+      return reject("palette.kind", `unknown source kind ${kind}`);
+    const exportName = decl.source?.export;
+    const fn = exportName ? exportsOf()[exportName] : undefined;
+    if (typeof fn !== "function")
+      return reject("export.missing", `the app does not export ${exportName ?? "(none)"}`);
+    const declared = kindOf(fn);
+    if (declared && declared !== kind)
+      return reject("palette.kind", `${exportName} is a palette.${declared} source, not ${kind}`);
+    const ctx = {
+      scope: scopeId,
+      generation,
+      signal: req.signal,
+      ...ctxIn.context !== undefined ? { context: ctxIn.context } : {},
+      ...ctxIn.filter !== undefined ? { filter: ctxIn.filter } : {},
+      ...ctxIn.session !== undefined ? { session: ctxIn.session } : {}
+    };
+    if (kind === "snapshot") {
+      runSnapshot(req, fn, ctx);
+      return "";
+    }
+    let source;
+    try {
+      source = fn(query, ctx);
+    } catch (e) {
+      finish(req, false, failure(e));
+      return describe(e);
+    }
+    pumpQuery(req, scopeId, query, source);
+    return "";
+  }
+  function paletteCancel(reqId) {
+    const req = paletteState.requests.get(reqId);
+    if (!req)
+      return;
+    req.closed = true;
+    paletteState.requests.delete(reqId);
+    if (paletteState.live.get(req.key) === reqId)
+      paletteState.live.delete(req.key);
+    req.signal.abort();
+  }
+  function paletteDetail(scopeId, itemId, reqId) {
+    const req = { id: reqId, key: `detail\x00${reqId}`, signal: new PaletteAbortSignal, generation: 0, closed: false, fresh: true, provisional: false };
+    paletteState.requests.set(reqId, req);
+    const decl = paletteState.scopes.get(scopeId);
+    const exportName = decl?.detail?.export;
+    const fn = exportName ? exportsOf()[exportName] : undefined;
+    if (!decl)
+      return finish(req, false, { code: "palette.scope", message: `the app declares no palette scope ${scopeId}` });
+    if (typeof fn !== "function")
+      return finish(req, false, { code: "export.missing", message: `scope ${scopeId} has no detail export` });
+    Promise.resolve().then(() => fn(itemId, { scope: scopeId, signal: req.signal })).then((detail) => {
+      if (req.closed)
+        return;
+      checkPlain(detail ?? null, "detail");
+      const json = JSON.stringify(detail ?? null);
+      const bytes = utf8Length(json);
+      if (bytes > PALETTE_LIMITS.detailBytes)
+        throw new CmuxError("palette.limit", `detail is ${bytes} bytes; at most ${PALETTE_LIMITS.detailBytes}`);
+      finish(req, true, detail ?? null);
+    }).catch((e) => finish(req, false, failure(e)));
+  }
   var g = globalThis;
-  var RUNTIME_VERSION = "1.0.0";
-  var exportsOf = () => g.__cmuxAppExports ?? {};
-  var describe = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
+  var RUNTIME_VERSION = "1.1.0";
+  var exportsOf2 = () => g.__cmuxAppExports ?? {};
+  var describe2 = (e) => e instanceof Error ? `${e.name === "Error" ? "" : `${e.name}: `}${e.message}` : String(e);
   function entry(name, fn, fallback) {
     try {
       return batch(fn);
     } catch (e) {
-      log("error", `${name}: ${describe(e)}`);
+      log("error", `${name}: ${describe2(e)}`);
       return fallback;
     } finally {
       sendPendingOps();
@@ -1008,16 +1395,17 @@
     try {
       const r = fn();
       if (r && typeof r.then === "function")
-        r.catch((e) => log("error", `${label}: ${describe(e)}`));
+        r.catch((e) => log("error", `${label}: ${describe2(e)}`));
     } catch (e) {
-      log("error", `${label}: ${describe(e)}`);
+      log("error", `${label}: ${describe2(e)}`);
     }
   }
   function install() {
     const native = g.__cmuxAppNative;
     if (native)
       state.native = native;
-    Object.assign(g, exports_view, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError });
+    Object.assign(sharedMembers, { palette, act });
+    Object.assign(g, exports_view, { cmux, signal, computed, effect, untrack, onCleanup, CmuxError, palette, act });
     if (typeof g.console === "undefined") {
       g.console = { log: (...a) => log("info", ...a), info: (...a) => log("info", ...a), warn: (...a) => log("warn", ...a), error: (...a) => log("error", ...a), debug: (...a) => log("debug", ...a) };
     }
@@ -1035,6 +1423,7 @@
       state.knownOps = Array.isArray(init.knownOps) ? new Set(init.knownOps) : null;
       state.locale = init.locale ?? "en";
       state.strings = init.strings ?? {};
+      setPaletteScopes(init.paletteScopes);
       state.settings[1](init.settings ?? {});
       return "";
     }, "init failed");
@@ -1042,7 +1431,7 @@
     g.__cmuxAppMount = (mountId, exportName, ctxJSON) => {
       try {
         batch(() => {
-          const render = exportsOf()[exportName];
+          const render = exportsOf2()[exportName];
           if (typeof render !== "function")
             throw new Error(`the app does not export a function named ${exportName}`);
           const ctx = JSON.parse(ctxJSON || "{}");
@@ -1051,7 +1440,7 @@
         return "";
       } catch (e) {
         unmount(mountId);
-        const message = describe(e);
+        const message = describe2(e);
         log("error", `mount ${exportName}: ${message}`);
         return message || "render failed";
       } finally {
@@ -1098,19 +1487,29 @@
           runHandler(event, record.handlers[event]);
       }
     }
-    g.__cmuxAppRunCommand = (exportName, argsJSON, cbId) => entry("command", () => {
-      const fn = exportsOf()[exportName];
-      const done = (ok, body) => state.native?.commandDone(cbId, ok, JSON.stringify(body ?? null));
+    g.__cmuxAppRunCommand = (exportName, argsJSON, cbId, ctxJSON) => entry("command", () => {
+      const fn = exportsOf2()[exportName];
+      let live = true;
+      const done = (ok, body) => {
+        live = false;
+        state.native?.commandDone(cbId, ok, JSON.stringify(body ?? null));
+      };
       if (typeof fn !== "function")
         return done(false, { code: "export.missing", message: `the app does not export ${exportName}` });
-      const failure = (e) => e instanceof CmuxError ? { code: e.code, message: e.message, details: e.details ?? null } : { code: "command.failed", message: describe(e) };
+      const failure = (e) => e instanceof CmuxError ? { code: e.code, message: e.message, details: e.details ?? null } : { code: "command.failed", message: describe2(e) };
       try {
-        const r = fn(JSON.parse(argsJSON || "{}"), { app: state.app });
+        const invocation = ctxJSON ? JSON.parse(ctxJSON) : {};
+        const gesture = typeof invocation.gesture === "string" && invocation.gesture ? invocation.gesture : undefined;
+        const ctx = { app: state.app, gesture, cmux: createCmux(() => live ? gesture : undefined) };
+        const r = fn(JSON.parse(argsJSON || "{}"), ctx);
         Promise.resolve(r).then((v) => done(true, { value: v ?? null }), (e) => done(false, failure(e)));
       } catch (e) {
         done(false, failure(e));
       }
     }, undefined);
+    g.__cmuxAppPaletteOpen = (scopeId, kind, query, generation, ctxJSON, reqId) => entry("paletteOpen", () => paletteOpen(scopeId, kind, query, generation, ctxJSON, reqId), "palette open failed");
+    g.__cmuxAppPaletteCancel = (reqId) => entry("paletteCancel", () => paletteCancel(reqId), undefined);
+    g.__cmuxAppPaletteDetail = (scopeId, itemId, reqId) => entry("paletteDetail", () => paletteDetail(scopeId, itemId, reqId), undefined);
     g.__cmuxAppResolve = (cbId, ok, json) => entry("resolve", () => resolveCall(cbId, ok, json), undefined);
     g.__cmuxAppEvent = (subId, json) => entry("event", () => deliverEvent(subId, json), undefined);
     g.__cmuxAppTimer = (timerId) => entry("timer", () => fireTimer(timerId), undefined);

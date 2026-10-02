@@ -1,0 +1,126 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/notes",
+  "name": "Notes",
+  "version": "1.0.0",
+  "description": "Palette fixture.",
+  "engines": {
+    "cmux": "^1.0"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "activation": [
+    "onPaletteScope:notes",
+    "onCommand:new"
+  ],
+  "contributes": {
+    "paletteScopes": [
+      {
+        "id": "notes",
+        "title": {
+          "en": "Notes",
+          "ja": "ノート"
+        },
+        "symbol": "note.text",
+        "placeholder": {
+          "en": "Search notes…",
+          "ja": "ノートを検索…"
+        },
+        "keywords": [
+          "notes",
+          "note",
+          "メモ"
+        ],
+        "prefix": "~",
+        "layout": "listWithDetail",
+        "ranking": "fuzzy",
+        "federates": true,
+        "source": {
+          "kind": "snapshot",
+          "export": "noteCorpus",
+          "invalidatedBy": [
+            "note.changed",
+            "app.storage.changed"
+          ]
+        },
+        "primary": "note.open",
+        "detail": {
+          "export": "noteDetail"
+        },
+        "emptyState": {
+          "title": "No notes yet",
+          "message": "Create one with New Note.",
+          "symbol": "note.text",
+          "action": "app:cmux/notes#new"
+        },
+        "filters": [
+          {
+            "id": "pinned",
+            "title": {
+              "en": "Pinned",
+              "ja": "ピン留め"
+            }
+          }
+        ],
+        "children": [
+          "search",
+          "app:cmux/tasks#tasks"
+        ]
+      },
+      {
+        "id": "search",
+        "title": "Search Notes",
+        "layout": "list",
+        "ranking": "source",
+        "source": {
+          "kind": "query",
+          "export": "searchNotes",
+          "minQueryLength": 2
+        }
+      },
+      {
+        "id": "remote",
+        "title": "Server Notes",
+        "layout": "grid",
+        "ranking": "recency",
+        "source": {
+          "kind": "op",
+          "op": "note.search",
+          "item": {
+            "id": "$.id",
+            "title": "$.title",
+            "subtitle": "$.folders[0]"
+          }
+        }
+      }
+    ],
+    "commands": [
+      {
+        "id": "new",
+        "title": "New Note",
+        "run": "newNote",
+        "mode": "form",
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      {
+        "id": "pick",
+        "title": "Pick Notes",
+        "run": "pickNotes",
+        "mode": "view"
+      },
+      {
+        "id": "refresh",
+        "title": "Refresh",
+        "run": "refresh",
+        "mode": "run"
+      }
+    ]
+  }
+}

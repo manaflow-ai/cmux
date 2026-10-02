@@ -1,0 +1,505 @@
+{
+ "format": 1,
+ "description": "Palette navigation vectors shared by PaletteNavReducer (Swift) and @cmux/app-test (TypeScript). Format: README.md next to this file.",
+ "cases": [
+  {
+   "name": "open on the root",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "topEntry": {"entry": "root"}, "lastEffects": [{"effect": "load", "levelID": 1, "scope": "root", "query": "", "generation": 1, "context": null}]}
+  },
+  {
+   "name": "open a scope above the root selects its empty-query row",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "", "selection": "tab.previous", "topEntry": {"entry": "opened"}, "lastEffects": [{"effect": "load", "levelID": 1, "scope": "root", "query": "", "generation": 1, "context": null}, {"effect": "load", "levelID": 2, "scope": "tabs", "query": "", "generation": 1, "context": null}, {"effect": "announceEntered", "scope": "tabs"}]}
+  },
+  {
+   "name": "open a scope with a query",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "o"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "o", "selection": "tab.current", "queries": ["", "o"]}
+  },
+  {
+   "name": "unknown scope opens the root with the query",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "nope", "query": "q"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "q", "selection": "cmd.a", "lastEffects": [{"effect": "load", "levelID": 1, "scope": "root", "query": "q", "generation": 1, "context": null}, {"effect": "refused", "reason": "unknownScope", "scope": "nope"}]}
+  },
+  {
+   "name": "open while open starts fresh",
+   "rule": "4.3.1 P5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "setQuery", "text": "x"}, {"event": "open", "scope": null, "query": ""}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": [{"effect": "cancel", "levelID": 2}, {"effect": "cancel", "levelID": 1}, {"effect": "load", "levelID": 3, "scope": "root", "query": "", "generation": 1, "context": null}]}
+  },
+  {
+   "name": "close from outside cancels every level",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "close"}],
+   "expect": {"isOpen": false, "chips": [], "query": null, "selection": null, "lastEffects": [{"effect": "cancel", "levelID": 2}, {"effect": "cancel", "levelID": 1}]}
+  },
+  {
+   "name": "events while closed do nothing",
+   "rule": "4.3.1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "close"}, {"event": "tab"}, {"event": "setQuery", "text": "x"}],
+   "expect": {"isOpen": false, "chips": [], "query": null, "selection": null, "lastEffects": []}
+  },
+  {
+   "name": "prefix enters from an empty query",
+   "rule": "4.3.2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "", "selection": "tab.previous", "queries": ["", ""], "topEntry": {"entry": "prefix", "value": "@"}}
+  },
+  {
+   "name": "pasted text with a prefix enters with the rest as its query",
+   "rule": "4.3.2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "#prod"}],
+   "expect": {"isOpen": true, "chips": ["root", "workspaces"], "query": "prod", "selection": "ws.1", "queries": ["", "prod"]}
+  },
+  {
+   "name": "a prefix after other text is literal",
+   "rule": "4.3.2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "a"}, {"event": "setQuery", "text": "a@"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "a@", "selection": "cmd.a"}
+  },
+  {
+   "name": "prefix entry can be turned off",
+   "rule": "4.3.2",
+   "config": {"prefixEntry": false},
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "@", "selection": "cmd.a"}
+  },
+  {
+   "name": "a nested scope's prefix is literal at the root",
+   "rule": "4.3.2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "!"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "!", "selection": "cmd.a"}
+  },
+  {
+   "name": "a nested scope's prefix enters from its parent",
+   "rule": "4.3.2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "!"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs", "closed"], "query": "", "selection": "closed.1", "queries": ["", "", ""]}
+  },
+  {
+   "name": "a prefix at the depth limit is literal",
+   "rule": "4.3.2 4.3.10",
+   "config": {"maxDepth": 2},
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "setQuery", "text": "!"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "!", "selection": "tab.current"}
+  },
+  {
+   "name": "an edit changes only the top level",
+   "rule": "4.3.2 P6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "abc"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "abc", "selection": "tab.current", "queries": ["", "abc"], "lastEffects": [{"effect": "load", "levelID": 2, "scope": "tabs", "query": "abc", "generation": 2, "context": null}]}
+  },
+  {
+   "name": "backspace on an empty scope shows the parent",
+   "rule": "4.3.3",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": [{"effect": "cancel", "levelID": 2}, {"effect": "load", "levelID": 1, "scope": "root", "query": "", "generation": 2, "context": null}, {"effect": "announceLeft", "to": "root"}]}
+  },
+  {
+   "name": "backspace at the root is consumed and keeps the palette open",
+   "rule": "4.3.3 P4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": []}
+  },
+  {
+   "name": "prefix then backspace restores the root and its selection",
+   "rule": "4.3.3 P1",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 1}, {"event": "setQuery", "text": "@"}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.b", "queries": [""]}
+  },
+  {
+   "name": "keyword plus Tab enters and consumes the keyword",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "Tabs "}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "", "selection": "tab.previous", "queries": ["", ""], "topEntry": {"entry": "keyword", "value": "tabs"}}
+  },
+  {
+   "name": "keyword then backspace returns to the root with an empty query",
+   "rule": "4.3.4 4.3.8",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "Tabs "}, {"event": "tab"}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a"}
+  },
+  {
+   "name": "keywords match trimmed and case-insensitively",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "  NOTES "}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "app:cmux/notes#notes"], "query": "", "selection": null, "topEntry": {"entry": "keyword", "value": "notes"}}
+  },
+  {
+   "name": "a nested keyword at the root is not a keyword: Tab drills the row",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "closed"}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "actions"], "query": "", "selection": "act.close", "topContext": "cmd.a", "topEntry": {"entry": "drill", "value": "cmd.a"}}
+  },
+  {
+   "name": "a nested keyword enters from its parent",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "closed"}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs", "closed"], "query": "", "selection": "closed.1", "queries": ["", "", ""]}
+  },
+  {
+   "name": "Tab drills into the selected row with the row as context",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "o"}, {"event": "move", "delta": 2}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs", "actions"], "query": "", "selection": "act.close", "topContext": "tab.other", "topEntry": {"entry": "drill", "value": "tab.other"}}
+  },
+  {
+   "name": "drill then backspace restores the parent query and selection",
+   "rule": "4.3.4 4.3.8 P2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "o"}, {"event": "move", "delta": 2}, {"event": "tab"}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "o", "selection": "tab.other", "queries": ["", "o"]}
+  },
+  {
+   "name": "Tab on a scope row enters the scope",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "?"}, {"event": "move", "delta": 1}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "scopes", "workspaces"], "query": "", "selection": "ws.1", "topEntry": {"entry": "row", "value": "scope.ws"}}
+  },
+  {
+   "name": "Tab with nothing to enter opens the Actions menu",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": [{"effect": "openActions", "rowID": "cmd.a"}]}
+  },
+  {
+   "name": "Tab on a disabled row with nothing to enter does nothing",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "isEnabled": false}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": []}
+  },
+  {
+   "name": "Shift-Tab pops whatever the query",
+   "rule": "4.3.4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "xyz"}, {"event": "shiftTab"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a"}
+  },
+  {
+   "name": "Escape pops a pushed level, then clears an opened level's query",
+   "rule": "4.3.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "x"}, {"event": "tab"}, {"event": "escape"}, {"event": "escape"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "", "selection": "tab.previous"}
+  },
+  {
+   "name": "Escape on an opened level with an empty query closes",
+   "rule": "4.3.5 D-PS2",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": "x"}, {"event": "tab"}, {"event": "escape"}, {"event": "escape"}, {"event": "escape"}],
+   "expect": {"isOpen": false, "chips": [], "query": null, "selection": null, "lastEffects": [{"effect": "cancel", "levelID": 2}, {"effect": "cancel", "levelID": 1}, {"effect": "dismiss"}]}
+  },
+  {
+   "name": "Escape pops a prefix level even with a query",
+   "rule": "4.3.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "#prod"}, {"event": "escape"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a"}
+  },
+  {
+   "name": "Escape at the root clears, then closes",
+   "rule": "4.3.5 P4",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": "abc"}, {"event": "escape"}, {"event": "escape"}],
+   "expect": {"isOpen": false, "chips": [], "query": null, "selection": null, "lastEffects": [{"effect": "cancel", "levelID": 1}, {"effect": "dismiss"}]}
+  },
+  {
+   "name": "Return runs the selected row",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 1}, {"event": "activate", "rowID": null}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.b", "lastEffects": [{"effect": "run", "levelID": 1, "rowID": "cmd.b"}]}
+  },
+  {
+   "name": "Return on a scope row enters the scope",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "?"}, {"event": "activate", "rowID": null}],
+   "expect": {"isOpen": true, "chips": ["root", "scopes", "tabs"], "query": "", "selection": "tab.previous", "topEntry": {"entry": "row", "value": "scope.tabs"}}
+  },
+  {
+   "name": "a click selects and runs its row",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "activate", "rowID": "cmd.c"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.c", "lastEffects": [{"effect": "run", "levelID": 1, "rowID": "cmd.c"}]}
+  },
+  {
+   "name": "a click on a row that is not shown does nothing",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "activate", "rowID": "zz"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": []}
+  },
+  {
+   "name": "Return on a disabled row does nothing",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "isEnabled": false}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "activate", "rowID": null}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": []}
+  },
+  {
+   "name": "Return waits for the current query and runs on its first batch",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "b", "answer": false}, {"event": "activate", "rowID": null}, {"event": "results", "levelID": 1, "generation": 2, "rows": [{"id": "cmd.b"}], "replace": true, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "b", "selection": "cmd.b", "lastEffects": [{"effect": "run", "levelID": 1, "rowID": "cmd.b"}]}
+  },
+  {
+   "name": "a held Return on a scope row enters it when fresh rows land",
+   "rule": "4.3.6",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "?"}, {"event": "setQuery", "text": "t", "answer": false}, {"event": "activate", "rowID": null}, {"event": "results", "levelID": 2, "generation": 2, "rows": [{"id": "scope.tabs", "enters": "tabs"}], "replace": true, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root", "scopes", "tabs"], "query": "", "selection": "tab.previous", "topEntry": {"entry": "row", "value": "scope.tabs"}}
+  },
+  {
+   "name": "a pop drops a held Return",
+   "rule": "4.3.6 4.3.8",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "b", "answer": false}, {"event": "activate", "rowID": null}, {"event": "tab"}, {"event": "backspaceOnEmpty"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "b", "selection": "cmd.a", "lastEffects": [{"effect": "cancel", "levelID": 2}, {"effect": "load", "levelID": 1, "scope": "root", "query": "b", "generation": 3, "context": null}, {"effect": "announceLeft", "to": "root"}]}
+  },
+  {
+   "name": "a batch of an older generation is dropped",
+   "rule": "4.3.7 P3",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": "", "answer": false}, {"event": "setQuery", "text": "a", "answer": false}, {"event": "results", "levelID": 1, "generation": 1, "rows": [{"id": "old"}], "replace": true, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "a", "selection": null, "topRows": [], "isLoading": true, "lastEffects": []}
+  },
+  {
+   "name": "a batch for a popped level is dropped",
+   "rule": "4.3.7 P3",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "backspaceOnEmpty"}, {"event": "results", "levelID": 2, "generation": 2, "rows": [{"id": "x"}], "replace": true, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": []}
+  },
+  {
+   "name": "streamed batches append, dedupe and keep the selection",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": "", "answer": false}, {"event": "results", "levelID": 1, "generation": 1, "rows": [{"id": "a"}, {"id": "b"}], "replace": true, "isFinal": false}, {"event": "move", "delta": 1}, {"event": "results", "levelID": 1, "generation": 1, "rows": [{"id": "b"}, {"id": "c"}], "replace": false, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "b", "topRows": ["a", "b", "c"], "isLoading": false}
+  },
+  {
+   "name": "the first batch of a new generation replaces the rows",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "x", "answer": false}, {"event": "results", "levelID": 1, "generation": 2, "rows": [{"id": "y"}], "replace": false, "isFinal": true}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "x", "selection": "y", "topRows": ["y"], "isLoading": false}
+  },
+  {
+   "name": "a query change selects the default row",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 2}, {"event": "setQuery", "text": "c"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "c", "selection": "cmd.a"}
+  },
+  {
+   "name": "refresh keeps the selection by id",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 2}, {"driver": "setRows", "scope": "root", "rows": [{"id": "cmd.c"}, {"id": "cmd.a"}]}, {"event": "refresh"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.c", "topRows": ["cmd.c", "cmd.a"]}
+  },
+  {
+   "name": "refresh keeps the selection by index when the id is gone",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 2}, {"driver": "setRows", "scope": "root", "rows": [{"id": "cmd.c"}, {"id": "cmd.a"}]}, {"event": "refresh"}, {"driver": "setRows", "scope": "root", "rows": [{"id": "cmd.x"}, {"id": "cmd.y"}, {"id": "cmd.z"}]}, {"event": "refresh"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.x"}
+  },
+  {
+   "name": "refresh clamps the kept index to the last row",
+   "rule": "4.3.7",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": 2}, {"driver": "setRows", "scope": "root", "rows": [{"id": "cmd.x"}]}, {"event": "refresh"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.x"}
+  },
+  {
+   "name": "refresh with no rows clears the selection",
+   "rule": "4.3.7 I3",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"driver": "setRows", "scope": "root", "rows": []}, {"event": "refresh"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": null, "topRows": []}
+  },
+  {
+   "name": "arrow keys wrap",
+   "rule": "4.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": -1}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.c"}
+  },
+  {
+   "name": "arrow keys wrap past the end",
+   "rule": "4.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "move", "delta": -1}, {"event": "move", "delta": 4}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a"}
+  },
+  {
+   "name": "select picks a shown row and ignores an unknown id",
+   "rule": "4.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "select", "rowID": "cmd.b"}, {"event": "select", "rowID": "zz"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.b"}
+  },
+  {
+   "name": "a breadcrumb click pops every level above it",
+   "rule": "4.3.9",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "!"}, {"event": "popTo", "index": 0}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "", "selection": "cmd.a", "lastEffects": [{"effect": "cancel", "levelID": 3}, {"effect": "cancel", "levelID": 2}, {"effect": "load", "levelID": 1, "scope": "root", "query": "", "generation": 2, "context": null}, {"effect": "announceLeft", "to": "root"}]}
+  },
+  {
+   "name": "a breadcrumb click on a middle chip keeps that level",
+   "rule": "4.3.9",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "!"}, {"event": "popTo", "index": 1}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs"], "query": "", "selection": "tab.previous"}
+  },
+  {
+   "name": "a breadcrumb click on the top chip does nothing",
+   "rule": "4.3.9",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "!"}, {"event": "popTo", "index": 2}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs", "closed"], "query": "", "selection": "closed.1", "lastEffects": []}
+  },
+  {
+   "name": "depth is bounded",
+   "rule": "4.3.10",
+   "config": {"maxDepth": 3},
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": "tabs", "query": ""}, {"event": "tab"}, {"driver": "setRows", "scope": "actions", "rows": [{"id": "deeper", "drills": "actions"}]}, {"event": "refresh"}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "tabs", "actions"], "query": "", "selection": "deeper", "lastEffects": [{"effect": "refused", "reason": "depthLimit"}]}
+  },
+  {
+   "name": "command pages push outside the graph",
+   "rule": "4.2 push",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": "ren"}, {"event": "push", "scope": "page.renameTab", "row": "cmd.a"}],
+   "expect": {"isOpen": true, "chips": ["root", "page.renameTab"], "query": "", "selection": null, "topEntry": {"entry": "command", "value": "cmd.a"}, "topContext": "cmd.a"}
+  },
+  {
+   "name": "Escape pops a command page and restores the query",
+   "rule": "4.2 push 4.3.5",
+   "graph": {"scopes": [{"id": "tabs", "prefix": "@", "keywords": ["tabs", "tab"], "parents": "root", "emptyQuerySelection": 1}, {"id": "workspaces", "prefix": "#", "keywords": ["workspaces"]}, {"id": "commands", "prefix": ">", "keywords": ["commands"]}, {"id": "settings", "prefix": ",", "keywords": ["settings"]}, {"id": "scopes", "prefix": "?"}, {"id": "actions", "parents": []}, {"id": "closed", "prefix": "!", "keywords": ["closed"], "parents": ["tabs"]}, {"id": "app:cmux/notes#notes", "keywords": ["notes"]}]},
+   "rowsByScope": {"root": [{"id": "cmd.a", "drills": "actions"}, {"id": "cmd.b", "drills": "actions"}, {"id": "cmd.c", "drills": "actions"}], "tabs": [{"id": "tab.current", "drills": "actions"}, {"id": "tab.previous", "drills": "actions"}, {"id": "tab.other", "drills": "actions"}], "workspaces": [{"id": "ws.1", "drills": "actions"}, {"id": "ws.2", "drills": "actions"}], "actions": [{"id": "act.close"}, {"id": "act.rename"}], "closed": [{"id": "closed.1", "drills": "actions"}], "scopes": [{"id": "scope.tabs", "enters": "tabs"}, {"id": "scope.ws", "enters": "workspaces"}]},
+   "events": [{"event": "open", "scope": null, "query": "ren"}, {"event": "push", "scope": "page.renameTab", "row": null}, {"event": "escape"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "ren", "selection": "cmd.a"}
+  },
+  {
+   "name": "the graph drops colliding and invalid prefixes and keywords",
+   "rule": "3.1 graph",
+   "graph": {"scopes": [{"id": "a", "prefix": "@", "keywords": ["alpha"]}, {"id": "b", "prefix": "@", "keywords": ["alpha", "beta"]}, {"id": "c", "prefix": "x"}, {"id": "d", "prefix": "@", "parents": ["a"]}, {"id": "root"}, {"id": "a"}]},
+   "rowsByScope": {},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "@"}, {"event": "setQuery", "text": "@"}],
+   "expect": {"isOpen": true, "chips": ["root", "a", "d"], "query": "", "selection": null, "graphProblems": 5}
+  },
+  {
+   "name": "a keyword that lost a collision does not enter",
+   "rule": "3.1 graph",
+   "graph": {"scopes": [{"id": "a", "keywords": ["alpha"]}, {"id": "b", "keywords": ["alpha", "beta"]}]},
+   "rowsByScope": {},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "alpha"}, {"event": "tab"}],
+   "expect": {"isOpen": true, "chips": ["root", "a"], "query": "", "selection": null, "topEntry": {"entry": "keyword", "value": "alpha"}}
+  },
+  {
+   "name": "an invalid prefix is literal",
+   "rule": "3.1 graph",
+   "graph": {"scopes": [{"id": "c", "prefix": "x"}]},
+   "rowsByScope": {},
+   "events": [{"event": "open", "scope": null, "query": ""}, {"event": "setQuery", "text": "x"}],
+   "expect": {"isOpen": true, "chips": ["root"], "query": "x", "selection": null}
+  }
+ ]
+}

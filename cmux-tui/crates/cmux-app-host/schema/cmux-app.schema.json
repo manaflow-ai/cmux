@@ -152,7 +152,7 @@
       "maxItems": 64,
       "items": {
         "type": "string",
-        "pattern": "^(onStartup|onSidebarSection:[a-z][a-zA-Z0-9-]{0,63}|onStatusItem:[a-z][a-zA-Z0-9-]{0,63}|onCommand:[a-z][a-zA-Z0-9-]{0,63}|onPane:[a-z][a-zA-Z0-9-]{0,63}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
+        "pattern": "^(onStartup|onSidebarSection:[a-z][a-zA-Z0-9-]{0,63}|onStatusItem:[a-z][a-zA-Z0-9-]{0,63}|onCommand:[a-z][a-zA-Z0-9-]{0,63}|onPane:[a-z][a-zA-Z0-9-]{0,63}|onPaletteScope:[a-z][a-zA-Z0-9-]{0,63}|onEvent:[a-z][a-z0-9_.-]{0,95})$"
       }
     },
     "files": {
@@ -339,10 +339,19 @@
             "detail",
             "form"
           ],
-          "description": "Reserved (palette scopes plan): a command may open a palette view rendered by `render`."
+          "description": "Reserved; superseded by `mode` (palette-scopes.md 6.2). Kept so manifests that set it stay valid."
         },
         "render": {
           "$ref": "#/$defs/exportName"
+        },
+        "mode": {
+          "enum": [
+            "run",
+            "form",
+            "view"
+          ],
+          "default": "run",
+          "description": "run: call `run` with the arguments. form: the palette renders `arguments` as a native form and submits it to `run`. view: `run` returns a palette scope to push (palette-scopes.md 6.2)."
         }
       }
     },
@@ -661,7 +670,7 @@
         },
         "paletteScopes": {
           "type": "array",
-          "maxItems": 16,
+          "maxItems": 8,
           "items": {
             "$ref": "#/$defs/paletteScope"
           }
@@ -761,27 +770,231 @@
         }
       }
     },
-    "paletteScope": {
-      "allOf": [
+    "actionId": {
+      "type": "string",
+      "description": "A catalog action or op id (`note.open`, `clipboard.write`) or an app command `app:<publisher>/<name>#<command>`.",
+      "pattern": "^(app:(local|[a-z0-9][a-z0-9-]{0,38})/[a-z0-9][a-z0-9-]{0,63}#[a-z][a-zA-Z0-9-]{0,63}|[a-z][a-zA-Z0-9_]*(\\.[a-z][a-zA-Z0-9_]*)+|[a-z][a-zA-Z0-9]{0,63})$",
+      "maxLength": 200
+    },
+    "paletteScopeRef": {
+      "type": "string",
+      "description": "A palette scope id of this manifest, or another app's scope `app:<publisher>/<name>#<scope>`.",
+      "pattern": "^([a-z][a-zA-Z0-9-]{0,63}|app:(local|[a-z0-9][a-z0-9-]{0,38})/[a-z0-9][a-z0-9-]{0,63}#[a-z][a-zA-Z0-9-]{0,63})$"
+    },
+    "jsonPathLite": {
+      "type": "string",
+      "pattern": "^\\$((\\.[A-Za-z_][A-Za-z0-9_]*)|(\\[[0-9]{1,4}\\]))*$",
+      "maxLength": 128
+    },
+    "paletteSource": {
+      "oneOf": [
         {
-          "$ref": "#/$defs/contributionBase"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "export"
+          ],
+          "properties": {
+            "kind": {
+              "const": "snapshot"
+            },
+            "export": {
+              "$ref": "#/$defs/exportName"
+            },
+            "invalidatedBy": {
+              "type": "array",
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_.-]{0,95}$"
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "export"
+          ],
+          "properties": {
+            "kind": {
+              "const": "query"
+            },
+            "export": {
+              "$ref": "#/$defs/exportName"
+            },
+            "minQueryLength": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 16
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "op",
+            "item"
+          ],
+          "properties": {
+            "kind": {
+              "const": "op"
+            },
+            "op": {
+              "type": "string",
+              "pattern": "^[a-z][a-zA-Z0-9_]*(\\.[a-z][a-zA-Z0-9_]*)+$",
+              "maxLength": 128
+            },
+            "item": {
+              "type": "object",
+              "required": [
+                "id",
+                "title"
+              ],
+              "maxProperties": 16,
+              "propertyNames": {
+                "pattern": "^[a-z][a-zA-Z0-9]{0,31}$"
+              },
+              "additionalProperties": {
+                "$ref": "#/$defs/jsonPathLite"
+              }
+            }
+          }
         }
-      ],
+      ]
+    },
+    "paletteScope": {
+      "type": "object",
+      "description": "A palette scope: a typed, searchable list in the command palette (palette-scopes.md section 6.2). Its catalog id is `app:<app id>#<id>`.",
       "required": [
         "id",
-        "title"
+        "title",
+        "source"
       ],
-      "description": "Reserved: a command palette scope the app provides (palette scopes plan). Fields beyond these are kept and ignored until that plan lands.",
       "properties": {
-        "render": {
-          "$ref": "#/$defs/exportName"
+        "id": {
+          "$ref": "#/$defs/contributionId"
+        },
+        "title": {
+          "$ref": "#/$defs/localizedText"
+        },
+        "symbol": {
+          "$ref": "#/$defs/symbol"
         },
         "placeholder": {
           "$ref": "#/$defs/localizedText"
         },
+        "keywords": {
+          "type": "array",
+          "maxItems": 8,
+          "uniqueItems": true,
+          "description": "Lowercase words: an exact keyword plus Tab enters the scope.",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\p{Lu}\\p{Lt}\\s]{1,32}$"
+          }
+        },
         "prefix": {
           "type": "string",
-          "pattern": "^[a-z0-9]{1,16}$"
+          "description": "One punctuation or symbol character that enters the scope from an empty query. Only first-party apps (`cmux/`) may declare one; the validator enforces it.",
+          "pattern": "^[\\p{P}\\p{S}]$"
+        },
+        "layout": {
+          "enum": [
+            "list",
+            "listWithDetail",
+            "grid"
+          ]
+        },
+        "ranking": {
+          "enum": [
+            "fuzzy",
+            "recency",
+            "source"
+          ]
+        },
+        "federates": {
+          "type": "boolean",
+          "description": "Top matches also appear in the root search under the scope's title."
+        },
+        "source": {
+          "$ref": "#/$defs/paletteSource"
+        },
+        "primary": {
+          "$ref": "#/$defs/actionId",
+          "description": "The default ActionRef id, with `{id}` of the row, for rows without actions."
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "export"
+          ],
+          "properties": {
+            "export": {
+              "$ref": "#/$defs/exportName"
+            }
+          }
+        },
+        "emptyState": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "title"
+          ],
+          "properties": {
+            "title": {
+              "$ref": "#/$defs/localizedText"
+            },
+            "message": {
+              "$ref": "#/$defs/localizedText"
+            },
+            "symbol": {
+              "$ref": "#/$defs/symbol"
+            },
+            "action": {
+              "$ref": "#/$defs/actionId"
+            }
+          }
+        },
+        "filters": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/contributionId"
+              },
+              "title": {
+                "$ref": "#/$defs/localizedText"
+              }
+            }
+          }
+        },
+        "children": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "description": "Scopes enterable from this one (composition, palette-scopes.md 6.8).",
+          "items": {
+            "$ref": "#/$defs/paletteScopeRef"
+          }
+        },
+        "render": {
+          "$ref": "#/$defs/exportName",
+          "description": "Reserved: a custom scene for the scope (not used by the palette yet)."
         }
       }
     }

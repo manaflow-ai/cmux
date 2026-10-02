@@ -200,7 +200,7 @@ declare namespace Cmux {
   type TriggerId = string
   type TriggerInput = unknown
   type UserId = string
-  type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; display_name: string; personal_team: Cmux.TeamId }
+  type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
   type ViewAttachmentOutcome = "applied" | "passive" | "superseded"
   type ViewAttachmentStreamOpened = { stream_id: string /* stream_… */; attachment_lease: string }
   type ViewerReleaseResult = { outcome: Cmux.ViewAttachmentOutcome }
@@ -209,7 +209,8 @@ declare namespace Cmux {
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
-interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string }
+interface CmuxAbortSignal { readonly aborted: boolean; readonly reason: unknown; onabort: ((ev: { type: "abort" }) => void) | null; addEventListener(type: "abort", fn: () => void): void; removeEventListener(type: "abort", fn: () => void): void; throwIfAborted(): void }
+interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string; /** Rejects the call with `aborted` when the signal fires. */ signal?: CmuxAbortSignal }
 type CmuxOp<P, R> = ((params?: P, options?: CmuxCallOptions) => Promise<R>) & { readonly opName: string }
 type CmuxSignal<T> = () => T
 interface CmuxLive<T> { (): T | undefined; error(): CmuxError | null; loading(): boolean; refresh(): void }
@@ -514,6 +515,10 @@ interface CmuxGlobal {
       /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
       list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
     }
+    integration: {
+      /** `team.integration.release_lock` (mutation, scope `team:write`): Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
+      release_lock: CmuxOp<{ reason?: string; expected_revision?: string }, Cmux.MutationResult<{ released: "sso" | "mdm" }>>
+    }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
       get: CmuxOp<{ version?: number }, { team: Cmux.TeamId; policy: Cmux.TeamPolicy; integration_managed_by: "sso" | "mdm" | null; revision: string }>
@@ -608,9 +613,43 @@ interface CmuxGlobal {
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
   t(key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>): string
+  palette: CmuxPalette
+  act: typeof act
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
+
+// Palette scopes (contributes.paletteScopes). Items are plain data: at most 2 KiB each, 10000 per snapshot, 200 per batch, no functions.
+/** A typed reference to a catalog action or op, or an app command `app:<id>#<command>`. */
+interface CmuxActionRef { id: string; args: Record<string, unknown>; title?: string; symbol?: string }
+interface CmuxPaletteItem {
+  id: string; title: string; subtitle?: string; symbol?: string; keywords?: string[]
+  accessory?: { date?: number | string; text?: string; badge?: string | number; symbol?: string }
+  /** Return runs the first, Cmd-Return the second; Tab (default drill) lists them all. */
+  actions?: CmuxActionRef[]
+  /** Tab drills into this scope with the item as context (default `actions`). */
+  drill?: string
+  /** A scope row: Return or Tab enters this scope. */
+  enters?: string
+}
+interface CmuxPaletteContext { readonly scope: string; readonly generation: number; readonly signal: CmuxAbortSignal; readonly context?: string; readonly filter?: string; readonly session?: string }
+interface CmuxPaletteDetail { markdown?: string; metadata?: Array<{ label: string; value: string; symbol?: string }>; actions?: CmuxActionRef[] }
+interface CmuxPaletteCached { readonly __cmuxPaletteCached: true }
+type CmuxPaletteSource<F> = F & { readonly __cmuxPaletteKind: "snapshot" | "query" | "detail" }
+interface CmuxPalette {
+  /** The whole candidate set; the host ranks it and caches it. Runs once per invalidation, never per keystroke. */
+  snapshot(fn: (ctx: CmuxPaletteContext) => CmuxPaletteItem[] | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(ctx: CmuxPaletteContext) => Promise<CmuxPaletteItem[]>>
+  /** Per query: every `yield` is a batch; a new query aborts the old generator through `ctx.signal`. */
+  query(fn: (query: string, ctx: CmuxPaletteContext) => AsyncIterable<CmuxPaletteItem[] | CmuxPaletteCached> | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(query: string, ctx: CmuxPaletteContext) => unknown>
+  /** Detail of the highlighted row (layout listWithDetail). */
+  detail(fn: (itemId: string, ctx: { scope: string; signal: CmuxAbortSignal }) => CmuxPaletteDetail | null | Promise<CmuxPaletteDetail | null>): CmuxPaletteSource<(itemId: string) => unknown>
+  /** Yield from a query source: the last complete result of the longest cached prefix of the query (provisional until the first live batch). */
+  cached(): CmuxPaletteCached
+}
+declare const palette: CmuxPalette
+declare function act(op: string, args?: Record<string, unknown>, overrides?: { title?: string; symbol?: string }): CmuxActionRef
+/** The second argument of a command export. `cmux` here carries the invocation's user gesture until the command settles (origin user); the global `cmux` does not. */
+interface CmuxCommandContext { readonly app: { id: string; version: string }; readonly gesture?: string; readonly cmux: CmuxGlobal }
 
 // Reactivity and views (the old cmux JS sidebar API).
 declare function signal<T>(initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]
