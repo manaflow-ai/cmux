@@ -1,0 +1,250 @@
+{
+  "scopes": {
+    "coderouter.status": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.keys.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.usage.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.route.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.connect": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.remove": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.share": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.order.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.agents.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.test": {
+      "scope": "coderouter:execute",
+      "class": "mutation"
+    },
+    "coderouter.keys.create": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "coderouter.keys.revoke": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "ui.secret.reveal": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "clipboard.writeSecret": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "coderouter.accounts.connect": {
+      "status": "connected"
+    },
+    "coderouter.accounts.remove": {
+      "removed": true
+    },
+    "coderouter.accounts.share": {
+      "accounts": [
+        "acct_1"
+      ],
+      "visibility": "team"
+    },
+    "coderouter.route.order.set": {
+      "ok": true
+    },
+    "coderouter.agents.set": {
+      "enabled": true
+    },
+    "coderouter.route.test": {
+      "ok": true,
+      "model": "gpt-5.5-codex",
+      "account_label": "ada@example.com",
+      "provider_name": "ChatGPT / Codex",
+      "latency_ms": 412,
+      "request_id": "7b1e0c52-4f3a-4d8e-9a61-2c5d0e8f9b14"
+    },
+    "coderouter.keys.create": {
+      "key": {
+        "id": "key_3",
+        "label": "editor",
+        "prefix": "crk_Q3vT",
+        "created_at_ms": 1790899200000,
+        "last_used_at_ms": null,
+        "revoked": false
+      },
+      "handle": "handle_9f2c",
+      "handle_expires_at_ms": 2106259200000
+    },
+    "coderouter.keys.revoke": {
+      "revoked": true
+    },
+    "ui.secret.reveal": {
+      "shown": true
+    },
+    "clipboard.writeSecret": {
+      "copied": true
+    },
+    "app.storage.get": null,
+    "app.storage.set": null,
+    "action.run": null,
+    "coderouter.status": {
+      "signed_in": true,
+      "user": {
+        "name": "Ada Park"
+      },
+      "scope": {
+        "kind": "team",
+        "team_id": "team_1",
+        "team_name": "Northwind Labs"
+      },
+      "health": "ok",
+      "agents_routed": false,
+      "usage_today": {
+        "requests": 214,
+        "total_tokens": 1843000,
+        "api_equivalent_usd": 6.42
+      }
+    },
+    "coderouter.detect": [
+      {
+        "provider": "codex",
+        "name": "ChatGPT / Codex",
+        "status": "signed_in",
+        "identity": "ada@example.com",
+        "plan": "Pro",
+        "linkable": true,
+        "source": "~/.codex/auth.json"
+      },
+      {
+        "provider": "claude",
+        "name": "Claude Code",
+        "status": "signed_in",
+        "identity": "ada@example.com",
+        "plan": "Max",
+        "linkable": true,
+        "source": "Keychain"
+      },
+      {
+        "provider": "openai",
+        "name": "OpenAI API",
+        "status": "signed_in",
+        "linkable": true,
+        "source": "$OPENAI_API_KEY"
+      },
+      {
+        "provider": "anthropic",
+        "name": "Anthropic API",
+        "status": "missing",
+        "linkable": true
+      },
+      {
+        "provider": "gemini",
+        "name": "Gemini",
+        "status": "signed_in",
+        "identity": "ada@example.com",
+        "linkable": false,
+        "source": "~/.gemini/oauth_creds.json"
+      },
+      {
+        "provider": "bedrock",
+        "name": "Amazon Bedrock",
+        "status": "expired",
+        "identity": "profile dev",
+        "linkable": true,
+        "source": "~/.aws/config"
+      }
+    ],
+    "coderouter.accounts.list": [
+      {
+        "id": "acct_1",
+        "provider": "codex",
+        "name": "ChatGPT / Codex",
+        "label": "ada@example.com",
+        "state": "active",
+        "visibility": "private",
+        "mine": true
+      }
+    ],
+    "coderouter.keys.list": [],
+    "coderouter.usage.get": {
+      "window": "7d",
+      "group_by": "account",
+      "totals": {
+        "requests": 1630,
+        "total_tokens": 12480000,
+        "api_equivalent_usd": 41.37
+      },
+      "rows": [
+        {
+          "id": "acct_1",
+          "label": "ada@example.com (Codex)",
+          "requests": 980,
+          "total_tokens": 7900000,
+          "api_equivalent_usd": 24.1
+        },
+        {
+          "id": "acct_2",
+          "label": "ops@example.com (Claude)",
+          "requests": 540,
+          "total_tokens": 3900000,
+          "api_equivalent_usd": 14.92
+        },
+        {
+          "id": "acct_3",
+          "label": "key …41f2",
+          "requests": 110,
+          "total_tokens": 680000,
+          "api_equivalent_usd": 2.35
+        }
+      ]
+    },
+    "coderouter.route.get": {
+      "surface": "responses",
+      "strategy": "ordered",
+      "order": [
+        {
+          "account": "acct_1",
+          "label": "ada@example.com",
+          "name": "ChatGPT / Codex",
+          "state": "active"
+        },
+        {
+          "account": "acct_3",
+          "label": "key …41f2",
+          "name": "OpenRouter",
+          "state": "active",
+          "cooldown_until_ms": 1791763200000
+        }
+      ]
+    }
+  }
+}

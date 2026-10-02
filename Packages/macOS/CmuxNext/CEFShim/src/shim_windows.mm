@@ -1,5 +1,5 @@
 // Chromium never opens a window of its own: the window request handler (fork
-// API 8), popup dispositions for the host's adoption, and the Chrome commands
+// API 8), popup dispositions for the host's adoption, and the Chromium commands
 // that would open a Chromium window.
 
 #include <deque>

@@ -1,4 +1,4 @@
-// A changed file's More menu, after the per-file menu in Codex's changes view: Copy path,
+// A changed file's More menu: Copy path,
 // and Collapse file (Expand file when folded). It is a menu button: it opens on its first
 // item, arrows move through the items, Enter or Space runs one, and Escape, Tab or a press
 // elsewhere closes it.

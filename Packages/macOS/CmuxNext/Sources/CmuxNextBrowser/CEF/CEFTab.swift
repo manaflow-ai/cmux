@@ -27,6 +27,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
+    /// Set once by `markAgentDriven`; saved passwords do not fill in this tab.
+    @ObservationIgnored public internal(set) var isAgentDriven = false
 
     /// Rects in `contentView` coordinates where native UI covers the page.
     public var occlusionRects: [CGRect] = [] {
@@ -57,10 +59,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
     /// The renderer ended while the tab was hidden: reload when shown
-    /// (Chrome reloads a crashed background tab when it is selected).
+    /// (a crashed background tab reloads when it is selected).
     @ObservationIgnored var reloadWhenShown = false
     /// The tab showed a real page (or a page opened it): its page
-    /// background is Chrome's white from now on (`PageBackground`).
+    /// background is Chromium's white from now on (`PageBackground`).
     @ObservationIgnored private(set) var pastFirstRealPage = false
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
@@ -114,6 +116,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         browserID = browser
         isCreationPending = false
         applyPageBackground()
+        applyPasswordFill()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
         // Focus asked for while the page was being created applies only if
@@ -146,7 +149,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     /// A real page committed, or a page opened this tab (a popup,
-    /// target=_blank): Chrome's white default from now on, kept across tab
+    /// target=_blank): Chromium's white default from now on, kept across tab
     /// moves and popups (fork API 12).
     func reachedFirstRealPage() {
         guard !pastFirstRealPage else { return }

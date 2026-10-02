@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// One suggestion: 16 pt icon, then "title – detail" on one line with the
-/// detail dimmed (Helium: "query - Engine Search"). The one highlighted row
+/// detail dimmed ("query - Engine Search"). The one highlighted row
 /// (keyboard or mouse, the state machine decides) gets an 8 pt rounded gray
 /// fill. The row itself only reports the pointer and clicks.
 final class SuggestionRowView: NSView {

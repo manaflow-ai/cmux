@@ -1,20 +1,11 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/edge-cases.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570. History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Browser REPL edge cases
 
-Every row is one differential case in
-[tests/browser-parity/diff/cases](../../../tests/browser-parity/diff/cases)
-(the `edge` field names the id). The case runs the same task in cmux, Aside
-and ChatGPT for Chrome where the reference can run it inside the approved
-test scope, and [parity-report.md](parity-report.md) lists its verdicts.
-`tests/browser-parity/unit/diff.test.mjs` fails when a row has no case or a
-case names an id that is not here.
-
-Scope for the references: ChatGPT for Chrome runs on one approved origin
-(`http://127.0.0.1:PORT`), so rows that need another origin, TLS or DNS are
-out of scope for it; Aside runs on loopback fixture pages, so rows that need a
-public name (`lvh.me`, `.invalid`) are out of scope for it. Rows that act on
-processes or on a person's window run in the cmux app only.
+Every row is one edge case and the cmux behavior it must keep. The `Case`
+column names the executable case id; the cases run in the private parity
+suite. Rows that act on processes or on a person's window run in the cmux app
+only.
 
 ## Network and navigation
 
@@ -95,7 +86,7 @@ processes or on a person's window run in the cmux app only.
 | `window-open-features` | `window.open(url, name, "width=...")` | A `popup` event with a page that has an opener | `edge.window-open` |
 | `window-open-noopener` | `window.open(url, "_blank", "noopener")` | A `popup` event; the popup has no opener | `edge.window-open` |
 | `window-close` | A popup calls `window.close()` | The page emits `close` and leaves `tabs.list()` | `edge.window-open` |
-| `beforeunload` | Leaving a page with a beforeunload handler | A navigation the agent starts leaves without a prompt, as in both references (Chrome accepts the prompt itself); a prompt WebKit does raise is held in `page.dialog()` | `dialogs.beforeunload` |
+| `beforeunload` | Leaving a page with a beforeunload handler | A navigation the agent starts leaves without a prompt; a prompt WebKit does raise is held in `page.dialog()` | `dialogs.beforeunload` |
 | `alert-during-navigation` | `alert()` while the document loads | The dialog is held; answering it lets the navigation finish | `edge.alert-during-navigation` |
 | `large-page` | 5,000 rows with 10,000 controls | The snapshot value holds everything; locators act on any row | `edge.large-page` |
 | `main-thread-blocked` | A click handler that blocks the main thread for 2.5 s | Calls wait for the page and then succeed | `edge.main-thread-blocked` |

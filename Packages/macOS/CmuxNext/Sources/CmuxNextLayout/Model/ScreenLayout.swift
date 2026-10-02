@@ -1,4 +1,4 @@
-/// One niri-style scrollable column. Its width is a fraction of the viewport.
+/// One scrollable column. Its width is a fraction of the viewport.
 public nonisolated struct LayoutColumn: Hashable, Sendable, Identifiable {
     public var id: ColumnID
     /// Fraction of the viewport width, 0.1...1.0 (daemon `set-viewport-pane-width`).

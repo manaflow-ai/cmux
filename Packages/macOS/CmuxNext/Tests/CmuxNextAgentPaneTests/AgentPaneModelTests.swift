@@ -74,4 +74,53 @@ private actor RecordingHost: AgentPaneHostProviding {
         let reply = await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .unsupported("chat.send"))
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
     }
+
+    /// A new chat starts in the seed's cwd with its draft; the draft is
+    /// handed out once, the cwd until the chat has a session (#16620).
+    @Test func aNewChatStartsFromItsSeed() async throws {
+        let model = AgentPaneModel(host: RecordingHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w", draft: "hi")))
+        let first = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(first["cwd"] as? String == "/tmp/w")
+        #expect(first["draft"] as? String == "hi")
+        let reload = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(reload["cwd"] as? String == "/tmp/w")
+        #expect(reload["draft"] == nil)
+        _ = await model.respond(to: .persistSession("s-1"))
+        let attached = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(attached["cwd"] == nil)
+    }
+
+    /// A chat that reopens a session ignores the seed.
+    @Test func aSessionTabIgnoresTheSeed() async throws {
+        let model = AgentPaneModel(host: RecordingHost(), sessionId: "s-2", seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w", draft: "hi")))
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["cwd"] == nil)
+        #expect(value["draft"] == nil)
+    }
+
+    /// A seed read that never answers (a hung page) is dropped at its
+    /// limit instead of holding the handshake.
+    @Test func aSeedThatNeverAnswersIsDropped() async throws {
+        let seed = AgentPaneSeedSource(limit: .milliseconds(50)) {
+            try? await Task.sleep(for: .seconds(5))
+            return AgentPaneSeed(cwd: "/late")
+        }
+        let model = AgentPaneModel(host: RecordingHost(), seed: seed)
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["transport"] as? String == "acpmux-websocket")
+        #expect(value["cwd"] == nil)
+    }
+}
+
+/// The page's `pane.context` answer (#16620).
+@Suite struct AgentPaneContextTests {
+    @Test func readsTheCwdAndWebURLs() {
+        let context = AgentPaneContext(page: ["cwd": "/w/app", "urls": ["http://localhost:5173/", "javascript:alert(1)", 7, "https://github.com/o/r/pull/2"]])
+        #expect(context == AgentPaneContext(cwd: "/w/app", urls: [URL(string: "http://localhost:5173/")!, URL(string: "https://github.com/o/r/pull/2")!]))
+    }
+
+    @Test func anEmptyOrMissingAnswerIsNotAContext() {
+        #expect(AgentPaneContext(page: nil) == nil)
+        #expect(AgentPaneContext(page: ["cwd": "", "urls": []]) == AgentPaneContext())
+    }
 }

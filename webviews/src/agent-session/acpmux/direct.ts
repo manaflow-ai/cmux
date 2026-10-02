@@ -2,6 +2,7 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, Acpmu
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
+import { FORK_OP, servesOperation } from "./operations";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -11,7 +12,16 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A new chat's working directory, inherited from the tab it was opened from. */
+  cwd?: string;
+  /** Text the composer starts with. Shown, never sent by itself. */
+  draft?: string;
 };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
+export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+  return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
 
 export type EventRecord = {
   sessionId?: string;
@@ -142,7 +152,10 @@ export function mergeToolItem(
       kind: update.kind ?? before?.kind,
       status: String(update.status ?? before?.status ?? "in_progress"),
       inputSummary: update.rawInput ? JSON.stringify(update.rawInput) : before?.inputSummary,
-      output: output || (update.content === undefined ? before?.output : undefined),
+      output:
+        output || formattedOutput(update.rawOutput) || (update.content === undefined ? before?.output : undefined),
+      command: shellCommand(update.rawInput) ?? before?.command,
+      exitCode: exitCode(update.rawOutput) ?? before?.exitCode,
       locations: Array.isArray(update.locations) ? update.locations : before?.locations,
       diffs:
         update.content === undefined
@@ -152,9 +165,37 @@ export function mergeToolItem(
   };
 }
 
+/// The command line a shell call ran, from `rawInput.command`: a string, or an argv array. An
+/// argv that runs a script through a shell (`zsh -lc "cd x && bun test"`) shows the script;
+/// otherwise a part with spaces or quotes is single-quoted, so the line reads as typed.
+export function shellCommand(rawInput: any): string | undefined {
+  const command = rawInput?.command;
+  if (typeof command === "string") return command;
+  if (!Array.isArray(command) || !command.every((part) => typeof part === "string") || !command.length)
+    return undefined;
+  const [program, flag, script] = command as string[];
+  if (command.length === 3 && /(^|\/)(ba|z|da|fi)?sh$/.test(program!) && /^-l?c$/.test(flag!)) return script;
+  return (command as string[])
+    .map((part) => (/^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, "'\\''")}'`))
+    .join(" ");
+}
+
+function exitCode(rawOutput: any): number | undefined {
+  const code = rawOutput?.exit_code ?? rawOutput?.exitCode;
+  return typeof code === "number" ? code : undefined;
+}
+
+/// Codex reports a shell call's output in `rawOutput` when the call carries no content.
+function formattedOutput(rawOutput: any): string {
+  const text = rawOutput?.formatted_output;
+  return typeof text === "string" ? text : "";
+}
+
 function textFromContent(content: any): string {
   if (typeof content === "string") return content;
   if (content?.type === "text") return String(content.text ?? "");
+  // A tool call's content blocks wrap their text: `{ type: "content", content: { type: "text" } }`.
+  if (content?.type === "content") return textFromContent(content.content);
   if (Array.isArray(content)) return content.map(textFromContent).join("");
   return "";
 }
@@ -192,6 +233,9 @@ export class AcpmuxDirectClient {
   private firstSeq?: number;
   private lastSeq = 0;
   private turnOpen = false;
+  /// acpmux lists `acp.session.fork` among the operations it serves.
+  private canFork = false;
+  private forking = false;
   private streamingAssistant?: string;
   private streamingAssistantMessageId?: string;
   private streamingActivity?: string;
@@ -201,7 +245,7 @@ export class AcpmuxDirectClient {
   /// The activity row each tool call lives in, so a late update lands where the call began.
   private toolRows = new Map<string, string>();
   private readonly listener: Listener;
-  private readonly host: AcpmuxHostConfig;
+  private host: AcpmuxHostConfig;
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -274,11 +318,12 @@ export class AcpmuxDirectClient {
       socket.onmessage = (message) => this.receive(String(message.data));
     });
     try {
-      await this.request("initialize", {
+      const initialized = await this.request("initialize", {
         protocolVersion: 1,
         clientInfo: { name: "cmux-react-agent-pane", version: "1" },
         clientCapabilities: {},
       });
+      this.canFork = servesOperation(initialized, FORK_OP);
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
@@ -475,6 +520,16 @@ export class AcpmuxDirectClient {
   /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
   fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
     return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+  }
+
+  /// The selected session's repository changes in one git scope (changes/model.ts).
+  gitScopeDiff(scope: string): Promise<unknown> {
+    return this.request("git.scope.diff", { sessionId: this.selectedSessionId, scope });
+  }
+
+  /// The selected session's branch, upstream and how far it is ahead and behind.
+  gitStatus(): Promise<unknown> {
+    return this.request("git.status", { sessionId: this.selectedSessionId });
   }
 
   private request(method: string, params: Record<string, unknown>): Promise<any> {
@@ -685,6 +740,7 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "turnSummary",
+            seq: event.seq,
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
@@ -837,6 +893,7 @@ export class AcpmuxDirectClient {
       connection,
       sessionId: this.selectedSessionId,
       isWorking: this.turnOpen || summary?.status === "running",
+      canFork: this.canFork,
       queue: this.queue,
       permission: this.pendingPermission,
       catalog: [],
@@ -903,9 +960,40 @@ export class AcpmuxDirectClient {
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
   }
   async create(harness?: string): Promise<string | undefined> {
-    const result = await this.request("session/new", { mcpServers: [], _meta: { acpmux: { harness } } });
+    const result = await this.request("session/new", newSessionParams(this.host, harness));
+    // The inherited cwd is the first chat's; later new chats start where acpmux defaults.
+    if (result?.sessionId) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
+  }
+  /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
+  /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
+  /// transcript; a reader who opened another session meanwhile stays there.
+  async fork(throughSeq: number): Promise<string | undefined> {
+    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    this.forking = true;
+    const generation = this.selectionGeneration;
+    try {
+      const result = await this.request(FORK_OP, { sessionId: this.selectedSessionId, throughSeq });
+      if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      return await this.select(String(result.sessionId));
+    } catch (error) {
+      if (generation === this.selectionGeneration) {
+        const at = Date.now();
+        const reason = error instanceof Error && error.message ? `: ${error.message}` : "";
+        this.rows.set(`notice-fork-${at}`, {
+          id: `notice-fork-${at}`,
+          version: 1,
+          at,
+          kind: "notice",
+          text: `Couldn't fork this chat${reason}`,
+        });
+        this.emit("fork failed");
+      }
+      return undefined;
+    } finally {
+      this.forking = false;
+    }
   }
   async setModel(modelId: string): Promise<void> {
     if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });

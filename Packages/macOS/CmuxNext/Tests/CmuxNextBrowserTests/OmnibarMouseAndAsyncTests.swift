@@ -15,7 +15,7 @@ import Testing
     @Test func theFocusingClickSelectsEverything() {
         let sim = OmnibarSim()
         sim.click(selecting: range(7, 0))
-        #expect(sim.field.text == "github.com/manaflow-ai/cmux", "select-all keeps the elided URL (Chrome)")
+        #expect(sim.field.text == "github.com/manaflow-ai/cmux", "select-all keeps the elided URL")
         #expect(sim.field.selection == range(0, 27))
         #expect(sim.state.mouse == nil)
     }
@@ -246,7 +246,7 @@ import Testing
         let sim = OmnibarSim()
         sim.focus()
         sim.send(.pageURLChanged(URL(string: "https://example.com/redirected")!))
-        #expect(sim.field.text == "example.com/redirected", "Chrome reverts to the display text")
+        #expect(sim.field.text == "example.com/redirected", "reverts to the display text")
         #expect(sim.field.selection == range(0, 22))
         sim.moveSelection(to: range(5, 0))
         sim.send(.pageURLChanged(URL(string: "https://e.x/")!))

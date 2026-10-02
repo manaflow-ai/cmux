@@ -1,0 +1,211 @@
+{
+  "scopes": {
+    "coderouter.status": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.keys.list": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.usage.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.route.get": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
+    "coderouter.accounts.connect": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.remove": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.accounts.share": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.order.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.agents.set": {
+      "scope": "coderouter:write",
+      "class": "mutation"
+    },
+    "coderouter.route.test": {
+      "scope": "coderouter:execute",
+      "class": "mutation"
+    },
+    "coderouter.keys.create": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "coderouter.keys.revoke": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "ui.secret.reveal": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    },
+    "clipboard.writeSecret": {
+      "scope": "coderouter:control",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "coderouter.accounts.connect": {
+      "status": "connected"
+    },
+    "coderouter.accounts.remove": {
+      "removed": true
+    },
+    "coderouter.accounts.share": {
+      "accounts": [
+        "acct_1"
+      ],
+      "visibility": "team"
+    },
+    "coderouter.route.order.set": {
+      "ok": true
+    },
+    "coderouter.agents.set": {
+      "enabled": true
+    },
+    "coderouter.route.test": {
+      "ok": true,
+      "model": "gpt-5.5-codex",
+      "account_label": "ada@example.com",
+      "provider_name": "ChatGPT / Codex",
+      "latency_ms": 412,
+      "request_id": "7b1e0c52-4f3a-4d8e-9a61-2c5d0e8f9b14"
+    },
+    "coderouter.keys.create": {
+      "key": {
+        "id": "key_3",
+        "label": "editor",
+        "prefix": "crk_Q3vT",
+        "created_at_ms": 1790899200000,
+        "last_used_at_ms": null,
+        "revoked": false
+      },
+      "handle": "handle_9f2c",
+      "handle_expires_at_ms": 2106259200000
+    },
+    "coderouter.keys.revoke": {
+      "revoked": true
+    },
+    "ui.secret.reveal": {
+      "shown": true
+    },
+    "clipboard.writeSecret": {
+      "copied": true
+    },
+    "app.storage.get": null,
+    "app.storage.set": null,
+    "action.run": null,
+    "coderouter.status": {
+      "signed_in": true,
+      "user": {
+        "name": "Ada Park"
+      },
+      "scope": {
+        "kind": "personal",
+        "team_id": "user_1",
+        "team_name": "Ada Park"
+      },
+      "health": "ok",
+      "agents_routed": false,
+      "usage_today": {
+        "requests": 0,
+        "total_tokens": 0,
+        "api_equivalent_usd": 0
+      }
+    },
+    "coderouter.detect": [
+      {
+        "provider": "codex",
+        "name": "ChatGPT / Codex",
+        "status": "missing",
+        "identity": null,
+        "plan": null,
+        "linkable": true,
+        "source": null
+      },
+      {
+        "provider": "claude",
+        "name": "Claude Code",
+        "status": "missing",
+        "identity": null,
+        "plan": null,
+        "linkable": true,
+        "source": null
+      },
+      {
+        "provider": "openai",
+        "name": "OpenAI API",
+        "status": "missing",
+        "linkable": true,
+        "source": null,
+        "identity": null,
+        "plan": null
+      },
+      {
+        "provider": "anthropic",
+        "name": "Anthropic API",
+        "status": "missing",
+        "linkable": true,
+        "identity": null,
+        "plan": null,
+        "source": null
+      },
+      {
+        "provider": "gemini",
+        "name": "Gemini",
+        "status": "missing",
+        "identity": null,
+        "linkable": false,
+        "source": null,
+        "plan": null
+      },
+      {
+        "provider": "bedrock",
+        "name": "Amazon Bedrock",
+        "status": "missing",
+        "identity": null,
+        "linkable": true,
+        "source": null,
+        "plan": null
+      }
+    ],
+    "coderouter.accounts.list": [],
+    "coderouter.keys.list": [],
+    "coderouter.usage.get": {
+      "window": "7d",
+      "group_by": "account",
+      "totals": {
+        "requests": 0,
+        "total_tokens": 0,
+        "api_equivalent_usd": 0
+      },
+      "rows": []
+    },
+    "coderouter.route.get": {
+      "surface": "responses",
+      "strategy": "headroom",
+      "order": []
+    }
+  }
+}

@@ -35,7 +35,7 @@ final class QuitCoordinator {
         }
     }
 
-    /// SIGTERM (`QuitSignal`): Quit, keep sessions, never an alert. Dev
+    /// SIGTERM, SIGINT, SIGHUP (`QuitSignal`): Quit, keep sessions, never an alert. Dev
     /// tooling quits tagged apps this way (scripts/lib/stop-app-instances.sh)
     /// and must never wait on the alert. An open alert is answered with
     /// keep; a quit already completing is left to finish.
@@ -84,6 +84,10 @@ final class QuitCoordinator {
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
         let services = services
+        // From here the quit is decided: an end before AppKit's reply (a
+        // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
+        // a quit the user asked for, not a crash.
+        services.crashRecovery.quitBegan()
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
@@ -99,7 +103,8 @@ final class QuitCoordinator {
                 await services.remoteTerminals.saveSnapshots()
                 await services.windows.prepareForTermination()
             },
-            endLocalSessions: { await services.daemon.endSessionsAndStop($0) }
+            endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
+            stopBrowserEngines: { await services.cache.cef.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

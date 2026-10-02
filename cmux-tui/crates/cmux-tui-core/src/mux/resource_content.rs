@@ -408,8 +408,7 @@ impl Mux {
                         target_tabs.get(new_index).map(|tab| tab.public_id.clone());
                 }
 
-                let mut changes = Vec::new();
-                changes.push(ResourceChange::UpsertPane(source_pane.clone()));
+                let mut changes = vec![ResourceChange::UpsertPane(source_pane.clone())];
                 if target_pane_id != source_pane_id {
                     changes.push(ResourceChange::UpsertPane(target_pane.clone()));
                 }
@@ -547,7 +546,8 @@ impl Mux {
                     order_entries: source_delta_tabs.len() + target_delta_tabs.len(),
                     terminal_queries: 0,
                     changed_rows: source_delta_tabs.len() + target_delta_tabs.len() + 3,
-                }))
+                })
+                .moving_tab(surface, target_pane_slot, index))
             },
         )?;
 

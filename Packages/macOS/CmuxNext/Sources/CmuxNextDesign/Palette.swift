@@ -52,9 +52,10 @@ public struct Palette {
     /// Focus ring and keyboard focus indicator. Replaces the system blue ring.
     public static var focusRing: NSColor { color(\.focusRing, dynamic: PaletteDynamic.focusRing) }
     /// Hairline separators.
-    public static var separator: NSColor { color(\.separator, dynamic: PaletteDynamic.separator) }
+    /// Clear under `appearance.borders` none (`Borders`).
+    public static var separator: NSColor { Borders.color(color(\.separator, dynamic: PaletteDynamic.separator)) }
     /// The subtle hairline around each pane (`layout.paneBorder`).
-    public static var paneBorder: NSColor { color(\.paneBorder, dynamic: PaletteDynamic.paneBorder) }
+    public static var paneBorder: NSColor { Borders.color(color(\.paneBorder, dynamic: PaletteDynamic.paneBorder)) }
     /// Tint applied to glass so it takes the theme's cast.
     public static var glassTint: NSColor { color(\.glassTint, dynamic: PaletteDynamic.glassTint) }
     /// Drop shadow color (opaque; the layer's shadowOpacity sets strength).
@@ -80,6 +81,12 @@ public struct Palette {
     /// (the app theme outside one).
     public static func tunable(_ color: TunableColor) -> NSColor {
         color.resolve(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor
+    }
+
+    /// The pane focus ring for `settings` in the active theme scope (the app
+    /// theme outside one).
+    public static func paneFocusRing(_ settings: FocusRingSettings, override: CGFloat?) -> NSColor {
+        settings.ringColor(in: ThemeContext.active ?? ThemeScope.app.tokens, override: override).nsColor
     }
 
     /// Inside `performWithTheme` (or `ThemeScope.perform`) a plain color of

@@ -127,8 +127,11 @@ takes the lane's Blacksmith default, so the watch ends there. A
 stuck run that finished some other way (a newer push cancelled it) is not
 re-run. Its watch lasts SIDE_WATCH_LIMIT_SECONDS. A side-lane run that is not
 a pull request has no head to move, like a dispatch. cmux-next.yml exists only
-on the feat-cmux-next branch; its side-lane run uploads the owned-pool-watch
-marker itself, so the sweeper adopts it like a picker's run.
+on the feat-cmux-next branch; its macos-placement job puts each Mac job of
+attempt 1 on the side label only while an owned side runner is idle
+(side_lane_placement.py), the rest on the job's fallback, and uploads the
+owned-pool-watch marker unless every job took the fallback, so the sweeper
+adopts it like a picker's run and watches the jobs on owned labels.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
 no picker, and attempt 1 of a push or schedule run on main puts
@@ -241,7 +244,8 @@ NIGHTLY_EVENTS = frozenset({"push", "schedule"})
 TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/auth-refresh-tests.yml",
-    # feat-cmux-next only; uploads the owned-pool-watch marker on attempt 1.
+    # feat-cmux-next only; on attempt 1 its placement job (side_lane_placement.py) puts a Mac job on the
+    # side label only while a side runner is idle, and uploads the owned-pool-watch marker when one is.
     ".github/workflows/cmux-next.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",

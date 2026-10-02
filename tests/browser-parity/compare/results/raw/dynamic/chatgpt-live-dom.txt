@@ -1,8 +1,0 @@
-<button node_id=1>Load later</button>
-<button node_id=2>Push state</button>
-<a node_id=3 href="/aria.html">Open new tab</a>
-<button node_id=4>Open popup</button>
-<button node_id=5>Slow navigate</button>
-<button node_id=6>Fetch</button>
-<button node_id=7>Log</button>
-<button node_id=8>Store</button>

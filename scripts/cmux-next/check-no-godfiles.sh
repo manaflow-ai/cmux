@@ -18,14 +18,34 @@
 # (it only lowers numbers and drops entries that now meet the budget; it never
 # raises a number or adds an entry).
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline] [package-root]
+# --only swift checks the Swift files and types; --only rust checks the cmux-tui
+# Rust files. CI runs them as separate steps so one half never hides the other.
+# --update-baseline rewrites the whole baseline, so it takes no --only.
+#
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [package-root]
 set -euo pipefail
 
 update=0
-if [[ "${1:-}" == "--update-baseline" ]]; then
-  update=1
-  shift
+only=all
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --update-baseline) update=1; shift ;;
+    --only)
+      case "${2:-}" in
+        swift | rust) only="$2" ;;
+        *) echo "--only takes swift or rust, got '${2:-}'" >&2; exit 2 ;;
+      esac
+      shift 2 ;;
+    *) break ;;
+  esac
+done
+if (( update )) && [[ "$only" != all ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only" >&2
+  exit 2
 fi
+check_swift=0; check_rust=0
+[[ "$only" != rust ]] && check_swift=1
+[[ "$only" != swift ]] && check_rust=1
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="${1:-$(git -C "$script_dir" rev-parse --show-toplevel)/Packages/macOS/CmuxNext}"
 repo="$(git -C "$root" rev-parse --show-toplevel)"
@@ -44,7 +64,7 @@ rust_fn_re='^[[:space:]]*(pub(\([a-z:_ ]+\))? +)?(default +)?(const +)?(async +)
 status=0
 
 # 1. Swift files: absolute limits.
-while IFS= read -r -d '' file; do
+(( check_swift )) && while IFS= read -r -d '' file; do
   lines=$(wc -l < "$file" | tr -d ' ')
   limit=$swift_file_limit
   [[ "$file" == */Tests/* ]] && limit=$swift_test_file_limit
@@ -66,7 +86,7 @@ trap 'rm -f "$measurements"' EXIT
 
 # Swift types. A top-level declaration starts at column 0 and ends at the next
 # line that starts with "}" (the package is formatted that way).
-if [[ -d "$root/Sources" ]]; then
+if (( check_swift )) && [[ -d "$root/Sources" ]]; then
   find "$root/Sources" -name '*.swift' -print0 | xargs -0 awk '
     FNR == 1 {
       in_decl = 0
@@ -102,7 +122,7 @@ if [[ -d "$root/Sources" ]]; then
 fi
 
 # Rust files in cmux-tui (tracked only, so build output never counts).
-while IFS= read -r rel; do
+(( check_rust )) && while IFS= read -r rel; do
   [[ -f "$repo/$rel" ]] || continue
   lines=$(wc -l < "$repo/$rel" | tr -d ' ')
   fns=$(grep -cE "$rust_fn_re" "$repo/$rel" || true)
@@ -115,9 +135,11 @@ done < <(git -C "$repo" ls-files 'cmux-tui/*.rs' | grep -vE '^cmux-tui/(vendor/|
 
 # 3. Compare against the baseline.
 [[ -f "$baseline" ]] || : > "$baseline"
-report="$(awk -F'\t' -v update="$update" '
+report="$(awk -F'\t' -v update="$update" -v only="$only" '
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
+    if (only == "swift" && $1 != "swift-type") next
+    if (only == "rust" && $1 != "rust-file") next
     base_lines[$1 "\t" $2] = $3; base_fns[$1 "\t" $2] = $4
     next
   }

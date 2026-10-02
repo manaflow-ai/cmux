@@ -53,14 +53,14 @@ final class OmnibarPillView: NSView {
                 layer?.backgroundColor = fill.cgColor
                 layer?.borderColor = OmnibarStyle.ring.cgColor
             }
-            layer?.borderWidth = ring
+            layer?.borderWidth = Metrics.lineWidth(ring)
         }
     }
 }
 
 /// The part of the suggestion card that surrounds the bar: 3 pt above and
 /// 6 pt past each side, rounded at the top only. The dropdown panel continues
-/// it below the bar, so bar and rows read as one card (Helium's popup).
+/// it below the bar, so bar and rows read as one card.
 final class OmnibarCardTopView: NSView {
     private let card = CALayer()
 

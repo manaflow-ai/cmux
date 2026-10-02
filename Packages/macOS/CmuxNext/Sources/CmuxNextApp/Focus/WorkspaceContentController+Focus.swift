@@ -27,7 +27,14 @@ extension WorkspaceContentController {
                 ?? (tabs.isEmpty ? nil : tabs[min(max(model.defaultTabIndex, 0), tabs.count - 1)].id)
             panes.append(FocusTopology.Pane(id: id.rawValue, tabs: tabs, selected: selected))
         }
-        return FocusTopology(workspace: workspace.id, panes: panes)
+        let screens = layoutModel.screens.map { screen -> [FocusTopology.Column] in
+            switch screen.layout {
+            case .splits(let root): [FocusTopology.Column(id: screen.id.rawValue, panes: root.panes.map(\.rawValue))]
+            case .columns:
+                screen.layout.visualColumns.map { FocusTopology.Column(id: $0.id.rawValue, panes: $0.root.panes.map(\.rawValue)) }
+            }
+        }
+        return FocusTopology(workspace: workspace.id, panes: panes, screens: screens)
     }
 
     /// The shown workspace's focus history, newest first (focus.md 4a).

@@ -1,4 +1,5 @@
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
+import { FORK_OP } from "./operations";
 import {
   claudeModels,
   codexModels,
@@ -10,8 +11,9 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-
+import { mockGitStatus, mockScopeDiff } from "./mockGit";
 import { mockFileSearch } from "./mockFiles";
+
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
 // real acpmux client against this in-page daemon, which speaks the daemon's
@@ -192,7 +194,7 @@ export class MockAcpmuxSocket {
     this.record(target, { update: { sessionUpdate: "available_commands_update", availableCommands: commands } }, at);
   }
 
-  /// Ends a seeded open turn: its permission is answered or withdrawn, its waiting tool settles,
+  /// Ends a seeded open turn: its permission is answered or withdrawn, its waiting or running tool settles,
   /// and the session goes idle. A turn already closed stays as it is.
   private closeSeededTurn(target: string, status: "completed" | "cancelled", allowed = false): void {
     if (!this.openTurns.delete(target)) return;
@@ -200,7 +202,7 @@ export class MockAcpmuxSocket {
       (event) =>
         event.sessionId === target &&
         event.kind === "tool_call" &&
-        (event.msg as any)?.params?.update?.status === "pending",
+        ["pending", "in_progress"].includes((event.msg as any)?.params?.update?.status),
     );
     const toolCallId = (tool?.msg as any)?.params?.update?.toolCallId;
     if (toolCallId)
@@ -243,6 +245,11 @@ export class MockAcpmuxSocket {
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
     switch (method) {
+      // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
+      case "initialize":
+        return { protocolVersion: 1, _meta: { acpmux: { operations: [FORK_OP] } } };
+      case FORK_OP:
+        return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
@@ -307,9 +314,39 @@ export class MockAcpmuxSocket {
           params.query,
           params.limit,
         );
+      case "git.scope.diff":
+        return mockScopeDiff(target, params.scope);
+      case "git.status":
+        return mockGitStatus(target);
       default:
         return {};
     }
+  }
+
+  /// A new session holding `target`'s events through `throughSeq`, under its own sequence.
+  private fork(target: string, throughSeq: number): { sessionId: string } {
+    const source = this.sessions.find((entry) => entry.sessionId === target);
+    if (!source || !Number.isFinite(throughSeq)) throw new Error(`cannot fork ${target}`);
+    const sessionId = `mock-session-${this.sessions.length + 1}`;
+    for (const event of this.events.filter((entry) => entry.sessionId === target && entry.seq <= throughSeq)) {
+      this.seq += 1;
+      const msg =
+        event.dir === "in" ? { ...event.msg, params: { ...(event.msg as any).params, sessionId } } : event.msg;
+      this.events.push({ ...event, sessionId, seq: this.seq, msg });
+    }
+    const turns = this.events.filter((entry) => entry.sessionId === sessionId && entry.kind === "turn_result").length;
+    const created = {
+      ...source,
+      sessionId,
+      status: "idle",
+      unread: false,
+      pendingPermissions: 0,
+      turnCount: turns,
+      updatedAt: Date.now(),
+    };
+    this.sessions.push(created);
+    this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "created", session: created } });
+    return { sessionId };
   }
 
   private async prompt(target: string, prompt: string, promptId?: string): Promise<unknown> {

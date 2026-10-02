@@ -1,12 +1,10 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/site-tools.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570. History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Site tools (`sites`)
 
 `sites` is the REPL global for site-specific tools: Google Workspace, Gmail,
 Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira,
-page assets, WebMCP and a secure sign-in handoff. It covers what Aside's REPL
-integrations and ChatGPT for Chrome's site capabilities offer, with three
-rules neither reference enforces together:
+page assets, WebMCP and a secure sign-in handoff, with three rules:
 
 1. **The user's cmux browser session is the only credential.** A tool reads
    through the cookie-bearing REPL `fetch` (Google's export endpoints,
@@ -14,17 +12,13 @@ rules neither reference enforces together:
    profile, where its code runs in the page's own world against the site's
    own origin. A token a site keeps in the page (Slack's `xoxc-` token in
    `localStorage`, LinkedIn's CSRF cookie) is used inside that page and never
-   returned. Aside's `slack.getClient()` and `notion.getClient()` extract
-   the token into the REPL; its `imagegen` object printed OAuth tokens in a
-   probe.
+   returned to the REPL.
 2. **Reads run directly. Writes that reach other people are drafts.**
    `sites.gmail.send(message)` returns a draft (what will be sent, to whom,
-   from which account, and the ChatGPT confirmation category it falls under).
+   from which account, and the confirmation category it falls under).
    Nothing happens until `sites.gmail.send(draft.id, { confirm: true })`.
-   Aside's `slack` client posts, `twitter.tweet()` posts and `gmail` compose
-   pages send with no gate; ChatGPT for Chrome has the rule only as policy
-   text ([confirmations.md](#confirmation-taxonomy)). cmux enforces it in the
-   API: a write without a draft id is a draft, `{ confirm: true }` without a
+   cmux enforces this in the API, not as policy text
+   ([confirmation taxonomy](#confirmation-taxonomy)): a write without a draft id is a draft, `{ confirm: true }` without a
    draft id is an error, a draft is single-use, expires after 30 minutes and
    lives only in the REPL session that made it.
 3. **Failures say what to do.** A tab that reaches a sign-in page (at load or
@@ -49,44 +43,40 @@ await sites.gmail.send(draft.id, { confirm: true });
 
 ## Inventory
 
-Aside is `aside skills show <name>` plus its hidden builtin skills and REPL
-globals (Aside CLI 1.26.916); ChatGPT is the Chrome plugin's `docs/`,
-`docs/api.json` and `scripts/browser-service.mjs`. Read and write columns
-name the method; "guide" means the reference only documents URLs and
-shortcuts for the agent to drive by hand.
+Read and write columns name the method.
 
-| Tool | Aside | ChatGPT for Chrome | cmux |
-| --- | --- | --- | --- |
-| Google accounts | `googleAccounts.list/print` (cookie HTTP) | none | `sites.googleAccounts.list()` (ListAccounts, cookie) |
-| Google Docs | `googleDocs.getDocumentHTML/Text` (cookie); edits by clipboard paste and select-by-index in a tab (`applyDiffs`, suggestions, comments) | `content.exportGsuite(pdf/md/docx)` | `sites.googleDocs.read(url, { format: md/txt/html })`, `.export(url, { format: md/pdf/docx/txt/html/odt/rtf/epub })`; also `page.exportContent({ format })`. Edits: not implemented (decision 6) |
-| Google Sheets | `googleSheets.getSpreadsheetInfo/readSheet/readAllSheets` (first HTML chunk, can omit rows); `writeMatrix/setNote/addComment` in a tab | `exportGsuite(xlsx/csv/pdf)` | `sites.googleSheets.info()`, `.read(url, { gid \| sheet, range })` (whole sheet from the CSV export), `.readAll()`, `.export(xlsx/csv/tsv/pdf/ods)`. Writes: decision 6 |
-| Google Slides | guide | `exportGsuite(pdf/pptx)` | `sites.googleSlides.read()` (text), `.export(pptx/pdf/txt/odp)` |
-| Google Drive | guide | none | `sites.googleDrive.download(url)` (uploaded files), `.export(url)` (Google files by Drive URL) |
-| Gmail | `gmail.search/getInbox/getThread` (internal sync API), `openComposer/openReplyComposer` (sends by clicking, no gate), `downloadAttachment` | none | `sites.gmail.search(q)`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)`, `.send(message)` draft, then confirmed send or reply through Gmail's compose window, waiting out Gmail's undo window |
-| Google Calendar | guide (event template URL) | none | `sites.googleCalendar.events({ date, view, query })`, `.create(event)` draft, then confirmed save through the template link (invitations sent only for drafted guests) |
-| Google Search | `googleSearch.search` (cookie fetch, DOM parse; documents "do not run in parallel") | none | `sites.googleSearch.search(q, { limit, start, language, country, safeSearch, time })`: Google's basic results page through the session (real destination URLs), else the full page in a tab; one query at a time is enforced; CAPTCHA reported |
-| YouTube | `youtube.search/getMetadata/listTranscriptLanguages/getTranscript/getComments` | `content.exportYouTubeTranscript()` (turns captions on in the player, reads the caption URL it requests) | `sites.youtube.search`, `.metadata`, `.captions`, `.transcript(v, { lang, timestamps, format })` (direct caption URL, else ChatGPT's player method in a muted background tab), `.comments(v, { limit, continuation })`; also `page.exportContent({ transcript: true })` |
-| Slack | `slack.listWorkspaces`, `slack.getClient()` returns a full `@slack/web-api` client holding the token (every method, posts with no gate) | none | `sites.slack.workspaces`, `.channels`, `.history(team, "#name")`, `.replies`, `.search`, `.user`, `.call()` (read-only methods only), `.post()` draft; the token stays in the app.slack.com page |
-| Notion | `notion.getClient()` (extracts `token_v2`; full client with deletes and moves) | none | `sites.notion.accounts`, `.search`, `.read(url)` (Markdown), `.append(page, markdown)` draft; same-origin calls, the httpOnly cookie never leaves the page |
-| LinkedIn | `linkedin.getMe/getProfile/searchPeople/searchCompanies/getCompany/getJob/getUserPosts/getInbox/getConversation/sendMessage/sendInvitation/accept/ignore/withdraw` (no gate) | none | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
-| X (Twitter) | `twitter.getMe/getUser/getTweet/getTweetThread/getTimeline/search/getUserTweets/getBookmarks/tweet/reply/like/retweet/follow/DMs/block/mute` (no gate) | none | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
-| GitHub | guide | none | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
-| Linear | guide | none | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query()` (read-only GraphQL) |
-| Jira | guide | none | `sites.jira.issue` (description and comments as Markdown), `.search(jql, { site })`, `.me` |
-| Other site guides (Airtable, Amazon, Asana, ClickUp, Confluence, Discord, Google Forms, Trello, Notion UI) | guide | none | none: they are hints, not tools; `snapshot()` and Playwright drive these sites |
-| Page assets | none | `pageAssets.list()`, `.bundle({ inventoryId, kinds, assetIds })` | `sites.pageAssets.list(page?)`, `.bundle(inventory, { kinds, assetIds, dir })`; also writes inline SVGs and fetches through the session |
-| WebMCP | none | `webmcp.fetchTools()`, `tools.call()` (Chrome's `document.modelContext`) | `sites.webmcp.tools(page?)`, `.call(name, input)`; WebKit has no WebMCP, so only tools a page registers with its own implementation; non-read-only tools are drafts |
-| Secure sign-in | password managers fill by ref | `browserAuth.request({ origin, fields, options, submit })` | `sites.browserAuth.request(page?, { origin, fields, submit })`: a cmux sheet collects the values and the app fills them; sign-in method choice (`options`) and QR are not implemented |
-| Background content | none | `tabs.content({ urls })` | `tabs.content({ urls, format })` (not in `sites`) |
-| History | `chrome.history` | `browser.history()` | `tabs.history({ query, from, to, limit })` over cmux history |
-| Claim user tabs | `listBrowserTabs`, `attachBrowserTab` | `user.openTabs()`, `user.claimTab()` | `tabs.list({ all: true })`, `tabs.use(id)` |
-| Bot detection | none | `botDetection.report({ reason })` (cloud telemetry) | CAPTCHA and sign-in blocks are errors with codes; no telemetry |
-| CAPTCHA | `captcha.click/drag/readText` | policy: confirm before solving | not implemented (decision 1) |
-| Password managers | Aside Vault, 1Password, Bitwarden, Dashlane, LastPass, Proton Pass, Apple Passwords (read, autofill, save) | none | not implemented (decision 2) |
-| iMessage, KakaoTalk | `imessage.*` (read, send), `kakaotalk.*` (read) | none | not implemented (decision 3) |
-| Image generation, image search | `imagegen.*`, `imageSearch.search` | none | not implemented (decision 4) |
-| Documents (pdf, docx, pptx, xlsx) | skills for local files | none | not a browser tool; exports above write the files |
-| Chrome APIs (bookmarks, tab groups, downloads, top sites) | `chrome.*` | none | not applicable to cmux's WebKit browser |
+| Tool | cmux |
+| --- | --- |
+| Google accounts | `sites.googleAccounts.list()` (ListAccounts, cookie) |
+| Google Docs | `sites.googleDocs.read(url, { format: md/txt/html })`, `.export(url, { format: md/pdf/docx/txt/html/odt/rtf/epub })`; also `page.exportContent({ format })`. Edits: not implemented (decision 6) |
+| Google Sheets | `sites.googleSheets.info()`, `.read(url, { gid \| sheet, range })` (whole sheet from the CSV export), `.readAll()`, `.export(xlsx/csv/tsv/pdf/ods)`. Writes: decision 6 |
+| Google Slides | `sites.googleSlides.read()` (text), `.export(pptx/pdf/txt/odp)` |
+| Google Drive | `sites.googleDrive.download(url)` (uploaded files), `.export(url)` (Google files by Drive URL) |
+| Gmail | `sites.gmail.search(q)`, `.inbox()`, `.thread(id, { format })`, `.attachment(id, name)`, `.send(message)` draft, then confirmed send or reply through Gmail's compose window, waiting out Gmail's undo window |
+| Google Calendar | `sites.googleCalendar.events({ date, view, query })`, `.create(event)` draft, then confirmed save through the template link (invitations sent only for drafted guests) |
+| Google Search | `sites.googleSearch.search(q, { limit, start, language, country, safeSearch, time })`: Google's basic results page through the session (real destination URLs), else the full page in a tab; one query at a time is enforced; CAPTCHA reported |
+| YouTube | `sites.youtube.search`, `.metadata`, `.captions`, `.transcript(v, { lang, timestamps, format })` (direct caption URL, else the player's caption request in a muted background tab), `.comments(v, { limit, continuation })`; also `page.exportContent({ transcript: true })` |
+| Slack | `sites.slack.workspaces`, `.channels`, `.history(team, "#name")`, `.replies`, `.search`, `.user`, `.call()` (read-only methods only), `.post()` draft; the token stays in the app.slack.com page |
+| Notion | `sites.notion.accounts`, `.search`, `.read(url)` (Markdown), `.append(page, markdown)` draft; same-origin calls, the httpOnly cookie never leaves the page |
+| LinkedIn | `sites.linkedin.me`, `.profile`, `.search(q, { type })`, `.feed`, `.post(text)` draft. Messages and invitations: decision 7 |
+| X (Twitter) | `sites.x.user`, `.userTweets`, `.timeline`, `.search`, `.tweet(id)` (post and replies), `.post(text \| { text, replyTo })` draft. Likes, follows, DMs: decision 7 |
+| GitHub | `sites.github.issue`, `.pull(ref, { diff })`, `.diff`, `.issues(repo, { query, pulls })`, `.file(repo, path, { ref })`; private repositories through the session |
+| Linear | `sites.linear.viewer`, `.issue`, `.search`, `.assigned`, `.query()` (read-only GraphQL) |
+| Jira | `sites.jira.issue` (description and comments as Markdown), `.search(jql, { site })`, `.me` |
+| Other site guides (Airtable, Amazon, Asana, ClickUp, Confluence, Discord, Google Forms, Trello, Notion UI) | none: they are hints, not tools; `snapshot()` and Playwright drive these sites |
+| Page assets | `sites.pageAssets.list(page?)`, `.bundle(inventory, { kinds, assetIds, dir })`; also writes inline SVGs and fetches through the session |
+| WebMCP | `sites.webmcp.tools(page?)`, `.call(name, input)`; WebKit has no WebMCP, so only tools a page registers with its own implementation; non-read-only tools are drafts |
+| Secure sign-in | `sites.browserAuth.request(page?, { origin, fields, submit })`: a cmux sheet collects the values and the app fills them; sign-in method choice (`options`) and QR are not implemented |
+| Background content | `tabs.content({ urls, format })` (not in `sites`) |
+| History | `tabs.history({ query, from, to, limit })` over cmux history |
+| Claim user tabs | `tabs.list({ all: true })`, `tabs.use(id)` |
+| Bot detection | CAPTCHA and sign-in blocks are errors with codes; no telemetry |
+| CAPTCHA | not implemented (decision 1) |
+| Password managers | not implemented (decision 2) |
+| iMessage, KakaoTalk | not implemented (decision 3) |
+| Image generation, image search | not implemented (decision 4) |
+| Documents (pdf, docx, pptx, xlsx) | not a browser tool; exports above write the files |
+| Chrome APIs (bookmarks, tab groups, downloads, top sites) | not applicable to cmux's WebKit browser |
 
 ## Methods
 
@@ -135,12 +125,8 @@ error is a `SiteError` with a `code`: `invalid`, `not_signed_in`,
 
 ## Editing Google files
 
-Specialized tools for Google Sheets, Docs and Slides, covering browser-use's
-Google Sheets actions (`read_sheet_contents`, `read_cell_contents`,
-`update_cell_contents`, `clear_cell_contents`, `select_cell_or_range`,
-`fallback_input_into_single_selected_cell`; commented out in its current
-tree) and more. browser-use reads by copying the selection to the system
-clipboard and writes by dispatching a synthetic paste event; cmux reads
+Specialized tools for Google Sheets, Docs and Slides: read sheet and cell
+contents, update and clear cells, select a cell or range, and more. cmux reads
 through the editors' own exports (no selection, no clipboard, whole files
 and every tab) and writes with real input into a background tab, then reads
 the file back to verify.
@@ -164,7 +150,7 @@ the file back to verify.
 | `googleDrive.create(kind, title)` | `docs.google.com/<kind>/create`, then the title field | creates a private file |
 | `googleDrive.trash(url)` | the editor's File > Move to trash | delete |
 
-Rule for writes (ChatGPT's confirmation taxonomy, [9] edits others can see):
+Rule for writes (confirmation category [9], edits others can see):
 a write first opens the file's editor and reads its Share button. If it
 says "Private to only me", nobody else sees the edit and it runs at once.
 Otherwise, including when the sharing cannot be read, the write returns a
@@ -175,7 +161,7 @@ the same REPL session.
 
 ## Confirmation taxonomy
 
-ChatGPT for Chrome's `docs/confirmations.md` sorts browser actions into
+Browser actions fall into
 "hand-off required", "always confirm at action time", "pre-approval works"
 and "no confirmation". Every cmux write is in "always confirm": [9]
 representational communication (mail, messages, posts, events, page edits)
@@ -206,9 +192,7 @@ substitute code that receives the values.
 
 These are not implemented and need a decision:
 
-1. **CAPTCHA solving.** Aside solves by clicking, dragging and OCR; ChatGPT's
-   policy requires confirmation at action time. cmux reports `captcha` and
-   stops.
+1. **CAPTCHA solving.** cmux reports `captcha` and stops.
 2. **Third-party password managers.** Reading or autofilling 1Password,
    Bitwarden, Dashlane, LastPass, Proton Pass or Apple Passwords puts vault
    access behind an agent. `browserAuth` covers sign-in without it.
@@ -216,10 +200,9 @@ These are not implemented and need a decision:
    message databases and send as the user.
 4. **Image generation and image search.** Not browser operations; image
    generation needs an API credential.
-5. **Bot-detection evasion.** Not implemented; ChatGPT's `botDetection` is
-   telemetry, and cmux does not disguise automation.
-6. **Google Docs and Sheets editing.** Aside edits by clipboard paste and
-   index-mapped selection. A cmux version would be a draft of the diff,
+5. **Bot-detection evasion.** Not implemented; cmux does not disguise
+   automation.
+6. **Google Docs and Sheets editing beyond the tools above.** A cmux version would be a draft of the diff,
    confirmed, applied with real input in the document tab.
 7. **More social writes.** LinkedIn messages and invitations, X likes,
    follows, reposts and DMs: each is [9] or [14]; the draft mechanism supports
@@ -227,19 +210,8 @@ These are not implemented and need a decision:
 8. **Native approval for writes.** A cmux sheet showing the draft, with
    Send and Cancel, would make approval the user's click instead of the
    agent's `{ confirm: true }`.
-9. **Sign-in method choice and QR codes** in `browserAuth` (ChatGPT's
-   `options` and `qr_code`).
-10. **Contacts.** Aside's `googlePeople` reads the user's address book; cmux
-    has no contacts tool.
-11. **Aside's own platform.** `aside.settings`, `projects`, `routines` and
-    `channels` manage Aside, not a browser; the cmux counterparts are app
-    settings and workspaces.
-
-`tests/browser-parity/capabilities.json` (`sites`) maps every Aside site
-global and method and every ChatGPT site capability
-(`reference/site-surface.txt`) to its `sites.*` or `tabs.*` equivalent and the
-tests that prove it, or to one of these decisions; the capabilities unit test
-fails on an unmapped member.
+9. **Sign-in method choice and QR codes** in `browserAuth`.
+10. **Contacts.** cmux has no contacts tool for the user's address book.
 
 ## Tests
 
@@ -278,56 +250,9 @@ YouTube's player token makes the direct caption URL empty.
 
 Transcript reliability, 3 public videos (manual English captions
 `dQw4w9WgXcQ`, auto-generated Korean only `9bZkp7q19f0`, Spanish with
-`{ lang: "es" }` `kJQP7kiw5Fk`): Aside `youtube.getTranscript` 15/15 (5 runs
-each, about 200 ms); cmux with the native-client path 30/30 (10 runs each,
-about 300 ms), same text lengths as Aside. ChatGPT's
-`exportYouTubeTranscript` was not measured: its reference client may open
-only the approved loopback origin.
+`{ lang: "es" }` `kJQP7kiw5Fk`): cmux with the native-client path 30/30
+(10 runs each, about 300 ms).
 
-`live-diff.mjs` compares the reads live, on the user's own sign-ins, with
-Aside: `signed-in` reports which sites each side is signed in to (cookie
-names on cmux, account counts on Aside, no content); `run [--ops a,b]
-[--runs N] [--write-doc]` runs each read on both sides and keeps only
-summaries (counts, sha256-prefixed ids, key names, lengths, order agreement,
-latency) in the gitignored `sites/live-results/`, with the verdict per read.
-
-<!-- live-diff:begin -->
-Live comparison on the user's own sign-ins, 2026-10-01, tag `brepl-live` with the fixes in this branch loaded (counts and lengths only; ids compared as sha256 prefixes). Aside's own profile was signed in to Google and Slack only; where it was not, the row says so.
-
-| Operation | Verdict | Evidence | cmux ok, median ms | Aside ok, median ms |
-| --- | --- | --- | --- | --- |
-| googleAccounts.list | cmux-better | count 5 vs 2; ids in common 2; order agreement 100% | 1/1 433 | 1/1 0 |
-| gmail.inbox | same | count 50 vs 50; ids in common 50; order agreement 100% | 1/1 6021 | 1/1 742 |
-| gmail.search is:unread | same | count 50 vs 50; ids in common 50; order agreement 100% | 1/1 5771 | 1/1 462 |
-| gmail.thread | same | count 1 vs 1; ids in common 1 | 1/1 6402 | 1/1 331 |
-| gmail.attachments (metadata) | same | count 2 vs 2; ids in common 2; order agreement 100% | 1/1 5474 | 1/1 368 |
-| googleCalendar.events (next 10) | cmux-better | Aside has no tool for this read | 1/1 3038 | n/a |
-| googleDrive.recent | cmux-better | Aside has no tool for this read | 1/1 3120 | n/a |
-| google document read | same | text 28500 vs 26894 chars | 1/1 1797 | 1/1 1895 |
-| google spreadsheets read | cmux-better | count 1108 vs 358; ids in common 0 | 1/1 963 | 1/1 556 |
-| google presentation read | skipped | no Slides file owned by the user was found (Drive Recent and search) |  |  |
-| googleSearch.search | cmux-better | Aside failed:  Google Search returned bot challenge HTML. Open <url> in the browser, solve it, then retry. | 1/1 1152 | 0/1 595 |
-| slack.workspaces | same | count 1 vs 1; ids in common 1 | 1/1 835 | 1/1 0 |
-| slack.channels | same | count 55 vs 55; ids in common 55; order agreement 100% | 1/1 1321 | 1/1 209 |
-| slack.history (last 20) | same | count 20 vs 20; ids in common 20; order agreement 100% | 1/1 1103 | 1/1 145 |
-| slack.search | same | count 0 vs 0; ids in common 0 | 1/1 1048 | 1/1 121 |
-| notion.search | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 2001 | 0/1 23 |
-| notion.read (first page) | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 757 | 0/1 21 |
-| linkedin.me | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 880 | 0/1 19 |
-| linkedin.feed (first page) | cmux-better | Aside has no tool for this read | 1/1 7206 | n/a |
-| linkedin.search people | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 2563 | 0/1 22 |
-| x.user | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 1796 | 0/1 19 |
-| x.timeline | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 6682 | 0/1 21 |
-| x.search | aside-unavailable | Aside's profile is not signed in to this site; cmux read it | 1/1 3141 | 0/1 20 |
-| github.assigned | cmux-better | Aside has no tool for this read | 1/1 24183 | n/a |
-| linear.assigned | cmux-better | Aside has no tool for this read | 1/1 801 | n/a |
-| jira.sites | cmux-better | Aside has no tool for this read | 1/1 998 | n/a |
-| jira.assigned | skipped | the Atlassian account has no Jira Cloud site (jira.sites: 0) |  |  |
-| tabs.content | cmux-better | Aside has no tool for this read | 1/1 688 | n/a |
-| tabs.history | cmux-better | Aside has no tool for this read | 1/1 15 | n/a |
-| pageAssets.list | cmux-better | Aside has no tool for this read | 1/1 652 | n/a |
-| googleDrive.search (own Sheets, Slides) | cmux-better | Aside has no tool for this read | 1/1 4385 | n/a |
-<!-- live-diff:end -->
 
 Tools against private accounts (Gmail, Calendar, Slack, Notion, LinkedIn, X
 timelines, Linear, Jira) are verified only against the mocks: running them

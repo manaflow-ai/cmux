@@ -4,6 +4,7 @@ import { MockAcpmuxSocket, mockHost, mockReply } from "./mock";
 import type { AcpmuxSnapshot } from "./model";
 import { GROUP_ROWS, sessionMark, sidebarSections } from "./sessionList";
 import { workedTurn } from "./mockFixture";
+import { turnView } from "./conversation/turns";
 
 describe("mock transport", () => {
   const connectMock = async (
@@ -145,6 +146,17 @@ describe("mock transport", () => {
     // Its turn is still running on a cloud machine.
     expect(snapshot.isWorking).toBe(true);
     expect(snapshot.summary).toMatchObject({ host: "hearty-beige-elk", hostKind: "cloud" });
+    // It is in the middle of a call, so the pane shows it working over that call.
+    const tools = snapshot.rows.flatMap((row) => row.items ?? []).flatMap((item) => (item.tool ? [item.tool] : []));
+    expect(tools.map(({ title, status }) => ({ title, status }))).toEqual([
+      { title: "Run bun test Sources/Sidebar", status: "in_progress" },
+    ]);
+    expect(turnView(snapshot.rows, new Set(), { working: true }).map((row) => row.kind)).toEqual([
+      "user",
+      "working",
+      "assistant",
+      "activity",
+    ]);
     client.close();
   });
 
@@ -157,6 +169,12 @@ describe("mock transport", () => {
     await until(() => snapshots.at(-1)?.isWorking === false);
     expect(snapshots.at(-1)?.isWorking).toBe(false);
     expect(snapshots.at(-1)?.rows.find((row) => row.kind === "turnSummary")?.status).toBe("cancelled");
+    // The call it was running settles with the turn.
+    const tool = snapshots
+      .at(-1)!
+      .rows.flatMap((row) => row.items ?? [])
+      .find((item) => item.tool)?.tool;
+    expect(tool?.status).toBe("failed");
     expect(snapshots.at(-1)?.sessions.find((entry) => entry.sessionId === "mock-sidebar-flicker")?.status).toBe("idle");
     client.close();
   });
@@ -408,5 +426,42 @@ describe("mock daemon", () => {
       const asked = events.filter((event: any) => event.kind === "permission_request").length;
       expect([entry.sessionId, asked]).toEqual([entry.sessionId, entry.pendingPermissions]);
     }
+  });
+
+  test("the worked session's git scopes hold the turn's edits, half staged, over one commit", async () => {
+    const { call, sent } = open();
+    const paths = async (scope: string, sessionId = "mock-session") =>
+      ((await call("git.scope.diff", { sessionId, scope }))?.files ?? []).map((file: any) => file.path);
+    expect(await paths("staged")).toEqual(["Sources/Fleet/retry.ts"]);
+    expect(await paths("unstaged")).toEqual(["Sources/Fleet/upload.ts", "Sources/Fleet/upload.test.ts"]);
+    expect(await paths("uncommitted")).toEqual([
+      "Sources/Fleet/retry.ts",
+      "Sources/Fleet/upload.ts",
+      "Sources/Fleet/upload.test.ts",
+    ]);
+    expect(await paths("committed")).toEqual(["Sources/Fleet/manifest.ts"]);
+    expect((await paths("branch")).length).toBe(4);
+    // Each file carries its counts and a patch from its first hunk; the set carries its totals.
+    const branch = await call("git.scope.diff", { sessionId: "mock-session", scope: "branch" });
+    expect(branch.root).toBe("~/code/cmux");
+    for (const file of branch.files) {
+      expect(file.patch.startsWith("@@ -")).toBe(true);
+      expect(file.patch.split("\n").filter((line: string) => line.startsWith("+")).length).toBe(file.additions);
+    }
+    expect(branch.additions).toBe(branch.files.reduce((sum: number, file: any) => sum + file.additions, 0));
+    expect(await call("git.status", { sessionId: "mock-session" })).toEqual({
+      branch: "feat-upload-retry",
+      upstream: "origin/main",
+      base: "main",
+      ahead: 1,
+      behind: 0,
+    });
+    // Another project's session has no changes; a folder outside git fails to load.
+    const { sessions } = await call("_acpmux/watch");
+    const other = sessions.find((entry: any) => entry.cwd === "~/code/acpmux").sessionId;
+    expect(await paths("uncommitted", other)).toEqual([]);
+    const dotfiles = sessions.find((entry: any) => entry.cwd === "~/code/dotfiles").sessionId;
+    expect(await call("git.scope.diff", { sessionId: dotfiles, scope: "branch" })).toBeUndefined();
+    expect(sent.at(-1)?.error?.message).toBe("Not a git repository");
   });
 });

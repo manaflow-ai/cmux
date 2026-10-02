@@ -1,6 +1,6 @@
 import AppKit
 
-/// Chrome's "extension crashed, click to reload": while an extension of
+/// "Extension crashed, click to reload": while an extension of
 /// the tab's profile is terminated (its process crashed or was killed), the
 /// toolbar shows a warning button before the Extensions button. Clicking it
 /// reloads every crashed extension.

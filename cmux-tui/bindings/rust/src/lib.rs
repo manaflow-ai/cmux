@@ -27,6 +27,12 @@
 //! use cmux::Id;
 //! ```
 //!
+//! The byte-mode terminal attachment is a protocol-v12 escape hatch too:
+//!
+//! ```compile_fail
+//! use cmux::ByteAttachment;
+//! ```
+//!
 //! Local sidebar plugin installation and selection are CLI-only:
 //!
 //! ```compile_fail
@@ -41,6 +47,7 @@ mod presence;
 pub mod raw;
 mod raw_support;
 mod resource;
+mod socket_hash;
 mod topology;
 
 // Private aliases keep the checked-in legacy generator compiling without

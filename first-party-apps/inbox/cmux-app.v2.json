@@ -1,0 +1,64 @@
+{
+  "$comment": "Sketch of this app on manifest v2 (Platform v2, plans section 12: V1 catalog fragment, V2 places as interfaces, V11 gesture tokens, l10n, variants). Not loaded by today's runtime; cmux-app.json is the runnable v1 manifest.",
+  "manifestVersion": 2,
+  "id": "cmux/inbox",
+  "version": "0.3.0",
+  "name": { "en": "Inbox", "ja": "受信トレイ" },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "main": "dist/main.js",
+  "strings": "strings/",
+  "tier": "first-party",
+  "scopes": {
+    "feed:read": "List your feed items and counts, and follow the feed's op events.",
+    "feed:write": "Mark items read or done, snooze them, move them back.",
+    "feed:answer": "Send the answers and declines you choose. Restricted: first-party only, every call presents the gesture token of your tap (origin user).",
+    "actions:run": "Open an item through the feed's own open action (feed.openItem)."
+  },
+  "optionalScopes": {
+    "workspace:read": "Show workspace names on items and group headers."
+  },
+  "consumes": {
+    "ops": ["feed.list", "feed.get", "feed.counts", "feed.read", "feed.archive", "feed.unarchive", "feed.snooze", "feed.answer", "feed.cancel"],
+    "streams": ["feed"],
+    "actions": ["feed.openItem"]
+  },
+  "implements": {
+    "cmux.section/1": [{ "id": "inbox", "title": { "en": "Inbox", "ja": "受信トレイ" }, "symbol": "tray", "defaultRegion": "top", "render": "renderInbox" }],
+    "cmux.status/1": [{ "id": "badge", "symbol": "tray", "placement": "titlebar", "render": "renderStatus" }],
+    "cmux.pane/1": [{ "id": "pane", "renderer": "scene", "title": { "en": "Inbox", "ja": "受信トレイ" }, "symbol": "tray", "render": "renderPane" }]
+  },
+  "catalog": {
+    "$comment": "Catalog fragment, owner app:cmux/inbox, implemented by JS exports of this app. View commands only: answers and triage are the feed's own catalog ops (feed.answer, feed.archive, ...), so they are not repeated here and agents never reach them through this app (mcp: never).",
+    "family": "inbox",
+    "owner": "app:cmux/inbox",
+    "operations": [
+      { "name": "inbox.open", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "openInbox", "palette": { "title": { "en": "Open Inbox", "ja": "受信トレイを開く" } }, "cli": { "path": "inbox open" }, "mcp": { "expose": "never" } },
+      { "name": "inbox.next", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "nextItem", "input": { "type": "object", "properties": { "open": { "type": "boolean", "default": true } } }, "palette": { "title": { "en": "Next Inbox Item", "ja": "次の受信トレイ項目" } }, "mcp": { "expose": "never" } },
+      { "name": "inbox.previous", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "previousItem", "input": { "type": "object", "properties": { "open": { "type": "boolean", "default": true } } }, "palette": { "title": { "en": "Previous Inbox Item", "ja": "前の受信トレイ項目" } }, "mcp": { "expose": "never" } },
+      { "name": "inbox.openItem", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "openItem", "input": { "type": "object", "properties": { "id": { "type": "string", "pattern": "^fi_[a-z0-9]{20}$" } } }, "palette": { "title": { "en": "Open Selected Inbox Item", "ja": "選択中の受信トレイ項目を開く" } }, "mcp": { "expose": "never" } },
+      { "name": "inbox.markDone", "class": "mutation", "risk": "mutate-own", "export": "markDone", "input": { "type": "object", "properties": { "id": { "type": "string" } } }, "palette": { "title": { "en": "Mark Inbox Item as Done", "ja": "受信トレイ項目を完了にする" } }, "cli": { "path": "inbox done" }, "mcp": { "expose": "never" } },
+      { "name": "inbox.snooze", "class": "mutation", "risk": "mutate-own", "export": "snooze", "input": { "type": "object", "properties": { "id": { "type": "string" }, "minutes": { "type": "integer", "minimum": 1, "maximum": 43200, "default": 60 } } }, "palette": { "title": { "en": "Snooze Inbox Item", "ja": "受信トレイ項目をスヌーズ" } }, "cli": { "path": "inbox snooze" }, "mcp": { "expose": "never" } },
+      { "name": "inbox.markAllRead", "class": "mutation", "risk": "mutate-own", "export": "markAllRead", "palette": { "title": { "en": "Mark All Inbox Items as Read", "ja": "受信トレイをすべて既読にする" } }, "cli": { "path": "inbox read-all" }, "mcp": { "expose": "never" } }
+    ]
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "groupBy": { "type": "string", "enum": ["poster", "workspace", "thread"], "default": "poster", "title": { "en": "Group items by", "ja": "まとめ方" } }
+    }
+  },
+  "variants": {
+    "$comment": "DEV/NIGHTLY prototypes (x-cmux-devOnly); the platform adds the 'Next Inbox Variant' palette entry and the Settings picker.",
+    "setting": "variant",
+    "default": "grouped",
+    "options": {
+      "grouped": { "en": "Rows under the owner's groups; a click opens." },
+      "focus": { "en": "A list and a detail area with the answer form." },
+      "card": { "en": "One item at a time with its answer form." }
+    }
+  },
+  "files": ["dist/", "assets/", "strings/"]
+}

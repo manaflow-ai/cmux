@@ -32,6 +32,8 @@ CHECKS = (
     ("test-wiring", "static_analysis", "Swift test wiring and regression guard", ["bash", "tests/test_ci_pbxproj_test_wiring.sh"]),
     ("package-groups", "static_analysis", "Workspace Swift package groups", ["python3", "scripts/check-workspace-package-groups.py", "--check"]),
     ("feature-flags", "static_analysis", "Feature flag policy", ["python3", "scripts/lint-feature-flags.py"]),
+    ("backend-migrations", "static_analysis", "cmux-next backend migrations only through a PR",
+     ["python3", "scripts/check-backend-migration-flow.py"]),
 )
 
 
@@ -58,6 +60,7 @@ CHECK_INPUTS = {
     "package-groups": ("Packages/*", "cmux.xcworkspace/contents.xcworkspacedata"),
     "feature-flags": ("web/*", "Packages/*", "ios/*", "CLI/*",
                       "scripts/retired-feature-flags.txt"),
+    "backend-migrations": ("backend/db/migrations/*",),
 }
 
 
