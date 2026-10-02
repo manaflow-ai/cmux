@@ -51,7 +51,7 @@ final class FakeCmuxServer implements Transport {
             throw new IllegalStateException("fake server is closed");
         }
         Map<String, Object> request = new LinkedHashMap<>(message);
-        requireEquals("cmux.protocol/1", request.get("protocol"), "protocol");
+        requireEquals("cmux.protocol/2", request.get("protocol"), "protocol");
         requireEquals("request", request.get("type"), "request type");
         requests.add(request);
 
@@ -207,6 +207,7 @@ final class FakeCmuxServer implements Transport {
         return Map.of(
             "id", TERMINAL_ID,
             "tab_id", TAB_ID,
+            "tab_ids", List.of(TAB_ID),
             "title", "ci-task",
             "cols", 80,
             "rows", 24,
@@ -361,7 +362,7 @@ final class FakeCmuxServer implements Transport {
 
     private static Map<String, Object> response(String id, Object result) {
         return Map.of(
-            "protocol", "cmux.protocol/1",
+            "protocol", "cmux.protocol/2",
             "type", "response",
             "id", id,
             "ok", true,

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::resource::{
     ContentPublicId, PanePublicId, PublicSlotIndexes, ScreenPublicId, TabPublicId,
-    WorkspacePublicId,
+    TabResourceIdentity, TerminalPublicId, WorkspacePublicId,
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
@@ -21,13 +21,13 @@ pub enum ViewportColumn {
 ///
 /// `Screen::root` remains the compatibility projection consumed by existing
 /// split-tree clients. While columns are active, these records own the real
-/// per-column trees and Zellij auto-layout order.
+/// per-column trees and their auto-layout creation order.
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutColumn {
     pub(crate) id: SplitId,
     pub(crate) width: f32,
     pub(crate) root: Node,
-    pub(crate) zellij_auto_layout: Option<Vec<PaneId>>,
+    pub(crate) creation_order_auto_layout: Option<Vec<PaneId>>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,7 +35,7 @@ pub(crate) struct ScreenLayoutSnapshot {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
-    pub zellij_auto_layout: Option<Vec<PaneId>>,
+    pub creation_order_auto_layout: Option<Vec<PaneId>>,
     pub viewport_splits: BTreeMap<SplitId, f32>,
     pub viewport_base_width: Option<f32>,
     pub layout_columns: Vec<LayoutColumn>,
@@ -522,7 +522,7 @@ mod tests {
             root: Node::Leaf(1),
             active_pane: 21,
             zoomed_pane: None,
-            zellij_auto_layout: None,
+            creation_order_auto_layout: None,
             viewport_splits: BTreeMap::new(),
             viewport_base_width: None,
             layout_columns: (1..=21)
@@ -530,7 +530,7 @@ mod tests {
                     id: 100 + pane,
                     width: 1.0,
                     root: Node::Leaf(pane),
-                    zellij_auto_layout: None,
+                    creation_order_auto_layout: None,
                 })
                 .collect(),
             layout_revision: 0,
@@ -588,9 +588,9 @@ pub struct Screen {
     pub root: Node,
     pub active_pane: PaneId,
     pub zoomed_pane: Option<PaneId>,
-    /// Stable pane creation order for Zellij's default auto-layout family.
+    /// Stable pane creation order for the default auto-layout family.
     /// `None` means the screen owns a custom/damaged layout.
-    pub zellij_auto_layout: Option<Vec<PaneId>>,
+    pub creation_order_auto_layout: Option<Vec<PaneId>>,
     /// Horizontal splits created as viewport columns. The value is the
     /// right-hand column width as a fraction of the frontend viewport.
     pub viewport_splits: BTreeMap<SplitId, f32>,
@@ -615,7 +615,7 @@ impl Screen {
             root: self.root.clone(),
             active_pane: self.active_pane,
             zoomed_pane: self.zoomed_pane,
-            zellij_auto_layout: self.zellij_auto_layout.clone(),
+            creation_order_auto_layout: self.creation_order_auto_layout.clone(),
             viewport_splits: self.viewport_splits.clone(),
             viewport_base_width: self.viewport_base_width,
             layout_columns: self.layout_columns.clone(),
@@ -708,7 +708,7 @@ impl Screen {
         self.active_pane = self.zoomed_pane.unwrap_or_else(|| {
             if self.root.contains(active_pane) { active_pane } else { snapshot.active_pane }
         });
-        self.zellij_auto_layout = snapshot.zellij_auto_layout;
+        self.creation_order_auto_layout = snapshot.creation_order_auto_layout;
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
@@ -737,7 +737,7 @@ impl Screen {
                 id: base_id,
                 width: self.viewport_base_width.unwrap_or(1.0),
                 root,
-                zellij_auto_layout: self.zellij_auto_layout.take(),
+                creation_order_auto_layout: self.creation_order_auto_layout.take(),
             });
         }
         let Some(index) =
@@ -758,7 +758,7 @@ impl Screen {
         };
         self.viewport_splits.clear();
         self.viewport_base_width = Some(first.width);
-        self.zellij_auto_layout = None;
+        self.creation_order_auto_layout = None;
 
         let mut root = first.root.clone();
         let mut width_before = first.width;
@@ -788,7 +788,7 @@ impl Screen {
         }
         let column = self.layout_columns.pop().expect("single layout column");
         self.root = column.root;
-        self.zellij_auto_layout = column.zellij_auto_layout;
+        self.creation_order_auto_layout = column.creation_order_auto_layout;
         self.viewport_splits.clear();
         self.viewport_base_width = None;
     }
@@ -798,7 +798,7 @@ impl Screen {
             return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
         }
         if self.layout_columns.len() < 2
-            || self.zellij_auto_layout.is_some()
+            || self.creation_order_auto_layout.is_some()
             || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
             || self.viewport_splits.len() + 1 != self.layout_columns.len()
         {
@@ -865,7 +865,12 @@ pub struct State {
     pub(crate) focus_sequence: u64,
     pub active_workspace: usize,
     pub panes: HashMap<PaneId, Pane>,
+    /// View placements keyed by daemon-local placement identity.
     pub surfaces: HashMap<SurfaceId, Arc<Surface>>,
+    /// Stable terminal content kept alive independently of view placement.
+    pub(crate) terminal_catalog: HashMap<TerminalPublicId, Arc<Surface>>,
+    /// Reverse lookup for catalog owners addressed by daemon-local runtime ID.
+    pub(crate) terminal_catalog_by_runtime: HashMap<SurfaceId, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
 }
@@ -936,6 +941,43 @@ impl State {
         }
     }
 
+    /// Record the durable identity of one tab slot. This is the only writer
+    /// of tab identity, so a slot can never disagree with the topology it is
+    /// placed in.
+    pub(crate) fn register_tab_identity(
+        &mut self,
+        slot: SurfaceId,
+        identity: &TabResourceIdentity,
+    ) {
+        self.resource_indexes.tabs.insert(identity.tab_id.clone(), slot);
+        self.resource_indexes.tab_ids.insert(slot, identity.tab_id.clone());
+        let placements = self
+            .resource_indexes
+            .content_placements
+            .entry(identity.content_id.clone())
+            .or_default();
+        if !placements.contains(&slot) {
+            placements.push(slot);
+        }
+        self.resource_indexes.content_ids.insert(slot, identity.content_id.clone());
+    }
+
+    /// Every placed tab must carry a durable identity. Losing one would make
+    /// the next projection tombstone live durable rows, so this fails the
+    /// mutation instead of silently dropping the tab.
+    pub(crate) fn ensure_tab_identity_coverage(&self) -> anyhow::Result<()> {
+        for pane in self.panes.values() {
+            for slot in &pane.tabs {
+                anyhow::ensure!(
+                    self.resource_indexes.tab_ids.contains_key(slot)
+                        && self.resource_indexes.content_ids.contains_key(slot),
+                    "tab slot {slot} has no durable identity"
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn rebuild_resource_indexes(&mut self) {
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
@@ -956,25 +998,23 @@ impl State {
                         indexes.pane_ids.insert(pane.id, pane.public_id.clone());
                         indexes.pane_screen.insert(pane.id, screen.id);
                         for surface_id in &pane.tabs {
-                            let identity = self
-                                .surfaces
-                                .get(surface_id)
-                                .and_then(|surface| surface.resource_identity())
-                                .map(|identity| {
-                                    (identity.tab_id.clone(), identity.content_id.clone())
-                                })
-                                .or_else(|| {
-                                    Some((
-                                        self.resource_indexes.tab_ids.get(surface_id)?.clone(),
-                                        self.resource_indexes.content_ids.get(surface_id)?.clone(),
-                                    ))
-                                });
-                            let Some((tab_id, content_id)) = identity else { continue };
+                            // Tab identity is owned by the topology, never by
+                            // the live surface. A restored or detached tab has
+                            // no surface, and rebuilding must not lose it.
+                            let (Some(tab_id), Some(content_id)) = (
+                                self.resource_indexes.tab_ids.get(surface_id).cloned(),
+                                self.resource_indexes.content_ids.get(surface_id).cloned(),
+                            ) else {
+                                continue;
+                            };
                             let old = indexes.tabs.insert(tab_id.clone(), *surface_id);
                             debug_assert!(old.is_none(), "duplicate tab public id");
                             indexes.tab_ids.insert(*surface_id, tab_id);
-                            let old = indexes.content.insert(content_id.clone(), *surface_id);
-                            debug_assert!(old.is_none(), "duplicate content public id");
+                            indexes
+                                .content_placements
+                                .entry(content_id.clone())
+                                .or_default()
+                                .push(*surface_id);
                             indexes.content_ids.insert(*surface_id, content_id);
                             indexes.tab_pane.insert(*surface_id, pane.id);
                         }
@@ -1010,7 +1050,30 @@ impl State {
     }
 
     pub fn surface_by_content_public_id(&self, id: &ContentPublicId) -> Option<&Arc<Surface>> {
-        self.resource_indexes.content.get(id).and_then(|slot| self.surfaces.get(slot))
+        if let ContentPublicId::Terminal(terminal_id) = id
+            && let Some(surface) = self.terminal_catalog.get(terminal_id)
+        {
+            return Some(surface);
+        }
+        self.single_placement_of_content(id).and_then(|slot| self.surfaces.get(&slot))
+    }
+
+    pub fn placements_of_content(&self, id: &ContentPublicId) -> &[SurfaceId] {
+        self.resource_indexes.content_placements.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Return the placement for content whose model requires exactly one live
+    /// view. Zero or multiple placements fail closed instead of selecting an
+    /// arbitrary traversal-order winner.
+    pub fn single_placement_of_content(&self, id: &ContentPublicId) -> Option<SurfaceId> {
+        let [placement] = self.placements_of_content(id) else { return None };
+        Some(*placement)
+    }
+
+    pub(crate) fn terminal_runtime_by_id(&self, id: SurfaceId) -> Option<&Arc<Surface>> {
+        self.terminal_catalog_by_runtime
+            .get(&id)
+            .and_then(|terminal| self.terminal_catalog.get(terminal))
     }
 
     pub(crate) fn workspace_index(&self, id: WorkspaceId) -> Option<usize> {
@@ -1027,6 +1090,20 @@ impl State {
 
     /// Workspace and screen indices of the screen containing a pane.
     pub fn screen_of(&self, pane: PaneId) -> Option<(usize, usize)> {
+        if let Some(screen_id) = self.resource_indexes.pane_screen.get(&pane).copied()
+            && let Some(workspace_id) =
+                self.resource_indexes.screen_workspace.get(&screen_id).copied()
+            && let Some(workspace_index) = self.workspace_index(workspace_id)
+            && let Some(workspace) = self.workspaces.get(workspace_index)
+            && let Some(screen_index) =
+                workspace.screens.iter().position(|screen| screen.id == screen_id)
+        {
+            return Some((workspace_index, screen_index));
+        }
+
+        // Resource projection can stage a pane before its reverse indexes are
+        // committed. Keep the topology scan as a bounded compatibility path
+        // for that transient state only.
         self.workspaces.iter().enumerate().find_map(|(wi, ws)| {
             ws.screens.iter().position(|screen| screen.root.contains(pane)).map(|si| (wi, si))
         })
@@ -1034,7 +1111,12 @@ impl State {
 
     /// The pane a surface currently lives in.
     pub fn pane_of(&self, surface: SurfaceId) -> Option<PaneId> {
-        self.panes.values().find(|p| p.tabs.contains(&surface)).map(|p| p.id)
+        self.resource_indexes.tab_pane.get(&surface).copied().or_else(|| {
+            // A resource mutation can temporarily stage a local placement
+            // before its public indexes are committed. Preserve lookup for
+            // that bounded transient state without penalizing steady state.
+            self.panes.values().find(|pane| pane.tabs.contains(&surface)).map(|pane| pane.id)
+        })
     }
 
     pub fn active_pane(&self) -> Option<PaneId> {

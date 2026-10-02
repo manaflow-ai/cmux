@@ -1,5 +1,7 @@
+import CmuxCloud
 import CmuxControlSocket
 import CmuxCore
+import CmuxFoundation
 import CmuxPanes
 import CmuxRemoteWorkspace
 import CmuxRemoteSession
@@ -51,64 +53,6 @@ extension TerminalController: ControlWorkspaceContext {
         resolveTabManager(routing: routing) != nil
     }
 
-    // MARK: - Snapshots
-
-    /// Builds the Sendable summary of one workspace (the legacy
-    /// `v2WorkspaceSummaryPayload` data, minus the index/selected/ref minting the
-    /// coordinator now owns), bridging the app-typed `remoteStatusPayload()`.
-    private func controlWorkspaceSummary(_ workspace: Workspace) -> ControlWorkspaceSummary {
-        ControlWorkspaceSummary(
-            id: workspace.id, title: workspace.title, customTitle: workspace.customTitle,
-            customDescription: workspace.customDescription,
-            isPinned: workspace.isPinned,
-            listeningPorts: workspace.listeningPorts,
-            remoteStatus: JSONValue(foundationObject: workspace.remoteStatusPayload()) ?? .object([:]),
-            currentDirectory: workspace.presentedCurrentDirectory ?? "",
-            customColor: workspace.customColor,
-            latestConversationMessage: workspace.latestConversationMessage,
-            latestSubmittedMessage: workspace.latestSubmittedMessage,
-            latestSubmittedAt: workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)
-        )
-    }
-
-    // MARK: - List / current
-
-    func controlWorkspaceList(routing: ControlRoutingSelectors) -> ControlWorkspaceListResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        let selectedId = tabManager.selectedTabId
-        var selectedIndex: Int?
-        let summaries = tabManager.tabs.enumerated().map { index, ws -> ControlWorkspaceSummary in
-            if ws.id == selectedId {
-                selectedIndex = index
-            }
-            return controlWorkspaceSummary(ws)
-        }
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(windowID: windowId, workspaces: summaries, selectedIndex: selectedIndex)
-    }
-
-    func controlWorkspaceCurrent(routing: ControlRoutingSelectors) -> ControlWorkspaceCurrentResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
-            return .tabManagerUnavailable
-        }
-        guard let workspaceId = tabManager.selectedTabId else {
-            return .noWorkspaceSelected
-        }
-        // Legacy: a selectedTabId pointing at a workspace missing from `tabs`
-        // still answered .ok with "workspace": null.
-        let workspace = tabManager.tabs.first(where: { $0.id == workspaceId })
-        let index = tabManager.tabs.firstIndex(where: { $0.id == workspaceId })
-        let windowId = AppDelegate.shared?.windowId(for: tabManager)
-        return .resolved(
-            windowID: windowId,
-            workspaceID: workspaceId,
-            index: index,
-            summary: workspace.map { controlWorkspaceSummary($0) }
-        )
-    }
-
     // MARK: - Create
 
     /// `workspace.create` forwards to the single shared `v2WorkspaceCreate` body
@@ -148,7 +92,8 @@ extension TerminalController: ControlWorkspaceContext {
 
     func controlCloseWorkspace(
         routing: ControlRoutingSelectors,
-        workspaceID: UUID
+        workspaceID: UUID,
+        force: Bool
     ) -> ControlWorkspaceCloseResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -159,6 +104,12 @@ extension TerminalController: ControlWorkspaceContext {
         }
         guard tabManager.canCloseWorkspace(ws) else {
             return .protected(windowID: windowId)
+        }
+        let windowDockNeedsConfirmation = tabManager.tabs.count == 1
+            && AppDelegate.shared?.existingWindowDock(for: tabManager)?.needsConfirmClose() == true
+        if !force,
+           tabManager.workspaceNeedsConfirmCloseForClose(ws) || windowDockNeedsConfirmation {
+            return .confirmationRequired
         }
         guard tabManager.closeWorkspaceNonInteractively(ws) else {
             return .closeFailed(windowID: windowId)
@@ -292,9 +243,15 @@ extension TerminalController: ControlWorkspaceContext {
         guard let outcome = tabManager.handlePromptSubmit(
             workspaceId: workspaceID,
             message: message,
-            iMessageModeEnabled: iMessageModeEnabled
+            iMessageModeEnabled: iMessageModeEnabled,
+            surfaceId: routing.surfaceID?.uuidString
         ) else {
             return .notFound
+        }
+        if let surfaceID = routing.surfaceID,
+           let terminalSurface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(id: surfaceID),
+           terminalSurface.tabId == workspaceID {
+            terminalSurface.hostedView.recordPromptScrollMarker()
         }
         let preview = tabManager.tabs.first(where: { $0.id == workspaceID })?.latestSubmittedMessage
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
@@ -356,6 +313,12 @@ extension TerminalController: ControlWorkspaceContext {
         return .resolved(workspaceID: workspaceId, windowID: windowId)
     }
 
+    /// Runs the same Focus Last toggle as the app's shortcut and History menu
+    /// (`TabManager.navigateToLastFocused()`), so repeated `workspace.last`
+    /// calls flip between the two most recent positions instead of walking
+    /// further back through history. With pane-scoped history the toggle can
+    /// land in the current workspace; that still reports `not_found` so tmux
+    /// `-` targets never resolve to the current workspace.
     func controlSelectLastWorkspace(routing: ControlRoutingSelectors) -> ControlWorkspaceNavigationResolution {
         guard let tabManager = resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
@@ -365,8 +328,9 @@ extension TerminalController: ControlWorkspaceContext {
             _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
             setActiveTabManager(tabManager)
         }
-        tabManager.navigateBack()
-        guard let after = tabManager.selectedTabId, after != before else { return .notFound }
+        guard tabManager.navigateToLastFocused(),
+              let after = tabManager.selectedTabId,
+              after != before else { return .notFound }
         let windowId = AppDelegate.shared?.windowId(for: tabManager)
         return .resolved(workspaceID: after, windowID: windowId)
     }
@@ -517,6 +481,9 @@ extension TerminalController: ControlWorkspaceContext {
         guard let destination = v2String(params, "destination") else {
             return .err(code: "invalid_params", message: "Missing destination", data: nil)
         }
+        guard !destination.isOptionLikeSSHDestination else {
+            return .err(code: "invalid_params", message: "destination must not start with '-'", data: nil)
+        }
 
         var sshPort: Int?
         if v2HasNonNullParam(params, "port") {
@@ -560,7 +527,9 @@ extension TerminalController: ControlWorkspaceContext {
         let relayToken = v2RawString(params, "relay_token")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let foregroundAuthToken = v2RawString(params, "foreground_auth_token")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let localSocketPath = v2RawString(params, "local_socket_path")
+        let localSocketPath = ControlWorkspaceRemoteLocalSocketPath(
+            controllerSocketPath: currentSocketPathForRemoteRestore()
+        ).resolved(requested: v2RawString(params, "local_socket_path"))
         let hasExplicitAgentSocketPath = v2HasNonNullParam(params, "ssh_auth_sock")
         let agentSocketPath = v2RawString(params, "ssh_auth_sock")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -575,7 +544,7 @@ extension TerminalController: ControlWorkspaceContext {
         if v2HasNonNullParam(params, "persistent_daemon_slot") {
             guard let persistentDaemonSlot,
                   !persistentDaemonSlot.isEmpty,
-                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil,
+                  persistentDaemonSlot.range(of: "^[A-Za-z0-9._-]{1,128}\\z", options: .regularExpression) != nil,
                   persistentDaemonSlot != ".",
                   persistentDaemonSlot != ".." else {
                 return .err(
@@ -632,6 +601,9 @@ extension TerminalController: ControlWorkspaceContext {
                 data: nil
             )
         }
+        // Deprecated: `cmux ssh` no longer sends this shape (TTY SSH moved to
+        // cmux-tui in #13866). A hand-written call still gets a persistent PTY
+        // slot, but agent resume bindings are not registered or replayed for it.
         if preserveAfterTerminalExit,
            transport == .ssh,
            !skipDaemonBootstrap,
@@ -644,7 +616,7 @@ extension TerminalController: ControlWorkspaceContext {
                 return .err(code: "invalid_params", message: "relay_id is required when relay_port is set", data: nil)
             }
             guard let relayToken,
-                  relayToken.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+                  relayToken.range(of: "^[0-9a-f]{64}\\z", options: .regularExpression) != nil else {
                 return .err(code: "invalid_params", message: "relay_token must be 64 lowercase hex characters when relay_port is set", data: nil)
             }
         }
@@ -661,6 +633,23 @@ extension TerminalController: ControlWorkspaceContext {
         )
 #endif
 
+        // `DisableRemoteConnections` (MDM). `configureRemoteConnection` refuses
+        // too; this pre-check exists so the CLI reports the policy instead of
+        // the generic control-master failure the Bool refusal maps to.
+        guard ManagedRemoteConnectionsPolicy.isEnabled else {
+            return .err(
+                code: "remote_connections_disabled",
+                message: ManagedRemoteConnectionsPolicy.disabledMessage,
+                data: nil
+            )
+        }
+        // `DisableCloud` (MDM): a workspace bound to a Cloud machine is a Cloud
+        // attach whichever verb carried it, so pre-minted daemon credentials
+        // cannot route around the `vm.*` gate.
+        if let managedCloudVMID, !managedCloudVMID.isEmpty,
+           (ManagedCloudPolicy.isDisabled || !CloudMachinesFeature.offMainIsEnabled()) {
+            return .err(code: ManagedCloudPolicy.socketErrorCode, message: CloudMachinesFeature.disabledMessage, data: nil)
+        }
         guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
               let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
             return .err(code: "not_found", message: "Workspace not found", data: .object([
@@ -668,7 +657,6 @@ extension TerminalController: ControlWorkspaceContext {
                 "workspace_ref": controlWorkspaceRefValue(workspaceId),
             ]))
         }
-
         let config = WorkspaceRemoteConfiguration(
             transport: transport,
             terminalTransport: terminalTransport,

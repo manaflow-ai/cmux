@@ -67,6 +67,54 @@ func TestIDsSelectorsAndDecimals(t *testing.T) {
 	}
 }
 
+func TestSessionJournalOptionsValidation(t *testing.T) {
+	tail := JournalStartTail
+	invalidStart := JournalStart("latest")
+	secret := JournalSensitivitySecret
+	invalidSensitivity := JournalSensitivity("private")
+	invalidClass := JournalClass("transition")
+	emptyRegex := &JournalRegexFilter{}
+	invalidFieldRegex := &JournalRegexFilter{
+		Pattern: "agent\\.",
+		Field:   JournalRegexField("unknown"),
+	}
+	tests := map[string]SessionJournalOptions{
+		"cursor and start": {
+			Cursor: &Cursor{Generation: "generation", Revision: Decimal(1)},
+			Start:  &tail,
+		},
+		"invalid start": {Start: &invalidStart},
+		"secret sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &secret},
+		},
+		"invalid sensitivity": {
+			Filter: &JournalFilter{MaxSensitivity: &invalidSensitivity},
+		},
+		"invalid class": {
+			Filter: &JournalFilter{Classes: []JournalClass{invalidClass}},
+		},
+		"empty subject": {
+			Filter: &JournalFilter{Subjects: []JournalSubjectFilter{{}}},
+		},
+		"empty regex": {
+			Filter: &JournalFilter{Regex: emptyRegex},
+		},
+		"invalid regex field": {
+			Filter: &JournalFilter{Regex: invalidFieldRegex},
+		},
+	}
+	for name, options := range tests {
+		t.Run(name, func(t *testing.T) {
+			if err := options.validate(); !errors.Is(err, ErrInvalidArgument) {
+				t.Fatalf("validate() error = %v, want ErrInvalidArgument", err)
+			}
+		})
+	}
+	if err := (SessionJournalOptions{}).validate(); err != nil {
+		t.Fatalf("zero-value options rejected: %v", err)
+	}
+}
+
 func TestIdempotencyKeysMatchDurableIdentifierContract(t *testing.T) {
 	for name, value := range map[string]string{
 		"empty":           "",
@@ -170,6 +218,50 @@ func TestBrowserPointerInputsEncodeRequiredDecimalToken(t *testing.T) {
 	requireParam(t, wheel, "pointer_frame_seq", "42")
 }
 
+func TestTerminalProjectEncodesDestinationAndDecodesEveryView(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	name := "mirror"
+	terminal := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Terminal(SelectID(testTerminalID))
+	projected, err := terminal.Project(context.Background(), TerminalProjectOptions{
+		DestinationWorkspace: SelectID(testWorkspaceID),
+		DestinationScreen:    SelectID(testScreenID),
+		DestinationPane:      SelectID(testPaneID),
+		Index:                2,
+		Name:                 &name,
+	})
+	if err != nil {
+		t.Fatalf("project terminal: %v", err)
+	}
+	snapshot, ok := projected.Value.Cached()
+	if !ok || snapshot.ID != TabID("tab_0000000000000000000000000000000a") ||
+		snapshot.ContentID != testTerminalID || snapshot.PaneID != testPaneID {
+		t.Fatalf("projected terminal snapshot = %#v, cached = %v", snapshot, ok)
+	}
+	projectedRoute := projected.Value.route.params()
+	if projectedRoute["workspace"] != string(testWorkspaceID) ||
+		projectedRoute["screen"] != string(testScreenID) ||
+		projectedRoute["pane"] != string(testPaneID) ||
+		projectedRoute["tab"] != string(snapshot.ID) {
+		t.Fatalf("projected tab route = %#v", projectedRoute)
+	}
+	if _, present := projectedRoute["terminal"]; present {
+		t.Fatalf("projected tab retained source terminal route = %#v", projectedRoute)
+	}
+
+	request := <-requests
+	if request["operation"] != "terminal.project" {
+		t.Fatalf("operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "destination_workspace", string(testWorkspaceID))
+	requireParam(t, request, "destination_screen", string(testScreenID))
+	requireParam(t, request, "destination_pane", string(testPaneID))
+	requireParam(t, request, "index", float64(2))
+	requireParam(t, request, "name", name)
+}
+
 func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	for name, raw := range map[string]json.RawMessage{
 		"external origin": json.RawMessage(
@@ -203,10 +295,47 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	); !errors.Is(err, ErrProtocol) {
 		t.Fatalf("invalid copy mode error = %T %v", err, err)
 	}
-	terminal, err := decodeValue[TerminalSnapshot](
+	legacyAttached, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
 				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"title":"legacy","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"legacy attached terminal snapshot",
+	)
+	if err != nil || len(legacyAttached.TabIDs) != 1 {
+		t.Fatalf("legacy attached terminal = %#v, %v", legacyAttached, err)
+	}
+	legacyDetached, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":null,`+
+				`"title":"legacy","cols":80,"rows":24,`+
+				`"running":true,"lifecycle":"running"}`,
+		),
+		"legacy detached terminal snapshot",
+	)
+	if err != nil || legacyDetached.TabIDs == nil || len(legacyDetached.TabIDs) != 0 {
+		t.Fatalf("legacy detached terminal = %#v, %v", legacyDetached, err)
+	}
+	dualPlacement, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
+				`"title":"dual","cols":80,"rows":24,"running":true,`+
+				`"lifecycle":"running"}`,
+		),
+		"dual terminal placement",
+	)
+	if err != nil || len(dualPlacement.TabIDs) != 1 {
+		t.Fatalf("dual terminal placement = %#v, %v", dualPlacement, err)
+	}
+	terminal, err := decodeValue[TerminalSnapshot](
+		json.RawMessage(
+			`{"id":"term_00000000000000000000000000000007",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":false,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -228,7 +357,7 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 	if _, err := decodeValue[TerminalSnapshot](
 		json.RawMessage(
 			`{"id":"term_00000000000000000000000000000007",`+
-				`"tab_id":"tab_00000000000000000000000000000006",`+
+				`"tab_ids":["tab_00000000000000000000000000000006"],`+
 				`"title":"job","cols":80,"rows":24,"running":true,`+
 				`"lifecycle":"exited","exit":{`+
 				`"outcome":{"kind":"exit","code":0},`+
@@ -339,6 +468,103 @@ func TestCatalogResultsDecodeStrictly(t *testing.T) {
 		),
 	); err == nil {
 		t.Fatal("zero terminal exit signal was accepted")
+	}
+}
+
+func TestJournalResultDecodingEnforcesProducerBoundsAndIdentity(t *testing.T) {
+	manifest := JournalProducerManifest{
+		ProducerID:      "screen-detector",
+		Namespace:       "plugin.screen-detector",
+		ManifestVersion: 1,
+		MaxSensitivity:  JournalSensitivityMetadata,
+		Permissions:     []string{"journal.append.plugin.screen-detector"},
+		Events: []JournalEventSchema{{
+			Kind:          "plugin.screen-detector.agent.state.changed",
+			SchemaVersion: 1,
+			Class:         JournalClassState,
+			Replay:        JournalReplayRequired,
+			Sensitivity:   JournalSensitivityMetadata,
+			PayloadSchema: map[string]any{"type": "object"},
+		}},
+	}
+	tooMany := make([]JournalProducerManifest, maxJournalProducerCount+1)
+	for index := range tooMany {
+		tooMany[index] = manifest
+	}
+	raw, err := json.Marshal(JournalProducerListResult{Producers: tooMany})
+	if err != nil {
+		t.Fatalf("marshal oversized producer list: %v", err)
+	}
+	if _, err := decodeValue[JournalProducerListResult](raw, "journal producer list"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("oversized producer list error = %T %v", err, err)
+	}
+
+	if _, err := decodeValue[JournalProducerPutResult](json.RawMessage(
+		`{"producer_id":"screen-detector","manifest_version":1,"namespace":"plugin.other","sequence":"1","event_id":"event-1"}`,
+	), "journal producer result"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("malformed put result error = %T %v", err, err)
+	}
+	if _, err := decodeValue[JournalAppendResult](json.RawMessage(
+		`{"producer_id":"screen!detector","sequence":"1","event_id":"event-1"}`,
+	), "journal append result"); !errors.Is(err, ErrProtocol) {
+		t.Fatalf("malformed append result error = %T %v", err, err)
+	}
+	invalidIngress := JournalIngress{
+		ProducerID:      "screen-detector",
+		ManifestVersion: 1,
+		Kind:            "agent.state.changed",
+		SchemaVersion:   1,
+		Payload:         map[string]any{},
+	}
+	if err := invalidIngress.Validate(); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("out-of-namespace ingress validation = %T %v", err, err)
+	}
+}
+
+func TestTerminalSnapshotsRejectMalformedTabIdentities(t *testing.T) {
+	const tabID = "tab_00000000000000000000000000000006"
+	tests := []struct {
+		name       string
+		selected   any
+		projected  []any
+		omitTabID  bool
+		omitTabIDs bool
+	}{
+		{name: "missing legacy and multiview identities", omitTabID: true, omitTabIDs: true},
+		{name: "empty legacy compatibility alias", selected: "", omitTabIDs: true},
+		{name: "empty selected identity", selected: "", projected: []any{""}},
+		{name: "empty projected identity", selected: tabID, projected: []any{tabID, ""}},
+		{name: "null multiview identities", selected: tabID, projected: nil},
+		{
+			name:      "inconsistent legacy alias",
+			selected:  "tab_11111111111111111111111111111111",
+			projected: []any{tabID},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			fields := map[string]any{
+				"id":        "term_00000000000000000000000000000007",
+				"title":     "job",
+				"cols":      80,
+				"rows":      24,
+				"running":   true,
+				"lifecycle": "running",
+			}
+			if !test.omitTabID {
+				fields["tab_id"] = test.selected
+			}
+			if !test.omitTabIDs {
+				fields["tab_ids"] = test.projected
+			}
+			raw, err := json.Marshal(fields)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeValue[TerminalSnapshot](raw, "terminal snapshot"); !errors.Is(err, ErrProtocol) {
+				t.Fatalf("malformed terminal identity error = %T %v", err, err)
+			}
+		})
 	}
 }
 
@@ -928,6 +1154,131 @@ func TestSessionReportAgentUsesOnlySessionRoute(t *testing.T) {
 	}
 }
 
+func TestUserlandAgentPluginUsesGenericJournalContract(t *testing.T) {
+	manifest := JournalProducerManifest{
+		ProducerID:      "screen-detector",
+		Namespace:       "plugin.screen-detector",
+		ManifestVersion: 1,
+		MaxSensitivity:  JournalSensitivityMetadata,
+		Permissions:     []string{"journal.append.plugin.screen-detector"},
+		Events: []JournalEventSchema{{
+			Kind:          "plugin.screen-detector.agent.state.changed",
+			SchemaVersion: 1,
+			Class:         JournalClassState,
+			Replay:        JournalReplayRequired,
+			Sensitivity:   JournalSensitivityMetadata,
+			PayloadSchema: map[string]any{"type": "object"},
+		}},
+	}
+	if err := manifest.Validate(); err != nil {
+		t.Fatalf("manifest validation: %v", err)
+	}
+
+	agent, err := decodeValue[AgentSnapshot](json.RawMessage(
+		`{"id":"agent_00000000000000000000000000000008",`+
+			`"session_id":"session_00000000000000000000000000000002",`+
+			`"terminal_id":"term_00000000000000000000000000000007",`+
+			`"state":"working","source":"plugin","updated_at_ms":"10",`+
+			`"source_session":"pid:42"}`,
+	), "agent snapshot")
+	if err != nil || agent.Source != AgentSourcePlugin {
+		t.Fatalf("plugin agent snapshot = %#v, %v", agent, err)
+	}
+	screen, err := decodeValue[TerminalScreenResult](json.RawMessage(
+		`{"text":"working","revision":"42","osc_progress":"4;1;50",`+
+			`"cols":80,"rows":24,"cursor_row":0,"cursor_col":7,"cursor_visible":true}`,
+	), "terminal screen")
+	if err != nil || screen.Revision == nil || screen.Revision.String() != "42" ||
+		screen.OSCProgress == nil || *screen.OSCProgress != "4;1;50" {
+		t.Fatalf("plugin terminal metadata = %#v, %v", screen, err)
+	}
+
+	client, requests := pipeClient(t, nil, 3)
+	defer client.Close(context.Background()) //nolint:errcheck
+	session := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID))
+	producers, err := session.ListJournalProducers(
+		context.Background(), SessionJournalProducerListOptions{},
+	)
+	if err != nil || len(producers) != 1 || producers[0].ProducerID != manifest.ProducerID {
+		t.Fatalf("producer list = %#v, %v", producers, err)
+	}
+	put, err := session.PutJournalProducer(
+		context.Background(), manifest,
+		MutationOptions{
+			IdempotencyKey: "producer-put",
+			Extra: map[string]JSONValue{
+				"future_put": "kept",
+				// Typed fields must win over forward-compatible extras.
+				"manifest": map[string]any{"wrong": true},
+			},
+		},
+	)
+	if err != nil || put.Value.EventID != "event-11" {
+		t.Fatalf("producer put = %#v, %v", put, err)
+	}
+	event := JournalIngress{
+		ProducerID:      manifest.ProducerID,
+		ManifestVersion: 1,
+		Kind:            manifest.Events[0].Kind,
+		SchemaVersion:   1,
+		OccurredAtMS:    func() *Decimal { value := Decimal(10); return &value }(),
+		Subjects:        []JournalSubject{{Kind: "agent", ID: string(testAgentID)}},
+		Payload:         map[string]any{"state": "working"},
+	}
+	appendResult, err := session.AppendJournal(
+		context.Background(),
+		event,
+		MutationOptions{
+			IdempotencyKey: "event-append",
+			Extra: map[string]JSONValue{
+				"future_append": "kept",
+				// Typed fields must win over forward-compatible extras.
+				"event": map[string]any{"wrong": true},
+			},
+		},
+	)
+	if err != nil || appendResult.Value.EventID != "event-13" {
+		t.Fatalf("journal append = %#v, %v", appendResult, err)
+	}
+
+	requestsByOperation := make(map[string]map[string]any, 3)
+	for index := 0; index < 3; index++ {
+		request := <-requests
+		if request["operation"] == nil {
+			t.Fatalf("request %d omitted operation: %#v", index, request)
+		}
+		requestsByOperation[request["operation"].(string)] = request
+	}
+	putRequest := requestsByOperation["session.journal.producer.put"]
+	if putRequest == nil {
+		t.Fatalf("journal producer put request was not observed: %#v", requestsByOperation)
+	}
+	if params := requestParams(t, putRequest); params["future_put"] != "kept" {
+		t.Fatalf("put extra field = %#v, want kept", params["future_put"])
+	}
+	manifestValue, ok := requestParams(t, putRequest)["manifest"].(map[string]any)
+	if !ok {
+		t.Fatalf("put typed manifest was replaced by Extra: %#v", putRequest)
+	}
+	if manifestValue["producer_id"] != manifest.ProducerID {
+		t.Fatalf("put manifest producer_id = %#v, want %q", manifestValue["producer_id"], manifest.ProducerID)
+	}
+	appendRequest := requestsByOperation["session.journal.append"]
+	if appendRequest == nil {
+		t.Fatalf("journal append request was not observed: %#v", requestsByOperation)
+	}
+	if params := requestParams(t, appendRequest); params["future_append"] != "kept" {
+		t.Fatalf("append extra field = %#v, want kept", params["future_append"])
+	}
+	eventValue, ok := requestParams(t, appendRequest)["event"].(map[string]any)
+	if !ok {
+		t.Fatalf("append typed event was replaced by Extra: %#v", appendRequest)
+	}
+	if eventValue["producer_id"] != event.ProducerID {
+		t.Fatalf("append event producer_id = %#v, want %q", eventValue["producer_id"], event.ProducerID)
+	}
+}
+
 func TestKnownResourceChangesAreTypedAndNeverDowngradeToUnknown(t *testing.T) {
 	machine := map[string]any{
 		"id":          testMachineID,
@@ -1136,6 +1487,30 @@ func TestCommandsRemainExactAndShellIsServerSide(t *testing.T) {
 	}
 }
 
+func TestPaneSplitEncodesViewportWidth(t *testing.T) {
+	client, requests := pipeClient(t, nil, 1)
+	defer client.Close(context.Background()) //nolint:errcheck
+	pane := client.Machine(SelectID(testMachineID)).
+		Session(SelectID(testSessionID)).
+		Workspace(SelectID(testWorkspaceID)).
+		Screen(SelectID(testScreenID)).
+		Pane(SelectID(testPaneID))
+	width := 0.5
+
+	if _, err := pane.Split(context.Background(), PaneSplitOptions{
+		Direction:     DirectionRight,
+		ViewportWidth: &width,
+	}); err != nil {
+		t.Fatalf("split pane: %v", err)
+	}
+	request := <-requests
+	if request["operation"] != "pane.split" {
+		t.Fatalf("split operation = %#v", request["operation"])
+	}
+	requireParam(t, request, "direction", string(DirectionRight))
+	requireParam(t, request, "viewport_width", width)
+}
+
 func TestScreenLayoutUndoEncodesConfirmationToken(t *testing.T) {
 	client, requests := pipeClient(t, nil, 1)
 	defer client.Close(context.Background()) //nolint:errcheck
@@ -1174,7 +1549,7 @@ func TestStructuredErrorsAndNoImplicitRetry(t *testing.T) {
 		request := readRequest(t, reader)
 		requests.Add(1)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol": "cmux.protocol/1",
+			"protocol": "cmux.protocol/2",
 			"type":     "response",
 			"id":       request["id"],
 			"ok":       false,
@@ -1332,7 +1707,7 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 			},
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "18",
@@ -1344,7 +1719,7 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 
 		cancel := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -1389,6 +1764,68 @@ func TestStreamRecvDeadlineIsOperationScoped(t *testing.T) {
 	}
 }
 
+func TestJournalRecordSequenceMatchesEnvelopeCursor(t *testing.T) {
+	clientSide, serverSide := net.Pipe()
+	release := make(chan struct{})
+	go func() {
+		defer serverSide.Close()
+		reader := bufio.NewReader(serverSide)
+		open := readRequest(t, reader)
+		streamID := requestParams(t, open)["stream_id"]
+		writeSuccess(t, serverSide, open["id"], map[string]any{"stream_id": streamID})
+		writeEnvelope(t, serverSide, map[string]any{
+			"protocol":  "cmux.protocol/2",
+			"type":      "stream_item",
+			"stream_id": streamID,
+			"sequence":  "1",
+			"cursor": map[string]any{
+				"generation": string(testSessionID),
+				"revision":   "1",
+			},
+			"item": map[string]any{
+				"sequence":                   "2",
+				"event_id":                   "event_mismatched_cursor",
+				"schema_version":             1,
+				"kind":                       "agent.turn.completed",
+				"class":                      "observation",
+				"replay":                     "advisory",
+				"occurred_at_ms":             "1",
+				"committed_at_ms":            "2",
+				"producer":                   map[string]any{"kind": "agent_adapter", "id": "cmux_agents"},
+				"authority":                  nil,
+				"causation_id":               nil,
+				"correlation_id":             nil,
+				"causation_depth":            0,
+				"subjects":                   []any{},
+				"sensitivity":                "metadata",
+				"payload":                    map[string]any{},
+				"resource_revision":          nil,
+				"previous_resource_revision": nil,
+			},
+		})
+		<-release
+	}()
+	client, err := NewClient(context.Background(), ClientOptions{
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return clientSide, nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close(context.Background()) //nolint:errcheck
+	stream, err := client.Machine(SelectID(testMachineID)).Session(SelectID(testSessionID)).
+		Journal(context.Background(), SessionJournalOptions{})
+	if err != nil {
+		t.Fatalf("open journal: %v", err)
+	}
+	_, err = stream.Recv(context.Background())
+	if !errors.Is(err, ErrProtocol) || !strings.Contains(err.Error(), "journal sequence must match") {
+		t.Fatalf("mismatched journal cursor error = %T %v", err, err)
+	}
+	close(release)
+}
+
 func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 	const requestTimeout = 10 * time.Millisecond
 	clientSide, serverSide := net.Pipe()
@@ -1407,7 +1844,7 @@ func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 		defer timer.Stop()
 		<-timer.C
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "1",
@@ -1419,7 +1856,7 @@ func TestAcknowledgedStreamOutlivesSetupContextAndRequestTimeout(t *testing.T) {
 
 		cancel := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -1556,7 +1993,7 @@ func TestFailedStreamOpenCancelsDispatchedRoute(t *testing.T) {
 				})
 				secondCancel := readRequest(t, reader)
 				writeEnvelope(t, serverSide, map[string]any{
-					"protocol":  "cmux.protocol/1",
+					"protocol":  "cmux.protocol/2",
 					"type":      "stream_end",
 					"stream_id": secondStreamID,
 					"reason":    "canceled",
@@ -1897,7 +2334,7 @@ func TestRejectedStreamOpenDoesNotCancelOrClose(t *testing.T) {
 		reader := bufio.NewReader(serverSide)
 		open := readRequest(t, reader)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol": "cmux.protocol/1",
+			"protocol": "cmux.protocol/2",
 			"type":     "response",
 			"id":       open["id"],
 			"ok":       false,
@@ -2493,9 +2930,9 @@ func TestFailedStreamOpenCleanupTimeoutClosesConnection(t *testing.T) {
 
 func TestResponseEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	valid := map[string]string{
-		"success": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"success": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":true,"result":null}`,
-		"failure": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"failure": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed",` +
 			`"details":null,"retryable":false}}`,
@@ -2511,43 +2948,43 @@ func TestResponseEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	structuredError := `{"code":"resource.failed","message":"failed",` +
 		`"details":{},"retryable":false}`
 	invalid := map[string]string{
-		"unknown top-level field": `{"protocol":"cmux.protocol/1",` +
+		"unknown top-level field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true,` +
 			`"result":{},"extra":true}`,
 		"missing protocol": `{"type":"response","id":"request-1",` +
 			`"ok":true,"result":{}}`,
 		"null protocol": `{"protocol":null,"type":"response",` +
 			`"id":"request-1","ok":true,"result":{}}`,
-		"wrong type": `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+		"wrong type": `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 			`"id":"request-1","ok":true,"result":{}}`,
-		"missing id": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"missing id": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"ok":true,"result":{}}`,
-		"empty id": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"empty id": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"","ok":true,"result":{}}`,
-		"missing ok": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"missing ok": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","result":{}}`,
-		"null ok": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"null ok": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":null,"result":{}}`,
-		"success missing result": `{"protocol":"cmux.protocol/1",` +
+		"success missing result": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true}`,
-		"success with error": `{"protocol":"cmux.protocol/1",` +
+		"success with error": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":true,` +
 			`"result":{},"error":` + structuredError + `}`,
-		"failure missing error": `{"protocol":"cmux.protocol/1",` +
+		"failure missing error": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false}`,
-		"failure with result": `{"protocol":"cmux.protocol/1",` +
+		"failure with result": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,` +
 			`"result":{},"error":` + structuredError + `}`,
-		"null error": `{"protocol":"cmux.protocol/1","type":"response",` +
+		"null error": `{"protocol":"cmux.protocol/2","type":"response",` +
 			`"id":"request-1","ok":false,"error":null}`,
-		"error unknown field": `{"protocol":"cmux.protocol/1",` +
+		"error unknown field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","details":{},` +
 			`"retryable":false,"extra":true}}`,
-		"error missing field": `{"protocol":"cmux.protocol/1",` +
+		"error missing field": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","retryable":false}}`,
-		"error null retryable": `{"protocol":"cmux.protocol/1",` +
+		"error null retryable": `{"protocol":"cmux.protocol/2",` +
 			`"type":"response","id":"request-1","ok":false,"error":{` +
 			`"code":"resource.failed","message":"failed","details":{},` +
 			`"retryable":null}}`,
@@ -2570,25 +3007,25 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	}{
 		"item without cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"0","item":null}`,
 		},
 		"item with cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":"2"},"item":{}}`,
 		},
 		"canceled end": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":{"generation":"g","revision":"2"},` +
 				`"recovery":"reopen"}`,
 		},
 		"error end": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed",` +
 				`"details":null,"retryable":true}}`,
@@ -2611,110 +3048,110 @@ func TestStreamEnvelopesRequireExactCanonicalShape(t *testing.T) {
 	}{
 		"item unknown top-level field": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"item":{},"extra":true}`,
 		},
 		"item missing stream id": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"sequence":"1","item":{}}`,
 		},
 		"item number sequence": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":1,"item":{}}`,
 		},
 		"item missing item": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1"}`,
 		},
 		"item null cursor": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":null,"item":{}}`,
 		},
 		"item cursor missing revision": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g"},"item":{}}`,
 		},
 		"item cursor number revision": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":2},"item":{}}`,
 		},
 		"item cursor unknown field": {
 			envelopeType: "stream_item",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_item",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_item",` +
 				`"stream_id":"` + streamID + `","sequence":"1",` +
 				`"cursor":{"generation":"g","revision":"2","extra":true},` +
 				`"item":{}}`,
 		},
 		"end unknown top-level field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"extra":true}`,
 		},
 		"end missing reason": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `"}`,
 		},
 		"end unknown reason": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"future"}`,
 		},
 		"end null cursor": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":null}`,
 		},
 		"end strict cursor": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"cursor":{"generation":"g","revision":"2","extra":true}}`,
 		},
 		"end null recovery": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled",` +
 				`"recovery":null}`,
 		},
 		"end null error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":null}`,
 		},
 		"end error unknown field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed","details":{},` +
 				`"retryable":true,"extra":true}}`,
 		},
 		"end error missing field": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error","error":{` +
 				`"code":"stream.failed","message":"failed","retryable":true}}`,
 		},
 		"error reason missing error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"error"}`,
 		},
 		"non-error reason with error": {
 			envelopeType: "stream_end",
-			raw: `{"protocol":"cmux.protocol/1","type":"stream_end",` +
+			raw: `{"protocol":"cmux.protocol/2","type":"stream_end",` +
 				`"stream_id":"` + streamID + `","reason":"canceled","error":{` +
 				`"code":"stream.failed","message":"failed",` +
 				`"details":{},"retryable":true}}`,
@@ -2750,7 +3187,7 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 			"stream_id": streamID,
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "18446744073709551615",
@@ -2765,7 +3202,7 @@ func TestTypedStreamEndAndCancellation(t *testing.T) {
 			},
 		})
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "error",
@@ -2869,14 +3306,14 @@ func TestAcknowledgedStreamOpenSurvivesTerminalTransportClose(t *testing.T) {
 		encoder := json.NewEncoder(&batch)
 		for _, envelope := range []map[string]any{
 			{
-				"protocol": "cmux.protocol/1",
+				"protocol": "cmux.protocol/2",
 				"type":     "response",
 				"id":       open["id"],
 				"ok":       true,
 				"result":   map[string]any{"stream_id": streamID},
 			},
 			{
-				"protocol":  "cmux.protocol/1",
+				"protocol":  "cmux.protocol/2",
 				"type":      "stream_end",
 				"stream_id": streamID,
 				"reason":    "completed",
@@ -2949,7 +3386,7 @@ func TestCancelPreservesOpeningRouteAndServerEnd(t *testing.T) {
 		cancelParams := requestParams(t, cancel)
 		cancelRequests <- cancelParams
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3013,7 +3450,7 @@ func TestExplicitCancelWaitsForResponseAndEndInEitherOrder(t *testing.T) {
 					"stream_id": streamID,
 				})
 				writeEnvelope(t, serverSide, map[string]any{
-					"protocol":  "cmux.protocol/1",
+					"protocol":  "cmux.protocol/2",
 					"type":      "stream_item",
 					"stream_id": streamID,
 					"sequence":  "1",
@@ -3024,7 +3461,7 @@ func TestExplicitCancelWaitsForResponseAndEndInEitherOrder(t *testing.T) {
 				cancel := readRequest(t, reader)
 				writeEnd := func() {
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
@@ -3158,7 +3595,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "wrong_id":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": "stream_ffffffffffffffffffffffffffffffff",
 						"reason":    "canceled",
@@ -3166,7 +3603,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "wrong_reason":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "completed",
@@ -3174,7 +3611,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "malformed_end":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
@@ -3183,7 +3620,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 				case "malformed_item":
 					writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -3191,13 +3628,13 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "post_end_malformed_item":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
 					})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -3206,13 +3643,13 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					writeSuccessOrClosed(t, serverSide, cancel["id"])
 				case "post_end_valid_item":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_end",
 						"stream_id": streamID,
 						"reason":    "canceled",
 					})
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol":  "cmux.protocol/1",
+						"protocol":  "cmux.protocol/2",
 						"type":      "stream_item",
 						"stream_id": streamID,
 						"sequence":  "1",
@@ -3227,7 +3664,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					writeSuccessOrClosed(t, serverSide, cancel["id"])
 				case "response_extra":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -3236,7 +3673,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "response_both":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -3245,7 +3682,7 @@ func TestExplicitCancelInvalidConfirmationFailsClosedOnce(t *testing.T) {
 					})
 				case "response_null":
 					writeEnvelope(t, serverSide, map[string]any{
-						"protocol": "cmux.protocol/1",
+						"protocol": "cmux.protocol/2",
 						"type":     "response",
 						"id":       cancel["id"],
 						"ok":       true,
@@ -3364,7 +3801,7 @@ func TestFirstExplicitCancelCallerOwnsCancellationContext(t *testing.T) {
 			return
 		}
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3476,7 +3913,7 @@ func TestExplicitCancelStaleItemDripUsesOneTotalDeadline(t *testing.T) {
 		cancel := readRequest(t, reader)
 		writeSuccess(t, serverSide, cancel["id"], map[string]any{})
 		encoded, err := json.Marshal(map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_item",
 			"stream_id": streamID,
 			"sequence":  "1",
@@ -3558,7 +3995,7 @@ func TestPreCanceledExplicitCancelCanBeRetried(t *testing.T) {
 		cancel := readRequest(t, reader)
 		close(cancelSeen)
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -3837,7 +4274,7 @@ func TestOverflowAndExplicitCancelSendOneCleanup(t *testing.T) {
 			return
 		}
 		writeEnvelope(t, serverSide, map[string]any{
-			"protocol":  "cmux.protocol/1",
+			"protocol":  "cmux.protocol/2",
 			"type":      "stream_end",
 			"stream_id": streamID,
 			"reason":    "canceled",
@@ -4095,7 +4532,7 @@ func pipeClient(
 			requests <- request
 			result := map[string]any{}
 			switch request["operation"] {
-			case "workspace.run":
+			case "workspace.run", "pane.split":
 				result = createdPathResult()
 			case "browser.input.mouse", "browser.input.wheel":
 				result = map[string]any{
@@ -4189,6 +4626,78 @@ func pipeClient(
 						"source_session": "codex-task-42",
 					},
 				}
+			case "session.journal.producer.list":
+				result = map[string]any{
+					"producers": []any{
+						map[string]any{
+							"producer_id":      "screen-detector",
+							"namespace":        "plugin.screen-detector",
+							"manifest_version": 1,
+							"max_sensitivity":  "metadata",
+							"permissions":      []string{"journal.append.plugin.screen-detector"},
+							"events": []any{
+								map[string]any{
+									"kind":           "plugin.screen-detector.agent.state.changed",
+									"schema_version": 1,
+									"class":          "state",
+									"replay":         "required",
+									"sensitivity":    "metadata",
+									"payload_schema": map[string]any{"type": "object"},
+								},
+							},
+						},
+					},
+				}
+			case "session.journal.producer.put":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "12",
+					"replayed":   false,
+					"value": map[string]any{
+						"producer_id":      "screen-detector",
+						"manifest_version": 1,
+						"namespace":        "plugin.screen-detector",
+						"sequence":         "11",
+						"event_id":         "event-11",
+					},
+				}
+			case "session.journal.append":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "14",
+					"replayed":   false,
+					"value": map[string]any{
+						"producer_id": "screen-detector",
+						"sequence":    "13",
+						"event_id":    "event-13",
+					},
+				}
+			case "terminal.screen.read":
+				result = map[string]any{
+					"text":           "working",
+					"revision":       "42",
+					"osc_progress":   "4;1;50",
+					"cols":           80,
+					"rows":           24,
+					"cursor_row":     0,
+					"cursor_col":     7,
+					"cursor_visible": true,
+				}
+			case "terminal.project":
+				result = map[string]any{
+					"generation": "g",
+					"revision":   "17",
+					"replayed":   false,
+					"value": map[string]any{
+						"id":           "tab_0000000000000000000000000000000a",
+						"pane_id":      testPaneID,
+						"name":         "mirror",
+						"index":        2,
+						"focused":      false,
+						"content_kind": "terminal",
+						"content_id":   testTerminalID,
+					},
+				}
 			}
 			writeSuccess(t, serverSide, request["id"], result)
 		}
@@ -4239,7 +4748,7 @@ func readRequest(t *testing.T, reader *bufio.Reader) map[string]any {
 func writeSuccess(t *testing.T, conn net.Conn, id any, result map[string]any) {
 	t.Helper()
 	writeEnvelope(t, conn, map[string]any{
-		"protocol": "cmux.protocol/1",
+		"protocol": "cmux.protocol/2",
 		"type":     "response",
 		"id":       id,
 		"ok":       true,
@@ -4250,7 +4759,7 @@ func writeSuccess(t *testing.T, conn net.Conn, id any, result map[string]any) {
 func writeSuccessOrClosed(t *testing.T, conn net.Conn, id any) {
 	t.Helper()
 	encoded, err := json.Marshal(map[string]any{
-		"protocol": "cmux.protocol/1",
+		"protocol": "cmux.protocol/2",
 		"type":     "response",
 		"id":       id,
 		"ok":       true,

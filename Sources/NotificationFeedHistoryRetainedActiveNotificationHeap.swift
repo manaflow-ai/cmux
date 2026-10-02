@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated struct NotificationFeedHistoryRetainedActiveNotificationHeap: Sendable {
+struct NotificationFeedHistoryRetainedActiveNotificationHeap: Sendable {
     let limit: Int
     private var storage: [TerminalNotification] = []
 

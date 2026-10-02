@@ -15,16 +15,22 @@ extension RemoteSessionCoordinator {
     func stopAllLocked(cleanupScope: RemoteRelayCleanupScope) -> Bool {
         debugLog("remote.session.stop \(debugConfigSummary())")
         isStopping = true
+        proxyConnectionDesired = false
         cancelConnectionAttemptLocked()
         cancelReconnectRetryLocked()
         reconnectRetryCount = 0
         consecutiveUnreachableProbeCount = 0
-        reconnectSuspended = false
+        resetBootstrapFailureTrackingLocked()
+        endReadinessSeekLocked()
         reachabilityProbeGeneration &+= 1
         cancelControlMasterReapObservationLocked()
         cancelReverseRelayRestartLocked()
         cancelRemotePortScanCoalesceLocked()
         let cleanupSucceeded = stopReverseRelayLocked(cleanupScope: cleanupScope)
+        if cleanupSucceeded, hasTouchedRemotePasteDirectory {
+            hasTouchedRemotePasteDirectory = false
+            cleanupRemotePasteDirectoryLocked()
+        }
         remotePortScanGeneration &+= 1
         remotePortScanBurstTask?.cancel()
         remotePortScanBurstTask = nil

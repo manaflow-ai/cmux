@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Bonsplit
 import CmuxSettings
 import CmuxCore
@@ -9,7 +10,6 @@ extension Workspace {
     private static let structuredAgentHookStatusKeys = AgentHibernationLifecycleStatusKeys.allowedStatusKeys
     private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
     private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
-
     var agentPIDs: [String: pid_t] {
         get { sidebarAgentRuntimeObservation.agentPIDs }
         set { sidebarAgentRuntimeObservation.setAgentPIDs(newValue) }
@@ -86,7 +86,12 @@ extension Workspace {
                 agentPIDIdentitiesForPanel[key] = agentPIDProcessIdentitiesByKey[key]
             }
             let statusKey = agentStatusKey(forAgentPIDKey: key)
-            if let statusEntry = statusEntries[statusKey] {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
+                statusEntriesForPanel[statusKey] = statusEntry
+            }
+        }
+        for (statusKey, lifecycle) in lifecycleStates where lifecycle == .needsInput {
+            if let statusEntry = agentStatusEntry(key: statusKey, panelId: panelId) ?? statusEntries[statusKey] {
                 statusEntriesForPanel[statusKey] = statusEntry
             }
         }
@@ -121,6 +126,11 @@ extension Workspace {
             return true
         }
         for key in agentPIDPanelIdsByKey.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
+            return true
+        }
+        if agentLifecycleStatesByPanelId.values.contains(where: {
+            $0[statusKey] == .needsInput
+        }) {
             return true
         }
         return false
@@ -177,15 +187,20 @@ extension Workspace {
         var didClearOtherStructuredAgentRuntime = false
         if let panelId { didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key) }
         let processIdentity = Self.agentPIDProcessIdentity(pid: pid)
+        if key == "claude_code", let panelId, let processIdentity { AgentHibernationController.shared.disarmSessionEndPreservationIfSuperseded(panelKey: AgentHibernationPanelKey(workspaceId: id, panelId: panelId), processIdentity: processIdentity) }
         agentPIDs[key] = pid
         agentPIDProcessIdentitiesByKey[key] = processIdentity
         if let panelId { recordAgentPIDOwnership(key: key, panelId: panelId) } else { removeAgentPIDOwnership(key: key) }
+        if let panelId { noteAgentWakeAgentReported(panelId: panelId, statusKey: agentStatusKey(forAgentPIDKey: key)) }
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
+        for changedPanelID in Set([previous.panelId, panelId].compactMap { $0 }) {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelID)
+        }
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -326,20 +341,22 @@ extension Workspace {
         }
         if let statusKeyToClear,
            !hasAgentRuntime(forStatusKey: statusKeyToClear),
-           statusEntries.removeValue(forKey: statusKeyToClear) != nil {
+           removeStatusEntry(forKey: statusKeyToClear) {
             didChange = true
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didChange, let changedPanelId = ownedPanelId ?? panelId {
+            syncTerminalTabAgentIconAsset(forPanelId: changedPanelId)
         }
         return didChange
     }
 
     /// Clears a panel's restored agent snapshot and resume metadata.
     func clearRestoredAgentSnapshot(panelId: UUID) {
-        restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
-        restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
-        restoredResumeSessionWorkingDirectoriesByPanelId.removeValue(forKey: panelId)
+        restoredAgentLifecycle.clearSessionRestore(panelId: panelId)
+        syncTerminalTabAgentIconAsset(forPanelId: panelId)
     }
 
     func refreshTrackedAgentPorts() {
@@ -352,6 +369,14 @@ extension Workspace {
                 processIdentity: agentPIDProcessIdentitiesByKey[key]
             )
         })
+        if remainingAgentRoots.isEmpty, !agentListeningPorts.isEmpty {
+            // No agent is left to own a port, so there is no later scan result
+            // to flicker against: drop the panel-owned ports now instead of
+            // waiting for the scanner's asynchronous empty publication, which
+            // is what pane close and detach promise (#3744).
+            agentListeningPorts.removeAll()
+            recomputeListeningPorts()
+        }
         PortScanner.shared.refreshAgentPorts(workspaceId: id, agentRoots: remainingAgentRoots)
     }
 
@@ -375,6 +400,12 @@ extension Workspace {
                 didChange = true
             }
         }
+        for (statusKey, capturedStatusEntry) in runtimeState.statusEntries
+            where !hasAgentRuntime(forStatusKey: statusKey)
+                && statusEntries[statusKey] == capturedStatusEntry {
+            removeStatusEntry(forKey: statusKey)
+            didChange = true
+        }
         if didChange {
             refreshTrackedAgentPorts()
         }
@@ -384,7 +415,7 @@ extension Workspace {
     func adoptDetachedAgentRuntimeState(_ runtimeState: DetachedAgentRuntimeState?) {
         guard let runtimeState else { return }
         for (statusKey, statusEntry) in runtimeState.statusEntries {
-            statusEntries[statusKey] = statusEntry
+            setStatusEntry(statusEntry, key: statusKey, panelId: runtimeState.panelId)
         }
         var didAdoptAgentPID = false
         for (key, pid) in runtimeState.agentPIDs {
@@ -405,6 +436,16 @@ extension Workspace {
         }
     }
 
+    /// Starts the restored terminals held for this workspace's first visit.
+    func admitStartupRestoresAwaitingFirstVisit() {
+        guard !startupRestorePanelIdsAwaitingFirstVisit.isEmpty else { return }
+        let panelIds = startupRestorePanelIdsAwaitingFirstVisit
+        startupRestorePanelIdsAwaitingFirstVisit.removeAll()
+        for panelId in panelIds {
+            terminalPanel(for: panelId)?.surface.admitStartupRestoreRuntime()
+        }
+    }
+
     /// Discard every Workspace-owned contribution for a surface whose tab,
     /// pane, or workspace has already been accepted for closure.
     @discardableResult
@@ -420,8 +461,14 @@ extension Workspace {
         requestTransferredRemoteCleanup: Bool,
         discardAgentHibernationTracking: Bool = true,
         cleanupControllerSurfaceState: Bool = false,
-        preservesTerminalForTransfer: Bool = false
+        preservesTerminalForTransfer: Bool = false,
+        preservesRemoteTerminalTracking: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
+        if closePanel, !preservesTerminalForTransfer {
+            journalClosedAgentSessions(panelId: panelId)
+        }
+        clearCloudMaterializationFailure(surfaceID: panelId)
+        cancelReservedCloudTerminalPane(panelID: panelId)
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -431,11 +478,20 @@ extension Workspace {
         removePendingTerminalInputObservers(forPanelId: panelId)
         let transferredRemoteCleanupConfiguration = transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         panelSubscriptions.removeValue(forKey: panelId)?.cancel()
+        (panel as? FilePreviewPanel)?.unbindTabMetadata()
         discardAgentSessionPanelSubscription(panelId: panelId, panel: panel)
         discardBrowserPanelSubscription(panelId: panelId, panel: panel)
         removeBrowserOpenTabSuggestionIfNeeded(panel: panel, panelId: panelId)
         if cleanupControllerSurfaceState {
-            TerminalController.shared.cleanupSurfaceState(surfaceIds: [panelId, tabId?.uuid].compactMap { $0 })
+            TerminalController.shared.cleanupSurfaceState(
+                surfaceIds: [panelId, tabId?.uuid].compactMap { $0 }
+            )
+        }
+        if !preservesTerminalForTransfer {
+            removeDeferredAgentResumeRestore(panelId: panelId)
+            terminalStartupRestoreCoordinator.discardPendingRestoreForPanelTeardown(
+                panelID: panelId
+            )
         }
         if closePanel {
             panel?.close()
@@ -444,6 +500,9 @@ extension Workspace {
         let shouldPreserveRemoteDisconnectOnClose =
             origin == "tab_close" ||
             origin == "pane_close"
+        // Retire work belonging to the old surface before the last-session
+        // close records a fresh disconnected replacement intent.
+        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldPreserveRemoteDisconnectOnClose,
            panel is TerminalPanel {
             markRemoteTerminalSessionClosingIfLast(surfaceId: panelId)
@@ -452,7 +511,6 @@ extension Workspace {
             shouldPreserveRemoteDisconnectOnClose &&
             remoteDisconnectPlaceholderPanelIds.remove(panelId) != nil &&
             panels.count == 1
-        cancelPendingRemoteDisconnectReplacement(surfaceId: panelId)
         if shouldRefreshRemoteDisconnectPlaceholder,
            let remoteConfiguration {
             rememberPendingRemoteDisconnectReplacement(
@@ -478,17 +536,17 @@ extension Workspace {
                         preservesTerminalForTransfer
                 )
         }
-        untrackRemoteTerminalSurface(panelId)
-        if closePanel {
-            endedRemoteTerminalLifecycleIDsBySurfaceId.removeValue(forKey: panelId)
-        }
-        discardRemoteDirectoryTrustState(panelId: panelId)
-        pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        retireRemoteTerminalLifecycle(
+            panelId: panelId,
+            preservesRemoteTerminalTracking: preservesRemoteTerminalTracking,
+            closesPanel: closePanel
+        )
         removeSurfaceMappings(forPanelId: panelId)
 
         panelDirectories.removeValue(forKey: panelId)
         panelDirectoryDisplayLabels.removeValue(forKey: panelId)
         panelGitBranches.removeValue(forKey: panelId)
+        panelPrompts.removeValue(forKey: panelId)
         panelPullRequests.removeValue(forKey: panelId)
         panelTitles.removeValue(forKey: panelId)
         panelCustomTitles.removeValue(forKey: panelId)
@@ -498,11 +556,20 @@ extension Workspace {
         manualUnreadPanelIds.remove(panelId)
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
+        agentStatusEntriesByPanelId.removeValue(forKey: panelId)
         restoredPanelTitleBoundariesByPanelId.removeValue(forKey: panelId)
         clearAgentLifecycleStates(panelId: panelId)
+        discardAgentWakeVerification(
+            panelId: panelId,
+            panel: (removedPanel ?? panel) as? TerminalPanel
+        )
         surfaceTTYNames.removeValue(forKey: panelId)
         discardRemotePTYSessionID(panelId: panelId)
         surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        surfaceResumeRestoreClaimsByPanelId.removeValue(forKey: panelId)
+        pendingPlainSSHRestorePanelIds.remove(panelId)
+        observedPlainSSHPanelIds.remove(panelId)
+        plainSSHDetectionMissesByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

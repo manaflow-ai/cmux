@@ -1894,7 +1894,8 @@ mod tests {
     #[cfg(not(unix))]
     #[test]
     fn production_graphics_writer_is_disabled_without_interruptible_output() {
-        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())));
+        let (processing_fence, _processing_fence_notifier) = graphics_fence_channel();
+        let result = GraphicsWriter::spawn(Arc::new(StdoutLock::new(())), processing_fence, || {});
         let Err(error) = result else {
             panic!("non-Unix graphics output must be disabled");
         };
@@ -2115,16 +2116,18 @@ mod tests {
         );
         let master = unsafe { OwnedFd::from_raw_fd(master) };
         let slave = unsafe { OwnedFd::from_raw_fd(slave) };
+        // Linux can reject even the first nonblocking write after TCOOFF. Queue
+        // unrelated output before suspending the PTY, then fill the stopped queue.
+        assert_eq!(
+            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
+            sentinel.len() as isize
+        );
         assert_eq!(unsafe { libc::tcflow(slave.as_raw_fd(), libc::TCOOFF) }, 0);
         let flags = unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_GETFL) };
         assert!(flags >= 0);
         assert_eq!(
             unsafe { libc::fcntl(slave.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
             0
-        );
-        assert_eq!(
-            unsafe { libc::write(slave.as_raw_fd(), sentinel.as_ptr().cast(), sentinel.len()) },
-            sentinel.len() as isize
         );
         let fill = [b'x'; 4_096];
         loop {
@@ -2389,7 +2392,16 @@ mod tests {
         let bytes = Arc::new(Mutex::new(Vec::new()));
         let (flushed_tx, flushed_rx) = sync_channel(8);
         let output = ObservedOutput { bytes: bytes.clone(), flushed: flushed_tx };
-        let mut writer = GraphicsWriter::spawn_with_output(stdout_lock.clone(), output).unwrap();
+        let (ready_tx, ready_rx) = sync_channel(1);
+        let mut writer = GraphicsWriter::spawn_with_output_and_fence(
+            stdout_lock.clone(),
+            output,
+            || Ok(()),
+            move || {
+                let _ = ready_tx.try_send(());
+            },
+        )
+        .unwrap();
         let first = rgba_placement(41, 1, 0, [255, 0, 0, 255]);
         let second = rgba_placement(42, 1, 1, [0, 255, 0, 255]);
 
@@ -2397,6 +2409,9 @@ mod tests {
         wait_for_output(&flushed_rx, &bytes, |bytes| {
             String::from_utf8_lossy(bytes).matches("a=p").count() == 2
         });
+        ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("initial graphics batch must finish before blocking stdout");
         bytes.lock().unwrap().clear();
 
         let draw_guard = stdout_lock.lock();

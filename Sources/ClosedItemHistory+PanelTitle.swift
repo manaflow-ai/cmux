@@ -37,12 +37,16 @@ extension ClosedItemHistoryStore {
             return String(localized: "sidebar.extensions.browser.title", defaultValue: "Sidebar Extensions")
         case .workspaceTodo:
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
+        case .notifications:
+            return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:
             return String(localized: "menu.history.recentlyClosed.panel.cloudVM", defaultValue: "Cloud VM")
         case .mobilePairing:
-            return String(localized: "mobile.pairing.window.title", defaultValue: "Tailscale Pairing")
+            return String(localized: "mobile.pairing.window.title", defaultValue: "Mobile Pairing")
         case .accountSignIn:
             return String(localized: "account.signIn.workspace.title", defaultValue: "Sign In")
+        case .cloudVPNSetup:
+            return String(localized: "cloud.vpn.setup.title", defaultValue: "Cloud VPN")
         }
     }
 }

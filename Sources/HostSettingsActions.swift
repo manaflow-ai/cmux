@@ -1,23 +1,31 @@
+import CmuxCloud
+import CmuxComputerUse
 import AppKit
 import CMUXMobileCore
 import CmuxWorkspaces
 import CmuxSettings
 import CmuxSettingsUI
+import CmuxSwiftRenderUI
+import CmuxUpdater
 import CmuxFoundation
 import Foundation
 import OSLog
 import SwiftUI
 
-private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
+nonisolated private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category: "Settings")
 
-/// App-side implementation of the package's `SettingsHostActions`
-/// protocol. Routes UI-triggered actions to the existing host
-/// services (`BrowserHistoryStore`, `BrowserDataImportCoordinator`,
-/// `TerminalNotificationStore`, etc.) so the package doesn't need to
-/// depend on them directly.
+/// Routes Settings actions to app-owned services, keeping the package independent.
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
+    let computersActions: ComputersSettingsActions
     private let configFileURL: URL
+    private let browserDataImportCoordinator: BrowserDataImportCoordinator
+    private let automationConfigStore: AutomationConfigStore
+    private let openAutomationRulesFile: @MainActor (URL) -> Void
+    private let reportAutomationRulesError: @MainActor (Error) -> Void
+    let computerUseRuntimeService: ComputerUseRuntimeService
+    var runComputerUseOnboardingAction:
+        @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
 
     /// Serializes font-size config writes so rapid slider saves persist in order.
     private let fontConfigWriter = FontConfigWriter()
@@ -43,14 +51,50 @@ final class HostSettingsActions: SettingsHostActions {
     /// window instead of stacking duplicates.
     private var configWindow: NSWindow?
     private var configWindowCloseObserver: WindowCloseObserver?
+    /// Owns the currently requested sound preview so a new selection cancels
+    /// the old one and closing Settings does not leave an untracked playback
+    /// task behind.
+    private var notificationSoundPreviewTask: Task<Void, Never>?
+    private var customSidebarPreview: (id: String, providerId: String, previousProviderId: String)?
 
-    init(configFileURL: URL) {
+    init(
+        configFileURL: URL,
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        browserDataImportCoordinator: BrowserDataImportCoordinator,
+        automationConfigStore: AutomationConfigStore = AutomationConfigStore(),
+        openAutomationRulesFile: @escaping @MainActor (URL) -> Void = {
+            PreferredEditorService(defaults: .standard).open($0)
+        },
+        reportAutomationRulesError: @escaping @MainActor (Error) -> Void = { _ in
+            let alert = NSAlert()
+            alert.messageText = String(
+                localized: "settings.automation.rules.createFailed.title",
+                defaultValue: "Could Not Create Automation Rules"
+            )
+            alert.informativeText = String(
+                localized: "settings.automation.rules.createFailed.message",
+                defaultValue: "Check that the configuration folder is writable and the disk has free space, then try again."
+            )
+            alert.runModal()
+        },
+        computersActions: ComputersSettingsActions? = nil,
+        runComputerUseOnboardingAction:
+            @escaping @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void
+    ) {
+        self.computersActions = computersActions ?? ComputersSettingsActions()
         self.configFileURL = configFileURL
+        self.automationConfigStore = automationConfigStore
+        self.openAutomationRulesFile = openAutomationRulesFile
+        self.reportAutomationRulesError = reportAutomationRulesError
+        self.computerUseRuntimeService = computerUseRuntimeService
+        self.browserDataImportCoordinator = browserDataImportCoordinator
+        self.runComputerUseOnboardingAction = runComputerUseOnboardingAction
         startObservingAppIconMode()
     }
 
     deinit {
         appIconModeObservation?.invalidate()
+        notificationSoundPreviewTask?.cancel()
     }
 
     private func startObservingAppIconMode() {
@@ -87,12 +131,107 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func resetAllSettingsSideEffects() {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(.system)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(.system)
         PaneChromeSettings.notifyDidChange()
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+        PhonePushClient.shared.reloadConfigurationFromDefaults()
         AppDelegate.shared?.reconcileSocketListenerConfiguration(source: "settings.reset_all")
     }
 
+    func terminalAdaptiveDefaultThemeDidChange() {
+        TerminalAdaptiveDefaultThemeSettings.notifyDidChange()
+    }
+
+    func openTerminalThemePicker() {
+        // The native Settings entry point keeps CLI diagnostics private. The
+        // interactive picker still owns stdout/the TTY, while raw helper and
+        // launch errors on stderr are suppressed on this user-facing path.
+        openBundledCLIInTerminalTab(arguments: "themes 2>/dev/null; exit", purpose: "theme picker")
+    }
+
+    func openTerminalImport() {
+        // No trailing `exit`: the tab stays open so the import report can be read.
+        openBundledCLIInTerminalTab(arguments: "import", purpose: "terminal import")
+    }
+
+    /// Opens a focused terminal tab in the selected workspace that runs the bundled
+    /// cmux CLI with `arguments`, the shared path for Settings rows backed by a CLI command.
+    private func openBundledCLIInTerminalTab(arguments: String, purpose: String) {
+        let cliURL = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            hostSettingsLogger.error("Settings \(purpose, privacy: .public) unavailable: bundled cmux CLI missing")
+            return
+        }
+
+        guard let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.activeTabManagerForCommands(),
+              let workspace = manager.selectedWorkspace else {
+            NSSound.beep()
+            return
+        }
+
+        let initialInput = "\(LocalSurfaceProvider.shellQuote(cliURL.path)) \(arguments)\n"
+        do {
+            let pane = try SurfacePaneFactory.makeTerminalPane(
+                initialCommand: nil,
+                initialInput: initialInput,
+                workingDirectory: nil,
+                at: .workspace(id: workspace.id, placement: .tab),
+                focus: true
+            )
+            if let windowID = appDelegate.windowId(for: manager) {
+                _ = appDelegate.focusMainWindow(windowId: windowID)
+            }
+            SurfacePaneFactory.focus(
+                panelID: pane.panelID,
+                in: pane.workspaceID
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to open Settings \(purpose, privacy: .public) terminal")
+        }
+    }
+
+    func terminalThemeGalleryContext() -> TerminalThemeGalleryContext? {
+        guard let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+        let configURL = CmuxGhosttyConfigPathResolver().editableConfigURL(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport
+        )
+        let themeDirectories = GhosttyThemeDirectories(
+            environment: ProcessInfo.processInfo.environment,
+            bundledThemeDirectories: [Bundle.main.resourceURL?.appendingPathComponent("ghostty/themes", isDirectory: true)]
+                .compactMap { $0 }
+        ).urls
+        return TerminalThemeGalleryContext(
+            configFile: CmuxManagedThemeConfigFile(url: configURL),
+            themeDirectories: themeDirectories,
+            readCurrentThemeValue: { GhosttyApp.userAppearanceConfigSummary().lastThemeDirective },
+            prefersDarkAppearance: NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        )
+    }
+
+    func terminalThemeConfigDidChange(phase: TerminalThemeReloadPhase) {
+        let phaseName: String
+        switch phase {
+        case .preview: phaseName = "preview"
+        case .final: phaseName = "final"
+        }
+        AppDelegate.shared?.reloadGhosttyConfigurationForCmuxThemeSource(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: phaseName)
+        )
+    }
+
     func notifyShortcutSettingsDidChange() {
+        reloadSettingsFile()
+    }
+
+    func reloadSettingsFile() {
         // reload() already posts didChangeNotification when the file's
         // contents changed; posting again here double-notified every
         // listener. Only post when the reload saw no change, so callers
@@ -111,7 +250,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func applyLanguageOverride(_ language: AppLanguage) {
-        LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+        LanguageSettingsStore(defaults: .standard, domainName: ProcessDefaultsDomain.name).applyLanguageOverride(language)
     }
 
     func openConfigInExternalEditor() {
@@ -120,6 +259,206 @@ final class HostSettingsActions: SettingsHostActions {
         // through `NSWorkspace.shared.open` would route to the default
         // `.json` handler and ignore the cmux setting.
         PreferredEditorService(defaults: .standard).open(configFileURL)
+    }
+
+    /// Reads the existing automation configuration off-main and summarizes it for Settings.
+    func automationRulesStatus() async -> AutomationRulesStatus {
+        let fileURL = automationConfigStore.fileURL
+        let configExists = FileManager.default.fileExists(atPath: fileURL.path)
+        do {
+            let configuration = try await automationConfigStore.loadOffMain()
+            let enabledCount = configuration.rules.reduce(into: 0) { count, rule in
+                if rule.enabled { count += 1 }
+            }
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: configuration.rules.count,
+                enabledCount: enabledCount,
+                configExists: configExists
+            )
+        } catch {
+            hostSettingsLogger.error("Failed to load automation rules: \(String(describing: error), privacy: .private)")
+            return AutomationRulesStatus(
+                configPath: fileURL.path,
+                ruleCount: 0,
+                enabledCount: 0,
+                configExists: configExists,
+                hasError: true
+            )
+        }
+    }
+
+    /// Materializes the existing empty v1 configuration when needed, then opens it in the preferred editor.
+    func openAutomationRulesInExternalEditor() {
+        let fileURL = automationConfigStore.fileURL
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            do {
+                try automationConfigStore.save(AutomationConfiguration())
+            } catch {
+                hostSettingsLogger.error("Failed to create automation rules: \(String(describing: error), privacy: .private)")
+                reportAutomationRulesError(error)
+                return
+            }
+        }
+        openAutomationRulesFile(fileURL)
+    }
+
+    /// Routes a reload request to the already-attached automation engine.
+    @discardableResult
+    func reloadAutomationRules() -> Bool {
+        if case .ok = TerminalController.shared.v2AutomationReload() {
+            return true
+        }
+        return false
+    }
+
+    func customSidebarNames() -> [String] {
+        CmuxExtensionSidebarSelection.discoveredCustomSidebarNames(
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        )
+    }
+
+    func customSidebarNamesUpdates() async -> AsyncStream<[String]> {
+        await CustomSidebarDiscovery(directory: CmuxExtensionSidebarSelection.customSidebarsDirectory).updates()
+    }
+
+    func createCustomSidebar() -> CustomSidebarOnboardingResult {
+        guard let template = CustomSidebarOnboardingAssets().starterTemplate() else {
+            return .templateUnavailable
+        }
+        return installCustomSidebarTemplate(
+            template,
+            name: template.suggestedName,
+            uniquingIfNeeded: true
+        )
+    }
+
+    func installCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: true)
+    }
+
+    func useCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id, openEditor: false)
+    }
+
+    private func installCustomSidebarTemplate(id: String, openEditor: Bool) -> CustomSidebarOnboardingResult {
+        guard CmuxExtensionSidebarSelection.customSidebarsEnabled else { return .writeFailed }
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        let result = installCustomSidebarTemplate(
+            template,
+            name: template.suggestedName,
+            uniquingIfNeeded: true,
+            openEditor: openEditor
+        )
+        if case let .created(name) = result {
+            CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+            customSidebarPreview = nil
+            UserDefaults.standard.set(true, forKey: SettingCatalog().betaFeatures.customSidebars.userDefaultsKey)
+            if template.descriptor.kind == .right {
+                if AppDelegate.shared?.selectCustomSidebarInRightPanel(name: name) != true {
+                    // A settings window can outlive the main window. Keep the
+                    // new file usable through the left-sidebar picker if the
+                    // right-panel host is unavailable.
+                    CmuxExtensionSidebarSelection.setProviderId(
+                        CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                    )
+                }
+            } else {
+                CmuxExtensionSidebarSelection.setProviderId(
+                    CmuxExtensionSidebarSelection.customSidebarProviderPrefix + name
+                )
+            }
+            NotificationCenter.default.post(
+                name: .customSidebarReloadRequested,
+                object: nil,
+                userInfo: ["names": [name]]
+            )
+        }
+        return result
+    }
+
+    func previewCustomSidebarTemplate(id: String) -> CustomSidebarOnboardingResult {
+        revertCustomSidebarPreview()
+        guard CmuxExtensionSidebarSelection.customSidebarsEnabled else { return .writeFailed }
+        guard let template = CustomSidebarOnboardingAssets().exampleTemplate(id: id) else {
+            return .templateUnavailable
+        }
+        let previous = UserDefaults.standard.string(forKey: CmuxExtensionSidebarSelection.defaultsKey)
+            ?? CmuxExtensionSidebarSelection.defaultProviderId
+        let providerName = ".cmux-preview-\(id)-\(UUID().uuidString.prefix(8).lowercased())"
+        let providerId = CmuxExtensionSidebarSelection.customSidebarProviderPrefix + providerName
+        customSidebarPreview = (id: id, providerId: providerId, previousProviderId: previous)
+        CmuxExtensionSidebarSelection.setInMemoryTemplatePreview(providerId: providerId, source: template.source)
+        CmuxExtensionSidebarSelection.setProviderId(providerId)
+        NotificationCenter.default.post(name: .customSidebarReloadRequested, object: nil)
+        return .created(name: providerName)
+    }
+
+    func keepCustomSidebarPreview() -> CustomSidebarOnboardingResult {
+        guard let preview = customSidebarPreview else { return .templateUnavailable }
+        let result = useCustomSidebarTemplate(id: preview.id)
+        if case .created = result {
+            CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+            customSidebarPreview = nil
+        }
+        return result
+    }
+
+    func revertCustomSidebarPreview() {
+        guard let preview = customSidebarPreview else { return }
+        CmuxExtensionSidebarSelection.clearInMemoryTemplatePreview()
+        CmuxExtensionSidebarSelection.setProviderId(preview.previousProviderId)
+        NotificationCenter.default.post(name: .customSidebarReloadRequested, object: nil)
+        customSidebarPreview = nil
+    }
+
+    func installCustomSidebarExample(id: String) -> CustomSidebarOnboardingResult {
+        installCustomSidebarTemplate(id: id)
+    }
+
+    func openCustomSidebarInExternalEditor(named name: String) {
+        guard let fileURL = CmuxExtensionSidebarSelection.customSidebarFileURL(forName: name) else {
+            return
+        }
+        PreferredEditorService(defaults: .standard).open(fileURL)
+    }
+
+    func openCustomSidebarsFolder() {
+        do {
+            let directory = try CmuxExtensionSidebarSelection.ensureCustomSidebarsDirectory(
+                CmuxExtensionSidebarSelection.customSidebarsDirectory
+            )
+            NSWorkspace.shared.open(directory)
+        } catch {
+            hostSettingsLogger.error("failed to open custom sidebars folder: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func installCustomSidebarTemplate(
+        _ template: CustomSidebarTemplate,
+        name: String,
+        uniquingIfNeeded: Bool,
+        openEditor: Bool = true
+    ) -> CustomSidebarOnboardingResult {
+        switch CmuxExtensionSidebarSelection.writeCustomSidebar(
+            named: name,
+            fileExtension: template.fileExtension,
+            source: template.source,
+            uniquingIfNeeded: uniquingIfNeeded,
+            sidebarsDirectory: CmuxExtensionSidebarSelection.customSidebarsDirectory
+        ) {
+        case let .created(createdName, fileURL):
+            if openEditor {
+                PreferredEditorService(defaults: .standard).open(fileURL)
+            }
+            return .created(name: createdName)
+        case .invalidTemplate:
+            return .templateUnavailable
+        case .invalidName, .alreadyExists, .failed:
+            return .writeFailed
+        }
     }
 
     func sendFeedback() {
@@ -181,6 +520,165 @@ final class HostSettingsActions: SettingsHostActions {
         TerminalNotificationStore.shared.refreshAuthorizationStatus()
     }
 
+    // MARK: - Local session persistence
+
+    func localTmuxSessions() async throws -> [LocalTmuxSessionSummary] {
+        let data = try await runLocalTmuxCLI(arguments: ["local-tmux", "list", "--json"])
+        do {
+            return try LocalTmuxSessionListDecoder().decode(data)
+        } catch {
+            hostSettingsLogger.error("Bundled local-tmux CLI returned invalid session data")
+            throw LocalTmuxSettingsActionError.invalidResponse
+        }
+    }
+
+    func startLocalTmuxSession(name: String) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let workspace = AppDelegate.shared?.activeTabManagerForCommands()?.selectedWorkspace else {
+            throw LocalTmuxSettingsActionError.unavailable
+        }
+        let workspaceID = workspace.id
+        let cwd = workspace.currentDirectory
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        _ = try await runLocalTmuxCLI(arguments: Self.localTmuxStartArguments(
+            name: trimmedName,
+            workspaceID: workspaceID,
+            cwd: cwd,
+            socketPath: socketPath
+        ))
+    }
+
+    nonisolated static func localTmuxStartArguments(
+        name: String,
+        workspaceID: UUID,
+        cwd: String,
+        socketPath: String
+    ) -> [String] {
+        ["--socket", socketPath, "local-tmux", "start", "--name", name,
+         "--workspace", workspaceID.uuidString, "--cwd", cwd, "--json"]
+    }
+
+    func attachLocalTmuxSession(_ session: LocalTmuxSessionSummary) async throws {
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        var arguments = ["--socket", socketPath, "local-tmux", "attach"]
+        switch session.selector {
+        case .managed(let id, _):
+            arguments.append(contentsOf: ["--id", id.uuidString])
+        case .unmanaged(let name):
+            // A tmux session name may start with "-", so pass it as a flag value.
+            arguments.append(contentsOf: ["--name", name])
+        }
+        arguments.append("--json")
+        _ = try await runLocalTmuxCLI(arguments: arguments)
+    }
+
+    private func runLocalTmuxCLI(arguments: [String]) async throws -> Data {
+        guard let cliURL = CLIForwardingLaunchRouter.bundledCLIURL() else {
+            throw LocalTmuxSettingsActionError.cliMissing
+        }
+
+        return try await Self.runLocalTmuxCLI(executableURL: cliURL, arguments: arguments)
+    }
+
+    nonisolated static func runLocalTmuxCLI(
+        executableURL cliURL: URL,
+        arguments: [String],
+        runner: any CommandRunning = CommandRunner()
+    ) async throws -> Data {
+        try Task.checkCancellation()
+        let result = await runner.run(
+            directory: cliURL.deletingLastPathComponent().path,
+            executable: cliURL.path,
+            arguments: arguments,
+            timeout: 30
+        )
+        try Task.checkCancellation()
+        guard result.executionError == nil, !result.timedOut, result.exitStatus == 0 else {
+            if let diagnostics = result.stderr, !diagnostics.isEmpty {
+                hostSettingsLogger.error("Bundled local-tmux CLI failed: \(diagnostics, privacy: .private)")
+            }
+            throw LocalTmuxSettingsActionError.commandFailed
+        }
+        return Data((result.stdout ?? "").utf8)
+    }
+
+    // MARK: - Right sidebar tabs
+
+    func rightSidebarTabs() -> [RightSidebarTabSettingsItem] {
+        Self.rightSidebarTabItems()
+    }
+
+    @discardableResult
+    func setRightSidebarTabVisible(id: String, visible: Bool) -> Bool {
+        guard let mode = RightSidebarMode(rawValue: id) else { return false }
+        return RightSidebarTabPreferences.setHidden(!visible, mode: mode)
+    }
+
+    func moveRightSidebarTab(id: String, offset: Int) {
+        guard let mode = RightSidebarMode(rawValue: id) else { return }
+        RightSidebarTabPreferences.move(mode, offset: offset)
+    }
+
+    func rightSidebarTabsUpdates() -> AsyncStream<[RightSidebarTabSettingsItem]> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            // Shortcut rebinds change the displayed digit labels, so both
+            // notifications refresh the card. Tab-preference mutations post
+            // both; the newest-1 buffer coalesces the pair into one refresh.
+            let observers = [
+                RightSidebarTabPreferences.didChangeNotification,
+                KeyboardShortcutSettings.didChangeNotification,
+            ].map { name in
+                MobileHostStatusObserverToken(
+                    NotificationCenter.default.addObserver(
+                        forName: name,
+                        object: nil,
+                        queue: nil
+                    ) { _ in
+                        signalContinuation.yield(())
+                    }
+                )
+            }
+            let drainTask = Task { @MainActor in
+                continuation.yield(Self.rightSidebarTabItems())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(Self.rightSidebarTabItems())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observers.forEach { $0.remove() }
+            }
+        }
+    }
+
+    private static func rightSidebarTabItems() -> [RightSidebarTabSettingsItem] {
+        let available = RightSidebarMode.availableModes()
+        let hidden = RightSidebarTabPreferences.hiddenModes()
+        return RightSidebarTabPreferences.orderedModes()
+            .filter(available.contains)
+            .map { mode in
+                let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) }
+                    ?? .unbound
+                return RightSidebarTabSettingsItem(
+                    id: mode.rawValue,
+                    title: mode.label,
+                    symbolName: mode.symbolName,
+                    isVisible: !hidden.contains(mode),
+                    shortcutLabel: shortcut.isUnbound ? "" : shortcut.displayString
+                )
+            }
+    }
+
     func restartApp() {
         let bundlePath = Bundle.main.bundlePath
         let task = Process()
@@ -197,7 +695,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func openBrowserImportFlow() {
-        BrowserDataImportCoordinator.shared.presentImportDialog()
+        browserDataImportCoordinator.presentImportDialog()
     }
 
     func requestNotificationAuthorization() {
@@ -259,6 +757,91 @@ final class HostSettingsActions: SettingsHostActions {
         )
     }
 
+    func appChannelSwitchTarget() -> SettingsAppChannelSwitchTarget? {
+        switch AppDelegate.shared?.appChannelSwitchTarget {
+        case .nightly: .nightly
+        case .stable: .stable
+        case nil: nil
+        }
+    }
+
+    func switchAppChannel() {
+        AppDelegate.shared?.switchAppChannel(nil)
+    }
+
+    func mobilePhonePushSettings() -> MobilePhonePushSettingsSnapshot {
+        Self.mobilePhonePushSettingsSnapshot(
+            from: PhonePushClient.shared.configuration()
+        )
+    }
+
+    func mobilePhonePushSettingsUpdates() -> AsyncStream<MobilePhonePushSettingsSnapshot> {
+        AsyncStream { continuation in
+            let (signals, signalContinuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            let observer = MobileHostStatusObserverToken(
+                NotificationCenter.default.addObserver(
+                    forName: PhonePushClient.settingsDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { _ in
+                    signalContinuation.yield(())
+                }
+            )
+            let drainTask = Task { @MainActor in
+                continuation.yield(mobilePhonePushSettings())
+                for await _ in signals {
+                    if Task.isCancelled { break }
+                    continuation.yield(mobilePhonePushSettings())
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                drainTask.cancel()
+                signalContinuation.finish()
+                observer.remove()
+            }
+        }
+    }
+
+    func updateMobilePhonePushSettings(
+        _ mutation: MobilePhonePushSettingsMutation
+    ) -> MobilePhonePushSettingsSnapshot {
+        let configuration: PhonePushConfiguration
+        switch mutation {
+        case let .forwardingEnabled(enabled):
+            configuration = PhonePushClient.shared.updateSettings(
+                forwardingEnabled: enabled
+            )
+        case let .mode(mode):
+            let hostMode: PhoneForwardingMode = switch mode {
+            case .onlyWhenAway: .onlyWhenAway
+            case .always: .always
+            }
+            configuration = PhonePushClient.shared.updateSettings(mode: hostMode)
+        case let .hideContent(hidden):
+            configuration = PhonePushClient.shared.updateSettings(
+                hideContent: hidden
+            )
+        }
+        return Self.mobilePhonePushSettingsSnapshot(from: configuration)
+    }
+
+    private static func mobilePhonePushSettingsSnapshot(
+        from configuration: PhonePushConfiguration
+    ) -> MobilePhonePushSettingsSnapshot {
+        let mode: MobilePhonePushSettingsSnapshot.Mode = switch configuration.mode {
+        case .onlyWhenAway: .onlyWhenAway
+        case .always: .always
+        }
+        return MobilePhonePushSettingsSnapshot(
+            forwardingEnabled: configuration.forwardingEnabled,
+            mode: mode,
+            hideContent: configuration.hideContent
+        )
+    }
+
     private func existingConfigWindow() -> NSWindow? {
         if let configWindow, configWindow.isVisible || configWindow.isMiniaturized {
             return configWindow
@@ -277,7 +860,16 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func previewNotificationSound(value: String, customFilePath: String) {
-        NotificationSoundSettings.previewSound(value: value, customFilePath: customFilePath)
+        notificationSoundPreviewTask?.cancel()
+        let task = Task { @MainActor [weak self] in
+            _ = await NotificationSoundSettings.previewSound(
+                value: value,
+                customFilePath: customFilePath
+            )
+            guard !Task.isCancelled else { return }
+            self?.notificationSoundPreviewTask = nil
+        }
+        notificationSoundPreviewTask = task
     }
 
     func browserHistoryEntryCount() -> Int? {
@@ -289,7 +881,7 @@ final class HostSettingsActions: SettingsHostActions {
         // Reads the in-memory cache (kept current by config reloads) rather than
         // forcing a synchronous disk read on the main actor when Settings opens.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().sidebarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().sidebarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSidebarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSidebarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSidebarFontSize
@@ -307,7 +899,7 @@ final class HostSettingsActions: SettingsHostActions {
     func surfaceTabBarFontSize() -> SettingsFontSize {
         // See ``sidebarFontSize()`` — uses the cached config to avoid main-actor disk I/O.
         SettingsFontSize(
-            points: Double(GhosttyConfig.load().surfaceTabBarFontSize),
+            points: Double(GhosttyConfig.loadForCmux().surfaceTabBarFontSize),
             minimum: CmuxGhosttyConfigSettingEditor.minSurfaceTabBarFontSize,
             maximum: CmuxGhosttyConfigSettingEditor.maxSurfaceTabBarFontSize,
             defaultValue: CmuxGhosttyConfigSettingEditor.defaultSurfaceTabBarFontSize
@@ -324,6 +916,32 @@ final class HostSettingsActions: SettingsHostActions {
 
     func formattedFontSize(_ points: Double) -> String {
         CmuxGhosttyConfigSettingEditor().formattedFontSize(points)
+    }
+
+    func terminalGhosttyOptions() async -> GhosttyTerminalOptionsSnapshot {
+        await Task.detached(priority: .userInitiated) {
+            let resolved = GhosttyConfig.resolvedDirectiveValues(forKeys: GhosttyTerminalOptions.configKeys)
+            let environment = ConfigSourceEnvironment.live()
+            var sourcePaths: [GhosttyTerminalOptionKey: String] = [:]
+            for (key, path) in resolved.lastSourcePaths {
+                guard let optionKey = GhosttyTerminalOptionKey(rawValue: key) else { continue }
+                sourcePaths[optionKey] = environment.abbreviatedPath(for: URL(fileURLWithPath: path))
+            }
+            return GhosttyTerminalOptionsSnapshot(
+                options: GhosttyTerminalOptions(directives: resolved.values),
+                sourcePaths: sourcePaths
+            )
+        }.value
+    }
+
+    func applyTerminalGhosttyOption(_ change: GhosttyTerminalOptionChange) async -> Bool {
+        let key = change.key.rawValue
+        guard await fontConfigWriter.write(key: key, values: change.configValues) else {
+            hostSettingsLogger.warning("failed to persist \(key, privacy: .public)")
+            return false
+        }
+        GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
+        return true
     }
 
     func mobilePairingStatus() -> MobilePairingStatusSnapshot? {
@@ -365,21 +983,24 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     func irohSettingsController() -> (any CmxIrohSettingsControlling)? {
-        MobileHostIrohRuntime.shared
+        // Exactly one runtime owns the transport slot (gated in
+        // MobileHostService.configure); Settings must read the same one, or
+        // the Networking section reports the dormant stack's stale state.
+        return MobileHostIrxRuntime.shared
     }
 
     /// Maps the host's ``MobileHostServiceStatus`` into the settings package's
     /// Foundation-only ``MobilePairingStatusSnapshot``. Static so the status
-    /// stream's forwarding task does not retain this host bridge.
-    private static func mobilePairingSnapshot(from status: MobileHostServiceStatus) -> MobilePairingStatusSnapshot {
-        let routes = status.routes.compactMap { route -> MobilePairingRoute? in
-            guard case let .hostPort(host, port) = route.endpoint else { return nil }
-            return MobilePairingRoute(
-                id: route.id,
-                kindLabel: routeKindLabel(route.kind),
-                host: host,
-                port: port
-            )
+    /// stream's forwarding task does not retain this host bridge. Internal
+    /// (not private) so the mapping is unit-testable.
+    nonisolated static func mobilePairingSnapshot(
+        from status: MobileHostServiceStatus,
+        now: Date = Date()
+    ) -> MobilePairingStatusSnapshot {
+        let routes = Array(Set(status.localSocketAddresses)).sorted().compactMap { address -> MobilePairingRoute? in
+            guard let socket = splitSocketAddress(address) else { return nil }
+            return MobilePairingRoute(id: "iroh-local:" + address,
+                kindLabel: routeKindLabel(.iroh), host: socket.host, port: socket.port)
         }
         return MobilePairingStatusSnapshot(
             isRunning: status.isRunning,
@@ -387,8 +1008,33 @@ final class HostSettingsActions: SettingsHostActions {
             boundPort: status.port,
             usesEphemeralFallback: status.usesEphemeralFallback,
             activeConnectionCount: status.activeConnectionCount,
-            routes: routes
+            routes: routes,
+            pendingPortChange: status.pendingPortChange
         )
+    }
+
+    /// Splits an observed local IROH socket (`203.0.113.7:58465` or
+    /// `[2001:db8::7]:58465`) into the host and port ``MobilePairingRoute``
+    /// renders, or `nil` for anything else. Internal for unit tests.
+    nonisolated static func splitSocketAddress(_ value: String) -> (host: String, port: Int)? {
+        let hostPart: Substring
+        let portPart: Substring
+        if value.hasPrefix("[") {
+            guard let closing = value.firstIndex(of: "]") else { return nil }
+            hostPart = value[value.index(after: value.startIndex)..<closing]
+            let remainder = value[value.index(after: closing)...]
+            guard remainder.first == ":" else { return nil }
+            portPart = remainder.dropFirst()
+        } else {
+            guard let separator = value.lastIndex(of: ":"),
+                  !value[..<separator].contains(":") else { return nil }
+            hostPart = value[..<separator]
+            portPart = value[value.index(after: separator)...]
+        }
+        guard !hostPart.isEmpty,
+              let port = Int(portPart),
+              (1...65535).contains(port) else { return nil }
+        return (String(hostPart), port)
     }
 
     private static func desktopNotificationAuthorizationState(
@@ -420,9 +1066,7 @@ final class HostSettingsActions: SettingsHostActions {
         switch await MobileHostService.shared.applyConfiguredPort(port) {
         case .applied(let bound):
             return .applied(port: bound)
-        case .portInUse:
-            return .portInUse(requestedPort: port)
-        case .savedWhileDisabled:
+        case .savedForLater:
             return .savedForLater(port: port)
         case .invalid:
             return .invalid(requestedPort: port)
@@ -430,7 +1074,7 @@ final class HostSettingsActions: SettingsHostActions {
     }
 
     /// Localized transport label for a pairing route shown in diagnostics.
-    private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
+    nonisolated private static func routeKindLabel(_ kind: CmxAttachTransportKind) -> String {
         switch kind {
         case .tailscale:
             return String(localized: "settings.mobile.route.tailscale", defaultValue: "Tailscale")
@@ -482,7 +1126,8 @@ final class MobileHostStatusObserverToken: @unchecked Sendable {
     }
 }
 
-/// Serializes cmux Ghostty config writes for the font-size settings so rapid
+/// Serializes cmux Ghostty config writes from Settings (font sizes and the
+/// Terminal section's Ghostty option rows) so rapid
 /// successive saves apply in submission order instead of racing.
 ///
 /// The Settings sliders fire a save on every release and Reset tap. Routed
@@ -499,6 +1144,17 @@ private actor FontConfigWriter {
     func write(key: String, value: String) -> Bool {
         do {
             try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, value: value)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Writes one `key = value` line per value, replacing every existing
+    /// assignment to `key` (for list keys such as `font-family`).
+    func write(key: String, values: [String]) -> Bool {
+        do {
+            try ConfigSourceEnvironment.live().writeCmuxConfigSetting(key: key, values: values)
             return true
         } catch {
             return false

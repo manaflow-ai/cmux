@@ -20,6 +20,14 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func lastMacDeviceID() -> String?
     /// Stores the last selected Mac device id.
     func setLastMacDeviceID(_ id: String?)
+    /// Returns the last selected Mac app-instance pairing id, if any.
+    func lastMacPairingID() -> String?
+    /// Stores the last selected Mac app-instance pairing id.
+    func setLastMacPairingID(_ id: String?)
+    /// Returns the last picker choices for one exact Mac pairing.
+    func composerPickerPreferences(macPairingID: String) -> MobileTaskComposerPickerPreferences?
+    /// Saves picker choices independently of sending or saving a task draft.
+    func setComposerPickerPreferences(_ preferences: MobileTaskComposerPickerPreferences, macPairingID: String)
     /// Returns the last successful directory for one Mac.
     func lastDirectory(macDeviceID: String) -> String?
     /// Stores the last successful directory for one Mac.
@@ -28,17 +36,50 @@ public protocol MobileTaskTemplateStoring: AnyObject {
     func recentDirectories(macDeviceID: String) -> [MobileTaskRecentDirectory]
     /// Promotes one successful directory in the per-Mac history.
     func recordRecentDirectory(_ directory: String, macDeviceID: String, at date: Date)
-    /// Returns the unsent task-composer draft, if one was saved.
-    func composerDraft() -> MobileTaskComposerDraft?
-    /// Stores or clears the unsent task-composer draft.
-    func setComposerDraft(_ draft: MobileTaskComposerDraft?)
+    /// Returns every unsent task-composer draft, newest first.
+    func composerDrafts() -> [MobileTaskComposerSavedDraft]
+    /// Inserts or replaces one draft by its stable id and promotes it to the
+    /// front of the collection.
+    func saveComposerDraft(_ draft: MobileTaskComposerSavedDraft)
+    /// Deletes the drafts with the provided ids in one persistence update,
+    /// including any preserved attachment files they own.
+    func deleteComposerDrafts(ids: Set<UUID>)
+    /// Copies staged attachment bytes into draft-owned storage and returns
+    /// the stable relative path, reusing an existing copy of the same
+    /// attachment instead of copying again.
+    func persistComposerAttachmentFile(
+        draftID: UUID,
+        attachmentID: UUID,
+        preferredExtension: String,
+        from sourceURL: URL
+    ) throws -> String
+    /// Returns the location of preserved attachment bytes, or `nil` when the
+    /// path is invalid or the file no longer exists.
+    func composerAttachmentFileURL(relativePath: String) -> URL?
     /// Removes all templates and composer state owned by the signed-out user.
     func clearAllUserData()
 }
 
 public extension MobileTaskTemplateStoring {
+    /// Legacy stores do not have an exact pairing field.
+    func lastMacPairingID() -> String? {
+        nil
+    }
+
+    /// Legacy stores cannot safely encode a tagged pairing in the physical Mac
+    /// id field, so they retain their existing value until they add pairing
+    /// storage.
+    func setLastMacPairingID(_ id: String?) {
+        _ = id
+    }
+
     /// Deletes one template.
     func deleteTemplate(id: MobileTaskTemplate.ID) {
         deleteTemplates(ids: [id])
+    }
+
+    /// Returns the saved draft with this id, if it still exists.
+    func composerDraft(id: UUID) -> MobileTaskComposerSavedDraft? {
+        composerDrafts().first { $0.id == id }
     }
 }

@@ -6,23 +6,34 @@ import SwiftUI
 final class FileExplorerState: ObservableObject {
     private static let modeKey = "rightSidebar.mode"
     private static let customSidebarNameKey = "rightSidebar.customSidebarName"
+    private let defaults: UserDefaults
 
     @Published var isVisible: Bool {
-        didSet { UserDefaults.standard.set(isVisible, forKey: "fileExplorer.isVisible") }
+        didSet { persistVisibility() }
+    }
+    /// Hidden because the window was too narrow (SidePanelWidthFit), not by the
+    /// person. Persisted as visible, so a narrow window neither changes the
+    /// default for new windows nor the next launch. Set it before `isVisible`.
+    var isAutoCollapsed = false {
+        didSet { persistVisibility() }
+    }
+
+    private func persistVisibility() {
+        defaults.set(isVisible || isAutoCollapsed, forKey: "fileExplorer.isVisible")
     }
     @Published var width: CGFloat {
-        didSet { UserDefaults.standard.set(Double(width), forKey: "fileExplorer.width") }
+        didSet { defaults.set(Double(width), forKey: "fileExplorer.width") }
     }
 
     /// Proportion of sidebar height allocated to the tab list (0.0-1.0).
     /// The file explorer gets the remaining space below.
     @Published var dividerPosition: CGFloat {
-        didSet { UserDefaults.standard.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
+        didSet { defaults.set(Double(dividerPosition), forKey: "fileExplorer.dividerPosition") }
     }
 
     /// Whether hidden files (dotfiles) are shown in the tree.
     @Published var showHiddenFiles: Bool {
-        didSet { UserDefaults.standard.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
+        didSet { defaults.set(showHiddenFiles, forKey: "fileExplorer.showHidden") }
     }
 
     @Published private var storedMode: RightSidebarMode
@@ -36,6 +47,9 @@ final class FileExplorerState: ObservableObject {
     /// persisted).
     @Published var rightSidebarOwnsInputFocus: Bool = false
 
+    /// The right-sidebar Cloud picker belongs to this window, even before it mounts.
+    @MainActor lazy var cloudTeamPickerPresentation = CloudTeamPickerPresentation()
+
     /// Active mode for the right sidebar (file tree, search, sessions, or enabled beta modes).
     var mode: RightSidebarMode {
         get { storedMode }
@@ -46,8 +60,8 @@ final class FileExplorerState: ObservableObject {
         storedCustomSidebarName
     }
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         self.isVisible = defaults.bool(forKey: "fileExplorer.isVisible")
         let storedWidth = defaults.double(forKey: "fileExplorer.width")
         self.width = storedWidth > 0 ? CGFloat(storedWidth) : 220
@@ -57,20 +71,32 @@ final class FileExplorerState: ObservableObject {
         self.showHiddenFiles = storedShowHidden == nil ? true : defaults.bool(forKey: "fileExplorer.showHidden")
         let customSidebarName = defaults.string(forKey: Self.customSidebarNameKey)?.nilIfEmpty
         self.storedCustomSidebarName = customSidebarName
-        let storedMode = RightSidebarMode(rawValue: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
-        self.storedMode = Self.availableMode(storedMode, defaults: defaults)
+        let storedMode = RightSidebarMode.from(cliArgument: defaults.string(forKey: Self.modeKey) ?? "") ?? .files
+        self.storedMode = Self.visibleMode(storedMode, defaults: defaults)
         defaults.set(self.storedMode.rawValue, forKey: Self.modeKey)
     }
 
-    func refreshModeAvailability(defaults: UserDefaults = .standard) {
-        setMode(storedMode, defaults: defaults)
+    /// Re-lands the sidebar on a tab the mode bar shows. Unlike an explicit
+    /// `mode` set (which may reveal a user-hidden tab: CLI, palette,
+    /// notification routing), restore and preference changes never resurrect a
+    /// hidden tab.
+    func refreshModeAvailability(defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
+        setMode(Self.visibleMode(storedMode, defaults: defaults), defaults: defaults)
     }
 
-    func selectCustomSidebar(name rawName: String, defaults: UserDefaults = .standard) {
+    func selectCustomSidebar(name rawName: String, defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
         storedCustomSidebarName = name
         defaults.set(name, forKey: Self.customSidebarNameKey)
+    }
+
+    /// The persisted right-sidebar custom-sidebar name, readable without an
+    /// instance (mode availability checks run from static contexts).
+    static func persistedCustomSidebarName(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: customSidebarNameKey)?.nilIfEmpty
     }
 
     func toggle() {
@@ -99,7 +125,8 @@ final class FileExplorerState: ObservableObject {
         }
     }
 
-    private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults = .standard) {
+    private func setMode(_ mode: RightSidebarMode, defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? self.defaults
         let nextMode = Self.availableMode(mode, defaults: defaults)
         guard storedMode != nextMode else {
             if defaults.string(forKey: Self.modeKey) != nextMode.rawValue {
@@ -115,9 +142,18 @@ final class FileExplorerState: ObservableObject {
         _ mode: RightSidebarMode,
         defaults: UserDefaults
     ) -> RightSidebarMode {
-        if mode == .customSidebar {
-            return .files
-        }
-        return mode.isAvailable(defaults: defaults) ? mode : .files
+        mode.isAvailable(defaults: defaults) ? mode : .files
+    }
+
+    private static func visibleMode(
+        _ mode: RightSidebarMode,
+        defaults: UserDefaults
+    ) -> RightSidebarMode {
+        let candidate = availableMode(mode, defaults: defaults)
+        // Custom sidebars are selectable content, not customizable mode-bar tabs.
+        if candidate == .customSidebar { return candidate }
+        let visible = RightSidebarMode.visibleModes(defaults: defaults)
+        if visible.contains(candidate) { return candidate }
+        return visible.first ?? candidate
     }
 }

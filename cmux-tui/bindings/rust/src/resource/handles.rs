@@ -4,7 +4,8 @@ use super::model::*;
 use super::ops;
 use super::options::*;
 use super::typed_stream::{
-    BrowserAttachment, SessionEventStream, SidebarViewStream, TerminalAttachment,
+    BrowserAttachment, SessionEventStream, SessionJournalStream, SidebarViewStream,
+    TerminalAttachment,
 };
 use super::wire::{self, Params, field};
 use crate::{Error, Result};
@@ -309,6 +310,223 @@ impl Session {
         self.client
             .stream(ops::SESSION_EVENTS, self.params().cursor(options.cursor.as_ref()))
             .map(SessionEventStream::new)
+    }
+
+    pub fn journal(&self, options: SessionJournalOptions) -> Result<SessionJournalStream> {
+        if options.cursor.is_some() && options.start.is_some() {
+            return Err(Error::InvalidArgument(
+                "journal cursor and start are mutually exclusive".to_string(),
+            ));
+        }
+        if options.max_sensitivity == Some(super::typed_stream::JournalSensitivity::Secret) {
+            return Err(Error::InvalidArgument(
+                "secret journal records are unavailable in v1".to_string(),
+            ));
+        }
+        if options.subjects.iter().any(|subject| subject.kind.is_none() && subject.id.is_none()) {
+            return Err(Error::InvalidArgument(
+                "journal subject filters require kind or id".to_string(),
+            ));
+        }
+        if options
+            .regex
+            .as_ref()
+            .is_some_and(|regex| regex.pattern.is_empty() || regex.pattern.len() > 1024)
+        {
+            return Err(Error::InvalidArgument(
+                "journal regex must contain 1 to 1024 UTF-8 bytes".to_string(),
+            ));
+        }
+        let mut params = self.params().cursor(options.cursor.as_ref());
+        if let Some(start) = options.start {
+            params = params.string(
+                "start",
+                match start {
+                    JournalStart::Tail => "tail",
+                    JournalStart::Beginning => "beginning",
+                },
+            );
+        }
+        if let Some(follow) = options.follow {
+            params = params.boolean("follow", follow);
+        }
+        let mut filter = Map::new();
+        if !options.kinds.is_empty() {
+            filter.insert("kinds".to_string(), serde_json::json!(options.kinds));
+        }
+        if !options.classes.is_empty() {
+            filter.insert(
+                "classes".to_string(),
+                Value::Array(
+                    options
+                        .classes
+                        .into_iter()
+                        .map(|value| {
+                            Value::String(
+                                match value {
+                                    super::typed_stream::JournalClass::State => "state",
+                                    super::typed_stream::JournalClass::Observation => "observation",
+                                    super::typed_stream::JournalClass::Effect => "effect",
+                                    super::typed_stream::JournalClass::Checkpoint => "checkpoint",
+                                }
+                                .to_string(),
+                            )
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if !options.subjects.is_empty() {
+            filter.insert(
+                "subjects".to_string(),
+                Value::Array(
+                    options
+                        .subjects
+                        .into_iter()
+                        .map(|subject| {
+                            let mut value = Map::new();
+                            if let Some(kind) = subject.kind {
+                                value.insert("kind".to_string(), Value::String(kind));
+                            }
+                            if let Some(id) = subject.id {
+                                value.insert("id".to_string(), Value::String(id));
+                            }
+                            Value::Object(value)
+                        })
+                        .collect(),
+                ),
+            );
+        }
+        if let Some(sensitivity) = options.max_sensitivity {
+            filter.insert(
+                "max_sensitivity".to_string(),
+                Value::String(
+                    match sensitivity {
+                        super::typed_stream::JournalSensitivity::Public => "public",
+                        super::typed_stream::JournalSensitivity::Metadata => "metadata",
+                        super::typed_stream::JournalSensitivity::Sensitive => "sensitive",
+                        super::typed_stream::JournalSensitivity::Secret => unreachable!(),
+                    }
+                    .to_string(),
+                ),
+            );
+        }
+        if let Some(regex) = options.regex {
+            filter.insert(
+                "regex".to_string(),
+                serde_json::json!({
+                    "pattern":regex.pattern,
+                    "field":regex.field.wire_name(),
+                    "case_sensitive":regex.case_sensitive,
+                }),
+            );
+        }
+        if !filter.is_empty() {
+            params = params.value("filter", Value::Object(filter));
+        }
+        self.client.stream(ops::SESSION_JOURNAL_SUBSCRIBE, params).map(SessionJournalStream::new)
+    }
+
+    /// Lists the generic journal producers installed for this session.
+    /// Plugins can use this read to diagnose a rejected or superseded
+    /// registration without knowing any daemon-internal storage details.
+    pub fn journal_producers(&self) -> Result<super::journal_plugin::JournalProducerListResult> {
+        let result = wire::decode_exact::<super::journal_plugin::JournalProducerListResult>(
+            &self.client.read(ops::SESSION_JOURNAL_PRODUCER_LIST, self.params())?,
+            "journal producer list",
+        )?;
+        result.validate()?;
+        Ok(result)
+    }
+
+    /// Installs or updates a userland journal producer manifest for this
+    /// session. The manifest is validated by the daemon before any event is
+    /// accepted.
+    pub fn put_journal_producer(
+        &self,
+        manifest: &super::journal_plugin::JournalProducerManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        manifest.validate()?;
+        let value = self.client.mutate(
+            ops::SESSION_JOURNAL_PRODUCER_PUT,
+            self.params().value(
+                "manifest",
+                serde_json::to_value(manifest).map_err(|error| {
+                    Error::InvalidArgument(format!(
+                        "journal producer manifest is not encodable: {error}"
+                    ))
+                })?,
+            ),
+            mutation,
+        )?;
+        mutation_result(value, |value| {
+            let result: super::journal_plugin::JournalProducerPutResult =
+                wire::decode_exact(value, "journal producer result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn put_journal_producer_manifest(
+        &self,
+        manifest: &super::journal_plugin::JournalProducerManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        self.put_journal_producer(manifest, mutation)
+    }
+
+    /// Compatibility alias for the first agent-plugin SDK preview.
+    pub fn put_agent_plugin_manifest(
+        &self,
+        manifest: &super::journal_plugin::AgentPluginManifest,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalProducerPutResult>> {
+        self.put_journal_producer(manifest, mutation)
+    }
+
+    /// Appends one event to the session journal from a userland producer.
+    pub fn append_journal(
+        &self,
+        event: &super::journal_plugin::JournalIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        event.validate()?;
+        let value = self.client.mutate(
+            ops::SESSION_JOURNAL_APPEND,
+            self.params().value(
+                "event",
+                serde_json::to_value(event).map_err(|error| {
+                    Error::InvalidArgument(format!("journal event is not encodable: {error}"))
+                })?,
+            ),
+            mutation,
+        )?;
+        mutation_result(value, |value| {
+            let result: super::journal_plugin::JournalAppendResult =
+                wire::decode_exact(value, "journal append result")?;
+            result.validate()?;
+            Ok(result)
+        })
+    }
+
+    /// Compatibility alias for the first generic journal SDK spelling.
+    pub fn append_journal_event(
+        &self,
+        event: &super::journal_plugin::JournalIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        self.append_journal(event, mutation)
+    }
+
+    /// Compatibility alias for the first agent-plugin SDK preview.
+    pub fn append_agent_plugin_event(
+        &self,
+        event: &super::journal_plugin::AgentPluginIngress,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<super::journal_plugin::JournalAppendResult>> {
+        self.append_journal(event, mutation)
     }
 
     pub fn ping(&self) -> Result<PingResult> {
@@ -1336,25 +1554,33 @@ impl Tab {
 }
 
 impl Session {
-    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+    /// Returns the terminal catalog values from one list request.
+    ///
+    /// Use this when a caller needs to inspect every terminal. Calling
+    /// `Terminal::refresh` after `terminals` would turn one catalog read into
+    /// an N+1 request pattern and discard the snapshots the list operation
+    /// already returned.
+    pub fn terminal_snapshots(&self) -> Result<Vec<TerminalSnapshot>> {
         wire::list::<TerminalSnapshot>(
             &self.client.read(ops::TERMINAL_LIST, self.params())?,
             "terminals",
             "terminal",
         )
-        .map(|snapshots| snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect())
+    }
+
+    pub fn terminals(&self) -> Result<Vec<Terminal>> {
+        self.terminal_snapshots().map(|snapshots| {
+            snapshots.into_iter().map(|snapshot| self.terminal(snapshot.id)).collect()
+        })
     }
 
     pub fn find_terminals_by_name(&self, name: &str) -> Result<Vec<Terminal>> {
-        Ok(wire::list::<TerminalSnapshot>(
-            &self.client.read(ops::TERMINAL_LIST, self.params())?,
-            "terminals",
-            "terminal",
-        )?
-        .into_iter()
-        .filter(|snapshot| snapshot.title == name)
-        .map(|snapshot| self.terminal(snapshot.id))
-        .collect())
+        Ok(self
+            .terminal_snapshots()?
+            .into_iter()
+            .filter(|snapshot| snapshot.title == name)
+            .map(|snapshot| self.terminal(snapshot.id))
+            .collect())
     }
 
     pub fn browsers(&self) -> Result<Vec<Browser>> {
@@ -1584,20 +1810,31 @@ impl Terminal {
         )
     }
 
-    pub fn viewer_resize(&self, options: Size) -> Result<ViewerResizeResult> {
+    pub fn viewer_resize(
+        &self,
+        attachment_lease: &str,
+        options: Size,
+    ) -> Result<ViewerResizeResult> {
         wire::validate_size(options)?;
         wire::decode_exact(
             &self.session.client.connection_control(
                 ops::TERMINAL_VIEWER_RESIZE,
-                self.params().u16(field::COLS, options.cols).u16(field::ROWS, options.rows),
+                self.params()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
+                    .u16(field::COLS, options.cols)
+                    .u16(field::ROWS, options.rows),
             )?,
             "terminal viewer resize result",
         )
     }
 
-    pub fn viewer_release(&self) -> Result<()> {
-        decode_empty(
-            &self.session.client.connection_control(ops::TERMINAL_VIEWER_RELEASE, self.params())?,
+    pub fn viewer_release(&self, attachment_lease: &str) -> Result<ViewerReleaseResult> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
+                ops::TERMINAL_VIEWER_RELEASE,
+                self.params().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "terminal viewer release result",
         )
     }
 
@@ -1633,6 +1870,25 @@ impl Terminal {
                 mutation,
             )?,
             "terminal",
+        )
+    }
+
+    pub fn project(&self, options: TerminalProjectOptions) -> Result<MutationResult<TabSnapshot>> {
+        self.project_with(options, MutationOptions::unique()?)
+    }
+
+    pub fn project_with(
+        &self,
+        options: TerminalProjectOptions,
+        mutation: MutationOptions,
+    ) -> Result<MutationResult<TabSnapshot>> {
+        mutation_snapshot(
+            self.session.client.mutate(
+                ops::TERMINAL_PROJECT,
+                self.params().extend(wire::terminal_project(options)),
+                mutation,
+            )?,
+            "tab",
         )
     }
 
@@ -1908,12 +2164,17 @@ impl Browser {
         )?)
     }
 
-    pub fn viewer_resize(&self, options: PixelSize) -> Result<BrowserViewerResizeResult> {
+    pub fn viewer_resize(
+        &self,
+        attachment_lease: &str,
+        options: PixelSize,
+    ) -> Result<BrowserViewerResizeResult> {
         wire::validate_pixel_size(options)?;
         wire::decode_exact(
             &self.session.client.connection_control(
                 ops::BROWSER_VIEWER_RESIZE,
                 self.params()
+                    .string(field::ATTACHMENT_LEASE, attachment_lease)
                     .u32(field::WIDTH_PX, options.width_px)
                     .u32(field::HEIGHT_PX, options.height_px),
             )?,
@@ -1921,9 +2182,13 @@ impl Browser {
         )
     }
 
-    pub fn viewer_release(&self) -> Result<()> {
-        decode_empty(
-            &self.session.client.connection_control(ops::BROWSER_VIEWER_RELEASE, self.params())?,
+    pub fn viewer_release(&self, attachment_lease: &str) -> Result<ViewerReleaseResult> {
+        wire::decode_exact(
+            &self.session.client.connection_control(
+                ops::BROWSER_VIEWER_RELEASE,
+                self.params().string(field::ATTACHMENT_LEASE, attachment_lease),
+            )?,
+            "browser viewer release result",
         )
     }
 
@@ -2295,7 +2560,15 @@ impl FrontendProjection {
         mutation_snapshot(
             self.session.client.mutate(
                 ops::FRONTEND_PROJECTION_PUT,
-                self.params().value(field::PROJECTION, options.projection),
+                self.params()
+                    .string(field::FRONTEND_ID, options.frontend_id)
+                    .string(field::WINDOW_ID, options.window_id)
+                    .string(field::GENERATION, options.generation)
+                    .value(field::PROJECTION, options.projection)
+                    .optional_u64(
+                        field::EXPECTED_PROJECTION_REVISION,
+                        options.expected_projection_revision,
+                    ),
                 mutation,
             )?,
             "frontend_projection",

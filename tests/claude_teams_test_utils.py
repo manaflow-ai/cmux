@@ -13,6 +13,18 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
+from typing import BinaryIO
+
+FIXTURE_SOCKET_PASSWORD = "cmux-cli-fixture-password"
+
+
+def accept_fixture_socket_authentication(line: bytes, stream: BinaryIO) -> bool:
+    """Answer the explicit fixture credential without reading host credentials."""
+    if line.rstrip(b"\r\n") != f"auth {FIXTURE_SOCKET_PASSWORD}".encode():
+        return False
+    stream.write(b"OK\n")
+    stream.flush()
+    return True
 
 FOCUSED_WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
 FOCUSED_WINDOW_ID = "22222222-2222-4222-8222-222222222222"
@@ -49,6 +61,15 @@ class _FocusedCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
             decoded_line = line.decode("utf-8").rstrip("\r\n")
+            capability_prefix = "_cmux_capability_v1 "
+            if decoded_line.startswith(capability_prefix):
+                envelope_parts = decoded_line.split(" ", 2)
+                if len(envelope_parts) != 3 or not envelope_parts[1] or not envelope_parts[2]:
+                    self.wfile.write(b"ERROR: malformed capability envelope\n")
+                    self.wfile.flush()
+                    continue
+                decoded_line = envelope_parts[2]
+
             if decoded_line.startswith("auth "):
                 self.server.requests.append("auth")  # type: ignore[attr-defined]
                 self.wfile.write(b"OK\n")

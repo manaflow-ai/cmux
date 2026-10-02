@@ -73,7 +73,7 @@ An error is:
 
 `details` is optional. Implemented detail objects are `{"type":"patch-rollback","failed_paths":[...]}` and `{"type":"process-replay-gap","requested_after":17,"range":{...}}`.
 
-`cmux-tui rpc` is a convenience adapter. Its stdin and `--request` value are bare request objects, and it prints the bare successful `WorkspaceResponse` or exits with an error. Do not wrap CLI input in the direct service envelope.
+`cmux-tui remote rpc` is a convenience adapter. Its stdin and `--request` value are bare request objects, and it prints the bare successful `WorkspaceResponse` or exits with an error. Do not wrap CLI input in the direct service envelope.
 
 An optional loopback HTTP listener exposes the same envelope at `POST /v1/workspace-rpc`. It requires an `Authorization: Bearer <token>` header using the owner-only token file printed at daemon startup. The listener also accepts a raw UTF-8 patch body at `POST /v1/workspaces/{workspace}/apply-patch`; `dry_run` is an optional boolean query parameter. That response is `{"result":{"Ok":<WorkspaceResponse>}}` or `{"result":{"Err":<RpcError>}}`. All HTTP requests have a 16 MiB body limit. Plain HTTP cannot bind off loopback; remote deployments use SSH forwarding or terminate TLS before the loopback listener.
 
@@ -168,7 +168,7 @@ Common response objects have these fields:
 | `computer-use-result` | `result:ComputerUseResult` |
 | `computer-use-canceled` | `invocation:ComputerUseInvocationId`, `accepted:bool` |
 
-Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1` and `process-terminal-snapshot-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax.
+Protocol 5 currently advertises `workspace-files-v1`, `workspace-search-v1`, `workspace-patch-v1`, `workspace-diff-v1`, `process-pipes-v1`, `process-catalog-v1`, `process-pty-v1`, `process-terminal-snapshot-v1`, and `terminal-viewer-size-priority-v1` on Unix, `tcp-routes-v1`, `computer-use-negotiation-v1`, `workspace-pagination-v1`, `workspace-patch-v2`, `workspace-patch-v3`, `structured-diff-v1`, `process-lifecycle-v2`, `process-replay-v1`, `process-handles-v2`, and `request-control-v1`. `workspace-patch-v3` indicates that `apply-patch.patch` accepts both unified diff and Codex native patch syntax. `terminal-viewer-size-priority-v1` indicates that a `terminal-bytes-v1` open accepts the optional metadata `"viewer_size_priority":"preferred"`, which asks the terminal host to size the grid from that renderer before other viewers when the host supports it; older daemons reject the key as `invalid-argument`.
 
 ## Files, search, patch, and diff
 

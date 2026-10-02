@@ -74,7 +74,7 @@ func (c gatedDoneContext) Done() <-chan struct{} {
 
 func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server, *wsPTYHub) {
 	t.Helper()
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 64 * 1024,
@@ -88,7 +88,7 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 	t.Cleanup(func() {
 		server.Close()
 		hub.closeAll()
-		if t.Failed() && stderr.Len() > 0 {
+		if t.Failed() && stderr.String() != "" {
 			t.Logf("ws pty stderr:\n%s", stderr.String())
 		}
 	})
@@ -99,11 +99,11 @@ func newTestWebSocketPTYServer(t *testing.T, leasePath string) (*httptest.Server
 // allocation failure (e.g. a hardened devpts mounted ptmxmode=000 where
 // /dev/ptmx cannot be opened) is reported loudly: the error returned to the
 // client names the failing device and explains the devpts cause, and the daemon
-// records the failure instead of leaving a 0-byte log. This is the regression
-// for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
+// records a safe failure category instead of leaving a 0-byte log. This is the
+// regression for https://github.com/manaflow-ai/cmux/issues/5185, where the failure
 // collapsed into a generic "remote PTY attach failed" with an empty daemon log.
 func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{Shell: "/bin/sh"}, stderr)
 	t.Cleanup(hub.closeAll)
 
@@ -137,11 +137,15 @@ func TestAttachRPCSurfacesPTYAllocationFailure(t *testing.T) {
 		t.Fatalf("error should explain the hardened devpts cause and remediation: %q", msg)
 	}
 
-	if stderr.Len() == 0 {
+	if stderr.String() == "" {
 		t.Fatalf("PTY allocation failure must be logged to the daemon log, not swallowed")
 	}
-	if !strings.Contains(stderr.String(), "/dev/ptmx") {
-		t.Fatalf("daemon log should include the allocation failure detail: %q", stderr.String())
+	if !strings.Contains(stderr.String(), "event=pty_start_fault") ||
+		!strings.Contains(stderr.String(), `error_category="permission_denied"`) {
+		t.Fatalf("daemon log should classify the allocation failure: %q", stderr.String())
+	}
+	if strings.Contains(stderr.String(), denied.Error()) {
+		t.Fatalf("daemon log should not persist the raw allocation failure: %q", stderr.String())
 	}
 }
 
@@ -2032,6 +2036,57 @@ func TestWebSocketPTYReattachWritesAcceptedOldInputBeforeNew(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYResizeDoesNotWaitForPTYWriter(t *testing.T) {
+	for _, action := range []string{"resize", "reattach"} {
+		t.Run(action, func(t *testing.T) {
+			hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-resize-writer", "attachment", false)
+			defer close(done)
+			defer readFile.Close()
+			defer writeFile.Close()
+			master, slave, err := pty.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer master.Close()
+			defer slave.Close()
+			session.ptyFile = master
+
+			// Hold the input writer at the point where a full PTY buffer stalls
+			// it, then verify both public operations still resize the real PTY.
+			session.ptyWriteMu.Lock()
+			resizeDone := make(chan error, 1)
+			go func() {
+				if action == "resize" {
+					hub.resize(attachment, 100, 35)
+					resizeDone <- nil
+				} else {
+					_, _, _, err := hub.prepareAttachment(context.Background(), nil,
+						session.id, attachment.id, 100, 35, true, "", "new-token", true, false)
+					resizeDone <- err
+				}
+			}()
+			select {
+			case err := <-resizeDone:
+				session.ptyWriteMu.Unlock()
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(5 * time.Second):
+				session.ptyWriteMu.Unlock()
+				<-resizeDone
+				t.Fatal("resize blocked behind a stalled PTY writer")
+			}
+			size, err := pty.GetsizeFull(master)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if size.Cols != 100 || size.Rows != 35 {
+				t.Fatalf("terminal size = %dx%d, want 100x35", size.Cols, size.Rows)
+			}
+		})
+	}
+}
+
 func TestWebSocketPTYInputSeqEnforcement(t *testing.T) {
 	hub, session, attachment, readFile, writeFile, done := newTestPTYInputSession(t, "sess-seq", "seq-att", true)
 	defer close(done)
@@ -2294,13 +2349,13 @@ func TestWebSocketPTYStressSessionCleanupAndBoundedScrollback(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
-	}, &bytes.Buffer{})
+	}, newNotifyingBuffer())
 	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
 		PTYAuthLeaseFile: leasePath,
 		Shell:            "/bin/sh",
 		PTYHub:           hub,
 		ScrollbackLimit:  4096,
-	}, &bytes.Buffer{}))
+	}, newNotifyingBuffer()))
 	defer server.Close()
 	defer hub.closeAll()
 
@@ -2457,7 +2512,7 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
-	}, &bytes.Buffer{})
+	}, newNotifyingBuffer())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sessionKey := persistentPTYSessionKey("sess-backpressure")
@@ -2506,7 +2561,7 @@ func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
 	}
 	defer reader.Close()
 
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
@@ -2575,7 +2630,7 @@ func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
 
 func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
@@ -2629,7 +2684,7 @@ func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T
 }
 
 func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
@@ -2703,7 +2758,7 @@ func newTestPTYInputSession(t *testing.T, sessionID string, attachmentID string,
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
-	}, &bytes.Buffer{})
+	}, newNotifyingBuffer())
 	sessionKey := persistentPTYSessionKey(sessionID)
 	done := make(chan struct{})
 	attachment := &wsPTYAttachment{
@@ -2774,7 +2829,7 @@ func (w *captureRPCFrameWriter) writeEvent(event rpcEvent) error {
 
 func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
-	stderr := &bytes.Buffer{}
+	stderr := newNotifyingBuffer()
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
@@ -2806,11 +2861,69 @@ func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYCountsIdleSessionUntilTeardownCompletes(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	sessionKey := persistentPTYSessionKey("teardown-in-flight")
+	session := &wsPTYSession{
+		id:          "teardown-in-flight",
+		key:         sessionKey,
+		attachments: map[string]*wsPTYAttachment{},
+		done:        make(chan struct{}),
+	}
+	hub.mu.Lock()
+	hub.sessions[sessionKey] = session
+	hub.mu.Unlock()
+
+	// Hold the PTY-file mutex so the idle reaper can remove the session from
+	// the map but cannot finish terminateProcesses or closePTYFiles.
+	session.ptyFileMu.Lock()
+	ptyFileLocked := true
+	teardownDone := make(chan struct{})
+	go func() {
+		hub.reapIdleSession(session)
+		close(teardownDone)
+	}()
+	defer func() {
+		if ptyFileLocked {
+			session.ptyFileMu.Unlock()
+			<-teardownDone
+		}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		hub.mu.Lock()
+		_, retained := hub.sessions[sessionKey]
+		hub.mu.Unlock()
+		if !retained {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle reaper did not begin session teardown")
+		}
+		runtime.Gosched()
+	}
+
+	if got := hub.activeSessionCount(); got != 1 {
+		t.Fatalf("hub activity during session teardown = %d, want 1", got)
+	}
+	session.ptyFileMu.Unlock()
+	ptyFileLocked = false
+	select {
+	case <-teardownDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("idle session teardown did not finish")
+	}
+	if got := hub.activeSessionCount(); got != 0 {
+		t.Fatalf("hub activity after session teardown = %d, want 0", got)
+	}
+}
+
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
 		ScrollbackLimit: 4096,
-	}, &bytes.Buffer{})
+	}, newNotifyingBuffer())
 	session := &wsPTYSession{id: "scrollback"}
 
 	hub.mu.Lock()
@@ -2832,8 +2945,9 @@ func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	if got := cap(session.scrollback); got > 4096 {
 		t.Fatalf("scrollback cap after append = %d, want <= 4096", got)
 	}
-	if !strings.HasSuffix(string(session.scrollback), "tail") {
-		t.Fatalf("scrollback should retain newest output, got suffix %q", string(session.scrollback[len(session.scrollback)-16:]))
+	replay := session.scrollbackSnapshot()
+	if !strings.HasSuffix(string(replay), "tail") {
+		t.Fatalf("scrollback should retain newest output, got suffix %q", string(replay[len(replay)-16:]))
 	}
 }
 
@@ -3176,8 +3290,8 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 	}
 	h.mu.Unlock()
 
-	session.ptyWriteMu.Lock()
-	defer session.ptyWriteMu.Unlock()
+	session.ptyResizeMu.Lock()
+	defer session.ptyResizeMu.Unlock()
 	var size *pty.Winsize
 	available := session.withPTYFileLocked(func(sizeFile *os.File) {
 		size, err = pty.GetsizeFull(sizeFile)

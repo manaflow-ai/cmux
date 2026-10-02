@@ -7,4 +7,12 @@ enum MobileMacInstanceTagExpectation: Equatable, Sendable {
     case preserve(String)
     /// An explicit registry-instance selection must prove this exact tag.
     case require(String)
+
+    /// The tag this expectation pins, when it pins one.
+    var expectedTag: String? {
+        switch self {
+        case .adopt: nil
+        case .preserve(let tag), .require(let tag): tag
+        }
+    }
 }

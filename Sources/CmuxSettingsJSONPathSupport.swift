@@ -1,7 +1,29 @@
+import CmuxBrowser
 import CmuxSettings
 import CmuxSidebar
 import CmuxSidebarGit
 import Foundation
+
+// Keep the portable settings skill's source fallback aware of catalog-owned
+// viewer paths when the generated all-keys reference is unavailable.
+private enum SettingsJSONPathFallbackCatalog {
+    static let viewerPaths = [
+        "app.openSupportedFilesInCmux",
+        "app.openMarkdownInCmuxViewer",
+        "app.preferredEditor",
+        "markdown.fontSize",
+        "markdown.fontFamily",
+        "markdown.maxWidth",
+        "fileEditor.wordWrap",
+        "fileEditor.syntaxHighlighting",
+        "fileEditor.lineNumbers",
+        "fileEditor.indentGuides",
+        "fileEditor.currentLineHighlight",
+        "fileEditor.tabWidth",
+        "fileExplorer.doubleClickAction",
+        "diffViewer.defaultLayout",
+    ]
+}
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
@@ -15,8 +37,10 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPortsKey = sidebar.showPorts.userDefaultsKey
     static let showLogKey = sidebar.showLog.userDefaultsKey
     static let showProgressKey = sidebar.showProgress.userDefaultsKey
+    static let showAgentUsageKey = sidebar.showAgentUsage.userDefaultsKey
     static let showAgentActivityKey = sidebar.showAgentActivity.userDefaultsKey
     static let showCustomMetadataKey = sidebar.showCustomMetadata.userDefaultsKey
+    static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
@@ -25,8 +49,10 @@ enum SidebarWorkspaceDetailDefaults {
     static let showPorts = sidebar.showPorts.defaultValue
     static let showLog = sidebar.showLog.defaultValue
     static let showProgress = sidebar.showProgress.defaultValue
+    static let showAgentUsage = sidebar.showAgentUsage.defaultValue
     static let showAgentActivity = sidebar.showAgentActivity.defaultValue
     static let showCustomMetadata = sidebar.showCustomMetadata.defaultValue
+    static let compactAgentStatus = sidebar.compactAgentStatus.defaultValue
 }
 
 enum SidebarWorkspaceTitleWrapSettings {
@@ -67,11 +93,23 @@ extension SidebarWorkspaceDetailDefaults {
             showMetadata: details.showCustomMetadata,
             showLog: details.showLog,
             showProgress: details.showProgress,
+            showAgentUsage: details.showAgentUsage,
             showBranchDirectory: details.showBranchDirectory,
             showPullRequests: details.showPullRequests,
             showPorts: details.showPorts,
             hideAllDetails: settings.value(for: sidebar.hideAllDetails)
         )
+    }
+
+    /// Whether listening-port discovery may run at all. The ports detail is the
+    /// only thing that displays the result, so when it is hidden the scans have
+    /// nothing to populate. Mirrors the sidebar's own precedence, where
+    /// `sidebar.hideAllDetails` wins over `sidebar.showPorts` (issue #6123).
+    static func portScanningEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let sidebar = SidebarCatalogSection()
+        let settings = UserDefaultsSettingsClient(defaults: defaults)
+        let details = SidebarWorkspaceDetailSettings(defaults: defaults)
+        return details.showPorts && !settings.value(for: sidebar.hideAllDetails)
     }
 
     static func gitMetadataPollingEnabled(defaults: UserDefaults) -> Bool {
@@ -142,6 +180,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.focusHistoryIncludesPanesAndTabs.userDefaultsKey
         ),
         .init(
+            jsonKey: "equalizeSplitsOnCreate",
+            defaultsKey: app.equalizeSplitsOnCreate.userDefaultsKey
+        ),
+        .init(
             jsonKey: "openSupportedFilesInCmux",
             defaultsKey: app.openSupportedFilesInCmux.userDefaultsKey
         ),
@@ -164,6 +206,14 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingWorkspace",
+            defaultsKey: app.warnBeforeClosingWorkspace.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "warnBeforeClosingWindow",
+            defaultsKey: app.warnBeforeClosingWindow.userDefaultsKey
+        ),
+        .init(
             jsonKey: "hideTabCloseButton",
             defaultsKey: app.hideTabCloseButton.userDefaultsKey
         ),
@@ -179,6 +229,7 @@ enum AppSettingsFileMapping {
 
     static let stringSettings: [SettingsFileStringMapping] = [
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
+        .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
 }
 
@@ -190,9 +241,20 @@ enum NotificationSettingsFileMapping {
         .init(jsonKey: "showInMenuBar", defaultsKey: MenuBarExtraSettings.showInMenuBarKey),
         .init(jsonKey: "unreadPaneRing", defaultsKey: NotificationPaneRingSettings.enabledKey),
         .init(jsonKey: "paneFlash", defaultsKey: NotificationPaneFlashSettings.enabledKey),
+        .init(jsonKey: "paneFlashDoubleBlink", defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey),
+        .init(jsonKey: "paneFlashOnTyping", defaultsKey: NotificationPaneFlashSettings.onTypingKey),
+        .init(jsonKey: "paneFlashThemeColor", defaultsKey: NotificationPaneFlashSettings.themeColorKey),
+        .init(
+            jsonKey: "soundWhenFocused",
+            defaultsKey: notifications.soundWhenFocused.userDefaultsKey
+        ),
         .init(
             jsonKey: "suppressOnlyFocusedSurface",
             defaultsKey: notifications.suppressOnlyFocusedSurface.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "suppressWhenAppFocused",
+            defaultsKey: notifications.suppressWhenAppFocused.userDefaultsKey
         ),
         .init(
             jsonKey: "agentPermissionPrompt",
@@ -213,7 +275,14 @@ enum NotificationSettingsFileMapping {
 }
 
 enum TerminalSettingsFileMapping {
+    private static let terminal = TerminalCatalogSection()
+
     static let booleanSettings: [SettingsFileBooleanMapping] = [
+        .init(
+            jsonKey: "adaptiveDefaultTheme",
+            defaultsKey: terminal.adaptiveDefaultTheme.userDefaultsKey,
+            invalidPath: terminal.adaptiveDefaultTheme.id
+        ),
         .init(
             jsonKey: "showScrollBar",
             defaultsKey: TerminalScrollBarSettings.showScrollBarKey,
@@ -225,9 +294,54 @@ enum TerminalSettingsFileMapping {
             invalidPath: "terminal.copyOnSelect"
         ),
         .init(
+            jsonKey: "reflowHardWrapOnCopy",
+            defaultsKey: terminal.reflowHardWrapOnCopy.userDefaultsKey,
+            invalidPath: terminal.reflowHardWrapOnCopy.id
+        ),
+        .init(
+            jsonKey: "confirmUnsafePaste",
+            defaultsKey: terminal.confirmUnsafePaste.userDefaultsKey,
+            invalidPath: terminal.confirmUnsafePaste.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputIndicator",
+            defaultsKey: terminal.showPasswordInputIndicator.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputIndicator.id
+        ),
+        .init(
+            jsonKey: "showPasswordInputDots",
+            defaultsKey: terminal.showPasswordInputDots.userDefaultsKey,
+            invalidPath: terminal.showPasswordInputDots.id
+        ),
+        .init(
+            jsonKey: "showJumpToBottomButton",
+            defaultsKey: terminal.showJumpToBottomButton.userDefaultsKey,
+            invalidPath: terminal.showJumpToBottomButton.id
+        ),
+        .init(
+            jsonKey: "predictiveLocalEcho",
+            defaultsKey: terminal.predictiveLocalEcho.userDefaultsKey,
+            invalidPath: terminal.predictiveLocalEcho.id
+        ),
+        .init(
             jsonKey: "autoResumeAgentSessions",
             defaultsKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey,
             invalidPath: "terminal.autoResumeAgentSessions"
+        ),
+        .init(
+            jsonKey: "textEditingGestures",
+            defaultsKey: terminal.textEditingGestures.userDefaultsKey,
+            invalidPath: terminal.textEditingGestures.id
+        ),
+        .init(
+            jsonKey: "textEditingCommandMovesByWord",
+            defaultsKey: terminal.textEditingCommandMovesByWord.userDefaultsKey,
+            invalidPath: terminal.textEditingCommandMovesByWord.id
+        ),
+        .init(
+            jsonKey: "textEditingGesturesInFullScreenApps",
+            defaultsKey: terminal.textEditingGesturesInFullScreenApps.userDefaultsKey,
+            invalidPath: terminal.textEditingGesturesInFullScreenApps.id
         ),
     ]
 }
@@ -297,12 +411,20 @@ enum SidebarSettingsFileMapping {
             defaultsKey: SidebarWorkspaceDetailDefaults.showProgressKey
         ),
         .init(
+            jsonKey: "showAgentUsage",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showAgentUsageKey
+        ),
+        .init(
             jsonKey: "showAgentActivity",
             defaultsKey: SidebarWorkspaceDetailDefaults.showAgentActivityKey
         ),
         .init(
             jsonKey: "showCustomMetadata",
             defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey
+        ),
+        .init(
+            jsonKey: "compactAgentStatus",
+            defaultsKey: SidebarWorkspaceDetailDefaults.compactAgentStatusKey
         ),
     ]
 
@@ -323,15 +445,22 @@ enum AutomationSettingsFileMapping {
 
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "claudeCodeIntegration", defaultsKey: automation.claudeCodeIntegration.userDefaultsKey),
+        .init(jsonKey: "piIntegration", defaultsKey: automation.piIntegration.userDefaultsKey),
         .init(
             jsonKey: "suppressSubagentNotifications",
             defaultsKey: automation.suppressSubagentNotifications.userDefaultsKey
+        ),
+        .init(jsonKey: "codexIntegration", defaultsKey: automation.codexIntegration.userDefaultsKey),
+        .init(
+            jsonKey: "canonicalAgentScratch",
+            defaultsKey: automation.canonicalAgentScratch.userDefaultsKey
         ),
         .init(jsonKey: "ampIntegration", defaultsKey: automation.ampIntegration.userDefaultsKey),
         .init(jsonKey: "cursorIntegration", defaultsKey: automation.cursorIntegration.userDefaultsKey),
         .init(jsonKey: "geminiIntegration", defaultsKey: automation.geminiIntegration.userDefaultsKey),
         .init(jsonKey: "kiroIntegration", defaultsKey: automation.kiroIntegration.userDefaultsKey),
         .init(jsonKey: "workspaceAutoNaming", defaultsKey: automation.workspaceAutoNaming.userDefaultsKey),
+        .init(jsonKey: "agentAutoResume", defaultsKey: automation.agentAutoResume.userDefaultsKey),
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
@@ -344,7 +473,7 @@ enum AutomationSettingsFileMapping {
 enum BrowserSettingsFileMapping {
     static let booleanSettings: [SettingsFileBooleanMapping] = [
         .init(jsonKey: "showSearchSuggestions", defaultsKey: BrowserSearchSettingsStore.searchSuggestionsEnabledKey),
-        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey),
+        .init(jsonKey: "discardHiddenWebViews", defaultsKey: BrowserHiddenWebViewDiscardPolicy.enabledKey), .init(jsonKey: "autoRestoreUnloadedPages", defaultsKey: BrowserHiddenWebViewDiscardPolicy.autoRestoreKey),
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
@@ -372,7 +501,7 @@ enum BrowserSettingsFileMapping {
         ),
         .init(
             jsonKey: "urlsToAlwaysOpenExternally",
-            defaultsKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            defaultsKey: BrowserExternalURLPolicy.userDefaultsKey,
             invalidPath: "browser.urlsToAlwaysOpenExternally"
         ),
         .init(
@@ -380,146 +509,10 @@ enum BrowserSettingsFileMapping {
             defaultsKey: BrowserInsecureHTTPSettings.allowlistKey,
             invalidPath: "browser.insecureHttpHostsAllowedInEmbeddedBrowser"
         ),
-    ]
-}
-
-extension CmuxSettingsFileStore {
-    // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
-    // validate against this set so new persisted settings need an explicit cmux.json review.
-    static let supportedSettingsJSONPaths: Set<String> = [
-        PaneChromeSettings.paneBorderColorKey,
-        PaneChromeSettings.activePaneBorderColorKey,
-        "app.language",
-        "app.appearance",
-        "app.appIcon",
-        "app.windowTitleTemplate",
-        "app.menuBarOnly",
-        "app.newWorkspacePlacement",
-        "app.workspaceInheritWorkingDirectory",
-        "app.minimalMode",
-        "app.keepWorkspaceOpenWhenClosingLastSurface",
-        "app.focusPaneOnFirstClick",
-        "app.focusHistoryIncludesPanesAndTabs",
-        "app.preferredEditor",
-        "app.openSupportedFilesInCmux",
-        "app.openMarkdownInCmuxViewer",
-        "app.iMessageMode",
-        "app.reorderOnNotification",
-        "app.sendAnonymousTelemetry",
-        "app.confirmQuit",
-        "app.warnBeforeQuit",
-        "app.warnBeforeClosingTab",
-        "app.warnBeforeClosingTabXButton",
-        "app.hideTabCloseButton",
-        "app.renameSelectsExistingName",
-        "app.commandPaletteSearchesAllSurfaces",
-        "workspaceGroups.newWorkspacePlacement",
-        "terminal.showScrollBar",
-        "terminal.scrollSpeed",
-        "terminal.copyOnSelect",
-        "terminal.autoResumeAgentSessions",
-        "terminal.showTextBoxOnNewTerminals",
-        "terminal.focusTextBoxOnNewTerminals",
-        "terminal.textBoxDefaultSubmitAction",
-        "terminal.textBoxSubmitActions",
-        "terminal.agentHibernation.enabled",
-        "terminal.agentHibernation.idleSeconds",
-        "terminal.agentHibernation.maxLiveTerminals",
-        "terminal.rendererRealization.enabled",
-        "terminal.rendererRealization.idleSeconds",
-        "terminal.rendererRealization.maxWarmRenderers",
-        SessionContentWidthSettings.settingsPath,
-        SessionContentWidthSettings.alignmentSettingsPath,
-        "terminal.textBoxMaxLines",
-        "terminal.resumeCommands",
-        "terminal.uploadCommands",
-        "notifications.dockBadge",
-        "notifications.showInMenuBar",
-        "notifications.unreadPaneRing",
-        "notifications.paneFlash",
-        "notifications.sound",
-        "notifications.customSoundFilePath",
-        "notifications.command",
-        "notifications.hooks",
-        "notifications.hooksMode",
-        "notifications.suppressOnlyFocusedSurface",
-        "notifications.agentPermissionPrompt",
-        "notifications.agentTurnComplete",
-        "notifications.agentIdleReminder",
-        "sidebar.hideAllDetails",
-        "sidebar.wrapWorkspaceTitles",
-        "sidebar.showWorkspaceDescription",
-        "sidebar.beta.workspaceTodos.controls.enabled",
-        "sidebar.beta.workspaceTodos.checklistStyle",
-        "sidebar.branchLayout",
-        "sidebar.stackBranchDirectory",
-        "sidebar.pathLastSegmentOnly",
-        "sidebar.showNotificationMessage",
-        "sidebar.notificationMessageLineLimit",
-        "sidebar.showBranchDirectory",
-        "sidebar.showPullRequests",
-        "sidebar.watchGitStatus",
-        "sidebar.makePullRequestsClickable",
-        "sidebar.openPullRequestLinksInCmuxBrowser",
-        "sidebar.openPortLinksInCmuxBrowser",
-        "sidebar.showSSH",
-        "sidebar.showPorts",
-        "sidebar.showLog",
-        "sidebar.showProgress",
-        "sidebar.showAgentActivity",
-        "sidebar.loadingSpinnerPosition",
-        "sidebar.notificationBadgePosition",
-        "sidebar.showCustomMetadata",
-        RightSidebarWidthSettings.settingsPath,
-        "workspaceColors.indicatorStyle",
-        "workspaceColors.selectionColor",
-        "workspaceColors.notificationBadgeColor",
-        "workspaceColors.colors",
-        "workspaceColors.paletteOverrides",
-        "workspaceColors.customColors",
-        "sidebarAppearance.matchTerminalBackground",
-        "sidebarAppearance.tintColor",
-        "sidebarAppearance.lightModeTintColor",
-        "sidebarAppearance.darkModeTintColor",
-        "sidebarAppearance.tintOpacity",
-        "automation.socketControlMode",
-        "automation.socketPassword",
-        "automation.claudeCodeIntegration",
-        "automation.claudeBinaryPath",
-        "automation.workspaceAutoNaming",
-        "automation.autoNamingAgent",
-        "automation.ripgrepBinaryPath",
-        "automation.suppressSubagentNotifications",
-        "automation.ampIntegration",
-        "automation.cursorIntegration",
-        "automation.geminiIntegration",
-        "automation.kiroIntegration",
-        "automation.kiroNotificationLevel",
-        "automation.portBase",
-        "automation.portRange",
-        "browser.defaultSearchEngine",
-        "browser.customSearchEngineName",
-        "browser.customSearchEngineURLTemplate",
-        "browser.showSearchSuggestions",
-        "browser.theme",
-        "browser.discardHiddenWebViews",
-        "browser.hiddenWebViewDiscardDelaySeconds",
-        "browser.askWhereToSaveDownloads",
-        "browser.openTerminalLinksInCmuxBrowser",
-        "browser.interceptTerminalOpenCommandInCmuxBrowser",
-        "browser.hostsToOpenInEmbeddedBrowser",
-        "browser.urlsToAlwaysOpenExternally",
-        "browser.insecureHttpHostsAllowedInEmbeddedBrowser",
-        "browser.showImportHintOnBlankTabs",
-        "browser.reactGrabVersion",
-        "mobile.artifactFolderAccess",
-        "markdown.fontSize",
-        "markdown.fontFamily",
-        "markdown.maxWidth",
-        "canvas.paneGap",
-        "canvas.snappingEnabled",
-        "fileEditor.wordWrap",
-        "fileExplorer.doubleClickAction",
-        "shortcuts.bindings",
+        .init(
+            jsonKey: "urlAllowlist",
+            defaultsKey: BrowserURLAllowlistPolicy.userDefaultsKey,
+            invalidPath: "browser.urlAllowlist"
+        ),
     ]
 }

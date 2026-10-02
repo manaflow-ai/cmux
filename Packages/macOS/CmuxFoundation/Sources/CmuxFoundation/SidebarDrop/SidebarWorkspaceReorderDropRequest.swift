@@ -21,6 +21,10 @@ public struct SidebarWorkspaceReorderDropRequest: Equatable, Sendable {
     /// Visible row targets in the drop overlay's coordinate space.
     public let targets: [SidebarWorkspaceReorderDropTarget]
 
+    /// The workspace ids the drag represents (the resolved selection block).
+    /// Empty means the dragged workspace moves alone.
+    public let draggedBlockWorkspaceIds: Set<UUID>
+
     /// Creates input for the sidebar workspace reorder resolver.
     ///
     /// - Parameters:
@@ -30,13 +34,16 @@ public struct SidebarWorkspaceReorderDropRequest: Equatable, Sendable {
     ///   - workspaces: Workspaces in the destination sidebar's raw storage order.
     ///   - groups: Workspace groups in the destination sidebar.
     ///   - targets: Visible row targets in the drop overlay's coordinate space.
+    ///   - draggedBlockWorkspaceIds: The resolved selection block the drag
+    ///     represents; empty when the dragged workspace moves alone.
     public init(
         point: CGPoint,
         draggedWorkspaceId: UUID,
         foreignDraggedIsPinned: Bool? = nil,
         workspaces: [SidebarWorkspaceReorderWorkspaceSnapshot],
         groups: [SidebarWorkspaceReorderGroupSnapshot],
-        targets: [SidebarWorkspaceReorderDropTarget]
+        targets: [SidebarWorkspaceReorderDropTarget],
+        draggedBlockWorkspaceIds: Set<UUID> = []
     ) {
         self.point = point
         self.draggedWorkspaceId = draggedWorkspaceId
@@ -44,5 +51,6 @@ public struct SidebarWorkspaceReorderDropRequest: Equatable, Sendable {
         self.workspaces = workspaces
         self.groups = groups
         self.targets = targets
+        self.draggedBlockWorkspaceIds = draggedBlockWorkspaceIds
     }
 }

@@ -1,6 +1,7 @@
 #if canImport(UIKit) && DEBUG
 import CMUXMobileCore
 import CmuxMobileTerminal
+import CmuxMobileTerminalKit
 import SwiftUI
 import UIKit
 
@@ -83,7 +84,13 @@ struct TerminalLayoutPreviewView: View {
                 // color showing through behind it.
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Image(systemName: "chevron.left").fontWeight(.semibold)
+                        // Keep this standalone DEBUG fixture independent of
+                        // CoreUI's SF Symbol rasterizer. On a fresh simulator,
+                        // the terminal surface can make a toolbar symbol's
+                        // initial proposed size zero, which crashes CoreUI.
+                        Text("‹")
+                            .font(.system(size: 28, weight: .semibold))
+                            .frame(width: 22, height: 22)
                     }
                     // Title on its own Liquid Glass pill so it stays legible over
                     // terminal text when the bar background is cleared (iOS 26),
@@ -97,8 +104,9 @@ struct TerminalLayoutPreviewView: View {
                             .mobileGlassNavigationTitle()
                     }
                     ToolbarItemGroup(placement: .topBarTrailing) {
-                        Image(systemName: "bubble.left.and.bubble.right")
-                        Image(systemName: "terminal")
+                        Text("▣")
+                            .font(.system(size: 18, weight: .medium))
+                            .frame(width: 22, height: 22)
                     }
                     if ProcessInfo.processInfo.environment["CMUX_UITEST_ALT_SCREEN_NOTICE_PREVIEW"] == "1",
                        displaySettings.showAltScreenNotice {
@@ -152,6 +160,10 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         if ProcessInfo.processInfo.environment["CMUX_UITEST_SHOW_ZOOM"] == "1" {
             view.debugShowZoomControlOverlayForPreview()
         }
+        if let inset = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TOP_INSET"]
+            .flatMap(Double.init) {
+            view.setTopContentInset(CGFloat(inset))
+        }
         return view
     }
 
@@ -172,9 +184,90 @@ private struct TerminalLayoutPreviewSurface: UIViewRepresentable {
         private let targetCols =
             ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TARGET_COLS"].flatMap(Int.init)
         private let transcripts = TerminalPreviewTranscripts()
+        /// `CMUX_UITEST_TERMINAL_SHARED_GRID=<cols>x<rows>`: host a shared
+        /// grid of that size, as a host's size state would, with the sizing
+        /// chrome, and draw a labeled box on the grid's outer cells.
+        private let sharedGrid: (columns: Int, rows: Int)? = {
+            guard let raw = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_SHARED_GRID"] else {
+                return nil
+            }
+            let parts = raw.split(separator: "x").compactMap { Int($0) }
+            guard parts.count == 2, parts[0] > 0, parts[1] > 0 else { return nil }
+            return (parts[0], parts[1])
+        }()
+
+        private func applySharedGrid(
+            _ grid: (columns: Int, rows: Int),
+            to surfaceView: GhosttySurfaceView,
+            natural: TerminalGridSize,
+            reportID: UInt64
+        ) {
+            guard natural.columns > 0, natural.rows > 0 else { return }
+            surfaceView.sharedSizingDecoration = TerminalSizingBoundsDecoration(
+                gridColumns: grid.columns,
+                gridRows: grid.rows,
+                viewerColumns: natural.columns,
+                viewerRows: natural.rows
+            )
+            let scaled = grid.columns > natural.columns || grid.rows > natural.rows
+            let title = "\(grid.columns)×\(grid.rows) · Fixed" + (scaled ? " · scaled" : "")
+            surfaceView.sharedSizingChip = TerminalSizingChipContent(
+                title: title,
+                compactTitle: "\(grid.columns)×\(grid.rows)",
+                accessibilityLabel: title,
+                accessibilityHint: ""
+            )
+            let feed = !didFeedContent
+            didFeedContent = true
+            Task { @MainActor [weak surfaceView] in
+                guard let surfaceView else { return }
+                // Draw only once the surface holds the shared grid, so the
+                // box is not reflowed from the natural grid.
+                _ = await surfaceView.applyViewSizeAndWait(cols: grid.columns, rows: grid.rows)
+                surfaceView.markViewportReportConfirmed(reportID: reportID)
+                if feed {
+                    surfaceView.processOutput(Self.sharedGridBox(columns: grid.columns, rows: grid.rows))
+                    // `CMUX_UITEST_TERMINAL_TOP_INSET_LATER=<pts>`: change the
+                    // scroll-edge band after the scaled grid settled, as the
+                    // hosted screen does when its banner lays out.
+                    if let later = ProcessInfo.processInfo.environment["CMUX_UITEST_TERMINAL_TOP_INSET_LATER"]
+                        .flatMap(Double.init) {
+                        try? await ContinuousClock().sleep(for: .seconds(2))
+                        surfaceView.setTopContentInset(CGFloat(later))
+                    }
+                }
+            }
+        }
+
+        /// Scrollback lines, then a box on the outer cells of a `columns` ×
+        /// `rows` grid with the row number at the start of every row. The
+        /// scrollback shows whether anything above the grid leaks into view.
+        static func sharedGridBox(columns: Int, rows: Int) -> Data {
+            var s = ""
+            for line in 1...(rows * 2) {
+                s += "SCROLLBACK \(line) " + String(repeating: "#", count: 40) + "\r\n"
+            }
+            s += "\u{1B}[H\u{1B}[2J"
+            for row in 1...rows {
+                s += "\u{1B}[\(row);1H"
+                if row == 1 || row == rows {
+                    s += "+" + String(repeating: "-", count: max(0, columns - 2)) + "+"
+                } else {
+                    let label = "|\(row)"
+                    s += label + "\u{1B}[\(row);\(columns)H|"
+                }
+            }
+            s += "\u{1B}[\(rows / 2);\(max(1, columns / 2 - 6))HSIZE \(columns)x\(rows)"
+            s += "\u{1B}[\(rows);2H"
+            return Data(s.utf8)
+        }
 
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didProduceInput data: Data) {}
         func ghosttySurfaceView(_ surfaceView: GhosttySurfaceView, didResize size: TerminalGridSize, reportID: UInt64) {
+            if let grid = sharedGrid {
+                applySharedGrid(grid, to: surfaceView, natural: size, reportID: reportID)
+                return
+            }
             guard feedContent, size.columns > 0, size.rows > 0 else { return }
 
             // Auto-fit the font so the terminal is exactly `targetCols` wide.

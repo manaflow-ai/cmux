@@ -56,6 +56,21 @@ describe("feedback route", () => {
     expect(await res.json()).toEqual({ error: "service_unavailable" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
+
+  test("fails closed when the Vercel firewall check throws", async () => {
+    process.env.VERCEL = "1";
+    (checkRateLimit as unknown as {
+      mockImplementation(next: () => Promise<never>): void;
+    }).mockImplementation(async () => {
+      throw new Error("firewall transport down");
+    });
+
+    const res = await POST(feedbackRequest());
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "service_unavailable" });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
 });
 
 function feedbackRequest(): Request {

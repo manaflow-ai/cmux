@@ -33,12 +33,11 @@ extension RemoteSessionCoordinator {
             )
             return false
         }
-        guard let resolvedControlPath,
-              let relayID = configuration.relayID?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
-              !relayID.isEmpty,
-              let relayToken = configuration.relayToken?
-              .trimmingCharacters(in: .whitespacesAndNewlines),
+        guard let relayID = configuration.relayID?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !relayID.isEmpty,
+            let relayToken = configuration.relayToken?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
               !relayToken.isEmpty else {
             return false
         }
@@ -49,17 +48,70 @@ extension RemoteSessionCoordinator {
             relayToken: relayToken,
             persistentDaemonSlot: configuration.persistentDaemonSlot
         )
-        let metadataProbeCommand =
-            "sh -c \(probeScript.shellSingleQuoted)"
+        // Keep the relay token out of SSH argv and process/debug logs. The
+        // ownership probe receives its script over stdin instead.
+        let metadataProbeCommand = "sh -s"
+        let metadataProbeStdin = Data(probeScript.utf8)
         let token = UUID()
         let configuration = self.configuration
         let connectionBroker = self.connectionBroker
+        let processRunner = self.processRunner
+        let resolutionAttempt: NativeSSHControlPathResolutionAttempt?
+        if resolvedControlPath != nil {
+            resolutionAttempt = nil
+        } else {
+            guard let effectiveOptions = resolvedControlMasterSSHOptions,
+                  let ownedPath = connectionBroker.sharingOptions
+                    .cmuxOwnedControlPath(in: effectiveOptions),
+                  ownedPath.contains("%") else {
+                return false
+            }
+            let resolver = NativeSSHControlPathResolver(
+                sharingOptions: connectionBroker.sharingOptions
+            )
+            let request = RemoteProcessRequest(
+                executable: "/usr/bin/ssh",
+                arguments: resolver.resolutionArguments(
+                    configuration: configuration,
+                    effectiveOptions: effectiveOptions
+                ),
+                environment: configuration.sshProcessEnvironment,
+                timeout: 5
+            )
+            resolutionAttempt = NativeSSHControlPathResolutionAttempt(
+                request: request,
+                resolver: resolver,
+                effectiveOptions: effectiveOptions,
+                processRunner: processRunner
+            )
+        }
         let task = Task { [weak self] in
+            let effectiveControlPath: String?
+            if let resolutionAttempt {
+                effectiveControlPath = await resolutionAttempt.run()
+                guard !Task.isCancelled else { return }
+            } else {
+                effectiveControlPath = resolvedControlPath
+            }
+            guard let effectiveControlPath else {
+                self?.queue.async { [weak self] in
+                    self?.finishInheritedControlMasterReapLocked(
+                        token: token,
+                        outcome: .deferred(
+                            "could not resolve the cmux SSH ControlPath"
+                        ),
+                        remotePath: remotePath,
+                        relayPort: relayPort
+                    )
+                }
+                return
+            }
             let outcome =
                 await connectionBroker.reapInheritedControlMaster(
                     for: configuration,
-                    resolvedControlPath: resolvedControlPath,
-                    metadataProbeCommand: metadataProbeCommand
+                    resolvedControlPath: effectiveControlPath,
+                    metadataProbeCommand: metadataProbeCommand,
+                    metadataProbeStdin: metadataProbeStdin
                 )
             guard !Task.isCancelled else { return }
             self?.queue.async { [weak self] in
@@ -139,14 +191,15 @@ extension RemoteSessionCoordinator {
             "remote.relay.inheritedMaster.reapObserved " +
                 debugConfigSummary()
         )
-        guard !isStopping else { return }
+        // A parked session has no retry scheduled, so `.reconnecting` would
+        // strand it without its verdict. Whatever ends the park (Reconnect,
+        // wake) resets the transport itself.
+        guard !isStopping, parkedState == nil else { return }
         resetTransportForReconnectLocked(
             preservePersistentRelayMetadata: true
         )
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayUnavailableRetrying
-        )
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
         _ = scheduleReconnectLocked(baseDelay: 2.0)
     }
 
@@ -193,10 +246,32 @@ extension RemoteSessionCoordinator {
         controlMasterReapState.observedControlPath = nil
     }
 
+    /// Returns whether OpenSSH reported that this relay's remote listener is
+    /// already bound.
+    static func isReverseRelayPortBindingFailure(_ detail: String, relayPort: Int) -> Bool {
+        reverseRelayPortBindingFailureLine(in: detail, relayPort: relayPort) != nil
+    }
+
+    /// Extracts the exact bind diagnostic from standalone or multiplexed
+    /// OpenSSH stderr. Multiplexing adds a prefix and may append a later
+    /// summary line, so classification must inspect every line.
+    static func reverseRelayPortBindingFailureLine(
+        in detail: String,
+        relayPort: Int
+    ) -> String? {
+        let expected = "remote port forwarding failed for listen port \(relayPort)"
+        return detail
+            .split(whereSeparator: \.isNewline)
+            .map {
+                $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .first(where: {
+                $0 == expected || $0.hasSuffix(": \(expected)")
+            })
+    }
+
     private func publishReverseRelayPortUnavailableLocked() {
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayPortUnavailableRetrying
-        )
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
     }
 }

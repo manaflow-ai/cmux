@@ -1,8 +1,24 @@
 import AppKit
+import CmuxFoundation
+import SwiftUI
 
 /// AppKit counterpart of the existing two-point accent drop indicator.
 @MainActor
 final class SidebarWorkspaceTableEmptyDropIndicatorView: NSView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            updateAccentColor()
+        }
+    }
+
+    var accentColor = CmuxAccentColor() {
+        didSet {
+            guard accentColor != oldValue else { return }
+            updateAccentColor()
+        }
+    }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -15,16 +31,11 @@ final class SidebarWorkspaceTableEmptyDropIndicatorView: NSView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        updateAccentColor()
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
     }
 
     private func updateAccentColor() {
-        layer?.backgroundColor = cmuxAccentNSColor(for: effectiveAppearance).cgColor
+        layer?.backgroundColor = accentColor.nsColor(for: colorScheme).cgColor
     }
 }

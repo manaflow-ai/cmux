@@ -4,8 +4,6 @@ import {
   type BrowserNightlyDownloadDependencies,
 } from "@/app/lib/browser-nightly-download";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 interface BrowserNightlyRouteParameters {
   readonly platform: string;

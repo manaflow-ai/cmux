@@ -2,7 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxSettings
 
-private struct DockPaneCloseConfirmationPrompt: Sendable {
+struct DockPaneCloseConfirmationPrompt: Sendable {
     let title: String
     let message: String
     let details: String
@@ -49,7 +49,7 @@ extension DockSplitStore {
         let closeWarningStore = CloseTabWarningStore(
             defaults: confirmationManager?.closeTabWarningDefaults ?? .standard
         )
-        guard closeWarningStore.shouldConfirmClose(
+        guard closeWarningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
             source: closeSource
         ) else {
@@ -124,7 +124,7 @@ extension DockSplitStore {
             let panel = panel(for: tab.id)
             paneTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panel?.displayTitle ?? tab.title))
             guard userCloseTabIds.contains(tab.id), let panel else { continue }
-            if closeWarningStore.shouldConfirmClose(
+            if closeWarningStore.shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
                 source: .shortcut
             ) {
@@ -179,6 +179,9 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didCloseTab tabId: TabID, fromPane pane: PaneID) {
+        // Closing the final tab can auto-close its pane without a separate
+        // `didClosePane` callback.
+        synchronizeOwnedPaneIds(with: controller)
         forceCloseDockTabIds.remove(tabId)
         pendingCloseConfirmDockTabIds.remove(tabId)
         tabCloseButtonCloseDockTabIds.remove(tabId)
@@ -187,16 +190,21 @@ extension DockSplitStore {
     }
 
     func splitTabBar(_ controller: BonsplitController, didClosePane paneId: PaneID) {
+        synchronizeOwnedPaneIds(with: controller)
         commitDockClosedPaneHistory(paneId)
         reconcilePanels()
     }
 
     func splitTabBar(_ controller: BonsplitController, didRequestNewTab kind: String, inPane pane: PaneID) {
         let surfaceKind: DockSurfaceKind = (kind == "browser") ? .browser : .terminal
-        _ = newSurface(kind: surfaceKind, inPane: pane, focus: true)
+        _ = newSurfaceFromDockAffordance(
+            kind: surfaceKind,
+            inPane: pane,
+            window: NSApp.keyWindow ?? NSApp.mainWindow
+        )
     }
 
-    private func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
+    func dockPanelNeedsConfirmClose(_ panel: any Panel) -> Bool {
         if let terminalPanel = panel as? TerminalPanel {
             return terminalPanel.needsConfirmClose()
         }

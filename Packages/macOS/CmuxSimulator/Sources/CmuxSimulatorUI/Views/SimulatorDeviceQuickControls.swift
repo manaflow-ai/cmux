@@ -30,7 +30,7 @@ struct SimulatorDeviceQuickControls: View {
     }
     .buttonStyle(.plain)
     .disabled(!presentation.isEnabled)
-    .help(presentation.help)
+    .help(Text(presentation.help))
   }
 
   private func presentation(

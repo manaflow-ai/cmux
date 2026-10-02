@@ -14,6 +14,8 @@ import tempfile
 import threading
 import time
 
+from claude_teams_test_utils import FIXTURE_SOCKET_PASSWORD, accept_fixture_socket_authentication
+
 
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
@@ -103,19 +105,18 @@ class PingServer:
     def _handle_connection(self, conn: socket.socket) -> None:
         with conn:
             conn.settimeout(2.0)
-            data = b""
             try:
-                while b"\n" not in data:
-                    chunk = conn.recv(4096)
-                    if not chunk:
-                        break
-                    data += chunk
+                with conn.makefile("rwb") as stream:
+                    for data in stream:
+                        if accept_fixture_socket_authentication(data, stream):
+                            continue
+                        if b"ping" in data:
+                            stream.write(self.response)
+                            stream.flush()
+                            self._done.set()
+                        return
             except (ConnectionResetError, socket.timeout, TimeoutError):
                 return
-
-            if b"ping" in data:
-                conn.sendall(self.response)
-                self._done.set()
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
@@ -190,18 +191,17 @@ def run_ping(
     extra_env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
+    for key in list(env):
+        if key.startswith("CMUX_"):
+            env.pop(key, None)
     env["HOME"] = home
     env["CFFIXED_USER_HOME"] = home
-    env.pop("CMUX_SOCKET_PATH", None)
-    env.pop("CMUX_SOCKET", None)
-    env.pop("CMUX_BUNDLE_ID", None)
-    env.pop("CMUX_TAG", None)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
-        [cli_path, "ping"],
+        [cli_path, "--password", FIXTURE_SOCKET_PASSWORD, "ping"],
         text=True,
         capture_output=True,
         env=env,
@@ -461,6 +461,9 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
 
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
+    nightly_slug = f"issue3542-nightly-{pid}"
+    dev_agent_slug = f"issue3542-dev-agent-{pid}"
+    isolated_nightly_slug = f"issue3542-isolated-nightly-{pid}"
     stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
@@ -483,24 +486,24 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             cli_path,
             apps,
             "cmux NIGHTLY",
-            "com.cmuxterm.app.nightly",
+            f"com.cmuxterm.app.nightly.{nightly_slug}",
         )
         isolated_nightly_cli = bundled_cli_for_variant(
             cli_path,
             apps,
             "cmux NIGHTLY issue3542",
-            "com.cmuxterm.app.nightly.issue3542",
+            f"com.cmuxterm.app.nightly.{isolated_nightly_slug}",
         )
         dev_agent_cli = bundled_cli_for_variant(
             cli_path,
             apps,
             "cmux DEV agent",
-            "com.cmuxterm.app.debug.agent",
+            f"com.cmuxterm.app.debug.{dev_agent_slug}",
         )
 
         write_marker(home, "last-socket-path", stable_socket)
-        write_marker(home, "nightly-last-socket-path", nightly_socket)
-        write_marker(home, "dev-agent-last-socket-path", dev_agent_socket)
+        write_marker(home, f"nightly-{nightly_slug}-last-socket-path", nightly_socket)
+        write_marker(home, f"dev-{dev_agent_slug}-last-socket-path", dev_agent_socket)
 
         try:
             if not expect_ping_uses_socket(stable_cli, home, stable_socket, "stable"):
@@ -583,20 +586,28 @@ def test_base_debug_cli_discovers_cmux_tag(cli_path: str) -> bool:
         print(f"FAIL: socket server failed to start: {server.error}")
         return False
 
-    env = os.environ.copy()
-    env["CMUX_SOCKET_PATH"] = "/tmp/cmux.sock"
-    env["CMUX_TAG"] = tag
-    env["CMUX_CLI_SENTRY_DISABLED"] = "1"
-    env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
     try:
-        with tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
+        with temporary_socket_home("cmux-cli-autodiscover-home-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-base-debug-app-") as apps:
             debug_cli = bundled_cli_for_variant(
                 cli_path,
                 apps,
                 "cmux DEV issue3542",
                 "com.cmuxterm.app.debug",
             )
+            env = os.environ.copy()
+            for key in list(env):
+                if key.startswith("CMUX_"):
+                    env.pop(key, None)
+            env["HOME"] = home
+            env["CFFIXED_USER_HOME"] = home
+            # CMUX_SOCKET_PATH is an explicit pin for the CLI. Leave it unset
+            # here so the base debug bundle derives its tag-scoped default.
+            env.pop("CMUX_SOCKET_PATH", None)
+            env.pop("CMUX_SOCKET", None)
+            env["CMUX_TAG"] = tag
+            env["CMUX_CLI_SENTRY_DISABLED"] = "1"
+            env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
             proc = subprocess.run(
                 [debug_cli, "ping"],
                 text=True,

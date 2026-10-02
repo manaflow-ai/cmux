@@ -3,11 +3,11 @@ import CmuxMobileRPC
 import CmuxMobileShellModel
 import Foundation
 
-/// One paired Mac's focused connection in the multi-Mac connection pool.
+/// One paired Mac session's focused-terminal capability.
 ///
 /// The composite holds one entry per connected Mac, keyed by `macDeviceID`.
-/// The focused entry drives terminal I/O and render traffic. Control entries use
-/// ``SecondaryMacSubscription`` and remain warm without terminal render topics.
+/// Focus drives terminal I/O and render traffic. The same live RPC client may
+/// retain ``SecondaryMacSubscription`` control work throughout focus changes.
 struct MacConnection {
     /// The stable device id of the Mac this connection targets.
     let macDeviceID: String

@@ -7,34 +7,63 @@ struct OnboardingSceneFooter: View {
     let secondaryTitle: String?
     let onPrimary: () -> Void
     let onSecondary: () -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     var body: some View {
-        VStack(spacing: 10) {
-            if let primaryTitle {
-                Button(action: onPrimary) {
-                    Text(primaryTitle)
-                        .fontWeight(.semibold)
-                        .frame(maxWidth: .infinity)
-                        .contentShape(.capsule)
+        Group {
+            if verticalSizeClass == .compact {
+                HStack(spacing: 12) {
+                    actions
                 }
-                .mobileGlassProminentButton()
-                .accessibilityIdentifier("MobileOnboardingPrimaryButton")
-            }
-
-            if let secondaryTitle {
-                Button(secondaryTitle, action: onSecondary)
-                    .font(.subheadline.weight(.medium))
-                    .frame(minHeight: 36)
-                    .accessibilityIdentifier("MobileOnboardingSecondaryButton")
+            } else {
+                VStack(spacing: 10) {
+                    actions
+                }
             }
         }
         .frame(maxWidth: 520)
         .padding(.horizontal, 24)
-        .padding(.top, 16)
-        .padding(.bottom, 12)
+        .padding(.top, verticalSizeClass == .compact ? 8 : 16)
+        .padding(.bottom, verticalSizeClass == .compact ? 8 : 12)
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("MobileOnboardingFooter")
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        if let primaryTitle {
+            Button(action: onPrimary) {
+                Text(primaryTitle)
+                    .fontWeight(.semibold)
+                    .frame(maxWidth: .infinity)
+                    .contentShape(.capsule)
+            }
+            .mobileGlassProminentButton()
+            .accessibilityIdentifier("MobileOnboardingPrimaryButton")
+        }
+
+        // Onboarding rule: every regular-height page with a primary action
+        // reserves the secondary-action slot so primary buttons share one
+        // vertical guide across the full flow.
+        if secondaryTitle != nil || (primaryTitle != nil && verticalSizeClass != .compact) {
+            // Reserve the actual control's size, including system button
+            // padding, to keep primary actions aligned across every page.
+            // Compact height places actions side by side and needs no slot.
+            Button(
+                secondaryTitle ?? L10n.string(
+                    "mobile.onboarding.push.notNow", defaultValue: "Not Now"
+                ),
+                action: onSecondary
+            )
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: verticalSizeClass == .compact ? .infinity : nil)
+                .frame(minHeight: 44)
+                .opacity(secondaryTitle == nil ? 0 : 1)
+                .disabled(secondaryTitle == nil)
+                .accessibilityHidden(secondaryTitle == nil)
+                .accessibilityIdentifier("MobileOnboardingSecondaryButton")
+        }
     }
 }
 #endif

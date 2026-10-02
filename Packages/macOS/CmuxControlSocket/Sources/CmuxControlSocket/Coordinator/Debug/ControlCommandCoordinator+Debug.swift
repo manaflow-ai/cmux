@@ -38,6 +38,8 @@ extension ControlCommandCoordinator {
             return debugWorkspaceTodoChecklistAddField()
         case "debug.pro_welcome_checklist.show":
             return debugShowProWelcomeChecklist()
+        case "debug.native_pricing.show":
+            return debugShowNativePricing()
         case "debug.command_palette.toggle":
             return debugCommandPaletteEvent(.toggle, request.params)
         case "debug.command_palette.rename_tab.open":
@@ -94,8 +96,6 @@ extension ControlCommandCoordinator {
             return debugPanelSnapshot(request.params)
         case "debug.panel_snapshot.reset":
             return debugPanelSnapshotReset(request.params)
-        case "debug.window.screenshot":
-            return debugScreenshot(request.params)
         case "debug.canvas.command_scroll_hint":
             return debugCanvasCommandScrollHint(request.params)
         default:
@@ -221,6 +221,16 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "Control context unavailable", data: nil)
         }
         debugContext.controlDebugShowProWelcomeChecklist()
+        return .ok(.object(["shown": .bool(true)]))
+    }
+
+    // MARK: - debug.native_pricing.show — show the native pricing screen
+
+    func debugShowNativePricing() -> ControlCallResult {
+        guard let debugContext else {
+            return .err(code: "unavailable", message: "Control context unavailable", data: nil)
+        }
+        debugContext.controlDebugShowNativePricing()
         return .ok(.object(["shown": .bool(true)]))
     }
 
@@ -469,6 +479,8 @@ extension ControlCommandCoordinator {
             return Int(exactly: v)
         case .double(let v):
             return Int(exactly: v)
+        case .decimal(let v):
+            return Int(v.trimmingCharacters(in: .whitespacesAndNewlines))
         case .bool(let v):
             return v ? 1 : 0
         default:
@@ -490,6 +502,10 @@ extension ControlCommandCoordinator {
         case .double(let v) where v == 0:
             return false
         case .double(let v) where v == 1:
+            return true
+        case .decimal("0"):
+            return false
+        case .decimal("1"):
             return true
         default:
             return nil

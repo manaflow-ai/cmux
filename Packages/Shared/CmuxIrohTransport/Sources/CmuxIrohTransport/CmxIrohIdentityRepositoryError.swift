@@ -9,6 +9,9 @@ public enum CmxIrohIdentityRepositoryError: Error, Equatable, Sendable {
     /// The identity generation is zero, exhausted, or database-incompatible.
     case invalidGeneration
 
+    /// Too many identity operations are waiting behind a stalled persistence call.
+    case operationLimitExceeded
+
     /// Secure random generation failed with the platform status code.
     case randomGenerationFailed(Int32)
 }

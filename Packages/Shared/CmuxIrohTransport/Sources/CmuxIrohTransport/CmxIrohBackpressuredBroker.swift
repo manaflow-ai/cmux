@@ -36,6 +36,16 @@ public struct CmxIrohBackpressuredClientBroker:
         }
     }
 
+    /// Reports whether the wrapped client retains request authorization.
+    public func hasBindingAuthorization() async -> Bool {
+        await broker.hasBindingAuthorization()
+    }
+
+    /// Returns the binding ID represented by the wrapped client's proof.
+    public func bindingAuthorizationID() async -> String? {
+        await broker.bindingAuthorizationID()
+    }
+
     public func discover() async throws -> CmxIrohDiscoveryResponse {
         try await gate.perform(accountID: accountID, operation: .discovery) {
             try await broker.discover()
@@ -79,6 +89,20 @@ public struct CmxIrohBackpressuredClientBroker:
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
+        }
+    }
+
+    /// Revokes an older same-device binding through the wrapped stale route.
+    public func revokeStale(bindingID: String) async throws {
+        try await gate.perform(accountID: accountID, operation: .revocation) {
+            try await broker.revokeStale(bindingID: bindingID)
+        }
+    }
+
+    /// Revokes one same-build Mac through the wrapped account-management path.
+    public func forgetMac(bindingID: String) async throws {
+        try await gate.perform(accountID: accountID, operation: .revocation) {
+            try await broker.forgetMac(bindingID: bindingID)
         }
     }
 }
@@ -158,6 +182,13 @@ public struct CmxIrohBackpressuredHostBroker:
     public func revoke(bindingID: String) async throws {
         try await gate.perform(accountID: accountID, operation: .revocation) {
             try await broker.revoke(bindingID: bindingID)
+        }
+    }
+
+    /// Revokes an older same-device binding through the wrapped stale route.
+    public func revokeStale(bindingID: String) async throws {
+        try await gate.perform(accountID: accountID, operation: .revocation) {
+            try await broker.revokeStale(bindingID: bindingID)
         }
     }
 }

@@ -19,7 +19,9 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.CreateSurfaceWithReceiptRequest, "selector_fallbacks");
     try expectExplicitNullRejected(protocol.MintTerminalRendererRequest, "ttl_ms");
+    try expectExplicitNullRejected(protocol.MintTerminalRendererByTerminalRequest, "ttl_ms");
     try expectExplicitNullRejected(protocol.RunRequest, "new_workspace");
     try expectExplicitNullRejected(protocol.SendRequest, "paste");
     try expectExplicitNullRejected(protocol.SetClientSizingRequest, "exclusive");
@@ -28,8 +30,13 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SidebarPluginRequest, "relaunch");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
+    try expectExplicitNullRejected(protocol.ColorsChangedEvent, "overrides");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "by");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "scope");
+    try expectExplicitNullRejected(protocol.DetachedEvent, "view");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "attempts");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_height");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "cell_width");
@@ -52,6 +59,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_graphics_state");
     try expectExplicitNullRejected(protocol.ResizedEvent, "kitty_image_aliases");
     try expectExplicitNullRejected(protocol.ResizedEvent, "replay");
+    try expectExplicitNullRejected(protocol.SizeStateEvent, "self_participant");
     try expectExplicitNullRejected(protocol.TitleChangedEvent, "title");
     try expectExplicitNullRejected(protocol.VtStateEvent, "colors");
     try expectExplicitNullRejected(protocol.VtStateEvent, "kitty_graphics_state");
@@ -64,12 +72,19 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceMovedEvent, "origin");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "mutation_id");
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
+    try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "authentication");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "clients");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
+    try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
     try expectExplicitNullRejected(protocol.FrontendProjection, "replayed");
     try expectExplicitNullRejected(protocol.IdentifyResult, "capabilities");
+    try expectExplicitNullRejected(protocol.IdentifyResult, "lifecycle_ready");
     try expectExplicitNullRejected(protocol.LayoutSplit, "split");
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.MintTerminalRendererResult, "supports_viewer_size_priority");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_row");
     try expectExplicitNullRejected(protocol.RenderGraphics, "images");
@@ -80,8 +95,14 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.RenderRun, "underline");
     try expectExplicitNullRejected(protocol.RenderRun, "width_hint");
     try expectExplicitNullRejected(protocol.Screen, "short_id");
+    try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
+    try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
+    try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");
+    try expectExplicitNullRejected(protocol.SizePolicy, "mode");
+    try expectExplicitNullRejected(protocol.SizePolicy, "priority");
     try expectExplicitNullRejected(protocol.Tab, "short_id");
     try expectExplicitNullRejected(protocol.Tab, "supports_clear_history_key_fallback");
+    try expectExplicitNullRejected(protocol.TerminalColors, "overrides");
     try expectExplicitNullRejected(protocol.TerminalColors, "palette");
     try expectExplicitNullRejected(protocol.TerminalKeyInput, "composing");
     try expectExplicitNullRejected(protocol.Tree, "generation");

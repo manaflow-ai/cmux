@@ -1745,7 +1745,7 @@ fn prepare_unix_stat(
 #[cfg(unix)]
 enum PreparedUnixSearchEntry {
     Directory(UnixWorkspaceDirectory),
-    File { target: UnixWorkspaceTarget, file: File, metadata: std::fs::Metadata },
+    File { target: UnixWorkspaceTarget, file: File, metadata: Box<std::fs::Metadata> },
     Other,
 }
 
@@ -1784,7 +1784,7 @@ fn prepare_unix_search_entry(
                 "file changed while it was being opened for search",
             ));
         }
-        return Ok(PreparedUnixSearchEntry::File { target, file, metadata });
+        return Ok(PreparedUnixSearchEntry::File { target, file, metadata: Box::new(metadata) });
     }
     Ok(PreparedUnixSearchEntry::Other)
 }

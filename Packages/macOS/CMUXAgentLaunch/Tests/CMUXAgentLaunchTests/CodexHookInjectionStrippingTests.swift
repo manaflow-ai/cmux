@@ -39,6 +39,70 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips the legacy synchronous Codex child hook block")
+    func stripsLegacySynchronousCodexChildHookBlock() {
+        let arguments = ["codex"] + hookArguments(
+            events: legacySynchronousChildHookEvents
+        ) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("The current block pairs the agent message handlers with prompt submit and stop")
+    func currentBlockHasInboxCompanions() {
+        let companions = CodexHookInjectionSchema.current.events.compactMap { event in
+            event.companion.map { "\(event.agentEvent):\($0.cmuxSubcommand)" }
+        }
+        #expect(companions == ["UserPromptSubmit:inbox-drain", "Stop:inbox-stop"])
+        let value = CodexHookInjectionSchema.current.events[1].configValue { "/h/\($0).sh" }
+        #expect(value == "hooks.UserPromptSubmit=[{hooks=[{type=\"command\",command='''/h/prompt-submit.sh''',timeout=5000},{type=\"command\",command='''/h/inbox-drain.sh''',timeout=5000}]}]")
+    }
+
+    @Test("Strips the block from before the agent message handlers")
+    func stripsBlockWithoutInboxCompanions() {
+        let events = CodexHookInjectionSchema.current.events.map {
+            CodexHookInjectionEvent(
+                agentEvent: $0.agentEvent,
+                cmuxSubcommand: $0.cmuxSubcommand,
+                timeoutMs: $0.timeoutMs,
+                delivery: $0.delivery
+            )
+        }
+        let arguments = ["codex"] + hookArguments(events: events) { subcommand in
+            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
+    @Test("Keeps a hook block whose second handler is not cmux's")
+    func keepsBlockWithForeignCompanion() {
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            subcommand == "inbox-drain"
+                ? "/Users/u/bin/my-prompt-hook.sh"
+                : legacyNamedScriptPath(subcommand)
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == arguments
+        )
+    }
+
     @Test("Strips the legacy alias Codex hook block")
     func stripsLegacyAliasCodexHookBlock() {
         let arguments = ["codex"] + hookArguments(
@@ -70,10 +134,30 @@ struct CodexHookInjectionStrippingTests {
         )
     }
 
+    @Test("Strips the inline queued hook fallback")
+    func stripsInlineQueuedHookFallback() {
+        // If ~/.cmux/hooks cannot be written, the wrapper embeds this marked
+        // shell body directly in Codex argv. Resume capture must still remove
+        // it so the wrapper does not inject a second hook set.
+        let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
+            if subcommand == "notification" {
+                return ": cmux-codex-hook; cmux hooks codex notification"
+            }
+            return ": cmux-codex-hook; cmux hooks enqueue codex \(subcommand)"
+        } + ["--model", "gpt-5.5"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                arguments,
+                launcher: "",
+                fallbackKind: "codex"
+            ) == ["codex", "--model", "gpt-5.5"]
+        )
+    }
+
     @Test("Strips joined cmux Codex hook options")
     func stripsJoinedCmuxCodexHookOptions() {
         let arguments = ["codex"] + codexWrapperHookArguments(joined: true) { subcommand in
-            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+            legacyNamedScriptPath(subcommand)
         } + ["--model", "gpt-5.5"]
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
@@ -214,7 +298,7 @@ struct CodexHookInjectionStrippingTests {
         // its marker configs; the user's own enable flag and hook config after
         // them must survive stripping so the preserved hook stays enabled.
         let arguments = ["codex"] + codexWrapperHookArguments { subcommand in
-            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+            legacyNamedScriptPath(subcommand)
         } + [
             "--enable",
             "hooks",
@@ -528,13 +612,21 @@ struct CodexHookInjectionStrippingTests {
         ]))
     }
 
+    /// Legacy script names (no content ID) for the subcommands that had
+    /// them; the agent message handlers only ever had content-addressed names.
+    private func legacyNamedScriptPath(_ subcommand: String) -> String {
+        subcommand.hasPrefix("inbox-")
+            ? "/Users/u/.cmux/hooks/cmux-codex-hook-0123456789abcdef-\(subcommand).sh"
+            : "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+    }
+
     private var runtimeUnwrapper: JavaScriptRuntimeAgentLaunchUnwrapper {
         JavaScriptRuntimeAgentLaunchUnwrapper(isKnownAgentExecutableName: isKnownAgentExecutableName)
     }
 
     private func realisticCodexHookArgv() -> [String] {
         [codexExecutable] + codexWrapperHookArguments { subcommand in
-            "/Users/u/.cmux/hooks/cmux-codex-hook-\(subcommand).sh"
+            legacyNamedScriptPath(subcommand)
         } + [
             "--dangerously-bypass-approvals-and-sandbox",
             "--model",
@@ -556,7 +648,7 @@ struct CodexHookInjectionStrippingTests {
     }
 
     private func hookArguments(
-        events: [(agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)],
+        events: [CodexHookInjectionEvent],
         joined: Bool = false,
         command: (String) -> String
     ) -> [String] {
@@ -564,7 +656,7 @@ struct CodexHookInjectionStrippingTests {
             ? ["--enable=hooks", "--dangerously-bypass-hook-trust"]
             : ["--enable", "hooks", "--dangerously-bypass-hook-trust"]
         for (index, event) in events.enumerated() {
-            let value = "hooks.\(event.agentEvent)=[{hooks=[{type=\"command\",command='''\(command(event.cmuxSubcommand))''',timeout=\(event.timeoutMs)}]}]"
+            let value = event.configValue(command: command)
             let option = index.isMultiple(of: 2) ? "-c" : "--config"
             if joined {
                 arguments.append("\(option)=\(value)")
@@ -575,18 +667,12 @@ struct CodexHookInjectionStrippingTests {
         return arguments
     }
 
-    private var codexWrapperHookEvents: [
-        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
-    ] {
-        CodexHookInjectionSchema.current.events.map {
-            ($0.agentEvent, $0.cmuxSubcommand, $0.timeoutMs)
-        }
+    private var codexWrapperHookEvents: [CodexHookInjectionEvent] {
+        CodexHookInjectionSchema.current.events
     }
 
-    private var legacySavedLayoutHookEvents: [
-        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
-    ] {
-        [
+    private var legacySavedLayoutHookEvents: [CodexHookInjectionEvent] {
+        let events: [(String, String, Int)] = [
             ("SessionStart", "session-start", 10000),
             ("UserPromptSubmit", "prompt-submit", 10000),
             ("PreToolUse", "pre-tool-use", 10000),
@@ -594,16 +680,30 @@ struct CodexHookInjectionStrippingTests {
             ("Notification", "notification", 10000),
             ("Stop", "stop", 10000),
         ]
+        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
     }
 
-    private var legacyAliasHookEvents: [
-        (agentEvent: String, cmuxSubcommand: String, timeoutMs: Int)
-    ] {
-        [
+    private var legacySynchronousChildHookEvents: [CodexHookInjectionEvent] {
+        let events: [(String, String, Int)] = [
+            ("SessionStart", "session-start", 10000),
+            ("UserPromptSubmit", "prompt-submit", 10000),
+            ("Stop", "stop", 10000),
+            ("PreToolUse", "pre-tool-use", 120000),
+            ("PostToolUse", "post-tool-use", 10000),
+            ("PermissionRequest", "notification", 120000),
+            ("SubagentStart", "subagent-start", 10000),
+            ("SubagentStop", "subagent-stop", 10000),
+        ]
+        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
+    }
+
+    private var legacyAliasHookEvents: [CodexHookInjectionEvent] {
+        let events: [(String, String, Int)] = [
             ("SessionStart", "session-start", 10000),
             ("SessionStop", "stop", 10000),
             ("Notification", "notification", 10000),
         ]
+        return events.map { CodexHookInjectionEvent(agentEvent: $0.0, cmuxSubcommand: $0.1, timeoutMs: $0.2) }
     }
 
     private func isKnownAgentExecutableName(_ name: String) -> Bool {

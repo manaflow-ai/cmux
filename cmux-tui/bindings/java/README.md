@@ -1,11 +1,11 @@
 # cmux Java SDK
 
-This dependency-free Java 17 SDK exposes the `cmux.protocol/1` resource API.
+This dependency-free Java 17 SDK exposes the `cmux.protocol/2` resource API.
 Typed handles cover machines, sessions, workspaces, screens, panes, tabs,
 terminals, browsers, connected clients, pairing requests, projections,
 notifications, agents, and sidebar views.
 
-The legacy protocol-v10 API remains available under `com.cmux.raw`.
+The private protocol-v12 API remains available under `com.cmux.raw`.
 
 ## Build and test
 
@@ -129,7 +129,7 @@ Unix session socket.
 
 ## Raw API
 
-Existing protocol-v10 callers can migrate imports without changing behavior:
+Existing raw callers can migrate imports without changing behavior:
 
 ```java
 import com.cmux.raw.CmuxClient;

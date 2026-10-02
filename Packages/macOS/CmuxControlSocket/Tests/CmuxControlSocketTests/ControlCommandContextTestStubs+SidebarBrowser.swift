@@ -58,7 +58,8 @@ extension ControlSidebarContext {
         priority: Int,
         format: ControlSidebarMetadataFormat,
         panelID: UUID?,
-        pid: Int32?
+        pid: Int32?,
+        workState: ControlSidebarAgentWorkState?
     ) {}
 
     nonisolated func controlSidebarScheduleStatusClear(
@@ -145,6 +146,19 @@ extension ControlSidebarContext {
 
     nonisolated func controlSidebarIsValidPullRequestState(_ raw: String) -> Bool { false }
 
+    nonisolated func controlSidebarManualPullRequestError(invalidTarget: Bool) -> String { "ERROR: invalid handoff" }
+
+    func controlSidebarAttachManualPullRequest(
+        tabArg: String?,
+        number: Int,
+        label: String,
+        url: URL,
+        statusRawValue: String,
+        branch: String?
+    ) -> Bool { false }
+
+    func controlSidebarClearManualPullRequest(tabArg: String?) -> Bool { false }
+
     nonisolated func controlSidebarSchedulePanelPullRequestUpdate(
         target: ControlSidebarPanelMutationTarget,
         number: Int,
@@ -177,6 +191,10 @@ extension ControlSidebarContext {
     }
 
     nonisolated func controlSidebarScheduleScopedShellState(scope: ControlSidebarPanelScope, stateRawValue: String) {}
+
+    nonisolated func controlSidebarInvalidTerminalLifecycleIDError() -> String {
+        "ERROR: Terminal session is out of date; restart the shell and try again"
+    }
 
     func controlSidebarUpdateShellState(tabArg: String?, panelArg: String?, stateRawValue: String) -> ControlSidebarPanelWriteResolution {
         .tabNotFound
@@ -230,7 +248,7 @@ extension ControlSidebarContext {
         .noTabSelected
     }
 
-    func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
+    func controlSidebarCloseSurface(surfaceArg: String?, force: Bool) -> ControlSidebarCloseSurfaceResolution { .noTabSelected }
 
     func controlSidebarReloadConfig(
         completion: @escaping @MainActor () -> Void

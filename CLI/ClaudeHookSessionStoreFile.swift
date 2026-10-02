@@ -1,6 +1,18 @@
 import Foundation
+import OSLog
+
+nonisolated private let claudeHookSessionStoreLogger = Logger(
+    subsystem: "com.cmuxterm.cli",
+    category: "AgentHookStore"
+)
 
 struct ClaudeHookSessionStoreFile: Codable {
+    struct DecodeDiagnostics: Equatable {
+        fileprivate(set) var droppedPaths: [String] = []
+
+        var droppedCount: Int { droppedPaths.count }
+    }
+
     var version: Int = 1
     var sessions: [String: ClaudeHookSessionRecord] = [:]
     // Superseded records stay durable for retry without remaining visible to
@@ -14,6 +26,18 @@ struct ClaudeHookSessionStoreFile: Codable {
     // https://github.com/manaflow-ai/cmux/issues/5908
     var activeSessionsBySurface: [String: ClaudeHookActiveSessionRecord] = [:]
     var agentHookFailureReportTimestamps: [String: TimeInterval] = [:]
+    /// Bounded lookup index for Cursor approvals, keyed by stable surface id.
+    var pendingCursorApprovalSessionsBySurface: [String: [String]] = [:]
+    /// Exact pending-session count for each stable surface identity. The ID
+    /// list is capped, so this count preserves sibling detection when the cap
+    /// is exceeded.
+    var pendingCursorApprovalSessionCountsBySurface: [String: Int] = [:]
+    /// Surfaces whose capped ID list has overflowed. The flag remains set until
+    /// the count reaches zero so an omitted session cannot be mistaken for the
+    /// current completion after the retained IDs drain.
+    var pendingCursorApprovalSurfaceOverflow: [String: Bool] = [:]
+    var pendingCursorApprovalIndexInitialized: Bool = false
+    private(set) var decodeDiagnostics = DecodeDiagnostics()
 
     enum CodingKeys: String, CodingKey {
         case version
@@ -22,30 +46,85 @@ struct ClaudeHookSessionStoreFile: Codable {
         case activeSessionsByWorkspace
         case activeSessionsBySurface
         case agentHookFailureReportTimestamps
+        case pendingCursorApprovalSessionsBySurface
+        case pendingCursorApprovalSessionCountsBySurface
+        case pendingCursorApprovalSurfaceOverflow
+        case pendingCursorApprovalIndexInitialized
     }
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-        sessions = try container.decodeIfPresent([String: ClaudeHookSessionRecord].self, forKey: .sessions) ?? [:]
-        pendingSupersededSessionCleanup = try container.decodeIfPresent(
-            [String: ClaudeHookSessionRecord].self,
-            forKey: .pendingSupersededSessionCleanup
-        ) ?? [:]
-        activeSessionsByWorkspace = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsByWorkspace
-        ) ?? [:]
-        activeSessionsBySurface = try container.decodeIfPresent(
-            [String: ClaudeHookActiveSessionRecord].self,
-            forKey: .activeSessionsBySurface
-        ) ?? [:]
-        agentHookFailureReportTimestamps = try container.decodeIfPresent(
-            [String: TimeInterval].self,
-            forKey: .agentHookFailureReportTimestamps
-        ) ?? [:]
+        var droppedPaths: [String] = []
+        version = Self.decodeScalar(
+            Int.self,
+            from: container,
+            forKey: .version,
+            defaultValue: 1,
+            droppedPaths: &droppedPaths
+        )
+        sessions = try Self.decodeDictionary(
+            ClaudeHookSessionRecord.self,
+            from: container,
+            forKey: .sessions,
+            droppedPaths: &droppedPaths
+        )
+        pendingSupersededSessionCleanup = try Self.decodeDictionary(
+            ClaudeHookSessionRecord.self,
+            from: container,
+            forKey: .pendingSupersededSessionCleanup,
+            droppedPaths: &droppedPaths
+        )
+        activeSessionsByWorkspace = try Self.decodeDictionary(
+            ClaudeHookActiveSessionRecord.self,
+            from: container,
+            forKey: .activeSessionsByWorkspace,
+            droppedPaths: &droppedPaths
+        )
+        activeSessionsBySurface = try Self.decodeDictionary(
+            ClaudeHookActiveSessionRecord.self,
+            from: container,
+            forKey: .activeSessionsBySurface,
+            droppedPaths: &droppedPaths
+        )
+        agentHookFailureReportTimestamps = try Self.decodeDictionary(
+            TimeInterval.self,
+            from: container,
+            forKey: .agentHookFailureReportTimestamps,
+            droppedPaths: &droppedPaths
+        )
+        pendingCursorApprovalSessionsBySurface = try Self.decodeDictionary(
+            [String].self,
+            from: container,
+            forKey: .pendingCursorApprovalSessionsBySurface,
+            droppedPaths: &droppedPaths
+        )
+        pendingCursorApprovalSessionCountsBySurface = try Self.decodeDictionary(
+            Int.self,
+            from: container,
+            forKey: .pendingCursorApprovalSessionCountsBySurface,
+            droppedPaths: &droppedPaths
+        )
+        pendingCursorApprovalSurfaceOverflow = try Self.decodeDictionary(
+            Bool.self,
+            from: container,
+            forKey: .pendingCursorApprovalSurfaceOverflow,
+            droppedPaths: &droppedPaths
+        )
+        pendingCursorApprovalIndexInitialized = Self.decodeScalar(
+            Bool.self,
+            from: container,
+            forKey: .pendingCursorApprovalIndexInitialized,
+            defaultValue: false,
+            droppedPaths: &droppedPaths
+        )
+        decodeDiagnostics = DecodeDiagnostics(droppedPaths: droppedPaths)
+        if !droppedPaths.isEmpty {
+            claudeHookSessionStoreLogger.error(
+                "Recovered hook session state after dropping malformed entries count=\(droppedPaths.count, privacy: .public)"
+            )
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -64,5 +143,75 @@ struct ClaudeHookSessionStoreFile: Codable {
         if !agentHookFailureReportTimestamps.isEmpty {
             try container.encode(agentHookFailureReportTimestamps, forKey: .agentHookFailureReportTimestamps)
         }
+        if !pendingCursorApprovalSessionsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionsBySurface,
+                forKey: .pendingCursorApprovalSessionsBySurface
+            )
+        }
+        if !pendingCursorApprovalSessionCountsBySurface.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSessionCountsBySurface,
+                forKey: .pendingCursorApprovalSessionCountsBySurface
+            )
+        }
+        if !pendingCursorApprovalSurfaceOverflow.isEmpty {
+            try container.encode(
+                pendingCursorApprovalSurfaceOverflow,
+                forKey: .pendingCursorApprovalSurfaceOverflow
+            )
+        }
+        if pendingCursorApprovalIndexInitialized {
+            try container.encode(true, forKey: .pendingCursorApprovalIndexInitialized)
+        }
+    }
+
+    private struct AnyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            intValue = nil
+        }
+
+        init?(intValue: Int) {
+            return nil
+        }
+    }
+
+    private static func decodeScalar<Value: Decodable>(
+        _ type: Value.Type,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        defaultValue: Value,
+        droppedPaths: inout [String]
+    ) -> Value {
+        do {
+            return try container.decodeIfPresent(type, forKey: key) ?? defaultValue
+        } catch {
+            droppedPaths.append(key.stringValue)
+            return defaultValue
+        }
+    }
+
+    private static func decodeDictionary<Value: Decodable>(
+        _ type: Value.Type,
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys,
+        droppedPaths: inout [String]
+    ) throws -> [String: Value] {
+        guard container.contains(key) else { return [:] }
+        let nested = try container.nestedContainer(keyedBy: AnyCodingKey.self, forKey: key)
+
+        var decoded: [String: Value] = [:]
+        for nestedKey in nested.allKeys {
+            do {
+                decoded[nestedKey.stringValue] = try nested.decode(Value.self, forKey: nestedKey)
+            } catch {
+                droppedPaths.append("\(key.stringValue).\(nestedKey.stringValue)")
+            }
+        }
+        return decoded
     }
 }

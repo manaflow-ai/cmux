@@ -14,7 +14,7 @@ extension CMUXCLI {
     func missingProviderExecutableMessage(displayName: String, executableName: String) -> String {
         let format = String(
             localized: "agentSession.error.missingProviderExecutable",
-            defaultValue: "%@ was not found. Install it and make sure \"%@\" is available on PATH."
+            defaultValue: "%@ was not found. Install it and make sure \"%@\" can be run from your terminal."
         )
         return String(format: format, displayName, executableName)
     }
@@ -37,16 +37,14 @@ extension CMUXCLI {
         return prefix.contains("cmux claude wrapper - injects hooks and session tracking")
     }
 
-    func isCmuxClaudeCommandShim(at path: String) -> Bool {
+    func isCmuxAgentCommandShim(at path: String) -> Bool {
         let candidate = URL(fileURLWithPath: path, isDirectory: false)
             .standardizedFileURL
             .path
         let environment = ProcessInfo.processInfo.environment
-        let shimPaths = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM"],
-        ]
-        for shimPath in shimPaths {
-            guard let shimPath else { continue }
+        for (key, rawPath) in environment where key.hasSuffix("_WRAPPER_SHIM") {
+            let shimPath = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimPath.isEmpty else { continue }
             let standardizedShim = URL(fileURLWithPath: shimPath, isDirectory: false)
                 .standardizedFileURL
                 .path
@@ -55,16 +53,29 @@ extension CMUXCLI {
             }
         }
 
-        let shimRoots: [String?] = [
-            environment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"],
+        var shimRoots = environment.compactMap { key, rawPath -> String? in
+            guard key == "CMUX_AGENT_COMMAND_SHIM_ROOT" || key.hasSuffix("_WRAPPER_SHIM_ROOT") else {
+                return nil
+            }
+            return rawPath
+        }
+        if let home = environment["HOME"], home.hasPrefix("/") {
+            shimRoots.append(
+                URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent(".cmuxterm/cmux-cli-shims", isDirectory: true)
+                    .standardizedFileURL.path
+            )
+        }
+        shimRoots.append(contentsOf: [
             URL(fileURLWithPath: environment["TMPDIR"] ?? NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-cli-shims", isDirectory: true)
                 .standardizedFileURL
                 .path,
             "/tmp/cmux-cli-shims",
-        ]
+        ])
         for shimRoot in shimRoots {
-            guard let shimRoot else { continue }
+            let shimRoot = shimRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !shimRoot.isEmpty else { continue }
             let standardizedRoot = URL(fileURLWithPath: shimRoot, isDirectory: true)
                 .standardizedFileURL
                 .path
@@ -94,6 +105,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: candidate) else { continue }
             guard !isBundledProviderExecutable(at: candidate) else { continue }
+            guard !isCmuxAgentCommandShim(at: candidate) else { continue }
             if let skip, skip(candidate) { continue }
             return candidate
         }
@@ -109,7 +121,7 @@ extension CMUXCLI {
                   !isDirectory.boolValue,
                   FileManager.default.isExecutableFile(atPath: trimmed),
                   !isBundledProviderExecutable(at: trimmed),
-                  !isCmuxClaudeCommandShim(at: trimmed),
+                  !isCmuxAgentCommandShim(at: trimmed),
                   !isCmuxClaudeWrapper(at: trimmed) else { continue }
             return URL(fileURLWithPath: trimmed, isDirectory: false).standardizedFileURL.path
         }
@@ -121,7 +133,7 @@ extension CMUXCLI {
         resolveExecutableInSearchPath(
             "claude",
             searchPath: searchPath,
-            skip: { self.isCmuxClaudeCommandShim(at: $0) || self.isCmuxClaudeWrapper(at: $0) }
+            skip: { self.isCmuxClaudeWrapper(at: $0) }
         )
     }
 
@@ -195,6 +207,11 @@ extension CMUXCLI {
     /// retain cmux's root `--help` contract while forwarding nested help unchanged.
     func shouldDispatchCmuxSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         switch command {
+        case "agent":
+            return CmuxTuiRemoteRouting.vmAgentRequestsHelp(commandArgs)
+        case "vm", "cloud", "coderouter":
+            return !CmuxTuiRemoteRouting.isAgentSubcommand(commandArgs.first)
+                || CmuxTuiRemoteRouting.vmAgentRequestsHelp(Array(commandArgs.dropFirst()))
         case "claude-teams", "codex-teams":
             return false
         case "omo", "omx", "omc":
@@ -257,8 +274,8 @@ extension CMUXCLI {
     }
 
     /// The whole point of `cmux claude-teams` is "just start a team." Claude Code's
-    /// Task tool only opens a teammate in its own split pane when it is called with
-    /// a `name`; without a name it runs an in-process subagent (no pane). Left to a
+    /// spawn tool (`Agent`, named `Task` before 2.x) only opens a teammate in its
+    /// own split pane when it is called with a `name`; without a name it runs an in-process subagent (no pane). Left to a
     /// bare prompt the lead tends to use the nameless form — or stops to ask "demo
     /// *what*?" — so a plain `cmux claude-teams "make a demo team with 5 subagents"`
     /// produced no panes. Append a small system-prompt nudge that steers the lead to
@@ -273,8 +290,9 @@ extension CMUXCLI {
         Agent teams are enabled and every NAMED teammate opens in its own split \
         pane. When the user asks you to start a team, demo teams, or run several \
         subagents/teammates in parallel, spawn them as named teammates: make one \
-        Task tool call per teammate, each with a distinct `name` (a short role), all \
-        in a single message so they run concurrently in their own split panes. \
+        Agent tool call per teammate (that tool is named Task on pre-2.x CLIs), each \
+        with a distinct `name` (a short role), all in a single message so they run \
+        concurrently in their own split panes. \
         Prefer named teammates over in-process subagents for any team or \
         parallel-agent request. If the user asks for an open-ended demo such as \
         "make a demo team with 5 subagents" without naming a topic, do not ask which \
@@ -302,6 +320,8 @@ extension CMUXCLI {
         for key in ClaudeSessionEnvironmentPolicy().inheritedIndependentLaunchKeys {
             unsetenv(key)
         }
+        unsetenv(ClaudeTeamsRespawnEnvironmentTransport.environmentKey)
+        unsetenv("CMUX_CLAUDE_TEAMS_WRAPPER_LAUNCH")
     }
 
     private func providerExecutableSearchDirectories(searchPath: String?) -> [String] {
@@ -329,17 +349,9 @@ extension CMUXCLI {
             "/bin"
         ])
 
-        var seen: Set<String> = []
-        return directories.compactMap { rawDirectory in
-            let trimmed = rawDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            let standardized = URL(fileURLWithPath: trimmed, isDirectory: true)
-                .standardizedFileURL
-                .path
-            guard !isCmuxAppBundleResourceBinDirectory(standardized) else { return nil }
-            guard seen.insert(standardized).inserted else { return nil }
-            return standardized
-        }
+        return AgentExecutableSearchPathResolver()
+            .normalizedDirectories(from: directories)
+            .filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {

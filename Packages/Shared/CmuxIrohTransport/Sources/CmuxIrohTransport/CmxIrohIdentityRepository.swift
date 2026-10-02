@@ -6,11 +6,15 @@ public actor CmxIrohIdentityRepository {
     private static let installMarkerKey = "cmux.iroh.identity.install-marker.v1"
     private static let activeScopeKey = "cmux.iroh.identity.active-scope.v1"
     private static let recordVersion: UInt8 = 1
+    private static let maximumQueuedOperations = 64
 
     private let secureStore: any CmxIrohSecureIdentityStoring
     private let installState: any CmxIrohInstallStateStoring
     private let randomBytes: @Sendable () throws -> Data
     private let marker: @Sendable () -> String
+    private var operationIsActive = false
+    private var operationWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var operationWaiterOrder: [UUID] = []
 
     /// Creates an identity repository with injectable persistence and entropy.
     public init(
@@ -32,34 +36,84 @@ public actor CmxIrohIdentityRepository {
     /// A missing install marker removes Keychain material that survived an app
     /// uninstall. Changing account scope removes the prior account key before
     /// creating a new EndpointID.
-    public func identity(accountID: String, appInstanceID: String) throws -> CmxIrohIdentityMaterial {
-        let scope = try prepareScope(accountID: accountID, appInstanceID: appInstanceID)
-        if let encoded = try secureStore.read(account: scope) {
+    public func identity(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
+        try await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
+        let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
+        if let encoded = try await secureStore.read(account: scope) {
             return try Self.decode(encoded)
         }
-        return try create(scope: scope, generation: 1)
+        return try await create(scope: scope, generation: 1)
     }
 
     /// Replaces the active account key and increments its identity generation.
-    public func rotate(accountID: String, appInstanceID: String) throws -> CmxIrohIdentityMaterial {
-        let scope = try prepareScope(accountID: accountID, appInstanceID: appInstanceID)
-        let current = try secureStore.read(account: scope).map(Self.decode)
+    public func rotate(accountID: String, appInstanceID: String) async throws -> CmxIrohIdentityMaterial {
+        try await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
+        let scope = try await prepareScope(accountID: accountID, appInstanceID: appInstanceID)
+        let current = try await secureStore.read(account: scope).map(Self.decode)
         let generation = try current.map { material in
             guard material.generation < Int(Int32.max) else {
                 throw CmxIrohIdentityRepositoryError.invalidGeneration
             }
             return material.generation + 1
         } ?? 1
-        return try create(scope: scope, generation: generation)
+        return try await create(scope: scope, generation: generation)
     }
 
     /// Removes all endpoint identity when signing out or locally revoking it.
-    public func deactivate() throws {
-        try secureStore.deleteAll()
+    public func deactivate() async throws {
+        try await beginOperation()
+        defer { endOperation() }
+        try Task.checkCancellation()
+        try await secureStore.deleteAll()
         installState.set(nil, forKey: Self.activeScopeKey)
     }
 
-    private func prepareScope(accountID: String, appInstanceID: String) throws -> String {
+    private func beginOperation() async throws {
+        guard operationIsActive else {
+            operationIsActive = true
+            return
+        }
+        guard operationWaiterOrder.count < Self.maximumQueuedOperations else {
+            throw CmxIrohIdentityRepositoryError.operationLimitExceeded
+        }
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation {
+                (continuation: CheckedContinuation<Void, any Error>) in
+                if Task.isCancelled {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                operationWaiters[id] = continuation
+                operationWaiterOrder.append(id)
+            }
+        } onCancel: {
+            Task { await self.cancelOperationWaiter(id) }
+        }
+    }
+
+    private func endOperation() {
+        guard let id = operationWaiterOrder.first else {
+            operationIsActive = false
+            return
+        }
+        operationWaiterOrder.removeFirst()
+        operationWaiters.removeValue(forKey: id)?.resume()
+    }
+
+    private func cancelOperationWaiter(_ id: UUID) {
+        guard let continuation = operationWaiters.removeValue(forKey: id) else {
+            return
+        }
+        operationWaiterOrder.removeAll { $0 == id }
+        continuation.resume(throwing: CancellationError())
+    }
+
+    private func prepareScope(accountID: String, appInstanceID: String) async throws -> String {
         guard !accountID.isEmpty,
               accountID.utf8.count <= 1_024,
               !appInstanceID.isEmpty,
@@ -68,7 +122,7 @@ public actor CmxIrohIdentityRepository {
         }
         var clearedSecureStore = false
         if installState.string(forKey: Self.installMarkerKey) == nil {
-            try secureStore.deleteAll()
+            try await secureStore.deleteAll()
             clearedSecureStore = true
             installState.set(nil, forKey: Self.activeScopeKey)
             installState.set(marker(), forKey: Self.installMarkerKey)
@@ -76,17 +130,17 @@ public actor CmxIrohIdentityRepository {
         let scope = Self.scope(accountID: accountID, appInstanceID: appInstanceID)
         if installState.string(forKey: Self.activeScopeKey) != scope {
             if !clearedSecureStore {
-                try secureStore.deleteAll()
+                try await secureStore.deleteAll()
             }
             installState.set(scope, forKey: Self.activeScopeKey)
         }
         return scope
     }
 
-    private func create(scope: String, generation: Int) throws -> CmxIrohIdentityMaterial {
+    private func create(scope: String, generation: Int) async throws -> CmxIrohIdentityMaterial {
         let secretKey = try CmxIrohSecretKey(bytes: randomBytes())
         let material = try CmxIrohIdentityMaterial(secretKey: secretKey, generation: generation)
-        try secureStore.write(Self.encode(material), account: scope)
+        try await secureStore.write(Self.encode(material), account: scope)
         return material
     }
 

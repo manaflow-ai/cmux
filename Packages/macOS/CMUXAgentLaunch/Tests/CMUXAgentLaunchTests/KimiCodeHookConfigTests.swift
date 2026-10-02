@@ -117,6 +117,35 @@ struct KimiCodeHookConfigTests {
         #expect(KimiCodeHookConfig.uninstalling(from: existing) == existing)
     }
 
+    @Test("Detects whether a config carries a cmux block")
+    func detectsWhetherConfigCarriesCmuxBlock() {
+        let userOnly = """
+        model = "kimi-k2"
+
+        [[hooks]]
+        event = "Stop"
+        command = "vibe-island"
+
+        """
+        let installed = KimiCodeHookConfig.installing(
+            events: [
+                KimiCodeHookConfig.Event(
+                    name: "Stop",
+                    command: "cmux hooks kimi stop",
+                    timeout: 10
+                ),
+            ],
+            in: userOnly
+        )
+
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(in: ""))
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(in: userOnly))
+        #expect(KimiCodeHookConfig.containsCmuxBlock(in: installed))
+        #expect(!KimiCodeHookConfig.containsCmuxBlock(
+            in: KimiCodeHookConfig.uninstalling(from: installed)
+        ))
+    }
+
     @Test("Uninstall removes orphaned begin marker without dropping following TOML")
     func uninstallRemovesOrphanedBeginMarkerWithoutDroppingFollowingTOML() {
         let existing = """
@@ -146,6 +175,49 @@ struct KimiCodeHookConfigTests {
         model = "kimi-k2"
 
         """)
+    }
+
+    @Test("Detects, refreshes, and removes a cmux block written with CRLF line endings")
+    func handlesCRLFLineEndings() {
+        let eventsV1 = [
+            KimiCodeHookConfig.Event(name: "Stop", command: "cmux hooks kimi stop", timeout: 10),
+        ]
+        let crlfExisting = "model = \"kimi-k2\"\r\ntelemetry = false\r\n"
+
+        // Isolates the line-count half of the bug, independent of marker
+        // matching: normalizing CRLF content with no cmux block at all must
+        // not gain a trailing blank line. `content.hasSuffix("\n")` is false
+        // for CRLF-terminated content (Swift treats "\r\n" as one Character),
+        // so the naive fix leaves the split's trailing empty element in place.
+        #expect(
+            KimiCodeHookConfig.uninstalling(from: crlfExisting)
+                == "model = \"kimi-k2\"\ntelemetry = false\n"
+        )
+
+        let installed = KimiCodeHookConfig.installing(events: eventsV1, in: crlfExisting)
+        #expect(KimiCodeHookConfig.containsCmuxBlock(in: installed))
+
+        // Reconstruct the installed config with CRLF endings, as a CRLF-editing
+        // tool would leave it, and confirm a refresh still finds and replaces
+        // the existing block instead of appending a second one.
+        let crlfInstalled = installed.replacingOccurrences(of: "\n", with: "\r\n")
+        #expect(KimiCodeHookConfig.containsCmuxBlock(in: crlfInstalled))
+
+        let eventsV2 = [
+            KimiCodeHookConfig.Event(name: "Stop", command: "cmux hooks kimi stop", timeout: 20),
+        ]
+        let refreshed = KimiCodeHookConfig.installing(events: eventsV2, in: crlfInstalled)
+        #expect(refreshed.components(separatedBy: "# cmux-kimi-hooks-7c3a9f12-4e8b-4d2a-9f15-6b8c0d1e2a3f begin").count == 2)
+        #expect(refreshed.contains("timeout = 20"))
+        #expect(!refreshed.contains("timeout = 10"))
+
+        // Round-tripping through CRLF must land on the same normalized (LF)
+        // content as the plain-LF path — CR handling must not add or drop a line.
+        #expect(
+            KimiCodeHookConfig.uninstalling(from: crlfInstalled)
+                == KimiCodeHookConfig.uninstalling(from: installed)
+        )
+        #expect(KimiCodeHookConfig.uninstalling(from: crlfInstalled) == "model = \"kimi-k2\"\ntelemetry = false\n\n")
     }
 
     @Test("Escapes TOML basic string content")

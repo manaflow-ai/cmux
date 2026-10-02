@@ -10,8 +10,8 @@ struct CmxIrohRuntimeConfigurationDeviceIDTests {
         let uppercaseUUID = "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE"
         let lowercaseUUID = uppercaseUUID.lowercased()
 
-        let uuidHost = hostConfiguration(deviceID: uppercaseUUID, fixture: fixture)
-        let opaqueHost = hostConfiguration(deviceID: "Legacy-Mac-ID", fixture: fixture)
+        let uuidHost = try hostConfiguration(deviceID: uppercaseUUID, fixture: fixture)
+        let opaqueHost = try hostConfiguration(deviceID: "Legacy-Mac-ID", fixture: fixture)
         let uuidClient = clientConfiguration(deviceID: uppercaseUUID, fixture: fixture)
         let opaqueClient = clientConfiguration(deviceID: "Legacy-iOS-ID", fixture: fixture)
 
@@ -24,11 +24,17 @@ struct CmxIrohRuntimeConfigurationDeviceIDTests {
     private func hostConfiguration(
         deviceID: String,
         fixture: HostRuntimeFixture
-    ) -> CmxIrohHostRuntimeConfiguration {
-        CmxIrohHostRuntimeConfiguration(
+    ) throws -> CmxIrohHostRuntimeConfiguration {
+        let clientNamespace = try #require(
+            CmxIrohMacBundleNamespace(
+                bundleIdentifier: "com.cmuxterm.tests"
+            )
+        )
+        return CmxIrohHostRuntimeConfiguration(
             accountID: "account-a",
             deviceID: deviceID,
             appInstanceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            clientNamespace: clientNamespace,
             tag: "test",
             displayName: nil,
             identity: fixture.identity,
@@ -46,6 +52,7 @@ struct CmxIrohRuntimeConfigurationDeviceIDTests {
             accountID: "account-a",
             deviceID: deviceID,
             appInstanceID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+            clientNamespace: fixture.clientNamespace.rawValue,
             tag: "test",
             displayName: nil,
             identity: fixture.identity,

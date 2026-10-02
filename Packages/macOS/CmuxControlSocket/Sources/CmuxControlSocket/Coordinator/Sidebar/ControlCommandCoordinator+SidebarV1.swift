@@ -60,6 +60,8 @@ extension ControlCommandCoordinator {
         case "reload_config": return sidebarReloadConfig(args)
         case "refresh_surfaces": return sidebarRefreshSurfaces()
         case "surface_health": return sidebarSurfaceHealth(args)
+        case "report_workspace_pr": return sidebarReportWorkspacePullRequest(args, context: context)
+        case "clear_workspace_pr": return sidebarClearWorkspacePullRequest(args, context: context)
         default: return nil
         }
     }
@@ -345,19 +347,43 @@ extension ControlCommandCoordinator {
         return (panelId, nil)
     }
 
-    /// The explicit shell-integration scope when both `--tab` and `--panel`
-    /// are UUIDs (the legacy `explicitSocketScope`, which stays app-side for
-    /// its unit tests).
-    nonisolated func sidebarExplicitScope(options: [String: String]) -> ControlSidebarPanelScope? {
+    /// Resolves the explicit shell-integration scope when both `--tab` and
+    /// `--panel` are UUIDs. A supplied terminal lifecycle token is parsed as
+    /// part of that same scope so telemetry cannot lose process-generation
+    /// identity while crossing the v1 compatibility path.
+    nonisolated func sidebarExplicitScope(
+        options: [String: String]
+    ) -> (scope: ControlSidebarPanelScope?, invalidTerminalLifecycleScope: Bool) {
+        let rawLifecycleID = options["terminal-lifecycle-id"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let terminalLifecycleID: UUID?
+        if let rawLifecycleID {
+            guard !rawLifecycleID.isEmpty,
+                  let parsedLifecycleID = UUID(uuidString: rawLifecycleID) else {
+                return (nil, true)
+            }
+            terminalLifecycleID = parsedLifecycleID
+        } else {
+            terminalLifecycleID = nil
+        }
         guard let tabRaw = options["tab"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !tabRaw.isEmpty,
               let panelRaw = (options["panel"] ?? options["surface"])?.trimmingCharacters(in: .whitespacesAndNewlines),
               !panelRaw.isEmpty,
               let workspaceId = UUID(uuidString: tabRaw),
               let panelId = UUID(uuidString: panelRaw) else {
-            return nil
+            // A supplied generation must never fall through to an inferred
+            // surface path that cannot preserve its identity.
+            return (nil, rawLifecycleID != nil)
         }
-        return ControlSidebarPanelScope(workspaceID: workspaceId, panelID: panelId)
+        return (
+            ControlSidebarPanelScope(
+                workspaceID: workspaceId,
+                panelID: panelId,
+                terminalLifecycleID: terminalLifecycleID
+            ),
+            false
+        )
     }
 
     /// Splits a metadata-block command line at the first ` -- ` separator
@@ -379,6 +405,7 @@ extension ControlCommandCoordinator {
         if let url = entry.urlAbsoluteString { line += " url=\(url)" }
         if entry.priority != 0 { line += " priority=\(entry.priority)" }
         if entry.format != .plain { line += " format=\(entry.format.rawValue)" }
+        if let workState = entry.workState { line += " work=\(workState.rawValue)" }
         return line
     }
 
@@ -419,7 +446,7 @@ extension ControlCommandCoordinator {
         }
 
         let target = ControlSidebarPanelMutationTarget(
-            scope: sidebarExplicitScope(options: options),
+            scope: sidebarExplicitScope(options: options).scope,
             tabArg: options["tab"],
             panelID: surfaceIdFromOptions
         )

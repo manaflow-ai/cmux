@@ -5,6 +5,7 @@ import type {
 import type {
   Command,
   Cursor,
+  JournalClass,
   JsonValue,
   LayoutDocument,
 } from "./models.js";
@@ -30,6 +31,7 @@ export interface CreatePaneOptions {
 export interface SplitPaneOptions extends CreatePaneOptions {
   readonly direction: Direction;
   readonly ratio?: number;
+  readonly viewportWidth?: number;
 }
 
 export interface CreateTerminalOptions {
@@ -61,6 +63,28 @@ export interface RequestOptions {
 
 export interface SessionEventsOptions extends RequestOptions {
   readonly cursor?: Cursor;
+}
+
+export interface JournalSubjectFilter {
+  readonly kind?: string;
+  readonly id?: string;
+}
+
+export interface JournalRegexFilter {
+  readonly pattern: string;
+  readonly field?: "kind" | "subjects" | "payload" | "record" | "terminal_output";
+  readonly caseSensitive?: boolean;
+}
+
+export interface SessionJournalOptions extends RequestOptions {
+  readonly cursor?: Cursor;
+  readonly start?: "tail" | "beginning";
+  readonly follow?: boolean;
+  readonly kinds?: readonly string[];
+  readonly classes?: readonly JournalClass[];
+  readonly subjects?: readonly JournalSubjectFilter[];
+  readonly maxSensitivity?: "public" | "metadata" | "sensitive";
+  readonly regex?: JournalRegexFilter;
 }
 
 export interface TerminalHistoryOptions {
@@ -178,6 +202,14 @@ export interface MutationOptions extends RequestOptions {
   readonly expectedRevision?: DecimalString;
   /** Correlates one of the eight creation operations with creation.resolve. */
   readonly correlationKey?: string;
+}
+
+export interface ProjectionPutOptions {
+  readonly frontendId: string;
+  readonly windowId: string;
+  readonly generation: string;
+  readonly projection: JsonValue;
+  readonly expectedProjectionRevision?: DecimalString;
 }
 
 export type ProjectionValue = JsonValue;

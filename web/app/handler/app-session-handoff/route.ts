@@ -2,12 +2,12 @@ import { checkRateLimit } from "@vercel/firewall";
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
+import { requestOrigin } from "../../lib/request-origin";
 import {
   createStackBrowserSessionHandoffAdapter,
   type StackBrowserSessionHandoffAdapter,
 } from "../../../services/auth/stackBrowserSessionHandoff";
 
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 32 * 1024;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -46,7 +46,7 @@ function sanitizedAfterPath(value: string | null): string | null {
 }
 
 function signInRedirect(request: NextRequest, afterPath: string): NextResponse {
-  const target = new URL("/handler/sign-in", request.nextUrl.origin);
+  const target = new URL("/handler/sign-in", requestOrigin(request));
   target.searchParams.set("after_auth_return_to", afterPath);
   return NextResponse.redirect(target, 303);
 }
@@ -94,7 +94,7 @@ function isNativeAppHandoff(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   if (origin && origin !== "null") {
     try {
-      if (new URL(origin).origin !== request.nextUrl.origin) return false;
+      if (new URL(origin).origin !== requestOrigin(request)) return false;
     } catch {
       return false;
     }
@@ -180,11 +180,11 @@ export function makeAppSessionHandoffHandler(
   const isLocallyRateLimited = makeLocalRateLimiter();
   return async function POST(request: NextRequest) {
     if (!isNativeAppHandoff(request)) {
-      return NextResponse.redirect(new URL("/", request.url), 303);
+      return NextResponse.redirect(new URL("/", requestOrigin(request)), 303);
     }
 
     if (contentLengthExceedsLimit(request)) {
-      return NextResponse.redirect(new URL("/", request.url), 303);
+      return NextResponse.redirect(new URL("/", requestOrigin(request)), 303);
     }
 
     const sessionAdapter = dependencies.sessionAdapter;
@@ -212,7 +212,7 @@ export function makeAppSessionHandoffHandler(
     }
     const afterPath = sanitizedAfterPath(form?.get("after") ?? null);
     if (!form || !afterPath) {
-      return NextResponse.redirect(new URL("/", request.url), 303);
+      return NextResponse.redirect(new URL("/", requestOrigin(request)), 303);
     }
 
     const refreshToken = form.get("refresh_token")?.trim();
@@ -226,7 +226,7 @@ export function makeAppSessionHandoffHandler(
       const response = cookieExchange
         ? new NextResponse(null, { status: 204 })
         : NextResponse.redirect(
-          new URL(afterPath, request.nextUrl.origin),
+          new URL(afterPath, requestOrigin(request)),
           303,
         );
       const established = await sessionAdapter.establish({

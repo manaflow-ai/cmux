@@ -1,14 +1,29 @@
 use std::collections::BTreeMap;
 use std::fmt;
+use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
     Lane, MUX_INPUT_V1_FEATURE, ProcessEvent, ProcessId, ProcessReplayRange, RouteId, RpcError,
-    RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl, WorkspaceRequest,
-    WorkspaceResponse,
+    RpcErrorDetails, RpcEvent, RpcRequest, RpcResponse, Service, ServiceControl,
+    TERMINAL_BYTES_VIEWER_SIZE_PRIORITY, TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED,
+    WorkspaceRequest, WorkspaceResponse,
 };
+use cmux_tui_core::resource::TerminalPublicId;
+#[cfg(unix)]
+use cmux_tui_core::terminal_host::{
+    CapabilityRights, CapabilityToken, ClientHello, ClientRole, HostHello, HostIncarnation,
+    TerminalId,
+};
+#[cfg(unix)]
+use cmux_tui_core::terminal_host_protocol::{
+    FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, FrameDecoder,
+    HEADER_LEN, MAX_FRAME_PAYLOAD, MessageKind, PROTOCOL_VERSION, encode_frame, frame_payload_len,
+};
+#[cfg(unix)]
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
@@ -22,6 +37,8 @@ use crate::workspace::{
 };
 
 const MAX_RPC_MESSAGE: usize = 16 * 1024 * 1024;
+#[cfg(unix)]
+const MAX_RENDERER_GRANT_LINE_BYTES: usize = 64 * 1024;
 const RPC_CODEC_OFFLOAD_BYTES: usize = 64 * 1024;
 // A JSON control escape can expand one input byte to six output bytes. Leave
 // room for field names and collection punctuation without scanning strings on
@@ -38,6 +55,12 @@ const MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES: usize = 56 * 1024 * 1024;
 const MAX_BUFFERED_MUX_BULK_BYTES: usize = 48 * 1024 * 1024;
 const MAX_BUFFERED_MUX_MESSAGES_PER_LANE: usize = 4096;
 const MIN_BUFFERED_MUX_MESSAGE_BYTES: usize = 1024;
+#[cfg(unix)]
+const TERMINAL_BYTES_HANDSHAKE_TTL_MS: u64 = 10_000;
+#[cfg(unix)]
+const TERMINAL_BYTES_HANDSHAKE_TIMEOUT: std::time::Duration =
+    std::time::Duration::from_millis(TERMINAL_BYTES_HANDSHAKE_TTL_MS);
+#[cfg(unix)]
 const _: () = assert!(MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES < MAX_BUFFERED_MUX_UPLOAD_BYTES);
 const _: () = assert!(MAX_BUFFERED_MUX_BULK_BYTES < MAX_BUFFERED_MUX_NON_INTERACTIVE_BYTES);
 
@@ -234,6 +257,41 @@ pub struct DaemonServices {
     mux_upload_budget: MuxUploadBudget,
 }
 
+fn validate_renderer_host_hello(
+    response: &Frame,
+    request_id: u64,
+    terminal_id: TerminalId,
+    incarnation: HostIncarnation,
+    viewer_size_priority: bool,
+) -> Result<HostHello, ServicesError> {
+    if response.kind != MessageKind::HostHello
+        || response.request_id != request_id
+        || response.flags & (FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS)
+            != (FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS)
+    {
+        return Err(ServicesError::Remote(
+            "terminal host rejected required renderer capabilities".into(),
+        ));
+    }
+    if (response.flags & FLAG_VIEWER_SIZE_PRIORITY != 0) != viewer_size_priority {
+        return Err(ServicesError::Remote(
+            "terminal host viewer-size priority does not match the request".into(),
+        ));
+    }
+    let host = HostHello::decode(&response.payload)
+        .map_err(|error| ServicesError::Remote(format!("invalid terminal host hello: {error}")))?;
+    if host.selected_version != PROTOCOL_VERSION
+        || host.terminal_id != terminal_id
+        || host.incarnation != incarnation
+        || !host.granted_rights.contains(CapabilityRights::RENDERER)
+    {
+        return Err(ServicesError::Remote(
+            "terminal host hello does not match renderer grant".into(),
+        ));
+    }
+    Ok(host)
+}
+
 impl DaemonServices {
     pub fn new(workspace: WorkspaceService, mux_socket: Option<PathBuf>) -> Arc<Self> {
         Arc::new(Self { workspace, mux_socket, mux_upload_budget: MuxUploadBudget::new() })
@@ -279,8 +337,7 @@ impl DaemonServices {
             }
         }
         self.workspace.shutdown().await;
-        handlers.abort_all();
-        while handlers.join_next().await.is_some() {}
+        handlers.shutdown().await;
         self.workspace.shutdown().await;
     }
 
@@ -384,6 +441,9 @@ impl DaemonServices {
             Service::ProcessStream => {
                 Self::serve_process_stream(workspace, scope, incoming.stream, incoming.metadata)
                     .await
+            }
+            Service::TerminalBytes => {
+                Self::serve_terminal_bytes(mux_socket, incoming.stream, incoming.metadata).await
             }
             Service::TcpTunnel => {
                 Self::serve_tcp_tunnel(workspace, incoming.stream, incoming.metadata).await
@@ -586,6 +646,161 @@ impl DaemonServices {
         pump_stream(stream, reader, writer).await
     }
 
+    #[cfg(unix)]
+    async fn serve_terminal_bytes(
+        mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+        metadata: BTreeMap<String, String>,
+    ) -> Result<(), ServicesError> {
+        let stream = Arc::new(stream);
+        let request = match terminal_bytes_metadata(&metadata) {
+            Ok(request) => request,
+            Err(error) => {
+                stream.reject("invalid-argument".into(), error.to_string()).await?;
+                return Ok(());
+            }
+        };
+        let Some(mux_path) = mux_socket.as_ref() else {
+            stream
+                .reject("unavailable".into(), "mux control socket is not configured".into())
+                .await?;
+            return Ok(());
+        };
+
+        let terminal = match tokio::time::timeout(
+            TERMINAL_BYTES_HANDSHAKE_TIMEOUT,
+            Self::negotiate_terminal_bytes(mux_path, request),
+        )
+        .await
+        {
+            Ok(Ok(terminal)) => terminal,
+            Ok(Err(error)) => {
+                stream.reject("terminal-unavailable".into(), error.to_string()).await?;
+                return Ok(());
+            }
+            Err(_) => {
+                stream
+                    .reject("timeout".into(), "terminal renderer handshake timed out".into())
+                    .await?;
+                return Ok(());
+            }
+        };
+
+        send_opened(&stream, Lane::Interactive).await?;
+        let (reader, writer) = terminal.into_split();
+        pump_stream(stream, reader, writer).await
+    }
+
+    #[cfg(unix)]
+    async fn negotiate_terminal_bytes(
+        mux_path: &std::path::Path,
+        terminal_request: TerminalBytesRequest,
+    ) -> Result<tokio::net::UnixStream, ServicesError> {
+        // The control socket only brokers a one-use renderer grant. The
+        // durable terminal-host owner token never crosses the remote session.
+        let mut mux = connect_owned_unix_socket(mux_path).await?;
+        let request = serde_json::to_vec(&serde_json::json!({
+            "id": 1,
+            "cmd": "mint-terminal-renderer-by-terminal",
+            "terminal": terminal_request.terminal,
+            "ttl_ms": TERMINAL_BYTES_HANDSHAKE_TTL_MS,
+        }))?;
+        mux.write_all(&request).await?;
+        mux.write_all(b"\n").await?;
+        mux.flush().await?;
+        let mut response = String::new();
+        let size = BufReader::new(mux)
+            .take((MAX_RENDERER_GRANT_LINE_BYTES + 1) as u64)
+            .read_line(&mut response)
+            .await?;
+        if size == 0 {
+            return Err(ServicesError::Remote("mux closed before renderer grant".into()));
+        }
+        if size > MAX_RENDERER_GRANT_LINE_BYTES || !response.ends_with('\n') {
+            return Err(ServicesError::Remote("renderer grant response exceeds size limit".into()));
+        }
+        let response: serde_json::Value = serde_json::from_str(&response)?;
+        if response.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+            return Err(ServicesError::Remote(
+                response
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("renderer grant denied")
+                    .to_string(),
+            ));
+        }
+        let grant = response
+            .get("data")
+            .ok_or_else(|| ServicesError::Remote("renderer grant omitted data".into()))?;
+        let endpoint = required_json_string(grant, "endpoint")?;
+        let terminal_id = TerminalId::from_hex(required_json_string(grant, "terminal_id")?)
+            .ok_or_else(|| {
+                ServicesError::Remote("renderer grant has invalid terminal id".into())
+            })?;
+        let incarnation = HostIncarnation::from_hex(required_json_string(grant, "incarnation")?)
+            .ok_or_else(|| {
+                ServicesError::Remote("renderer grant has invalid incarnation".into())
+            })?;
+        let token =
+            CapabilityToken::from_bytes(decode_hex_32(required_json_string(grant, "token")?)?);
+        let rights = grant
+            .get("rights")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|bits| u32::try_from(bits).ok())
+            .and_then(CapabilityRights::from_bits)
+            .ok_or_else(|| ServicesError::Remote("renderer grant has invalid rights".into()))?;
+        if !rights.contains(CapabilityRights::RENDERER) {
+            return Err(ServicesError::Remote("renderer grant lacks renderer rights".into()));
+        }
+        // Hosts that predate the flag reject the whole hello, so a client's
+        // request falls back to the ordinary smallest-viewer stream.
+        let host_supports_priority = grant
+            .get("supports_viewer_size_priority")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let viewer_size_priority = terminal_request.viewer_size_priority && host_supports_priority;
+
+        let mut terminal = connect_owned_unix_socket(endpoint).await?;
+        let hello = ClientHello {
+            min_version: PROTOCOL_VERSION,
+            max_version: PROTOCOL_VERSION,
+            role: ClientRole::Renderer,
+            requested_rights: CapabilityRights::RENDERER,
+            terminal_id,
+            token,
+        };
+        let mut hello = hello.into_frame(1);
+        hello.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        if viewer_size_priority {
+            hello.flags |= FLAG_VIEWER_SIZE_PRIORITY;
+        }
+        terminal
+            .write_all(&encode_frame(&hello).map_err(|error| {
+                ServicesError::Remote(format!("terminal hello encoding failed: {error}"))
+            })?)
+            .await?;
+        terminal.flush().await?;
+        let response = read_terminal_frame(&mut terminal).await?;
+        validate_renderer_host_hello(&response, 1, terminal_id, incarnation, viewer_size_priority)?;
+
+        Ok(terminal)
+    }
+
+    #[cfg(not(unix))]
+    async fn serve_terminal_bytes(
+        _mux_socket: Option<PathBuf>,
+        stream: ServiceStream,
+        _metadata: BTreeMap<String, String>,
+    ) -> Result<(), ServicesError> {
+        stream
+            .reject(
+                "unsupported".to_string(),
+                "terminal byte streams require Unix sockets".to_string(),
+            )
+            .await?;
+        Ok(())
+    }
+
     #[cfg(all(unix, test))]
     async fn serve_mux_control(
         mux_socket: Option<PathBuf>,
@@ -603,7 +818,7 @@ impl DaemonServices {
         let path = mux_socket.as_ref().ok_or_else(|| {
             ServicesError::Unavailable("mux control socket is not configured".into())
         })?;
-        let socket = tokio::net::UnixStream::connect(path).await?;
+        let socket = connect_owned_unix_socket(path).await?;
         let stream = Arc::new(stream);
         send_opened(&stream, Lane::Interactive).await?;
         let (reader, writer) = socket.into_split();
@@ -632,6 +847,91 @@ impl DaemonServices {
             .await?;
         Ok(())
     }
+}
+
+/// Validated `terminal-bytes-v1` open metadata.
+struct TerminalBytesRequest {
+    terminal: TerminalPublicId,
+    viewer_size_priority: bool,
+}
+
+fn terminal_bytes_metadata(
+    metadata: &BTreeMap<String, String>,
+) -> Result<TerminalBytesRequest, ServicesError> {
+    if metadata.keys().any(|key| key != "terminal" && key != TERMINAL_BYTES_VIEWER_SIZE_PRIORITY) {
+        return Err(ServicesError::Metadata(
+            "terminal byte stream metadata only supports terminal and viewer_size_priority".into(),
+        ));
+    }
+    let viewer_size_priority = match metadata.get(TERMINAL_BYTES_VIEWER_SIZE_PRIORITY) {
+        None => false,
+        Some(value) if value == TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED => true,
+        Some(_) => {
+            return Err(ServicesError::Metadata(
+                "terminal byte stream viewer_size_priority must be preferred".into(),
+            ));
+        }
+    };
+    let terminal = TerminalPublicId::parse(
+        metadata
+            .get("terminal")
+            .ok_or_else(|| {
+                ServicesError::Metadata("terminal byte stream requires terminal".into())
+            })?
+            .clone(),
+    )
+    .map_err(|_| ServicesError::Metadata("terminal byte stream terminal is invalid".into()))?;
+    Ok(TerminalBytesRequest { terminal, viewer_size_priority })
+}
+
+#[cfg(unix)]
+fn required_json_string<'a>(
+    value: &'a serde_json::Value,
+    key: &str,
+) -> Result<&'a str, ServicesError> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| ServicesError::Remote(format!("renderer grant omitted {key}")))
+}
+
+#[cfg(unix)]
+fn decode_hex_32(value: &str) -> Result<[u8; 32], ServicesError> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ServicesError::Remote("renderer grant has invalid token".into()));
+    }
+    let mut output = [0u8; 32];
+    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+        let nibble = |byte: u8| match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        };
+        output[index] = (nibble(pair[0])
+            .ok_or_else(|| ServicesError::Remote("renderer grant has invalid token".into()))?
+            << 4)
+            | nibble(pair[1])
+                .ok_or_else(|| ServicesError::Remote("renderer grant has invalid token".into()))?;
+    }
+    Ok(output)
+}
+
+#[cfg(unix)]
+async fn read_terminal_frame(stream: &mut tokio::net::UnixStream) -> Result<Frame, ServicesError> {
+    let mut encoded = vec![0u8; HEADER_LEN];
+    stream.read_exact(&mut encoded).await?;
+    let payload_len = frame_payload_len(&encoded, MAX_FRAME_PAYLOAD)
+        .map_err(|error| ServicesError::Remote(format!("invalid terminal host frame: {error}")))?;
+    encoded.resize(HEADER_LEN + payload_len, 0);
+    stream.read_exact(&mut encoded[HEADER_LEN..]).await?;
+    let mut frames = FrameDecoder::new(MAX_FRAME_PAYLOAD)
+        .push(&encoded)
+        .map_err(|error| ServicesError::Remote(format!("invalid terminal host frame: {error}")))?;
+    if frames.len() != 1 {
+        return Err(ServicesError::Remote("terminal host handshake frame was incomplete".into()));
+    }
+    Ok(frames.remove(0))
 }
 
 async fn decode_workspace_request(
@@ -817,7 +1117,9 @@ struct MessageReadState {
 impl MessageStream {
     pub fn new(stream: Arc<ServiceStream>) -> Self {
         let lane = match stream.service() {
-            Service::MuxControl | Service::ComputerUse => Lane::Interactive,
+            Service::MuxControl | Service::TerminalBytes | Service::ComputerUse => {
+                Lane::Interactive
+            }
             Service::ProcessStream => Lane::Bulk,
             Service::WorkspaceRpc => Lane::Control,
             Service::TcpTunnel => Lane::Tunnel,
@@ -988,7 +1290,17 @@ where
                 break;
             }
         }
-        local_writer.shutdown().await?;
+        if let Err(error) = local_writer.shutdown().await {
+            // The local peer may close immediately after consuming the last
+            // upload byte while the remote FIN is crossing the proxy. That is
+            // a clean bidirectional shutdown, not a transport failure.
+            if !matches!(
+                error.kind(),
+                ErrorKind::BrokenPipe | ErrorKind::ConnectionReset | ErrorKind::NotConnected
+            ) {
+                return Err(error.into());
+            }
+        }
         Ok::<_, ServicesError>(())
     };
     let transfer = async {
@@ -1027,11 +1339,18 @@ where
     let mut line = Vec::new();
     let mut message = 1_u64;
     loop {
-        let size = crate::mux_codec::read_bounded_line(&mut reader, &mut line).await?;
+        let size = crate::mux_codec::read_bounded_line_with_limit(
+            &mut reader,
+            &mut line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )
+        .await?;
         if size == 0 {
             return Ok(());
         }
-        if line.len() > crate::mux_codec::MAX_MUX_LINE_BYTES {
+        if crate::mux_codec::mux_line_payload_len(&line)
+            > crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES.saturating_sub(1)
+        {
             return Err(crate::mux_codec::MuxCodecError::LineTooLarge(line.len()).into());
         }
         let Some(lane) = tracker.classify_server_line(&line) else {
@@ -1043,7 +1362,11 @@ where
                 actual: Lane::Tunnel,
             });
         }
-        let packets = crate::mux_codec::encode_line(message, &line)?;
+        let packets = crate::mux_codec::encode_line_with_limit(
+            message,
+            &line,
+            crate::mux_codec::MAX_MUX_DOWNLOAD_LINE_BYTES,
+        )?;
         let encoded_bytes =
             packets.iter().try_fold(0_usize, |total, packet| total.checked_add(packet.len()));
         let Some(encoded_bytes) = encoded_bytes else {
@@ -1130,7 +1453,10 @@ where
         }
     };
     let download = async move {
-        let mut assembler = crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::default();
+        let mut assembler =
+            crate::mux_codec::MuxLineAssembler::<Option<StreamBudget>>::with_maximum(
+                crate::mux_codec::MAX_MUX_UPLOAD_LINE_BYTES,
+            );
         while let Some(mut chunk) = remote.receive().await? {
             if !chunk.payload.is_empty() {
                 if let Some(input) = crate::mux_input::decode_packet(&chunk.payload)? {
@@ -1225,6 +1551,18 @@ fn workspace_rpc_metadata(
         }
     };
     Ok((lane, purpose))
+}
+
+/// Connect to a local mux or terminal-host socket. Both run as this daemon's
+/// user, so refuse any other listener before a request or token is written.
+#[cfg(unix)]
+async fn connect_owned_unix_socket(
+    path: impl AsRef<std::path::Path>,
+) -> Result<tokio::net::UnixStream, ServicesError> {
+    let stream = tokio::net::UnixStream::connect(path).await?;
+    crate::admin::verify_unix_peer_owner(&stream)
+        .map_err(|error| ServicesError::Unavailable(error.to_string()))?;
+    Ok(stream)
 }
 
 #[derive(Debug)]
@@ -1602,6 +1940,462 @@ mod tests {
             ]))
             .is_err()
         );
+    }
+
+    #[test]
+    fn terminal_bytes_metadata_requires_a_stable_terminal_id() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::new()),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), "pane-a".into())])),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([
+                ("terminal".into(), TERMINAL.into()),
+                ("after".into(), "3".into()),
+            ])),
+            Err(ServicesError::Metadata(_))
+        ));
+        assert!(
+            terminal_bytes_metadata(&BTreeMap::from([("terminal".into(), TERMINAL.into())]))
+                .is_ok()
+        );
+        assert!(matches!(
+            terminal_bytes_metadata(&BTreeMap::from([("surface".into(), "9".into())])),
+            Err(ServicesError::Metadata(_))
+        ));
+    }
+
+    #[test]
+    fn renderer_host_hello_requires_acknowledgements_and_exact_grant_identity() {
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let mut response = Frame::new(
+            MessageKind::HostHello,
+            HostHello {
+                selected_version: PROTOCOL_VERSION,
+                granted_rights: CapabilityRights::RENDERER,
+                terminal_id,
+                incarnation,
+            }
+            .encode(),
+        );
+        response.request_id = 7;
+        response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        let host =
+            validate_renderer_host_hello(&response, 7, terminal_id, incarnation, false).unwrap();
+        assert_eq!(host.granted_rights, CapabilityRights::RENDERER);
+        assert!(host.granted_rights.contains(CapabilityRights::RESIZE));
+
+        response.flags = FLAG_SMART_RENDERER;
+        assert!(
+            validate_renderer_host_hello(&response, 7, terminal_id, incarnation, false)
+                .unwrap_err()
+                .to_string()
+                .contains("required renderer capabilities")
+        );
+
+        response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        assert!(
+            validate_renderer_host_hello(
+                &response,
+                7,
+                terminal_id,
+                HostIncarnation::random().unwrap(),
+                false,
+            )
+            .unwrap_err()
+            .to_string()
+            .contains("does not match renderer grant")
+        );
+    }
+
+    #[test]
+    fn terminal_bytes_metadata_accepts_only_preferred_viewer_size_priority() {
+        const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
+        let key = TERMINAL_BYTES_VIEWER_SIZE_PRIORITY;
+        let preferred = TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED;
+        let parse = |pairs: &[(&str, &str)]| {
+            let metadata = pairs.iter().map(|(name, value)| (name.to_string(), value.to_string()));
+            terminal_bytes_metadata(&metadata.collect::<BTreeMap<_, _>>())
+        };
+
+        let request = parse(&[("terminal", TERMINAL), (key, preferred)]).unwrap();
+        assert_eq!(request.terminal.as_str(), TERMINAL);
+        assert!(request.viewer_size_priority);
+        assert!(!parse(&[("terminal", TERMINAL)]).unwrap().viewer_size_priority);
+
+        let rejected: [&[(&str, &str)]; 5] = [
+            &[("terminal", TERMINAL), (key, "yes")],
+            &[("terminal", TERMINAL), (key, "")],
+            &[("terminal", TERMINAL), (key, preferred), ("after", "3")],
+            &[("terminal", TERMINAL), ("viewer_size", preferred)],
+            &[(key, preferred)],
+        ];
+        for pairs in rejected {
+            assert!(matches!(parse(pairs), Err(ServicesError::Metadata(_))), "accepted {pairs:?}");
+        }
+    }
+
+    #[test]
+    fn renderer_host_hello_requires_viewer_size_priority_echo_exactly_when_requested() {
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let mut response = Frame::new(
+            MessageKind::HostHello,
+            HostHello {
+                selected_version: PROTOCOL_VERSION,
+                granted_rights: CapabilityRights::RENDERER,
+                terminal_id,
+                incarnation,
+            }
+            .encode(),
+        );
+        response.request_id = 7;
+        let renderer = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        for (flags, requested, accepted) in [
+            (renderer | FLAG_VIEWER_SIZE_PRIORITY, true, true),
+            (renderer, false, true),
+            (renderer, true, false),
+            (renderer | FLAG_VIEWER_SIZE_PRIORITY, false, false),
+        ] {
+            response.flags = flags;
+            let result =
+                validate_renderer_host_hello(&response, 7, terminal_id, incarnation, requested);
+            if accepted {
+                assert!(result.is_ok(), "flags {flags:#x} requested {requested}");
+            } else {
+                assert!(
+                    result.unwrap_err().to_string().contains("viewer-size priority"),
+                    "flags {flags:#x} requested {requested}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    async fn open_with_priority(
+        requested: bool,
+        supports: Option<bool>,
+        echoes: bool,
+    ) -> (u32, ServiceControl) {
+        let directory = tempdir().unwrap();
+        let mux_path = directory.path().join("mux.sock");
+        let host_path = directory.path().join("terminal.sock");
+        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
+        let host_listener = tokio::net::UnixListener::bind(&host_path).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let incarnation = HostIncarnation::random().unwrap();
+        let token = CapabilityToken::random().unwrap();
+        let token_hex =
+            token.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+
+        let mux_server = {
+            let host_path = host_path.clone();
+            let terminal_id = terminal_id.to_hex();
+            let incarnation = incarnation.to_hex();
+            tokio::spawn(async move {
+                let (socket, _) = mux_listener.accept().await.unwrap();
+                let mut request = String::new();
+                let mut socket = BufReader::new(socket);
+                socket.read_line(&mut request).await.unwrap();
+                let mut grant = serde_json::json!({
+                    "endpoint": host_path,
+                    "terminal_id": terminal_id,
+                    "incarnation": incarnation,
+                    "token": token_hex,
+                    "rights": CapabilityRights::RENDERER.bits(),
+                });
+                if let Some(supported) = supports {
+                    grant["supports_viewer_size_priority"] = serde_json::json!(supported);
+                }
+                let response = serde_json::json!({ "id": 1, "ok": true, "data": grant });
+                let mut line = serde_json::to_vec(&response).unwrap();
+                line.push(b'\n');
+                socket.get_mut().write_all(&line).await.unwrap();
+            })
+        };
+        let host_server = tokio::spawn(async move {
+            let (mut socket, _) = host_listener.accept().await.unwrap();
+            let hello = read_terminal_frame(&mut socket).await.unwrap();
+            assert_eq!(hello.kind, MessageKind::ClientHello);
+            let mut response = Frame::new(
+                MessageKind::HostHello,
+                HostHello {
+                    selected_version: PROTOCOL_VERSION,
+                    granted_rights: CapabilityRights::RENDERER,
+                    terminal_id,
+                    incarnation,
+                }
+                .encode(),
+            );
+            response.request_id = hello.request_id;
+            response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+            if echoes {
+                response.flags |= FLAG_VIEWER_SIZE_PRIORITY;
+            }
+            socket.write_all(&encode_frame(&response).unwrap()).await.unwrap();
+            hello.flags
+        });
+
+        let mut metadata = BTreeMap::from([(
+            "terminal".to_string(),
+            "term_0123456789abcdef0123456789abcdef".to_string(),
+        )]);
+        if requested {
+            metadata.insert(
+                TERMINAL_BYTES_VIEWER_SIZE_PRIORITY.into(),
+                TERMINAL_BYTES_VIEWER_SIZE_PRIORITY_PREFERRED.into(),
+            );
+        }
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client_mux.open(Service::TerminalBytes, metadata).await.unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            Some(mux_path),
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let first = client_stream.receive().await.unwrap().unwrap();
+        let control = serde_json::from_slice::<ServiceControl>(&first.payload).unwrap();
+        if matches!(control, ServiceControl::Opened { .. }) {
+            client_stream.close().await.unwrap();
+        }
+        mux_server.await.unwrap();
+        let hello_flags = host_server.await.unwrap();
+        handler.await.unwrap().unwrap();
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+        (hello_flags, control)
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_viewer_size_priority_flag_follows_request_and_host_support() {
+        let renderer = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+        let opened = ServiceControl::Opened { service: Service::TerminalBytes };
+        // An old mux omits the grant field; an old host record reports false.
+        for (requested, supports, expected) in [
+            (true, Some(true), renderer | FLAG_VIEWER_SIZE_PRIORITY),
+            (true, Some(false), renderer),
+            (true, None, renderer),
+            (false, Some(true), renderer),
+        ] {
+            let echoes = expected & FLAG_VIEWER_SIZE_PRIORITY != 0;
+            let (flags, control) = open_with_priority(requested, supports, echoes).await;
+            assert_eq!(flags, expected, "{requested} {supports:?}");
+            assert_eq!(control, opened, "{requested} {supports:?}");
+        }
+
+        let (flags, control) = open_with_priority(true, Some(true), false).await;
+        assert_eq!(flags, renderer | FLAG_VIEWER_SIZE_PRIORITY);
+        let ServiceControl::Rejected { code, message } = &control else {
+            panic!("a missing priority echo opened the stream: {control:?}");
+        };
+        assert_eq!(code, "terminal-unavailable");
+        assert!(message.contains("viewer-size priority"), "{message}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_adapter_mints_smart_grant_and_proxies_cmth_byte_for_byte() {
+        let directory = tempdir().unwrap();
+        let mux_path = directory.path().join("mux.sock");
+        let host_path = directory.path().join("terminal.sock");
+        let mux_listener = tokio::net::UnixListener::bind(&mux_path).unwrap();
+        let host_listener = tokio::net::UnixListener::bind(&host_path).unwrap();
+        let terminal_id = TerminalId::random().unwrap();
+        let terminal = "term_0123456789abcdef0123456789abcdef";
+        let incarnation = HostIncarnation::random().unwrap();
+        let token = CapabilityToken::random().unwrap();
+        let token_hex =
+            token.as_bytes().iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+        let proxied = encode_frame(&Frame {
+            version: PROTOCOL_VERSION,
+            kind: MessageKind::Ready,
+            flags: 0,
+            request_id: 0,
+            sequence: 41,
+            payload: b"host-to-renderer".to_vec(),
+        })
+        .unwrap();
+        let upload =
+            encode_frame(&Frame::new(MessageKind::Input, b"renderer-to-host".to_vec())).unwrap();
+
+        let mux_server = {
+            let host_path = host_path.clone();
+            let terminal_id = terminal_id.to_hex();
+            let incarnation = incarnation.to_hex();
+            tokio::spawn(async move {
+                let (socket, _) = mux_listener.accept().await.unwrap();
+                let mut request = String::new();
+                let mut socket = BufReader::new(socket);
+                socket.read_line(&mut request).await.unwrap();
+                let request: serde_json::Value = serde_json::from_str(&request).unwrap();
+                assert_eq!(request["cmd"], "mint-terminal-renderer-by-terminal");
+                assert_eq!(request["terminal"], terminal);
+                let response = serde_json::json!({
+                    "id": 1,
+                    "ok": true,
+                    "data": {
+                        "endpoint": host_path,
+                        "terminal_id": terminal_id,
+                        "incarnation": incarnation,
+                        "token": token_hex,
+                        "rights": CapabilityRights::RENDERER.bits(),
+                    }
+                });
+                socket
+                    .get_mut()
+                    .write_all(serde_json::to_string(&response).unwrap().as_bytes())
+                    .await
+                    .unwrap();
+                socket.get_mut().write_all(b"\n").await.unwrap();
+            })
+        };
+
+        let (upload_seen, upload_received) = oneshot::channel();
+        let host_server = {
+            let proxied = proxied.clone();
+            let upload = upload.clone();
+            tokio::spawn(async move {
+                let (mut socket, _) = host_listener.accept().await.unwrap();
+                let hello = read_terminal_frame(&mut socket).await.unwrap();
+                assert_eq!(hello.kind, MessageKind::ClientHello);
+                assert_eq!(hello.flags, FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS);
+                let client = ClientHello::decode(&hello.payload).unwrap();
+                assert_eq!(client.terminal_id, terminal_id);
+                assert_eq!(client.token, token);
+                assert_eq!(client.role, ClientRole::Renderer);
+                assert_eq!(client.requested_rights, CapabilityRights::RENDERER);
+                assert!(client.requested_rights.contains(CapabilityRights::RESIZE));
+                let mut response = Frame::new(
+                    MessageKind::HostHello,
+                    HostHello {
+                        selected_version: PROTOCOL_VERSION,
+                        granted_rights: CapabilityRights::RENDERER,
+                        terminal_id,
+                        incarnation,
+                    }
+                    .encode(),
+                );
+                response.request_id = hello.request_id;
+                response.flags = FLAG_SMART_RENDERER | FLAG_VIEWER_SIZE_ACKS;
+                socket.write_all(&encode_frame(&response).unwrap()).await.unwrap();
+                socket.write_all(&proxied).await.unwrap();
+                let mut received = vec![0u8; upload.len()];
+                socket.read_exact(&mut received).await.unwrap();
+                assert_eq!(received, upload);
+                let _ = upload_seen.send(());
+            })
+        };
+
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream = client_mux
+            .open(Service::TerminalBytes, BTreeMap::from([("terminal".into(), terminal.into())]))
+            .await
+            .unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            Some(mux_path),
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let opened = client_stream.receive().await.unwrap().unwrap();
+        assert_eq!(opened.lane, Lane::Interactive);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&opened.payload).unwrap(),
+            ServiceControl::Opened { service: Service::TerminalBytes }
+        );
+        let mut received = Vec::with_capacity(proxied.len());
+        while received.len() < proxied.len() {
+            let chunk = client_stream.receive().await.unwrap().unwrap();
+            received.extend_from_slice(&chunk.payload);
+        }
+        assert_eq!(received, proxied);
+        client_stream.send(Bytes::from(upload)).await.unwrap();
+        upload_received.await.unwrap();
+        client_stream.close().await.unwrap();
+
+        mux_server.await.unwrap();
+        host_server.await.unwrap();
+        handler.await.unwrap().unwrap();
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    async fn assert_terminal_bytes_open_rejected(
+        mux_socket: Option<PathBuf>,
+        metadata: BTreeMap<String, String>,
+        expected_code: &str,
+        expected_message: &str,
+    ) {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let client_stream =
+            client.open(Service::TerminalBytes, metadata).await.expect("open terminal byte stream");
+        let incoming = daemon
+            .accept()
+            .await
+            .expect("accept terminal byte stream")
+            .expect("terminal byte stream was not delivered");
+        let handler = tokio::spawn(DaemonServices::serve_terminal_bytes(
+            mux_socket,
+            incoming.stream,
+            incoming.metadata,
+        ));
+
+        let response =
+            tokio::time::timeout(std::time::Duration::from_secs(2), client_stream.receive())
+                .await
+                .expect("terminal byte rejection timed out")
+                .expect("terminal byte rejection became a transport error")
+                .expect("terminal byte stream closed without a rejection");
+        assert_eq!(response.lane, Lane::Control);
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: expected_code.into(),
+                message: expected_message.into(),
+            }
+        );
+        handler
+            .await
+            .expect("terminal byte handler panicked")
+            .expect("terminal byte handler returned an error after rejecting the open");
+        client.shutdown().await;
+        daemon.shutdown().await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn terminal_bytes_pre_open_failures_are_explicitly_rejected() {
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::new(),
+            "invalid-argument",
+            "invalid service metadata: terminal byte stream requires terminal",
+        )
+        .await;
+        assert_terminal_bytes_open_rejected(
+            None,
+            BTreeMap::from([("terminal".into(), "term_0123456789abcdef0123456789abcdef".into())]),
+            "unavailable",
+            "mux control socket is not configured",
+        )
+        .await;
     }
 
     async fn assert_process_stream_open_rejected(

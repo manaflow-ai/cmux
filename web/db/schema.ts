@@ -1,20 +1,46 @@
-import { sql } from "drizzle-orm";
+import { sql, type SQL, type SQLWrapper } from "drizzle-orm";
+import type { teamsCrud } from "@hexclave/shared/dist/interface/crud/teams";
+import type { usersCrud } from "@hexclave/shared/dist/interface/crud/users";
+import type { InferType } from "yup";
 import {
   bigint,
   boolean,
   check,
+  foreignKey,
   index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
-export const vmProvider = pgEnum("vm_provider", ["e2b", "freestyle", "daytona"]);
+export const vmProvider = pgEnum("vm_provider", ["freestyle"]);
+
+/** A closed, actionable observed-destroy cleanup object. */
+export function observedDestroyCleanupValidityPredicate(cleanup: SQLWrapper): SQL {
+  return sql`coalesce(
+    jsonb_typeof(${cleanup}) = 'object'
+    and (${cleanup} - 'modelPlane' - 'homeVolume') = '{}'::jsonb
+    and (
+      not (${cleanup} ? 'modelPlane')
+      or ${cleanup}->'modelPlane' = 'true'::jsonb
+    )
+    and (
+      not (${cleanup} ? 'homeVolume')
+      or (
+        jsonb_typeof(${cleanup}->'homeVolume') = 'string'
+        and length(btrim(${cleanup}->>'homeVolume')) > 0
+      )
+    )
+    and (${cleanup} ? 'modelPlane' or ${cleanup} ? 'homeVolume'),
+    false
+  )`;
+}
 
 export const vmStatus = pgEnum("vm_status", [
   "provisioning",
@@ -24,7 +50,12 @@ export const vmStatus = pgEnum("vm_status", [
   "destroyed",
 ]);
 
-export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh"]);
+export const vmLeaseKind = pgEnum("vm_lease_kind", ["pty", "rpc", "ssh", "preview"]);
+
+export const cloudVmTunnelPurpose = pgEnum("cloud_vm_tunnel_purpose", [
+  "terminal",
+  "browser",
+]);
 
 export const cloudVmSessionStatus = pgEnum("cloud_vm_session_status", [
   "running",
@@ -48,15 +79,44 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "dismissed",
 ]);
 
+/** Teams own pools; a VM is assigned one pool from its own team. */
+export const coderouterPools = pgTable("coderouter_pools", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: text("team_id").notNull(),
+  name: text("name").notNull(),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("coderouter_pools_team_id_unique").on(table.teamId, table.id),
+  uniqueIndex("coderouter_pools_default_unique").on(table.teamId).where(sql`${table.isDefault}`),
+]);
+
+/** Records that a VM pool has received its initial team-account snapshot. */
+export const coderouterPoolInitializations = pgTable("coderouter_pool_initializations", {
+  poolId: uuid("pool_id").primaryKey().references(() => coderouterPools.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const cloudVms = pgTable(
   "cloud_vms",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
+    // The insertion trigger supports older writers; ownership never follows payer changes.
+    ownerTeamId: text("owner_team_id").notNull().default(""),
+    coderouterPoolId: uuid("coderouter_pool_id"),
     billingTeamId: text("billing_team_id"),
     billingPlanId: text("billing_plan_id"),
     provider: vmProvider("provider").notNull(),
     providerVmId: text("provider_vm_id"),
+    // User-chosen label shown in machine lists. The provider VM id stays the
+    // machine's address (URLs, CLI verbs); this is display-only.
+    displayName: text("display_name"),
+    // Generated three-word name (`sleepy-teal-otter`, services/vms/vmNaming.ts).
+    // Assigned once at create, never renamed, unique among the owner's live
+    // machines. The provider VM id remains the machine address. Rows created
+    // before the column existed have none and show the provider id instead.
+    slug: text("slug"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
@@ -67,18 +127,99 @@ export const cloudVms = pgTable(
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
     providerMetadata: jsonb("provider_metadata").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    // Outbound network policy (services/vms/networkPolicy.ts). Null means the
+    // historical default, full Internet. Control-plane owned; the driver
+    // reconciles the provider's firewall and TLS rules to it.
+    networkPolicy: jsonb("network_policy").$type<Record<string, unknown>>(),
+    // Last reconcile outcome for networkPolicy: { state, error?, appliedAt }.
+    networkPolicyStatus: jsonb("network_policy_status").$type<Record<string, unknown>>(),
+    // Coding-agent updates (services/vms/guestAgentUpdates.ts). "latest" updates
+    // the baked agents to npm's latest on attach; null keeps the image's pins.
+    agentUpdates: text("agent_updates").$type<"latest">(),
   },
   (table) => [
+    foreignKey({ columns: [table.ownerTeamId, table.coderouterPoolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "cloud_vms_coderouter_pool_team_fk" }),
+    index("cloud_vms_owner_team_status_idx").on(table.ownerTeamId, table.status),
     index("cloud_vms_user_status_idx").on(table.userId, table.status),
     index("cloud_vms_billing_team_status_idx").on(table.billingTeamId, table.status),
+    index("cloud_vms_observed_destroy_cleanup_idx")
+      .on(table.updatedAt, table.id)
+      .where(sql`${table.status} = 'destroyed'
+        and ${table.providerMetadata} ? 'cmuxObservedDestroyCleanup'
+        and jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup') = 'object'
+        and (
+          ${table.providerMetadata}->'cmuxObservedDestroyCleanup' @> '{"modelPlane":true}'::jsonb
+          or (
+            jsonb_typeof(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->'homeVolume') = 'string'
+            and length(btrim(${table.providerMetadata}->'cmuxObservedDestroyCleanup'->>'homeVolume')) > 0
+          )
+        )`),
     uniqueIndex("cloud_vms_billing_team_idempotency_key_unique")
       .on(table.billingTeamId, table.idempotencyKey)
       .where(sql`${table.billingTeamId} is not null and ${table.idempotencyKey} is not null`),
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+    // Live rows only: a destroyed or failed machine releases its name.
+    uniqueIndex("cloud_vms_billing_team_slug_live_unique")
+      .on(table.billingTeamId, table.slug)
+      .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
   ],
 );
+
+/**
+ * External teardown that must outlive its account-owned VM row. Account
+ * deletion moves pending terminal cleanup here in the same transaction that
+ * removes the VM, so no user/team foreign key may be added to this outbox.
+ */
+export const cloudVmObservedDestroyCleanups = pgTable(
+  "cloud_vm_observed_destroy_cleanups",
+  {
+    vmId: uuid("vm_id").primaryKey(),
+    provider: vmProvider("provider").notNull(),
+    cleanup: jsonb("cleanup").$type<{ modelPlane?: true; homeVolume?: string }>().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_observed_destroy_cleanups_updated_idx")
+      .on(table.updatedAt, table.vmId)
+      .where(observedDestroyCleanupValidityPredicate(table.cleanup)),
+    check(
+      "cloud_vm_observed_destroy_cleanups_pending_step",
+      observedDestroyCleanupValidityPredicate(table.cleanup),
+    ),
+  ],
+);
+
+/** Durable Hive identity. VM status and provider addresses remain owned by cloud_vms. */
+export const cloudRuntimes = pgTable("cloud_runtimes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ownerTeamId: text("owner_team_id").notNull(),
+  /** Null until a host explicitly binds its authoritative journal lineage. */
+  journalSessionId: text("journal_session_id"),
+  /** M0 pins one runtime to one VM; deleting compute retains the runtime. */
+  machineId: uuid("machine_id").references(() => cloudVms.id, { onDelete: "set null" }),
+  placementGeneration: integer("placement_generation").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("cloud_runtimes_owner_idx").on(table.ownerTeamId),
+  uniqueIndex("cloud_runtimes_machine_unique").on(table.machineId),
+  uniqueIndex("cloud_runtimes_journal_unique").on(table.journalSessionId),
+  check("cloud_runtimes_generation_positive", sql`${table.placementGeneration} > 0`),
+  check("cloud_runtimes_owner_nonempty", sql`length(trim(${table.ownerTeamId})) > 0`),
+]);
+
+/** Provider-owned agent identities; multiple root/child threads can share a runtime. */
+export const cloudRuntimeAgentBindings = pgTable("cloud_runtime_agent_bindings", {
+  runtimeId: uuid("runtime_id").notNull().references(() => cloudRuntimes.id, { onDelete: "cascade" }),
+  codexThreadId: text("codex_thread_id").notNull(),
+  rootChatId: text("root_chat_id").notNull(),
+  parentChatId: text("parent_chat_id"),
+}, (table) => [
+  primaryKey({ columns: [table.runtimeId, table.codexThreadId] }),
+  check("cloud_runtime_agent_bindings_thread_nonempty", sql`length(trim(${table.codexThreadId})) > 0`),
+  check("cloud_runtime_agent_bindings_root_nonempty", sql`length(trim(${table.rootChatId})) > 0`),
+]);
 
 export const accountDeletionTombstones = pgTable(
   "account_deletion_tombstones",
@@ -199,6 +340,605 @@ export const accountMutationLeases = pgTable(
   ],
 );
 
+/**
+ * The one private network that holds every Cloud VM belonging to a user.
+ *
+ * Machines are attached to it at create, and the user's own computer reaches
+ * them through a WireGuard tunnel attached to the same network — so the
+ * cmux-tui daemon needs no public inbound port at all. One row per
+ * (user, provider): the network is the user's, not a machine's, and it
+ * outlives every machine on it.
+ */
+export const cloudVmNetworks = pgTable(
+  "cloud_vm_networks",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    provider: vmProvider("provider").notNull(),
+    /** The provider's id for the network (Freestyle `vpc-…`). */
+    providerNetworkId: text("provider_network_id").notNull(),
+    /** The slug we asked the provider for, so an orphan is traceable to its owner. */
+    slug: text("slug"),
+    cidr: text("cidr"),
+    cidrV6: text("cidr_v6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_networks_user_provider_unique").on(table.userId, table.provider),
+    uniqueIndex("cloud_vm_networks_provider_network_id_unique")
+      .on(table.provider, table.providerNetworkId),
+  ],
+);
+
+/**
+ * One WireGuard tunnel per (user, device): the user's Mac as a member of their
+ * own private network.
+ *
+ * The client keypair is generated on the Mac and only its public half is ever
+ * sent here, so no row in this table can be used to impersonate a device — and
+ * a config re-issued to a reinstalled app is useless without the private key
+ * still on that Mac. `revokedAt` is set when the device is
+ * unenrolled; the provider-side tunnel is deleted in the same workflow.
+ */
+export const cloudVmAccessGrants = pgTable(
+  "cloud_vm_access_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    /** Stable Mac identity. This is separate from the iOS/Iroh device registry. */
+    deviceId: text("device_id").notNull(),
+    /** The latest name reported by macOS. A user rename does not overwrite it. */
+    reportedName: text("reported_name"),
+    /** Optional name chosen by the user on cmux.com. */
+    displayName: text("display_name"),
+    modelIdentifier: text("model_identifier"),
+    osVersion: text("os_version"),
+    architecture: text("architecture"),
+    cmuxVersion: text("cmux_version"),
+    cmuxBuild: text("cmux_build"),
+    cmuxChannel: text("cmux_channel"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastControlPlaneAt: timestamp("last_control_plane_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Short durable fence for provider peer create, rotate, and revoke. */
+    mutationLeaseId: uuid("mutation_lease_id"),
+    mutationLeaseExpiresAt: timestamp("mutation_lease_expires_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_access_grants_user_device_unique")
+      .on(table.userId, table.deviceId)
+      .where(sql`${table.revokedAt} is null`),
+    index("cloud_vm_access_grants_user_idx").on(table.userId),
+    check(
+      "cloud_vm_access_grants_mutation_lease_pair",
+      sql`(${table.mutationLeaseId} is null) = (${table.mutationLeaseExpiresAt} is null)`,
+    ),
+  ],
+);
+
+/** Every Stack login session seen from one physical Mac. */
+export const cloudVmAccessGrantSessions = pgTable(
+  "cloud_vm_access_grant_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accessGrantId: uuid("access_grant_id")
+      .notNull()
+      .references(() => cloudVmAccessGrants.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    stackSessionId: text("stack_session_id").notNull(),
+    /** `iat` from the verified Stack access token. */
+    sessionIssuedAt: timestamp("session_issued_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_access_grant_sessions_grant_session_unique")
+      .on(table.accessGrantId, table.stackSessionId),
+    index("cloud_vm_access_grant_sessions_user_session_idx")
+      .on(table.userId, table.stackSessionId),
+  ],
+);
+
+export const cloudVmTunnels = pgTable(
+  "cloud_vm_tunnels",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    networkId: uuid("network_id")
+      .notNull()
+      .references(() => cloudVmNetworks.id, { onDelete: "cascade" }),
+    accessGrantId: uuid("access_grant_id")
+      .notNull()
+      .references(() => cloudVmAccessGrants.id, { onDelete: "cascade" }),
+    provider: vmProvider("provider").notNull(),
+    /** The provider's id for the tunnel (Freestyle `tun-…`). */
+    providerTunnelId: text("provider_tunnel_id").notNull(),
+    /** Stable per-installation device id minted by the Mac app. */
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    tunnelPurpose: cloudVmTunnelPurpose("tunnel_purpose").notNull(),
+    /** Human label for the device, shown when listing enrolled computers. */
+    deviceName: text("device_name"),
+    /** Base64 Curve25519 public key. The private half never leaves the Mac. */
+    clientPublicKey: text("client_public_key").notNull(),
+    /** The tunnel's address inside the network — what the user's VMs see as the Mac. */
+    addressV4: text("address_v4"),
+    addressV6: text("address_v6"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastConfigIssuedAt: timestamp("last_config_issued_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_tunnels_user_device_purpose_unique")
+      .on(table.userId, table.deviceFingerprint, table.tunnelPurpose)
+      .where(sql`${table.revokedAt} is null`),
+    uniqueIndex("cloud_vm_tunnels_provider_tunnel_id_unique")
+      .on(table.provider, table.providerTunnelId),
+    index("cloud_vm_tunnels_network_idx").on(table.networkId),
+    index("cloud_vm_tunnels_access_grant_idx").on(table.accessGrantId),
+  ],
+);
+
+export type CloudVmDomainVerificationRecord = {
+  readonly purpose: "verification" | "routing" | "certificate";
+  /** Equivalent DNS record types a provider may accept for this instruction. */
+  readonly recordTypes: readonly (
+    "TXT" | "CNAME" | "ALIAS" | "ANAME" | "CNAME_FLATTENING" | "NS"
+  )[];
+  readonly name: string;
+  readonly value: string;
+};
+
+/**
+ * Per-VM fence for publication provider mutations and VM teardown.
+ *
+ * Both publication reservation and teardown lock the referenced VM row before
+ * reading this guard. A durable operation lease lets deletion wait for a TLS
+ * create already in flight; once teardown starts the row remains as a
+ * permanent fence until the VM row itself is removed.
+ */
+export const cloudVmPublicationVmGuards = pgTable(
+  "cloud_vm_publication_vm_guards",
+  {
+    vmId: uuid("vm_id")
+      .primaryKey()
+      .references(() => cloudVms.id, { onDelete: "cascade" }),
+    teardownStartedAt: timestamp("teardown_started_at", { withTimezone: true }),
+    operationLeaseId: uuid("operation_lease_id"),
+    operationLeaseExpiresAt: timestamp("operation_lease_expires_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "cloud_vm_pub_vm_guard_lease_check",
+      sql`(${table.operationLeaseId} is null) = (${table.operationLeaseExpiresAt} is null)`,
+    ),
+  ],
+);
+
+/**
+ * A DNS zone CMUX has reserved for one user. Freestyle domain ownership is
+ * account-wide, so this row is the CMUX-side ownership boundary that prevents
+ * one CMUX account from reusing a base domain verified by another. A verified
+ * custom zone may back its apex and any one-label child covered by its wildcard
+ * certificate; exact routing hostnames live on publication rows.
+ *
+ * Freestyle does not expose a domain object id. Custom domains therefore keep
+ * the id of the exact verification challenge CMUX created; certificates are
+ * observed by hostname.
+ */
+export const cloudVmDomains = pgTable(
+  "cloud_vm_domains",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    hostname: text("hostname").notNull(),
+    kind: text("kind").$type<"generated" | "custom">().notNull(),
+    provider: vmProvider("provider").notNull(),
+    providerVerificationId: text("provider_verification_id"),
+    verificationState: text("verification_state")
+      .$type<"not_required" | "pending" | "verified" | "failed">()
+      .notNull(),
+    certificateState: text("certificate_state")
+      .$type<"missing" | "pending" | "active" | "failed">()
+      .notNull(),
+    verificationRecords: jsonb("verification_records")
+      .$type<CloudVmDomainVerificationRecord[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_domains_owner_pending_hostname_unique")
+      .on(table.ownerUserId, table.hostname)
+      .where(
+        sql`${table.kind} = 'custom' and ${table.verificationState} = 'pending'`,
+      ),
+    uniqueIndex("cloud_vm_domains_claimed_hostname_unique")
+      .on(table.hostname)
+      .where(
+        sql`${table.kind} = 'generated' or (${table.kind} = 'custom' and ${table.verificationState} = 'verified')`,
+      ),
+    uniqueIndex("cloud_vm_domains_provider_verification_unique")
+      .on(table.provider, table.providerVerificationId)
+      .where(sql`${table.providerVerificationId} is not null`),
+    index("cloud_vm_domains_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+    check(
+      "cloud_vm_domains_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_domains_kind_check",
+      sql`${table.kind} in ('generated', 'custom')`,
+    ),
+    check(
+      "cloud_vm_domains_verification_state_check",
+      sql`${table.verificationState} in ('not_required', 'pending', 'verified', 'failed')`,
+    ),
+    check(
+      "cloud_vm_domains_certificate_state_check",
+      sql`${table.certificateState} in ('missing', 'pending', 'active', 'failed')`,
+    ),
+    check(
+      "cloud_vm_domains_generated_verification_check",
+      sql`${table.kind} <> 'generated' or (${table.verificationState} = 'not_required' and ${table.providerVerificationId} is null)`,
+    ),
+    check(
+      "cloud_vm_domains_verified_provider_check",
+      sql`${table.kind} <> 'custom' or ${table.verificationState} <> 'verified' or ${table.providerVerificationId} is not null`,
+    ),
+    check(
+      "cloud_vm_domains_certificate_verification_check",
+      sql`${table.certificateState} <> 'active' or ${table.verificationState} in ('not_required', 'verified')`,
+    ),
+    check(
+      "cloud_vm_domains_records_check",
+      sql`jsonb_typeof(${table.verificationRecords}) = 'array' and jsonb_array_length(${table.verificationRecords}) <= 16`,
+    ),
+  ],
+);
+
+/**
+ * The one reusable forward-auth resource for each provider account.
+ *
+ * Bootstrap uses a durable, expiring claim rather than holding a database
+ * transaction open across provider I/O. A crashed creator can therefore be
+ * retried without creating one forward-auth resource per publication.
+ */
+export const cloudVmPublicationProviderConfigs = pgTable(
+  "cloud_vm_publication_provider_configs",
+  {
+    provider: vmProvider("provider").primaryKey(),
+    providerForwardAuthId: text("provider_forward_auth_id"),
+    provisioningLeaseId: uuid("provisioning_lease_id"),
+    provisioningLeaseExpiresAt: timestamp("provisioning_lease_expires_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check(
+      "cloud_vm_pub_provider_config_lease_check",
+      sql`(${table.provisioningLeaseId} is null) = (${table.provisioningLeaseExpiresAt} is null)`,
+    ),
+    check(
+      "cloud_vm_pub_provider_config_ready_check",
+      sql`${table.providerForwardAuthId} is null or ${table.provisioningLeaseId} is null`,
+    ),
+  ],
+);
+
+/** Globally reserved organization identity under the managed zone; not a DNS zone. */
+export const cloudOrganizations = pgTable("cloud_organizations", {
+  scopeId: text("scope_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  slug: text("slug").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_organizations_slug_unique").on(table.slug),
+  check("cloud_organizations_slug_check", sql`char_length(${table.slug}) between 1 and 19 and ${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$'`),
+]);
+
+/** One canonical hostname mapping to one Cloud VM HTTP port. */
+export const cloudVmPublications = pgTable(
+  "cloud_vm_publications",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    ownerUserId: text("owner_user_id").notNull(),
+    vmId: uuid("vm_id")
+      .notNull()
+      .references(() => cloudVms.id, { onDelete: "restrict" }),
+    domainId: uuid("domain_id")
+      .references(() => cloudVmDomains.id, { onDelete: "restrict" }),
+    /** Exact public hostname. The related domain row is its reusable verified zone. */
+    hostname: text("hostname").notNull(),
+    /** Null while a custom zone is awaiting proof; set atomically when its zone wins. */
+    hostnameClaimedAt: timestamp("hostname_claimed_at", { withTimezone: true }),
+    port: integer("port").notNull(),
+    accessMode: text("access_mode")
+      .$type<"personal" | "team" | "public">()
+      .notNull(),
+    teamId: text("team_id"),
+    providerTlsRuleId: text("provider_tls_rule_id"),
+    /** The account-shared forward-auth id currently applied to this rule. */
+    providerForwardAuthId: text("provider_forward_auth_id"),
+    routingRevision: bigint("routing_revision", { mode: "number" })
+      .notNull()
+      .default(1),
+    state: text("state")
+      .$type<
+        "provisioning" | "active" | "unavailable" | "disabling" | "disabled"
+      >()
+      .notNull()
+      .default("provisioning"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_publications_owner_hostname_unique")
+      .on(table.ownerUserId, table.hostname)
+      .where(sql`${table.disabledAt} is null`),
+    uniqueIndex("cloud_vm_publications_claimed_hostname_unique")
+      .on(table.hostname)
+      .where(
+        sql`${table.hostnameClaimedAt} is not null and ${table.disabledAt} is null`,
+      ),
+    uniqueIndex("cloud_vm_publications_provider_rule_unique")
+      .on(table.providerTlsRuleId)
+      .where(sql`${table.providerTlsRuleId} is not null`),
+    index("cloud_vm_publications_owner_created_idx").on(
+      table.ownerUserId,
+      table.createdAt,
+    ),
+    index("cloud_vm_publications_vm_state_idx").on(table.vmId, table.state),
+    index("cloud_vm_publications_state_updated_idx").on(
+      table.state,
+      table.updatedAt,
+    ),
+    check(
+      "cloud_vm_publications_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_publications_port_check",
+      sql`${table.port} between 1 and 65535`,
+    ),
+    check(
+      "cloud_vm_publications_access_mode_check",
+      sql`${table.accessMode} in ('personal', 'team', 'public')`,
+    ),
+    check(
+      "cloud_vm_publications_team_check",
+      sql`(${table.accessMode} = 'team') = (${table.teamId} is not null)`,
+    ),
+    check(
+      "cloud_vm_publications_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_publications_state_check",
+      sql`${table.state} in ('provisioning', 'active', 'unavailable', 'disabling', 'disabled')`,
+    ),
+    check(
+      "cloud_vm_publications_active_rule_check",
+      sql`${table.state} <> 'active' or (${table.providerTlsRuleId} is not null and ${table.hostnameClaimedAt} is not null)`,
+    ),
+    check(
+      "cloud_vm_publications_disabled_check",
+      sql`(${table.state} = 'disabled') = (${table.disabledAt} is not null)`,
+    ),
+  ],
+);
+
+/** A verified email grants access to this publication only. Never a VM membership. */
+export const cloudVmPublicationEmailGrants = pgTable("cloud_vm_publication_email_grants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+  email: text("email").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("cloud_vm_publication_email_grants_unique").on(table.publicationId, table.email),
+  check("cloud_vm_publication_email_grants_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
+
+/**
+ * Cross-origin browser transaction created on the publication hostname before
+ * the browser visits CMUX sign-in. Only hashes of the opaque transaction and
+ * OAuth state values are persisted; the host-only cookie holds the verifier.
+ */
+export const cloudVmPublicationAuthTransactions = pgTable(
+  "cloud_vm_publication_auth_transactions",
+  {
+    transactionHash: text("transaction_hash").primaryKey(),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    pkceChallenge: text("pkce_challenge").notNull(),
+    stateHash: text("state_hash").notNull(),
+    hostname: text("hostname").notNull(),
+    returnPath: text("return_path").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_pub_auth_tx_publication_idx").on(
+      table.publicationId,
+      table.createdAt,
+    ),
+    index("cloud_vm_pub_auth_tx_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_auth_tx_hash_check",
+      sql`${table.transactionHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_state_hash_check",
+      sql`${table.stateHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_pkce_check",
+      sql`${table.pkceChallenge} ~ '^[A-Za-z0-9_-]{43}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_hostname_check",
+      sql`char_length(${table.hostname}) between 1 and 253 and ${table.hostname} = lower(${table.hostname}) and right(${table.hostname}, 1) <> '.' and ${table.hostname} !~ '[[:space:][:cntrl:]/:]'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_return_path_check",
+      sql`left(${table.returnPath}, 1) = '/' and left(${table.returnPath}, 2) <> '//' and ${table.returnPath} !~ '[[:cntrl:]]'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_tx_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** A short-lived, one-use code issued from exactly one auth transaction. */
+export const cloudVmPublicationAuthCodes = pgTable(
+  "cloud_vm_publication_auth_codes",
+  {
+    codeHash: text("code_hash").primaryKey(),
+    transactionHash: text("transaction_hash")
+      .notNull()
+      .references(() => cloudVmPublicationAuthTransactions.transactionHash, {
+        onDelete: "cascade",
+      }),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_pub_auth_codes_transaction_unique").on(
+      table.transactionHash,
+    ),
+    index("cloud_vm_pub_auth_codes_publication_idx").on(
+      table.publicationId,
+      table.createdAt,
+    ),
+    index("cloud_vm_pub_auth_codes_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_auth_codes_hash_check",
+      sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_auth_codes_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_auth_codes_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
+/** Opaque, host-only browser sessions. The plaintext token is never stored. */
+export const cloudVmPublicationSessions = pgTable(
+  "cloud_vm_publication_sessions",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    publicationId: uuid("publication_id")
+      .notNull()
+      .references(() => cloudVmPublications.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    routingRevision: bigint("routing_revision", { mode: "number" }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_pub_sessions_publication_idx").on(
+      table.publicationId,
+      table.expiresAt,
+    ),
+    index("cloud_vm_pub_sessions_user_idx").on(table.userId, table.expiresAt),
+    index("cloud_vm_pub_sessions_expiry_idx").on(table.expiresAt),
+    check(
+      "cloud_vm_pub_sessions_hash_check",
+      sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "cloud_vm_pub_sessions_revision_check",
+      sql`${table.routingRevision} > 0`,
+    ),
+    check(
+      "cloud_vm_pub_sessions_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+  ],
+);
+
+/**
+ * A short-lived cross-instance lease for provider-side tunnel enrollment.
+ *
+ * Freestyle tunnel creation is keyed by a deterministic slug, but the provider
+ * call and the control-plane insert are separate operations. This lease makes
+ * that boundary single-owner across Vercel instances, while expiry recovers a
+ * request whose process died before it could release the lease.
+ */
+export const cloudVmTunnelEnrollmentLocks = pgTable(
+  "cloud_vm_tunnel_enrollment_locks",
+  {
+    userId: text("user_id").notNull(),
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    ownerToken: text("owner_token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "cloud_vm_tunnel_enrollment_locks_pkey",
+      columns: [table.userId, table.deviceFingerprint],
+    }),
+    index("cloud_vm_tunnel_enrollment_locks_expiry_idx").on(table.expiresAt),
+  ],
+);
+
 export const cloudVmLeases = pgTable(
   "cloud_vm_leases",
   {
@@ -224,6 +964,7 @@ export const cloudVmLeases = pgTable(
     index("cloud_vm_leases_identity_cleanup_idx")
       .on(table.expiresAt, table.createdAt, table.id)
       .where(sql`${table.providerIdentityHandle} is not null and ${table.revokedAt} is null`),
+    index("cloud_vm_leases_kind_expiry_idx").on(table.kind, table.expiresAt, table.id),
     index("cloud_vm_leases_user_expires_idx").on(table.userId, table.expiresAt),
     uniqueIndex("cloud_vm_leases_token_hash_unique").on(table.tokenHash),
   ],
@@ -241,6 +982,11 @@ export const cloudVmSessions = pgTable(
     title: text("title"),
     kind: text("kind").notNull().default("terminal"),
     status: cloudVmSessionStatus("status").notNull().default("running"),
+    // Lifetime number of attaches, not the number of clients attached now.
+    // upsertVmSession is the only writer and there is no detach writer at all,
+    // so the count only grows and never returns to zero. Pair it with
+    // lastAttachedAt to reason about recency; do not present it as a live
+    // viewer or participant count.
     attachmentCount: integer("attachment_count").notNull().default(0),
     effectiveCols: integer("effective_cols"),
     effectiveRows: integer("effective_rows"),
@@ -262,6 +1008,18 @@ export const cloudVmSessions = pgTable(
     index("cloud_vm_sessions_vm_updated_idx").on(table.vmId, table.updatedAt),
   ],
 );
+
+// Billing runtime records are transactional lifecycle state, not analytics.
+export const cloudVmRuntimeIntervals = pgTable("cloud_vm_runtime_intervals", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  vmId: uuid("vm_id").notNull().references(() => cloudVms.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+}, (table) => [
+  index("cloud_vm_runtime_user_started_idx").on(table.userId, table.startedAt),
+  uniqueIndex("cloud_vm_runtime_open_vm_unique").on(table.vmId).where(sql`${table.endedAt} is null`),
+]);
 
 export const cloudVmUsageEvents = pgTable(
   "cloud_vm_usage_events",
@@ -363,8 +1121,8 @@ export const cloudVmBaseEvents = pgTable(
  * APNs device tokens for iOS push notifications. A row exists only after the
  * user explicitly opts in on their device (the feature is off by default), so
  * the mere presence of a row for a user means "this user wants phone pushes".
- * Keyed unique by `deviceToken` so a device re-registering (e.g. after an
- * account switch) updates its `userId` instead of duplicating.
+ * Keyed unique by `(bundleId, deviceToken)` so re-registering one exact app
+ * updates its user without allowing another installed app to overwrite it.
  */
 export const deviceTokens = pgTable(
   "device_tokens",
@@ -372,6 +1130,9 @@ export const deviceTokens = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    pushKeyId: text("push_key_id").notNull().default("legacy"),
+    pushPublicKey: text("push_public_key"),
     platform: text("platform").notNull().default("ios"),
     // The APNs topic the token belongs to (the iOS bundle id, which varies by
     // build: dev.cmux.ios.<tag>, dev.cmux.app.beta, com.cmux.app).
@@ -379,12 +1140,57 @@ export const deviceTokens = pgTable(
     // "sandbox" for development builds, "production" for TestFlight/App Store —
     // selects which APNs host the sender uses.
     environment: text("environment").notNull().default("production"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+    deliveryLeaseToken: uuid("delivery_lease_token"),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("device_tokens_user_idx").on(table.userId),
-    uniqueIndex("device_tokens_device_token_unique").on(table.deviceToken),
+    index("device_tokens_user_bundle_idx").on(table.userId, table.bundleId),
+    uniqueIndex("device_tokens_bundle_token_unique").on(
+      table.bundleId,
+      table.deviceToken,
+    ),
+    uniqueIndex("device_tokens_bundle_installation_unique")
+      .on(table.bundleId, table.installationId)
+      .where(sql`${table.installationId} <> 'legacy'`),
+  ],
+);
+
+export const deviceTokenRevocations = pgTable(
+  "device_token_revocations",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: text("user_id").notNull(),
+    deviceToken: text("device_token").notNull(),
+    installationId: text("installation_id").notNull().default("legacy"),
+    bundleId: text("bundle_id").notNull(),
+    authSessionFingerprint: text("auth_session_fingerprint").notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("device_token_revocations_session_unique").on(
+      table.userId,
+      table.deviceToken,
+      table.installationId,
+      table.bundleId,
+      table.authSessionFingerprint,
+    ),
+    index("device_token_revocations_lookup_idx").on(
+      table.userId,
+      table.deviceToken,
+      table.bundleId,
+    ),
+    index("device_token_revocations_installation_lookup_idx").on(
+      table.userId,
+      table.installationId,
+      table.bundleId,
+    ),
+    index("device_token_revocations_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -394,6 +1200,38 @@ export const notificationSendEvents = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     userId: text("user_id").notNull(),
     deviceCount: integer("device_count").notNull(),
+    // Opaque logical event id from the Mac. Retries reuse it so the database
+    // limiter counts one source event and the route can return the completed
+    // aggregate without resending successful devices.
+    correlationId: text("correlation_id"),
+    // SHA-256 of the canonical logical payload. This binds a correlation id to
+    // one event without persisting notification content or routing identifiers.
+    payloadFingerprint: text("payload_fingerprint"),
+    eventKind: text("event_kind").notNull().default("notify"),
+    initialTargets: jsonb("initial_targets").$type<Array<{
+      targetId: string;
+      bundleId: string;
+      environment: string;
+    }>>(),
+    resultSummary: jsonb("result_summary").$type<{
+      sent: number;
+      devices: number;
+      pruned: number;
+      transientFailures: number;
+      permanentFailures: number;
+      retryAfterSeconds?: number;
+    }>(),
+    resultOutcomes: jsonb("result_outcomes").$type<Array<{
+      targetId: string;
+      status: number;
+      reason?: string;
+      retryAfterSeconds?: number;
+      prune: boolean;
+    }>>(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    leaseToken: uuid("lease_token"),
+    retryNotBefore: timestamp("retry_not_before", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -426,16 +1264,20 @@ export const subrouterTenants = pgTable(
 );
 
 /**
- * Non-secret routing metadata for CodeRouter accounts. Provider credentials
- * live only in the Stack team server-metadata vault; Postgres coordinates
- * selection and rotating refresh-token leases.
+ * Non-secret routing metadata for coderouter accounts. Provider credentials
+ * live in the envelope-encrypted coderouterCredentials table; this table
+ * coordinates selection and rotating refresh-token leases.
  */
+type CodeRouterProviderColumn = "codex" | "opencode-go" | "openai-apikey" | "openrouter-apikey";
+
 export const coderouterAccounts = pgTable(
   "coderouter_accounts",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
-    provider: text("provider").$type<"codex" | "opencode-go">().notNull(),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
+    createdBy: text("created_by"),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
     providerAccountId: text("provider_account_id").notNull(),
     label: text("label").notNull(),
     state: text("state")
@@ -453,6 +1295,8 @@ export const coderouterAccounts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("coderouter_accounts_team_id_unique").on(table.teamId, table.id),
+    check("coderouter_accounts_visibility_check", sql`${table.visibility} in ('private', 'team')`),
     uniqueIndex("coderouter_accounts_team_provider_account_unique").on(
       table.teamId,
       table.provider,
@@ -475,8 +1319,15 @@ export const coderouterRouteTokens = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
     tokenHash: text("token_hash").notNull(),
     label: text("label").notNull().default("cli"),
+    /**
+     * Cloud VM this token is bound to. The Freestyle edge injects the token
+     * into that VM's sessions; requests must carry the matching x-cmux-vm-id.
+     * Null for an unbound (cr CLI) token.
+     */
+    vmId: text("vm_id"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -485,6 +1336,106 @@ export const coderouterRouteTokens = pgTable(
   (table) => [
     uniqueIndex("coderouter_route_tokens_hash_unique").on(table.tokenHash),
     index("coderouter_route_tokens_team_expiry_idx").on(table.teamId, table.expiresAt),
+    index("coderouter_route_tokens_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+    index("coderouter_route_tokens_vm_idx").on(table.vmId),
+  ],
+);
+
+/** Long-lived user-created credentials for direct CodeRouter API clients. */
+export const coderouterApiKeys = pgTable(
+  "coderouter_api_keys",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    keyHash: text("key_hash").notNull(),
+    keyPrefix: text("key_prefix").notNull(),
+    label: text("label").notNull().default("default"),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_api_keys_hash_unique").on(table.keyHash),
+    index("coderouter_api_keys_team_created_idx").on(table.teamId, table.createdAt),
+    index("coderouter_api_keys_user_created_idx").on(table.stackUserId, table.createdAt),
+  ],
+);
+
+/**
+ * Short-lived bearer handoffs from an authenticated native client to another
+ * CodeRouter process. The value returned to the client is never stored; only
+ * its SHA-256 digest is persisted. A lease can be claimed exactly once.
+ */
+export const coderouterHandoffLeases = pgTable(
+  "coderouter_handoff_leases",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    teamId: text("team_id").notNull(),
+    stackUserId: text("stack_user_id").notNull(),
+    leaseHash: text("lease_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_handoff_leases_hash_format_check",
+      sql`${table.leaseHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "coderouter_handoff_leases_expiry_check",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    uniqueIndex("coderouter_handoff_leases_hash_unique").on(table.leaseHash),
+    index("coderouter_handoff_leases_expiry_idx").on(table.expiresAt),
+    index("coderouter_handoff_leases_team_expiry_idx").on(
+      table.teamId,
+      table.expiresAt,
+    ),
+    index("coderouter_handoff_leases_user_expiry_idx").on(
+      table.stackUserId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+/**
+ * Envelope-encrypted provider credentials. Every secret-bearing field is
+ * ciphertext; the plaintext data key exists only briefly in Vercel memory.
+ */
+export const coderouterCredentials = pgTable(
+  "coderouter_credentials",
+  {
+    accountId: uuid("account_id")
+      .primaryKey()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
+    credentialRevision: bigint("credential_revision", { mode: "number" })
+      .notNull(),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      "coderouter_credentials_revision_positive",
+      sql`${table.credentialRevision} > 0`,
+    ),
+    check(
+      "coderouter_credentials_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    index("coderouter_credentials_team_idx").on(table.teamId),
   ],
 );
 
@@ -499,6 +1450,38 @@ export const coderouterVaultLeases = pgTable(
   },
   (table) => [
     index("coderouter_vault_leases_expiry_idx").on(table.expiresAt),
+  ],
+);
+
+/**
+ * Session -> account stickiness for coderouter routing.
+ *
+ * Providers cache prompt prefixes per account, so moving a live session to a
+ * different account re-bills its whole prompt prefix as uncached input. A row
+ * here pins one agent session (the Codex CLI `session_id` header) to one
+ * account. Placement of a new session spreads across the least-loaded usable
+ * accounts under FOR UPDATE SKIP LOCKED, so concurrent session starts cannot
+ * herd onto a single account (port of subrouter PR #228).
+ */
+export const coderouterSessionAccounts = pgTable(
+  "coderouter_session_accounts",
+  {
+    teamId: text("team_id").notNull(),
+    provider: text("provider").$type<CodeRouterProviderColumn>().notNull(),
+    sessionKey: text("session_key").notNull(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => coderouterAccounts.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_session_accounts_pkey",
+      columns: [table.teamId, table.provider, table.sessionKey],
+    }),
+    index("coderouter_session_accounts_account_idx").on(table.accountId),
+    index("coderouter_session_accounts_last_seen_idx").on(table.lastSeenAt),
   ],
 );
 
@@ -541,11 +1524,16 @@ export const stripeSubscriptions = pgTable(
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
   },
   (table) => [
     index("stripe_subscriptions_customer_id_idx").on(table.customerId),
     index("stripe_subscriptions_stack_user_id_idx").on(table.stackUserId),
     index("stripe_subscriptions_stack_team_id_idx").on(table.stackTeamId),
+    index("stripe_subscriptions_reconcile_cursor_idx").on(
+      table.lastReconciledAt.asc().nullsFirst(),
+      table.id.asc(),
+    ),
   ],
 );
 
@@ -574,6 +1562,103 @@ export const proWelcomeFulfillments = pgTable(
   (table) => [
     index("pro_welcome_fulfillments_stack_user_idx").on(table.stackUserId),
   ],
+);
+
+/**
+ * Durable idempotency ledger for the sign-in link sent after a paid checkout.
+ * It is separate from the Pro welcome ledger because the two messages have
+ * different owners and retry policies.
+ */
+export const billingEmailVerificationDeliveries = pgTable(
+  "billing_email_verification_deliveries",
+  {
+    checkoutSessionId: text("checkout_session_id").primaryKey(),
+    stackUserId: text("stack_user_id").notNull(),
+    email: text("email").notNull(),
+    deliveryStartedAt: timestamp("delivery_started_at", { withTimezone: true }),
+    attemptLeaseExpiresAt: timestamp("attempt_lease_expires_at", {
+      withTimezone: true,
+    }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_email_verification_deliveries_stack_user_idx").on(table.stackUserId),
+  ],
+);
+
+// Operator Pro grants addressed to an email that may not have a Stack user
+// yet. Applied to the account at its next verified sign-in (like billing email
+// claims), then marked applied. Revoked rows are never applied.
+export const adminPlanGrants = pgTable(
+  "admin_plan_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Canonicalized email (services/billing/emailMatching). */
+    email: text("email").notNull(),
+    plan: text("plan").notNull(),
+    grantedByUserId: text("granted_by_user_id").notNull(),
+    grantedByEmail: text("granted_by_email"),
+    /** Set with applied_user_id while a sign-in is applying the row; stale after ADMIN_GRANT_CLAIM_TTL_MS. */
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    appliedUserId: text("applied_user_id"),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("admin_plan_grants_email_idx").on(table.email),
+    // At most one open (unapplied, unrevoked) grant per canonical email.
+    uniqueIndex("admin_plan_grants_open_email_unique")
+      .on(table.email)
+      .where(sql`${table.appliedAt} is null and ${table.revokedAt} is null`),
+  ],
+);
+
+// Operator actions taken through the admin API. One row per mutation, written
+// after the route has produced its response so the outcome (and the error code
+// on failure) is recorded. Reads page by (created_at, id) keyset.
+export const adminAuditLog = pgTable(
+  "admin_audit_log",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    actorUserId: text("actor_user_id").notNull(),
+    actorEmail: text("actor_email"),
+    /** Stable snake_case action name, e.g. user_grant_set. */
+    action: text("action").notNull(),
+    targetKind: text("target_kind").notNull(),
+    targetId: text("target_id"),
+    targetLabel: text("target_label"),
+    details: jsonb("details"),
+    outcome: text("outcome").notNull(),
+    error: text("error"),
+    requestId: text("request_id"),
+  },
+  (table) => [
+    index("admin_audit_log_created_at_idx").on(table.createdAt.desc()),
+    index("admin_audit_log_actor_created_at_idx").on(table.actorUserId, table.createdAt.desc()),
+    check("admin_audit_log_outcome_check", sql`${table.outcome} in ('ok', 'error')`),
+  ],
+);
+
+// Invited admins. A verified Stack email that matches an unrevoked row opens
+// the admin surface in addition to the company-domain rule (services/admin/access).
+export const adminMembers = pgTable(
+  "admin_members",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    /** Lower-cased, trimmed email. */
+    email: text("email").notNull(),
+    invitedByUserId: text("invited_by_user_id").notNull(),
+    invitedByEmail: text("invited_by_email"),
+    invitedAt: timestamp("invited_at", { withTimezone: true }).notNull().defaultNow(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("admin_members_email_unique").on(table.email)],
 );
 
 export const billingEmailClaims = pgTable(
@@ -850,6 +1935,7 @@ export const irohEndpointBindings = pgTable(
     userId: text("user_id").notNull(),
     deviceUuid: uuid("device_uuid").notNull(),
     appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
     tag: text("tag").notNull(),
     platform: text("platform").notNull(),
     displayName: text("display_name"),
@@ -872,6 +1958,7 @@ export const irohEndpointBindings = pgTable(
     check("iroh_endpoint_bindings_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
     check("iroh_endpoint_bindings_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_endpoint_bindings_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_endpoint_bindings_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
     check("iroh_endpoint_bindings_platform_check", sql`${table.platform} in ('mac', 'ios')`),
     check("iroh_endpoint_bindings_display_name_check", sql`${table.displayName} is null or ${table.displayName} !~ '[[:cntrl:]]'`),
     check("iroh_endpoint_bindings_capabilities_check", sql`jsonb_typeof(${table.capabilities}) = 'array' and jsonb_array_length(${table.capabilities}) <= 32`),
@@ -881,7 +1968,8 @@ export const irohEndpointBindings = pgTable(
     uniqueIndex("iroh_endpoint_bindings_active_endpoint_unique")
       .on(table.endpointId)
       .where(sql`${table.revokedAt} is null`),
-    // One active binding per (user, device, tag) slot. A reinstall, sign-out/in,
+    // One active binding per (user, client namespace, device, tag) slot. A
+    // reinstall, sign-out/in,
     // or key rotation overwrites that slot in place instead of stacking a new row.
     // Contract: deviceUuid MUST be stable across app reinstalls, or a reinstall
     // mints a fresh slot and orphans the old row (it stays active, wasting a
@@ -890,7 +1978,7 @@ export const irohEndpointBindings = pgTable(
     // a Keychain-backed identity (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly)
     // that survives reinstall, NOT a UserDefaults value that a reinstall clears.
     uniqueIndex("iroh_endpoint_bindings_active_slot_unique")
-      .on(table.userId, table.deviceUuid, table.tag)
+      .on(table.userId, table.clientNamespace, table.deviceUuid, table.tag)
       .where(sql`${table.revokedAt} is null`),
     index("iroh_endpoint_bindings_user_active_idx")
       .on(table.userId, table.updatedAt)
@@ -898,6 +1986,12 @@ export const irohEndpointBindings = pgTable(
     index("iroh_endpoint_bindings_user_active_page_idx")
       .on(table.userId, table.id)
       .where(sql`${table.revokedAt} is null`),
+    index("iroh_endpoint_bindings_active_pairable_mac_scope_idx")
+      .on(table.userId, sql`lower(${table.tag})`, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'mac' and ${table.pairingEnabled} = true`),
+    index("iroh_endpoint_bindings_active_ios_scope_idx")
+      .on(table.userId, table.id)
+      .where(sql`${table.revokedAt} is null and ${table.platform} = 'ios'`),
     index("iroh_endpoint_bindings_user_idx")
       .on(table.userId),
     index("iroh_endpoint_bindings_user_revoked_idx")
@@ -916,9 +2010,9 @@ export const irohEndpointBindings = pgTable(
 );
 
 /**
- * One-use registration challenges. Only a SHA-256 hash of the random nonce is
- * persisted. The payload hash binds all endpoint metadata before signature
- * verification and the consumed timestamp provides replay protection.
+ * Ephemeral registration challenges. Issuance replaces the user, namespace,
+ * device, and tag tuple under its database transaction lock. Only the nonce's
+ * SHA-256 hash is persisted; consumption deletes the row to prevent replay.
  */
 export const irohRegistrationChallenges = pgTable(
   "iroh_registration_challenges",
@@ -927,6 +2021,7 @@ export const irohRegistrationChallenges = pgTable(
     userId: text("user_id").notNull(),
     deviceUuid: uuid("device_uuid").notNull(),
     appInstanceId: uuid("app_instance_id").notNull(),
+    clientNamespace: text("client_namespace").notNull().default("legacy"),
     tag: text("tag").notNull(),
     endpointId: text("endpoint_id").notNull(),
     identityGeneration: integer("identity_generation").notNull(),
@@ -940,6 +2035,7 @@ export const irohRegistrationChallenges = pgTable(
     check("iroh_registration_challenges_endpoint_id_check", sql`${table.endpointId} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_identity_generation_check", sql`${table.identityGeneration} between 1 and 2147483647`),
     check("iroh_registration_challenges_tag_check", sql`${table.tag} ~ '^[A-Za-z0-9._-]{1,64}$'`),
+    check("iroh_registration_challenges_client_namespace_check", sql`${table.clientNamespace} ~ '^[A-Za-z0-9._:-]{1,255}$'`),
     check("iroh_registration_challenges_payload_hash_check", sql`${table.payloadSha256} ~ '^[0-9a-f]{64}$'`),
     check("iroh_registration_challenges_nonce_hash_check", sql`${table.nonceHash} ~ '^[0-9a-f]{64}$'`),
     uniqueIndex("iroh_registration_challenges_nonce_hash_unique").on(table.nonceHash),
@@ -1079,3 +2175,517 @@ export const cloudVmNotificationDeliveries = pgTable(
       .on(table.eventId, table.status),
   ],
 );
+
+/**
+ * The one Claude upstream a team routes `/v1/messages` traffic to. A guest
+ * Claude Code process inside a Cloud VM only holds a placeholder API key; the
+ * edge injects the team's route token, and coderouter forwards to whichever
+ * upstream this row names. Secrets use the same KMS envelope as
+ * `coderouter_credentials`. `config` holds the non-secret part only
+ * (Bedrock region, optional model id overrides).
+ */
+export const coderouterClaudeAccounts = pgTable(
+  "coderouter_claude_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teamId: text("team_id").notNull(),
+    visibility: text("visibility").$type<"private" | "team">().notNull().default("team"),
+    kind: text("kind")
+      .$type<"anthropic_api_key" | "anthropic_oauth" | "bedrock">()
+      .notNull(),
+    /** User-chosen name shown next to the masked identifier; may be empty. */
+    label: text("label").notNull().default(""),
+    /** Masked credential (`sk-ant-...ab12`), non-secret, computed at insert. */
+    identifier: text("identifier").notNull().default(""),
+    state: text("state").$type<"active" | "disabled">().notNull().default("active"),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastFailureCode: text("last_failure_code"),
+    algorithm: text("algorithm").notNull().default("aes-256-gcm"),
+    ciphertext: text("ciphertext").notNull(),
+    nonce: text("nonce").notNull(),
+    authTag: text("auth_tag").notNull(),
+    encryptedDataKey: text("encrypted_data_key").notNull(),
+    kmsKeyId: text("kms_key_id").notNull(),
+    /**
+     * Which AAD/encryption-context binding the ciphertext carries: 1 = the
+     * single-upstream era (team, kind), 2 = (team, account id). Rows migrated
+     * from `coderouter_claude_upstreams` stay at 1 until re-encrypted.
+     */
+    aadVersion: integer("aad_version").notNull().default(2),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("coderouter_claude_accounts_team_id_unique").on(table.teamId, table.id),
+    check("coderouter_claude_accounts_visibility_check", sql`${table.visibility} in ('private', 'team')`),
+    index("coderouter_claude_accounts_team_state_idx").on(table.teamId, table.state),
+    index("coderouter_claude_accounts_cooldown_idx").on(table.cooldownUntil),
+    check(
+      "coderouter_claude_accounts_kind_check",
+      sql`${table.kind} IN ('anthropic_api_key', 'anthropic_oauth', 'bedrock')`,
+    ),
+    check(
+      "coderouter_claude_accounts_state_check",
+      sql`${table.state} IN ('active', 'disabled')`,
+    ),
+    check(
+      "coderouter_claude_accounts_algorithm_check",
+      sql`${table.algorithm} = 'aes-256-gcm'`,
+    ),
+    check(
+      "coderouter_claude_accounts_aad_version_check",
+      sql`${table.aadVersion} IN (1, 2)`,
+    ),
+  ],
+);
+
+/**
+ * A local mirror of the Stack Auth identity fields our high-volume routes need
+ * (display name, primary email, selected team, team membership and the billing
+ * plan metadata derived from them).
+ *
+ * The device registry and the relay broker authenticate hundreds of requests
+ * per second, and each one used to cost a `GET /users/me` call to Stack. The
+ * access token itself is verified locally against Stack's published signing
+ * keys; this table supplies everything the token does not carry, so a Stack
+ * call is needed only when no fresh snapshot exists.
+ *
+ * The default lifetime of a snapshot is ten minutes. That is the window in
+ * which a user removed from a team keeps that team's registry access, since
+ * Stack sends no membership webhook to invalidate on. Sign-out deletes the row. Deletion is also enforced on read: the snapshot path checks
+ * the account-deletion tombstone directly, so a tombstone takes effect on the
+ * next request rather than waiting for the row to be cleared.
+ */
+export const stackIdentitySnapshots = pgTable(
+  "stack_identity_snapshots",
+  {
+    userId: text("user_id").primaryKey(),
+    displayName: text("display_name"),
+    primaryEmail: text("primary_email"),
+    selectedTeamId: text("selected_team_id"),
+    billingCustomerType: text("billing_customer_type")
+      .$type<"team" | "user">()
+      .notNull(),
+    billingTeamId: text("billing_team_id").notNull(),
+    userBillingPlanId: text("user_billing_plan_id"),
+    billingPlanId: text("billing_plan_id"),
+    billingSeats: integer("billing_seats"),
+    /** Every team the snapshot proves membership of, with its billing fields. */
+    teams: jsonb("teams")
+      .$type<{
+        id: string;
+        displayName: string | null;
+        billingPlanId: string | null;
+        billingSeats: number | null;
+      }[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("stack_identity_snapshots_refreshed_idx").on(table.refreshedAt),
+  ],
+);
+
+/** Fleet-wide dedupe ledger for operator alerts on missing rate limits. */
+export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
+  alertKey: text("alert_key").primaryKey(),
+  reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Durable state for state-change and reminder delivery of operator alerts. */
+export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
+  alertKey: text("alert_key").primaryKey(),
+  active: boolean("active").notNull().default(false),
+  severity: text("severity").notNull().default("warning"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  deliveryLeaseId: text("delivery_lease_id"),
+  deliveryLeaseUntil: timestamp("delivery_lease_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
+]);
+
+/** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
+export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
+  userId: text("user_id").notNull(),
+  eventId: uuid("event_id").notNull(),
+  payload: jsonb("payload").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+  leaseId: uuid("lease_id"),
+  attempts: integer("attempts").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.eventId] }),
+  index("cloud_diagnostic_events_pending_idx").on(table.nextAttemptAt).where(sql`${table.deliveredAt} is null`),
+  index("cloud_diagnostic_events_retention_idx").on(table.receivedAt),
+]);
+
+export const cloudDiagnosticBudgets = pgTable("cloud_diagnostic_budgets", {
+  userId: text("user_id").notNull(),
+  minute: bigint("minute", { mode: "number" }).notNull(),
+  bytes: integer("bytes").notNull(),
+}, (table) => [primaryKey({ columns: [table.userId, table.minute] })]);
+
+export const cloudOperationSteps = pgTable("cloud_operation_steps", {
+  userId: text("user_id").notNull(),
+  operationId: uuid("operation_id").notNull(),
+  stepId: uuid("step_id").notNull(),
+  phase: text("phase").notNull(),
+  outcome: text("outcome").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  endedAt: timestamp("ended_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 day'`),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.operationId, table.stepId] }),
+  index("cloud_operation_steps_expiry_idx").on(table.expiresAt),
+]);
+
+/** Composite foreign keys make cross-team account grants impossible. */
+export const coderouterPoolAccounts = pgTable("coderouter_pool_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  teamId: text("team_id").notNull(),
+  poolId: uuid("pool_id").notNull(),
+  accountId: uuid("account_id"),
+  claudeAccountId: uuid("claude_account_id"),
+  grantedByUserId: text("granted_by_user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  foreignKey({ columns: [table.teamId, table.poolId], foreignColumns: [coderouterPools.teamId, coderouterPools.id], name: "coderouter_pool_accounts_pool_team_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.teamId, table.accountId], foreignColumns: [coderouterAccounts.teamId, coderouterAccounts.id], name: "coderouter_pool_accounts_native_team_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.teamId, table.claudeAccountId], foreignColumns: [coderouterClaudeAccounts.teamId, coderouterClaudeAccounts.id], name: "coderouter_pool_accounts_claude_team_fk" }).onDelete("cascade"),
+  uniqueIndex("coderouter_pool_accounts_native_unique").on(table.poolId, table.accountId),
+  uniqueIndex("coderouter_pool_accounts_claude_unique").on(table.poolId, table.claudeAccountId),
+  check("coderouter_pool_accounts_one_account", sql`num_nonnulls(${table.accountId}, ${table.claudeAccountId}) = 1`),
+]);
+
+export const teamInviteRole = pgEnum("team_invite_role", ["admin", "member"]);
+
+/**
+ * The role an email invitation grants. Stack sends the invitation and owns the
+ * code, but its API has no role field, so the role is keyed by the team and
+ * the lowercased recipient email and applied when that invitation is accepted.
+ */
+export const teamInviteRoles = pgTable("team_invite_roles", {
+  stackTeamId: text("stack_team_id").notNull(),
+  email: text("email").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  /** The Stack invitation this role was sent with; null until cmux sees it. */
+  stackInvitationId: text("stack_invitation_id"),
+}, (table) => [
+  primaryKey({ name: "team_invite_roles_pkey", columns: [table.stackTeamId, table.email] }),
+  check("team_invite_roles_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+]);
+
+/**
+ * Reusable team invite links. Only a SHA-256 of the raw token is stored, links
+ * grant `member` only, and revocation sets `revoked_at` so redemptions keep
+ * their history.
+ */
+export const teamInviteLinks = pgTable("team_invite_links", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stackTeamId: text("stack_team_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  createdByUserId: text("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  maxUses: integer("max_uses"),
+  useCount: integer("use_count").notNull().default(0),
+}, (table) => [
+  uniqueIndex("team_invite_links_token_hash_unique").on(table.tokenHash),
+  index("team_invite_links_team_created_idx").on(table.stackTeamId, table.createdAt),
+  check("team_invite_links_member_only", sql`${table.role} = 'member'`),
+  check("team_invite_links_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("team_invite_links_max_uses_check", sql`${table.maxUses} is null or ${table.maxUses} > 0`),
+  check("team_invite_links_use_count_check", sql`${table.useCount} >= 0 and (${table.maxUses} is null or ${table.useCount} <= ${table.maxUses})`),
+]);
+
+/**
+ * Email invitations cmux sends itself (through Resend). One pending row per
+ * team and email: a re-invite revokes the older row after the new one exists.
+ * Only a SHA-256 of the emailed token is stored. Accepting needs either the
+ * token or a signed-in user whose verified email matches `email`.
+ */
+export const teamEmailInvitations = pgTable("team_email_invitations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  stackTeamId: text("stack_team_id").notNull(),
+  email: text("email").notNull(),
+  role: teamInviteRole("role").notNull().default("member"),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedByUserId: text("accepted_by_user_id"),
+  declinedAt: timestamp("declined_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("team_email_invitations_token_hash_unique").on(table.tokenHash),
+  index("team_email_invitations_team_created_idx").on(table.stackTeamId, table.createdAt),
+  index("team_email_invitations_email_idx").on(table.email),
+  check("team_email_invitations_email_check", sql`${table.email} = lower(${table.email}) and char_length(${table.email}) between 3 and 254`),
+  check("team_email_invitations_token_hash_check", sql`${table.tokenHash} ~ '^[0-9a-f]{64}$'`),
+]);
+
+/** One row per user who joined through a link, which makes redemption idempotent. */
+export const teamInviteLinkRedemptions = pgTable("team_invite_link_redemptions", {
+  linkId: uuid("link_id").notNull().references(() => teamInviteLinks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "team_invite_link_redemptions_pkey", columns: [table.linkId, table.userId] }),
+]);
+
+/**
+ * Seat reconcile queue for Team subscriptions. A membership change upserts the
+ * team's row with `dirty_at`; the reconciler compares the live member count
+ * with the Stripe quantity and clears `dirty_at` only when it is unchanged
+ * since it was read, so a change during a run keeps the team queued.
+ * `dirty_at` is millisecond precision so that comparison survives the JS Date
+ * round trip.
+ */
+export const teamSeatReconciles = pgTable("team_seat_reconciles", {
+  stackTeamId: text("stack_team_id").primaryKey(),
+  dirtyAt: timestamp("dirty_at", { withTimezone: true, precision: 3 }),
+  lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+  lastMemberCount: integer("last_member_count"),
+  lastStripeQuantity: integer("last_stripe_quantity"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("team_seat_reconciles_dirty_idx").on(table.dirtyAt).where(sql`${table.dirtyAt} is not null`),
+]);
+
+/**
+ * Mirror of the Hexclave (formerly Stack Auth) project: users, teams, direct
+ * memberships and direct permissions. Hexclave stays the source of truth; the
+ * Svix webhook (`/api/webhooks/stack`) and `scripts/hexclave/backfill-mirror.ts`
+ * write these rows only from a fresh, schema-validated Hexclave read. `raw` is
+ * the validated server read object, so its type is the Hexclave schema's.
+ */
+export const hexclaveUsers = pgTable("hexclave_users", {
+  id: text("id").primaryKey(),
+  primaryEmail: text("primary_email"),
+  displayName: text("display_name"),
+  isAnonymous: boolean("is_anonymous").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  signedUpAt: timestamp("signed_up_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof usersCrud.server.readSchema>>().notNull(),
+}, (table) => [
+  index("hexclave_users_primary_email_idx").on(sql`lower(${table.primaryEmail})`),
+]);
+
+export const hexclaveTeams = pgTable("hexclave_teams", {
+  id: text("id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  clientReadOnlyMetadata: jsonb("client_read_only_metadata").$type<unknown>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+  raw: jsonb("raw").$type<InferType<typeof teamsCrud.server.readSchema>>().notNull(),
+});
+
+export const hexclaveTeamMemberships = pgTable("hexclave_team_memberships", {
+  teamId: text("team_id").notNull().references(() => hexclaveTeams.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_memberships_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_team_memberships_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) team permissions; a permission needs its membership. */
+export const hexclaveTeamPermissions = pgTable("hexclave_team_permissions", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_team_permissions_pkey", columns: [table.teamId, table.userId, table.permissionId] }),
+  foreignKey({
+    name: "hexclave_team_permissions_membership_fk",
+    columns: [table.teamId, table.userId],
+    foreignColumns: [hexclaveTeamMemberships.teamId, hexclaveTeamMemberships.userId],
+  }).onDelete("cascade"),
+  index("hexclave_team_permissions_user_idx").on(table.userId),
+]);
+
+/** Direct (non-recursive) project permissions. */
+export const hexclaveProjectPermissions = pgTable("hexclave_project_permissions", {
+  userId: text("user_id").notNull().references(() => hexclaveUsers.id, { onDelete: "cascade" }),
+  permissionId: text("permission_id").notNull(),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_project_permissions_pkey", columns: [table.userId, table.permissionId] }),
+]);
+
+/**
+ * Users and teams Hexclave reported gone. Ids are never reused, so a tombstone
+ * is permanent and stops a reconcile that read before the deletion from
+ * writing the entity back.
+ */
+export const hexclaveTombstones = pgTable("hexclave_tombstones", {
+  entityType: text("entity_type").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_tombstones_pkey", columns: [table.entityType, table.entityId] }),
+  check("hexclave_tombstones_entity_type_check", sql`${table.entityType} in ('user', 'team')`),
+]);
+
+/**
+ * Membership revocations decided by a reconcile but not yet carried out.
+ * Written in the same transaction that removes the mirror membership, so a
+ * failed revoke survives the retry that no longer sees the membership; a row
+ * is deleted only after its revoke succeeds, or when the member is re-added.
+ */
+export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations", {
+  teamId: text("team_id").notNull(),
+  userId: text("user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ name: "hexclave_pending_revocations_pkey", columns: [table.teamId, table.userId] }),
+  index("hexclave_pending_revocations_user_idx").on(table.userId),
+]);
+
+export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
+
+/**
+ * One row per Svix message id. `processed_at` is set only when the mirror and
+ * revocations reflect Hexclave; a redelivery of such an id is acknowledged
+ * without work. Invalid and failed deliveries keep `processed_at` null.
+ */
+export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  outcome: text("outcome").$type<HexclaveWebhookOutcome>().notNull(),
+  attempts: integer("attempts").notNull().default(1),
+}, (table) => [
+  check("hexclave_webhook_events_outcome_check", sql`${table.outcome} in ('processed', 'ignored', 'invalid', 'failed')`),
+  index("hexclave_webhook_events_received_idx").on(table.receivedAt),
+]);
+
+/**
+ * iOS in-app purchases (docs/billing/ios-in-app-purchases.md). The server is
+ * the source of truth: every Apple transaction and App Store Server
+ * Notification is verified, recorded here, and mirrored into the same
+ * `cmuxPlan` entitlement Stripe fulfillment writes.
+ */
+export const APPLE_SUBSCRIPTION_STATUSES = [
+  "active",
+  "grace_period",
+  "billing_retry",
+  "expired",
+  "revoked",
+] as const;
+export type AppleSubscriptionStatus = (typeof APPLE_SUBSCRIPTION_STATUSES)[number];
+
+/** One `appAccountToken` per cmux user, minted by the server and sent with every purchase. */
+export const appleAccountTokens = pgTable("apple_account_tokens", {
+  userId: text("user_id").primaryKey(),
+  appAccountToken: uuid("app_account_token").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("apple_account_tokens_app_account_token_unique").on(table.appAccountToken),
+]);
+
+/**
+ * Current state of one Apple subscription (one original transaction). The
+ * row only moves forward: `state_signed_at` is the Apple `signedDate` of the
+ * data that produced it, and an older signed payload never overwrites it.
+ */
+export const appleSubscriptions = pgTable("apple_subscriptions", {
+  originalTransactionId: text("original_transaction_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  appAccountToken: uuid("app_account_token"),
+  bundleId: text("bundle_id").notNull(),
+  environment: text("environment").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id").notNull(),
+  status: text("status").$type<AppleSubscriptionStatus>().notNull(),
+  autoRenewEnabled: boolean("auto_renew_enabled"),
+  autoRenewProductId: text("auto_renew_product_id"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  originalPurchaseDate: timestamp("original_purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  gracePeriodExpiresAt: timestamp("grace_period_expires_at", { withTimezone: true }),
+  storefront: text("storefront"),
+  currency: text("currency"),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  lastTransactionId: text("last_transaction_id"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revocationReason: integer("revocation_reason"),
+  stateSignedAt: timestamp("state_signed_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_subscriptions_user_id_idx").on(table.userId),
+  index("apple_subscriptions_expires_at_idx").on(table.expiresAt),
+  check(
+    "apple_subscriptions_status_check",
+    sql`${table.status} in ('active', 'grace_period', 'billing_retry', 'expired', 'revoked')`,
+  ),
+]);
+
+/** One row per Apple transaction (purchase, renewal, upgrade); refunds set `revoked_at`. */
+export const appleTransactions = pgTable("apple_transactions", {
+  transactionId: text("transaction_id").primaryKey(),
+  originalTransactionId: text("original_transaction_id").notNull(),
+  userId: text("user_id").notNull(),
+  productId: text("product_id").notNull(),
+  planId: text("plan_id"),
+  environment: text("environment").notNull(),
+  type: text("type"),
+  purchaseDate: timestamp("purchase_date", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  priceMilliunits: bigint("price_milliunits", { mode: "number" }),
+  currency: text("currency"),
+  storefront: text("storefront"),
+  offerType: integer("offer_type"),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("apple_transactions_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_transactions_user_id_idx").on(table.userId),
+  index("apple_transactions_purchase_date_idx").on(table.purchaseDate),
+]);
+
+/**
+ * App Store Server Notifications V2 ledger, idempotent on `notification_uuid`.
+ * The row is written before any state change. A failed application keeps
+ * `processed_at` null and records `error`; the retry job re-applies those
+ * rows. A notification that can never apply (no linked cmux account, an
+ * unknown product) is closed with `processed_at` and an `error` explaining
+ * why, so it is not retried forever.
+ */
+export const appleNotifications = pgTable("apple_notifications", {
+  notificationUuid: text("notification_uuid").primaryKey(),
+  notificationType: text("notification_type").notNull(),
+  subtype: text("subtype"),
+  environment: text("environment").notNull(),
+  originalTransactionId: text("original_transaction_id"),
+  signedDate: timestamp("signed_date", { withTimezone: true }).notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+}, (table) => [
+  index("apple_notifications_original_transaction_id_idx").on(table.originalTransactionId),
+  index("apple_notifications_pending_idx")
+    .on(table.receivedAt)
+    .where(sql`${table.processedAt} is null`),
+]);

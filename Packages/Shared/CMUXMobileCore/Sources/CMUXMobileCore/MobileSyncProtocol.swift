@@ -111,19 +111,27 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         }
     }
 
-    public func encodedURL() throws -> URL {
+    /// The pairing URL for this payload, in the scheme of the iOS build the
+    /// QR is meant for. Callers that are not an app -- tests, most of all --
+    /// should name the scheme: the default reads `Bundle.main`, which in an
+    /// xctest process is the test runner rather than a cmux build.
+    public func encodedURL(
+        pairingURLScheme: CmxPairingURLScheme? =
+            CmxPairingURLSchemeResolver().resolved
+    ) throws -> URL {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(self)
         let payload = Self.base64URLEncode(data)
-        guard let url = URL(string: "\(CmxPairingURLScheme.current)://pair?v=\(version)&payload=\(payload)") else {
+        guard let scheme = pairingURLScheme?.rawValue,
+              let url = URL(string: "\(scheme)://pair?v=\(version)&payload=\(payload)") else {
             throw MobileSyncPairingPayloadError.invalidURL
         }
         return url
     }
 
     public static func decodeURL(_ url: URL, now: Date = Date()) throws -> MobileSyncPairingPayload {
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "pair",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let encodedPayload = components.queryItems?.first(where: { $0.name == "payload" })?.value,
@@ -200,6 +208,10 @@ public struct MobileSyncFrameCodec {
         return frame
     }
 
+    /// Decodes at most one bounded batch, leaving later frames in `buffer`.
+    /// Callers drain another batch before awaiting more network bytes whenever
+    /// the returned count reaches `maximumDecodedFrameCount`. A transport read
+    /// may coalesce any number of valid frames; its boundary is not a message limit.
     public static func decodeFrames(
         from buffer: inout Data,
         maximumFrameByteCount: Int = defaultMaximumFrameByteCount,
@@ -221,7 +233,8 @@ public struct MobileSyncFrameCodec {
             }
         }
 
-        while buffer.count - consumedByteCount >= headerByteCount {
+        while frames.count < maximumDecodedFrameCount,
+              buffer.count - consumedByteCount >= headerByteCount {
             let frameStart = buffer.index(
                 buffer.startIndex,
                 offsetBy: consumedByteCount
@@ -239,11 +252,6 @@ public struct MobileSyncFrameCodec {
             }
             guard buffer.count - consumedByteCount >= headerByteCount + payloadLength else {
                 break
-            }
-            guard frames.count < maximumDecodedFrameCount else {
-                throw MobileSyncFrameCodecError.tooManyFrames(
-                    maximumDecodedFrameCount
-                )
             }
             let payloadStart = headerEnd
             let payloadEnd = buffer.index(

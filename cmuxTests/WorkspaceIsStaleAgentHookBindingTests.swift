@@ -76,7 +76,17 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         let panelId = try #require(workspace.focusedPanelId)
         let binding = Self.agentHookBinding(launchFlavor: .local)
 
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == true)
+        // Pass the completed scan explicitly. The default reads the process-wide
+        // `SharedLiveAgentIndex.shared.index`, which stays nil in the app host
+        // until some other test's refresh finishes, and a missing index is
+        // deliberately "unknown" rather than "stale".
+        #expect(
+            workspace.isStaleAgentHookBinding(
+                binding,
+                panelId: panelId,
+                restorableAgentIndex: .empty
+            ) == true
+        )
     }
 
     @Test
@@ -92,8 +102,15 @@ struct WorkspaceIsStaleAgentHookBindingTests {
 
         // No local process can ever exist for a remote agent, so this must
         // NOT be reported as stale (that would delete a still-live remote
-        // binding on the next reconciliation).
-        #expect(workspace.isStaleAgentHookBinding(binding, panelId: panelId) == false)
+        // binding on the next reconciliation). Use the same completed, empty
+        // local scan as the `.local` case so only the launch flavor differs.
+        #expect(
+            workspace.isStaleAgentHookBinding(
+                binding,
+                panelId: panelId,
+                restorableAgentIndex: .empty
+            ) == false
+        )
     }
 
     @Test
@@ -112,6 +129,73 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         let retainedBinding = try #require(workspace.surfaceResumeBinding(panelId: panelId))
         #expect(retainedBinding.checkpointId == binding.checkpointId)
         #expect(retainedBinding.autoResume == false)
+    }
+
+    @Test
+    func plainSSHProcessBindingSurvivesATransientMissedProcessScan() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            cwd: "/Users/test",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.reconcileSurfaceResumeBindings(
+            using: .empty,
+            restorableAgentIndex: .empty
+        )
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == binding)
+        #expect(
+            workspace.effectiveSurfaceResumeBinding(
+                panelId: panelId,
+                surfaceResumeBindingIndex: .empty
+        ) == binding
+        )
+    }
+
+    @Test
+    func plainSSHProcessBindingIsRetiredAfterTheSSHChildExits() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        // One empty scan is a process-scan hiccup; the second is authoritative
+        // absence after the observed SSH process has ended.
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) != nil)
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+    }
+
+    @Test
+    func plainSSHProcessBindingIsClearedWhenShellReturnsToPrompt() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
     }
 
     @Test
@@ -146,5 +230,41 @@ struct WorkspaceIsStaleAgentHookBindingTests {
         )
 
         #expect(restoredSnapshot?.sessionId == Self.piSessionPath)
+    }
+
+    @Test
+    func nonClaudeRejectedSnapshotIsQuarantinedAtSessionRestoreBoundary() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "stale-rejected-gemini",
+            launchCommand: AgentLaunchCommandSnapshot(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "gemini",
+                source: "rejected"
+            )
+        )
+
+        #expect(
+            Workspace.restorableAgentForSessionRestore(snapshot, resumeBinding: nil) == nil,
+            "a persisted non-Claude rejected capture must not bypass hook-index quarantine"
+        )
+    }
+
+    @Test
+    func claudeRejectedSnapshotRemainsEligibleForTranscriptRestore() throws {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "transcript-backed-claude",
+            launchCommand: AgentLaunchCommandSnapshot(
+                rejectedOn: .argvDecodeFailed,
+                launcher: "claude",
+                source: "rejected"
+            )
+        )
+
+        let restored = try #require(
+            Workspace.restorableAgentForSessionRestore(snapshot, resumeBinding: nil)
+        )
+        #expect(restored.sessionId == snapshot.sessionId)
     }
 }

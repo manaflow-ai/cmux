@@ -3,7 +3,7 @@
 #[cfg(feature = "events")]
 use crate::event::KeyboardEnhancementFlags;
 use crate::terminal::{
-    sys::file_descriptor::{tty_fd, FileDesc},
+    sys::file_descriptor::{open_dev_tty, tty_fd, FileDesc},
     WindowSize,
 };
 #[cfg(feature = "libc")]
@@ -20,7 +20,7 @@ use rustix::{
 
 #[cfg(feature = "events")]
 use std::time::Duration;
-use std::{fs::File, io, process};
+use std::{io, process};
 #[cfg(feature = "libc")]
 use std::{
     mem,
@@ -64,31 +64,24 @@ pub(crate) fn window_size() -> io::Result<WindowSize> {
     // http://rosettacode.org/wiki/Terminal_control/Dimensions#Library:_BSD_libc
     let mut size = winsize { ws_row: 0, ws_col: 0, ws_xpixel: 0, ws_ypixel: 0 };
 
-    let file = File::open("/dev/tty").map(|file| (FileDesc::new(file.into_raw_fd(), true)));
-    let fd = if let Ok(file) = &file {
-        file.raw_fd()
-    } else {
-        // Fallback to libc::STDOUT_FILENO if /dev/tty is missing
-        STDOUT_FILENO
-    };
-
-    if wrap_with_result(unsafe { ioctl(fd, TIOCGWINSZ.into(), &mut size) }).is_ok() {
+    if wrap_with_result(unsafe { ioctl(STDOUT_FILENO, TIOCGWINSZ.into(), &mut size) }).is_ok() {
         return Ok(size.into());
     }
 
-    Err(std::io::Error::last_os_error().into())
+    let file = open_dev_tty().map(|file| FileDesc::new(file.into_raw_fd(), true))?;
+    wrap_with_result(unsafe { ioctl(file.raw_fd(), TIOCGWINSZ.into(), &mut size) })?;
+    Ok(size.into())
 }
 
 #[cfg(not(feature = "libc"))]
 pub(crate) fn window_size() -> io::Result<WindowSize> {
-    let file = File::open("/dev/tty").map(|file| FileDesc::Owned(file.into()));
-    let fd = if let Ok(file) = &file {
-        file.as_fd()
-    } else {
-        // Fallback to libc::STDOUT_FILENO if /dev/tty is missing
-        rustix::stdio::stdout()
+    let size = match rustix::termios::tcgetwinsize(rustix::stdio::stdout()) {
+        Ok(size) => size,
+        Err(_) => {
+            let file = FileDesc::Owned(open_dev_tty()?.into());
+            rustix::termios::tcgetwinsize(file.as_fd())?
+        }
     };
-    let size = rustix::termios::tcgetwinsize(fd)?;
     Ok(size.into())
 }
 
@@ -241,7 +234,7 @@ fn query_keyboard_enhancement_flags_raw(
     const QUERY: &[u8] = b"\x1B[?u\x1B[c";
     let deadline = Instant::now() + response_timeout;
 
-    let result = File::open("/dev/tty").and_then(|mut file| {
+    let result = open_dev_tty().and_then(|mut file| {
         file.write_all(QUERY)?;
         file.flush()
     });

@@ -1,6 +1,8 @@
+@testable import CmuxComputerUse
 import CmuxCore
 import CmuxFoundation
 import Foundation
+import os
 import Testing
 
 #if canImport(cmux_DEV)
@@ -215,7 +217,12 @@ struct PortScanPublicationBufferTests {
     @MainActor
     @Test("Changing one TTY enqueues only that panel's empty lifecycle publication")
     func ttyChangePublicationIsPanelScoped() throws {
-        let scanner = PortScanner()
+        // The TTY names below are fixtures, not devices this test owns. The
+        // default identity provider opens `/dev/<name>` on the main actor, and
+        // on a shared CI host `ttys001`...`ttys003` belong to other sessions:
+        // a wedged one blocked that open(2) in the kernel forever. Name
+        // changes alone drive the lifecycle revision this test covers.
+        let scanner = PortScanner(ttySessionIdentityProvider: { _ in nil })
         let workspaceID = UUID()
         let changedPanelID = UUID()
         let unchangedPanelID = UUID()
@@ -364,11 +371,33 @@ struct PortScannerAgentPublicationIntegrationTests {
             startSeconds: 10,
             startMicroseconds: 0
         )
+        let childIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 11,
+            startMicroseconds: 0
+        )
         let root = AgentPortRootIdentity(pid: 100, processIdentity: identity)
-        let runner = SuspendedPortScanCommandRunner()
+        let processTable = SuspendedPortProcessTable()
+        // The agent root's own listeners are not badged, so the listener is
+        // the root's child. The first scan reports 4200, every later one 5173.
+        let portLookupCount = OSAllocatedUnfairLock(initialState: 0)
         let scanner = PortScanner(
-            commandRunner: runner,
-            processIdentityProvider: { pid in pid == identity.pid ? identity : nil }
+            processTable: processTable,
+            processIdentityProvider: { pid in
+                switch pid {
+                case identity.pid: identity
+                case childIdentity.pid: childIdentity
+                default: nil
+                }
+            },
+            listeningPortsProvider: { pid in
+                guard pid == childIdentity.pid else { return .ports([]) }
+                let count = portLookupCount.withLock { count -> Int in
+                    count += 1
+                    return count
+                }
+                return .ports([count == 1 ? 4200 : 5173])
+            }
         )
         let (publications, publicationContinuation) = AsyncStream<[Int]>.makeStream(
             bufferingPolicy: .unbounded
@@ -393,7 +422,7 @@ struct PortScannerAgentPublicationIntegrationTests {
         }
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
-        await runner.waitUntilProcessScanStarted()
+        await processTable.waitUntilProcessScanStarted()
         let initialRevision = scanner.queue.sync {
             scanner.agentRevisionByWorkspace[workspaceID, default: 0]
         }
@@ -409,13 +438,18 @@ struct PortScannerAgentPublicationIntegrationTests {
         }
         let removedPorts = try #require(await publicationIterator.next())
 
-        let processScanWasReleased = await runner.processScanWasReleased
+        let processScanWasReleased = await processTable.processScanWasReleased
         #expect(removedPorts == [])
         #expect(processScanWasReleased == false)
         #expect(removalLifecycleWasActiveAtCallback)
 
-        await withCheckedContinuation { continuation in
-            scanner.queue.async { continuation.resume() }
+        // Queue acknowledgement is followed by a main-actor lifecycle update.
+        // A queue barrier alone can resume this test before that update runs.
+        _ = await AppKitTestEventPump().waitUntil {
+            !scanner.publicationState.isCurrentAgentRevision(
+                removalRevision,
+                workspaceId: workspaceID
+            )
         }
         #expect(scanner.publicationState.isCurrentAgentRevision(
             removalRevision,
@@ -424,7 +458,7 @@ struct PortScannerAgentPublicationIntegrationTests {
 
         scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
         scanner.queue.sync {}
-        await runner.releaseProcessScan()
+        await processTable.releaseProcessScan()
         let currentPorts = try #require(await publicationIterator.next())
 
         #expect([removedPorts, currentPorts] == [[], [5173]])
@@ -437,39 +471,202 @@ struct PortScannerAgentPublicationIntegrationTests {
     }
 }
 
-private actor SuspendedPortScanCommandRunner: CommandRunning {
+@MainActor
+@Suite("Agent port retirement")
+struct PortScannerAgentPortRetirementTests {
+    @Test(
+        "An exited agent listener retires despite an unrelated incomplete PID",
+        .timeLimit(.minutes(1))
+    )
+    func exitedListenerRetiresWithUnrelatedIncompleteProcess() async throws {
+        let workspaceID = UUID()
+        let rootIdentity = AgentPIDProcessIdentity(
+            pid: 100,
+            startSeconds: 10,
+            startMicroseconds: 0
+        )
+        let listenerIdentity = AgentPIDProcessIdentity(
+            pid: 101,
+            startSeconds: 11,
+            startMicroseconds: 0
+        )
+        let unrelatedIdentity = AgentPIDProcessIdentity(
+            pid: 102,
+            startSeconds: 12,
+            startMicroseconds: 0
+        )
+        let root = AgentPortRootIdentity(pid: 100, processIdentity: rootIdentity)
+        // Test seam only: synchronous liveness and port-lookup callbacks must
+        // observe one small mutable fixture state atomically.
+        let state = OSAllocatedUnfairLock(initialState: AgentPortChurnState(
+            rootIdentity: rootIdentity,
+            listenerIdentity: listenerIdentity,
+            unrelatedIdentity: unrelatedIdentity
+        ))
+        let scanner = PortScanner(
+            processTable: AgentPortChurnProcessTable(),
+            processIdentityProvider: { pid in
+                state.withLock { $0.identity(for: Int(pid)) }
+            },
+            processPresenceProvider: { pid in
+                state.withLock { $0.presence(for: Int(pid)) }
+            },
+            listeningPortsProvider: { pid in
+                state.withLock { $0.lookUpListeningPorts(pid: Int(pid), port: 4321) }
+            }
+        )
+        let (publications, continuation) = AsyncStream<[Int]>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+        var iterator = publications.makeAsyncIterator()
+        scanner.onAgentPortsUpdated = { callbackWorkspaceID, ports in
+            guard callbackWorkspaceID == workspaceID else { return false }
+            continuation.yield(ports)
+            return true
+        }
+        defer {
+            continuation.finish()
+            scanner.onAgentPortsUpdated = nil
+        }
+
+        scanner.setTrackedAgentScanningPaused(true)
+        scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
+        let initialPorts = try #require(await iterator.next())
+        #expect(initialPorts == [4321])
+        let initialRequestedPIDs = state.withLock { Set($0.lookedUpPIDs) }
+        #expect(initialRequestedPIDs == [100, 101, 102])
+        scanner.queue.sync {}
+        let lookupsBeforeExit = state.withLock { state in
+            state.stopListening()
+            return state.lookedUpPIDs.count
+        }
+
+        // The root is looked up once per scan, so its count marks each scan.
+        let firstRootLookup = state.withLock { $0.rootLookupCount }
+        for expectedLookup in (firstRootLookup + 1)...(firstRootLookup + 3) {
+            scanner.refreshAgentPorts(workspaceId: workspaceID, agentRoots: [root])
+            try await Self.waitForRootLookup(expectedLookup, in: state)
+            scanner.queue.sync {}
+        }
+        // An unchanged port set is published only while the refresh's force
+        // flag survives, and the previous delivery's acknowledgement hops off
+        // the main actor before it reaches the scanner queue, so it can clear
+        // that flag under a later refresh. Retirement itself is a change and
+        // always publishes: drain until it lands instead of expecting one
+        // publication per refresh.
+        var retiredPorts = initialPorts
+        while !retiredPorts.isEmpty {
+            retiredPorts = try #require(await iterator.next())
+        }
+        let postExitRequestedPIDs = state.withLock { $0.lookedUpPIDs.dropFirst(lookupsBeforeExit) }
+        #expect(postExitRequestedPIDs.allSatisfy { $0 == 100 })
+
+        scanner.unregisterAgentWorkspace(workspaceId: workspaceID)
+        scanner.queue.sync {}
+    }
+
+    private static func waitForRootLookup(
+        _ target: Int,
+        in state: OSAllocatedUnfairLock<AgentPortChurnState>
+    ) async throws {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while state.withLock({ $0.rootLookupCount }) < target, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        try #require(
+            state.withLock { $0.rootLookupCount } >= target,
+            "port lookup \(target) did not arrive"
+        )
+    }
+}
+
+private struct AgentPortChurnState: Sendable {
+    let rootIdentity: AgentPIDProcessIdentity
+    let listenerIdentity: AgentPIDProcessIdentity
+    let unrelatedIdentity: AgentPIDProcessIdentity
+    var listenerIsRunning = true
+    var unrelatedPIDIsReadable = true
+    /// Every PID the scanner asked the kernel about, in order.
+    var lookedUpPIDs: [Int] = []
+    var rootLookupCount = 0
+
+    mutating func stopListening() {
+        listenerIsRunning = false
+        unrelatedPIDIsReadable = false
+    }
+
+    /// Stands in for the kernel lookup: only the listener holds the port.
+    mutating func lookUpListeningPorts(pid: Int, port: Int) -> ListeningPortLookupResult {
+        lookedUpPIDs.append(pid)
+        if pid == Int(rootIdentity.pid) {
+            rootLookupCount += 1
+        }
+        guard listenerIsRunning, pid == Int(listenerIdentity.pid) else { return .ports([]) }
+        return .ports([port])
+    }
+
+    func identity(for pid: Int) -> AgentPIDProcessIdentity? {
+        switch pid {
+        case Int(rootIdentity.pid):
+            rootIdentity
+        case Int(listenerIdentity.pid):
+            listenerIsRunning ? listenerIdentity : nil
+        case Int(unrelatedIdentity.pid):
+            unrelatedPIDIsReadable ? unrelatedIdentity : nil
+        default:
+            // Unknown PIDs are not attributed to the workspace in this fixture.
+            nil
+        }
+    }
+
+    func presence(for pid: Int) -> PIDPresence {
+        switch pid {
+        case Int(rootIdentity.pid):
+            .present
+        case Int(listenerIdentity.pid):
+            listenerIsRunning ? .present : .absent
+        case 102:
+            .present
+        default:
+            .absent
+        }
+    }
+}
+
+/// Stubs the process-table half of each scan; ports come from
+/// `AgentPortChurnState.lookUpListeningPorts`.
+private struct AgentPortChurnProcessTable: PortProcessTableReading {
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        ([:], .complete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        ([100: 1, 101: 100, 102: 100], .complete)
+    }
+}
+
+/// Holds every process-table read open until `releaseProcessScan()`, so a test
+/// can change agent lifecycles while a scan is in flight.
+private actor SuspendedPortProcessTable: PortProcessTableReading {
     private var processScanStarted = false
     private var processScanReleased = false
-    private var lsofRunCount = 0
     private var processStartWaiters: [CheckedContinuation<Void, Never>] = []
     private var processReleaseWaiters: [CheckedContinuation<Void, Never>] = []
 
     var processScanWasReleased: Bool { processScanReleased }
 
-    func run(
-        directory: String,
-        executable: String,
-        arguments: [String],
-        timeout: TimeInterval?
-    ) async -> CommandResult {
-        _ = (directory, arguments, timeout)
-        if executable == "/bin/ps" {
-            processScanStarted = true
-            processStartWaiters.forEach { $0.resume() }
-            processStartWaiters.removeAll()
-            if !processScanReleased {
-                await withCheckedContinuation { continuation in
-                    processReleaseWaiters.append(continuation)
-                }
-            }
-            return Self.result(stdout: "100 1\n")
-        }
-        if executable == "/usr/sbin/lsof" {
-            lsofRunCount += 1
-            let port = lsofRunCount == 1 ? 4200 : 5173
-            return Self.result(stdout: "p100\nf3\nn*:\(port)\n")
-        }
-        return Self.result(stdout: "")
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        await suspendUntilReleased()
+        return ([:], .complete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        await suspendUntilReleased()
+        return ([100: 1, 101: 100], .complete)
     }
 
     func waitUntilProcessScanStarted() async {
@@ -485,13 +682,14 @@ private actor SuspendedPortScanCommandRunner: CommandRunning {
         processReleaseWaiters.removeAll()
     }
 
-    private static func result(stdout: String) -> CommandResult {
-        CommandResult(
-            stdout: stdout,
-            stderr: "",
-            exitStatus: 0,
-            timedOut: false,
-            executionError: nil
-        )
+    private func suspendUntilReleased() async {
+        processScanStarted = true
+        processStartWaiters.forEach { $0.resume() }
+        processStartWaiters.removeAll()
+        if !processScanReleased {
+            await withCheckedContinuation { continuation in
+                processReleaseWaiters.append(continuation)
+            }
+        }
     }
 }

@@ -7,6 +7,7 @@ final class FakeOpenRouting: NotificationOpenRouting {
     var windowSucceeds = true
     var fallbackSucceeds = true
     var routedSucceeds = true
+    var windowDockSucceeds = true
     var titles: [UUID: String] = [:]
     private(set) var log: [String] = []
     private(set) var receivedRowSpaceRevisions: [UInt64?] = []
@@ -55,6 +56,13 @@ final class FakeOpenRouting: NotificationOpenRouting {
         receivedRowSpaceRevisions.append(scrollRowSpaceRevision)
         log.append("fallback(tab=\(short(tabId)),surf=\(short(surfaceId))\(panel(panelId)),notif=\(short(notificationId)),row=\(row(scrollRow)),total=\(row(scrollTotalRows)))")
         return fallbackSucceeds
+    }
+
+    func openWindowDockUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        log.append(
+            "windowDock(window=\(short(target.windowId)),surf=\(short(target.surfaceId)))"
+        )
+        return windowDockSucceeds
     }
 
     func tabTitle(forTabId tabId: UUID) -> String? { titles[tabId] }

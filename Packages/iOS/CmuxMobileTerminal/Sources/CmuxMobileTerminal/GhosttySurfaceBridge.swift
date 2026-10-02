@@ -1,5 +1,7 @@
 #if canImport(UIKit)
+import CmuxMobileDiagnostics
 import Foundation
+import GhosttyKit
 import UIKit
 
 /// Bridges libghostty C callbacks (which run on the IO read thread or
@@ -60,7 +62,26 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
 
     func handleRenderPresented(token: UInt64) {
         Task { @MainActor [weak self] in
-            self?.surfaceView?.handleVerifiedReplayRenderPresented(token: token)
+            guard let surfaceView = self?.surfaceView else { return }
+            // A verified replay owns the gate until its readback and layer
+            // presentation fence both settle. Ordinary and local-scroll
+            // frames still release the gate directly from this callback.
+            if surfaceView.handleVerifiedReplayRenderPresented(token: token) {
+                surfaceView.finishRenderSubmission(token: token)
+            }
+        }
+    }
+
+    func handleRenderFailed(
+        token: UInt64,
+        status: ghostty_render_presentation_status_e
+    ) {
+        Task { @MainActor [weak self] in
+            guard let surfaceView = self?.surfaceView else { return }
+            MobileDebugLog.anchormux(
+                "render.callback_failed token=\(token) status=\(status.rawValue)"
+            )
+            surfaceView.handleRenderSubmissionFailure(token: token, status: status)
         }
     }
 
@@ -79,6 +100,17 @@ final class GhosttySurfaceBridge: @unchecked Sendable {
         UInt64
     ) -> Void = { userdata, token in
         GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderPresented(token: token)
+    }
+
+    static let renderFailedCallback: @convention(c) (
+        UnsafeMutableRawPointer?,
+        UInt64,
+        ghostty_render_presentation_status_e
+    ) -> Void = { userdata, token, status in
+        GhosttySurfaceBridge.fromOpaque(userdata)?.handleRenderFailed(
+            token: token,
+            status: status
+        )
     }
 
     static func fromOpaque(_ userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceBridge? {

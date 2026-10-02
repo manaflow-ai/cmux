@@ -190,6 +190,38 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(result == .err(code: "not_found", message: "Surface not found", data: nil))
     }
 
+    @Test func surfaceClosePayloadReportsTheClosedSurfaceRef() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        let workspaceID = UUID()
+        let targetID = UUID()
+        _ = coordinator.ensureRef(kind: .surface, uuid: UUID())
+        let targetRef = coordinator.ensureRef(kind: .surface, uuid: targetID)
+        context.closeResolution = .closed(windowID: nil, workspaceID: workspaceID, surfaceID: targetID)
+        // App teardown forgets a closed surface's ref before the reply is built.
+        context.onSurfaceClose = { [weak coordinator] in
+            coordinator?.removeRef(kind: .surface, uuid: targetID)
+        }
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.close",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(targetRef),
+            ]
+        ))
+
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected close payload, got \(result)")
+            return
+        }
+        #expect(payload["surface_id"] == .string(targetID.uuidString))
+        #expect(payload["surface_ref"] == .string(targetRef))
+        #expect(coordinator.resolveRef(targetRef) == nil)
+        #expect(coordinator.ensureRef(kind: .surface, uuid: UUID()) == "surface:3")
+    }
+
     @Test func surfaceCloseRejectsExplicitNullSurfaceID() {
         let context = FakeSurfaceControlCommandContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -327,6 +359,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [
                 "command": .string("codex resume legacy"),
                 "kind": .string("codex"),
+                "source": .string("agent-hook"),
                 "permission_mode": .string("never"),
                 "launch_command": .object([
                     "launcher": .string("codex"),
@@ -338,23 +371,28 @@ struct ControlCommandCoordinatorSurfaceTests {
                     ]),
                     "working_directory": .string("/tmp/项目"),
                     "environment": .object(["CODEX_HOME": .string("/tmp/配置")]),
+                    "verification_home": .string("/tmp/launch-user"),
                     "captured_at": .double(42.5),
                     "source": .string("test"),
                 ]),
+                "resume_evidence_provenance": .string("tui"),
             ]
         ))
 
         let inputs = try #require(context.resumeSetInputs)
         #expect(inputs.permissionMode == "never")
+        #expect(inputs.source == "agent-hook")
         #expect(inputs.launchCommand == ControlAgentLaunchCommand(
             launcher: "codex",
             executablePath: "/opt/Codex Tools/codex",
             arguments: ["/opt/Codex Tools/codex", "space value", "引用"],
             workingDirectory: "/tmp/项目",
             environment: ["CODEX_HOME": "/tmp/配置"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 42.5,
             source: "test"
         ))
+        #expect(inputs.resumeEvidenceProvenance == "tui")
     }
 
     @Test(
@@ -410,8 +448,29 @@ struct ControlCommandCoordinatorSurfaceTests {
             arguments: ["/usr/bin/printf", "%s", "quoted ' value"],
             workingDirectory: "/tmp/日本語",
             environment: ["RESTORE_VALUE": "space value"],
+            verificationHome: "/tmp/launch-user",
             capturedAt: 21,
             source: "test"
+        )
+        let binding = ControlSurfaceResumeBinding(
+            name: nil,
+            kind: "codex",
+            command: "codex resume checkpoint",
+            cwd: "/tmp/日本語",
+            checkpointID: "checkpoint",
+            source: "agent-hook",
+            environment: ["RESTORE_VALUE": "space value"],
+            launchCommand: command,
+            permissionMode: "never",
+            autoResume: true,
+            approvalPolicyRawValue: nil,
+            approvalRecordID: nil,
+            executionLocationRawValue: "local",
+            remoteWorkspaceID: nil,
+            remoteSurfaceID: nil,
+            remotePTYSessionID: nil,
+            updatedAt: 21,
+            resumeEvidenceProvenance: "tui"
         )
         context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
             windowID: nil,
@@ -419,7 +478,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             paneID: nil,
             surfaceID: surfaceID,
             cleared: false,
-            binding: nil,
+            binding: binding,
             restoreRecord: ControlSurfaceRestoreRecord(
                 modeRawValue: "direct",
                 kind: "custom",
@@ -442,6 +501,7 @@ struct ControlCommandCoordinatorSurfaceTests {
             params: [:]
         ))
         guard case .ok(.object(let payload)) = result,
+              case .object(let resumeBinding)? = payload["resume_binding"],
               case .object(let record)? = payload["restore_record"],
               case .object(let launch)? = record["launch_command"] else {
             Issue.record("expected structured restore record")
@@ -453,7 +513,217 @@ struct ControlCommandCoordinatorSurfaceTests {
         #expect(record["environment"] == .object(["RESTORE_VALUE": .string("space value")]))
         #expect(record["prepared_arguments_working_directory"] == .string("/tmp/日本語"))
         #expect(launch["arguments"] == .array(command.arguments.map(JSONValue.string)))
+        #expect(launch["verification_home"] == .string("/tmp/launch-user"))
         #expect(record["legacy_command"] == .null)
+        #expect(resumeBinding["resume_evidence_provenance"] == .string("tui"))
+        #expect(payload["agent_restore_admission_supported"] == .bool(true))
+    }
+
+    @Test func surfaceResumeGetRejectsPartialRestoreClaim() {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: ["claim_checkpoint_id": .string("checkpoint")]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "restore claim must be valid",
+            data: nil
+        ))
+    }
+
+    @Test func surfaceResumeGetForwardsAtomicClaimAndReportsOutcome() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let surfaceID = UUID()
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: surfaceID,
+            cleared: false,
+            binding: nil,
+            restoreRecord: nil,
+            resumeClaimed: false
+        ))
+        let coordinator = ControlCommandCoordinator(context: context)
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.get",
+            params: [
+                "surface_id": .string(surfaceID.uuidString),
+                "claim_checkpoint_id": .string("checkpoint"),
+                "claim_source": .string("agent-hook"),
+                "claim_updated_at": .double(42.5),
+            ]
+        ))
+
+        #expect(context.resumeGetClaim?.checkpointID == "checkpoint")
+        #expect(context.resumeGetClaim?.source == "agent-hook")
+        #expect(context.resumeGetClaim?.updatedAt == 42.5)
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected surface resume claim result")
+            return
+        }
+        #expect(payload["resume_claimed"] == .bool(false))
+    }
+
+    /// The wrapper a session was started under has to survive the hook -> app -> CLI round trip, or
+    /// restore rebuilds a bare agent invocation and the wrapper is lost. https://github.com/manaflow-ai/cmux/issues/10494
+    @Test func surfaceResumeTransportsTheExternalLauncherID() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.resumeResolution = .setFailed
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("claude --resume checkpoint"),
+                "kind": .string("claude"),
+                "source": .string("agent-hook"),
+                "launch_command": .object([
+                    "launcher": .string("claude"),
+                    "external_launcher": .string("teamclaude"),
+                    "executable_path": .string("/opt/claude"),
+                    "arguments": .array([.string("/opt/claude")]),
+                ]),
+            ]
+        ))
+
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.launchCommand?.externalLauncher == "teamclaude")
+
+        let command = ControlAgentLaunchCommand(
+            launcher: "claude",
+            externalLauncher: "teamclaude",
+            executablePath: "/opt/claude",
+            arguments: ["/opt/claude"],
+            workingDirectory: nil,
+            environment: nil,
+            capturedAt: nil,
+            source: "environment"
+        )
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: UUID(),
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "resumeAgent",
+                kind: "claude",
+                checkpointID: "checkpoint",
+                source: "agent-hook",
+                workingDirectory: nil,
+                environment: [:],
+                launchCommand: command,
+                preparedArguments: nil,
+                preparedArgumentsWorkingDirectory: nil,
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(2),
+            method: "surface.resume.get",
+            params: [:]
+        ))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+        #expect(launch["external_launcher"] == .string("teamclaude"))
+    }
+
+    /// The launcher argv recorded at the hook (`sr claude proxy --account x`) carries the account
+    /// pin a routed restore replays, so it has to survive the hook -> app -> CLI round trip.
+    @Test func surfaceResumeTransportsTheLauncherPrefix() throws {
+        let context = FakeSurfaceControlCommandContext()
+        let coordinator = ControlCommandCoordinator(context: context)
+        context.resumeResolution = .setFailed
+        let prefix = ["sr", "claude", "proxy", "--account", "me@example.com"]
+
+        _ = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.resume.set",
+            params: [
+                "command": .string("claude --resume checkpoint"),
+                "kind": .string("claude"),
+                "source": .string("agent-hook"),
+                "launch_command": .object([
+                    "executable_path": .string("/opt/claude"),
+                    "arguments": .array([.string("/opt/claude")]),
+                    "launcher_prefix": .array(prefix.map(JSONValue.string)),
+                ]),
+            ]
+        ))
+        let inputs = try #require(context.resumeSetInputs)
+        #expect(inputs.launchCommand?.launcherPrefix == prefix)
+
+        // Anything but a non-empty array of strings is dropped, not half-kept.
+        for malformed: JSONValue in [.array([]), .array([.string("sr"), .int(1)]), .string("sr claude proxy")] {
+            _ = coordinator.handle(ControlRequest(
+                id: .int(2),
+                method: "surface.resume.set",
+                params: [
+                    "command": .string("claude --resume checkpoint"),
+                    "kind": .string("claude"),
+                    "launch_command": .object([
+                        "arguments": .array([.string("/opt/claude")]),
+                        "launcher_prefix": malformed,
+                    ]),
+                ]
+            ))
+            #expect(context.resumeSetInputs?.launchCommand?.launcherPrefix == nil)
+        }
+
+        context.resumeResolution = .result(ControlSurfaceResumeSnapshot(
+            windowID: nil,
+            workspaceID: UUID(),
+            paneID: nil,
+            surfaceID: UUID(),
+            cleared: false,
+            binding: nil,
+            restoreRecord: ControlSurfaceRestoreRecord(
+                modeRawValue: "resumeAgent",
+                kind: "claude",
+                checkpointID: "checkpoint",
+                source: "agent-hook",
+                workingDirectory: nil,
+                environment: [:],
+                launchCommand: ControlAgentLaunchCommand(
+                    launcher: nil,
+                    executablePath: "/opt/claude",
+                    arguments: ["/opt/claude"],
+                    workingDirectory: nil,
+                    environment: nil,
+                    capturedAt: nil,
+                    source: "agent-hook",
+                    launcherPrefix: prefix
+                ),
+                preparedArguments: nil,
+                preparedArgumentsWorkingDirectory: nil,
+                permissionMode: nil,
+                legacyCommand: nil
+            )
+        ))
+        let result = coordinator.handle(ControlRequest(id: .int(3), method: "surface.resume.get", params: [:]))
+        guard case .ok(.object(let payload)) = result,
+              case .object(let record)? = payload["restore_record"],
+              case .object(let launch)? = record["launch_command"] else {
+            Issue.record("expected structured restore record")
+            return
+        }
+        #expect(launch["launcher_prefix"] == .array(prefix.map(JSONValue.string)))
     }
 
     @Test func surfaceResumeClearForwardsManagedSessionEndProvenance() {
@@ -463,9 +733,13 @@ struct ControlCommandCoordinatorSurfaceTests {
         _ = coordinator.handle(ControlRequest(
             id: .int(1),
             method: "surface.resume.clear",
-            params: ["agent_session_ended": .bool(true)]
+            params: [
+                "agent_session_ended": .bool(true),
+                "expected_updated_at": .double(42.5),
+            ]
         ))
         #expect(context.resumeClearAgentSessionEnded == true)
+        #expect(context.resumeClearExpectedUpdatedAt == 42.5)
 
         _ = coordinator.handle(ControlRequest(
             id: .int(2),
@@ -611,6 +885,83 @@ struct ControlCommandCoordinatorSurfaceTests {
             data: nil
         ))
         #expect(context.reportedGit == nil)
+    }
+
+    @Test func reportShellStateForwardsTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let terminalLifecycleID = UUID()
+        context.reportShellStateResolution = .explicit(
+            surfaceID: surfaceID,
+            published: true
+        )
+
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(workspaceID.uuidString),
+                "surface_id": .string(surfaceID.uuidString),
+                "terminal_lifecycle_id": .string(
+                    terminalLifecycleID.uuidString
+                ),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(context.reportedShellState?.workspaceID == workspaceID)
+        #expect(context.reportedShellState?.requestedSurfaceID == surfaceID)
+        #expect(
+            context.reportedShellState?.terminalLifecycleID
+                == terminalLifecycleID
+        )
+        #expect(context.reportedShellState?.stateRawValue == "promptIdle")
+        guard case .ok(.object(let payload)) = result else {
+            Issue.record("expected shell-state report success")
+            return
+        }
+        #expect(payload["published"] == .bool(true))
+    }
+
+    @Test func reportShellStateRejectsMalformedTerminalLifecycleIdentity() {
+        let (coordinator, context) = makeCoordinator()
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "surface_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Terminal session is out of date; restart the shell and try again",
+            data: nil
+        ))
+        #expect(context.reportedShellState == nil)
+    }
+
+    @Test func reportShellStateReturnsFallbackWhenContextIsUnavailable() {
+        let coordinator = ControlCommandCoordinator(context: nil)
+        let result = coordinator.handle(ControlRequest(
+            id: .int(1),
+            method: "surface.report_shell_state",
+            params: [
+                "workspace_id": .string(UUID().uuidString),
+                "terminal_lifecycle_id": .string("not-a-uuid"),
+                "state": .string("prompt"),
+            ]
+        ))
+
+        #expect(result == .err(
+            code: "invalid_params",
+            message: "Terminal session is out of date; restart the shell and try again",
+            data: nil
+        ))
     }
 
     @Test func clearGitBranchResolvesWorkspaceScopedTmuxSurface() {

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import Foundation
 
@@ -13,7 +14,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -29,7 +29,6 @@ extension TerminalController {
             tabManager: tabManager,
             panelType: panelType,
             unsupportedType: { .dockUnsupportedType(typeRawValue: $0, message: $1) },
-            dockUnavailable: { .dockUnavailable(message: $0) },
             workspaceNotFound: .workspaceNotFound,
             conflictingSelectors: { .dockConflictingRoutingSelectors(message: $0) }
         )
@@ -40,15 +39,11 @@ extension TerminalController {
         tabManager: TabManager,
         panelType: PanelType,
         unsupportedType: (String, String) -> Resolution,
-        dockUnavailable: (String) -> Resolution,
         workspaceNotFound: Resolution,
         conflictingSelectors: (String) -> Resolution
     ) -> Resolution? {
         guard panelType == .terminal || panelType == .browser else {
             return unsupportedType(panelType.rawValue, dockUnsupportedSurfaceTypeMessage())
-        }
-        guard RightSidebarMode.dock.isAvailable() else {
-            return dockUnavailable(dockUnavailableMessage())
         }
         guard let dockOwnerId = windowDockOwnerIdForCreateRouting(routing, tabManager: tabManager) else {
             return workspaceNotFound
@@ -57,6 +52,18 @@ extension TerminalController {
             return conflictingSelectors(dockConflictingRoutingSelectorsMessage())
         }
         return nil
+    }
+
+    /// Checks Dock focus availability without activating a window or changing selection.
+    func canRevealDockForFocus(tabManager: TabManager) -> Bool {
+        let preferredWindow = v2ResolveWindowId(tabManager: tabManager)
+            .flatMap { AppDelegate.shared?.mainWindow(for: $0) }
+        guard let context = AppDelegate.shared?.preferredRegisteredMainWindowContext(
+            preferredWindow: preferredWindow
+        ) else {
+            return false
+        }
+        return context.keyboardFocusCoordinator.canFocusRightSidebar(mode: .dock)
     }
 
     @discardableResult
@@ -75,7 +82,11 @@ extension TerminalController {
     }
 
     func dockUnavailableMessage() -> String {
-        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is disabled")
+        String(localized: "dock.error.unavailable", defaultValue: "Dock placement is unavailable")
+    }
+
+    func dockFocusUnavailableMessage() -> String {
+        String(localized: "dock.error.focusUnavailable", defaultValue: "Dock could not be revealed")
     }
 
     func dockConflictingRoutingSelectorsMessage() -> String {
@@ -106,7 +117,9 @@ extension TerminalController {
         let focus = v2FocusAllowed(requested: inputs.requestedFocus)
         let kind: DockSurfaceKind = (panelType == .browser) ? .browser : .terminal
         if focus {
-            focusAndRevealWindowDock(for: dock, fallback: tabManager)
+            // Creation is authoritative; revealing its secondary focus request
+            // is best-effort when the Dock host is still mounting.
+            _ = focusAndRevealWindowDock(for: dock, fallback: tabManager)
         }
         let newPanelId = dock.newSurface(
             kind: kind,
@@ -116,10 +129,15 @@ extension TerminalController {
             workingDirectory: kind == .terminal ? inputs.workingDirectory : nil,
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
-            focus: focus
+            initialInput: kind == .terminal ? inputs.initialInput : nil,
+            focus: false,
+            preloadInitialNavigationInBackground: kind == .browser
         )
         guard let newPanelId else {
             return .createFailed
+        }
+        if focus {
+            dock.focusPanelFromDockInteraction(newPanelId, window: nil)
         }
         return .createdDock(
             windowID: dock.workspaceId,
@@ -296,18 +314,33 @@ extension TerminalController {
         return workspaceID != dockOwnerId
     }
 
-    /// Focuses the Dock's owning window, makes it the active manager, and
-    /// reveals the Dock there, returning the owning manager. A Dock surface or
-    /// pane renders only in its owning window (the registry is the source of
-    /// truth), so Dock focus operations anchor there even when the caller's
-    /// routed context resolved another window.
+    /// Focuses the Dock's owning window and reveals the Dock there. Returns
+    /// whether the Dock became available for the requested focus operation. A
+    /// Dock surface or pane renders only in its owning window (the registry is
+    /// the source of truth), so Dock focus operations anchor there even when
+    /// the caller's routed context resolved another window.
     @discardableResult
-    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> TabManager {
+    func focusAndRevealWindowDock(for dock: DockSplitStore, fallback tabManager: TabManager) -> Bool {
         let owningTabManager = dockOwnerTabManager(for: dock, fallback: tabManager)
-        _ = AppDelegate.shared?.focusMainWindow(windowId: dock.workspaceId)
+        guard let appDelegate = AppDelegate.shared,
+              let registeredTabManager = appDelegate.tabManagerForWindowDockOwner(dock.workspaceId),
+              registeredTabManager === owningTabManager,
+              appDelegate.existingWindowDock(forWindowId: dock.workspaceId) === dock,
+              let owningWindow = appDelegate.mainWindow(for: dock.workspaceId),
+              let owningContext = appDelegate.preferredRegisteredMainWindowContext(
+                  preferredWindow: owningWindow
+              ),
+              owningContext.windowId == dock.workspaceId,
+              owningContext.tabManager === owningTabManager,
+              appDelegate.focusRightSidebarInActiveMainWindow(
+                  mode: .dock,
+                  focusFirstItem: false,
+                  preferredWindow: owningWindow
+              ) else {
+            return false
+        }
         setActiveTabManager(owningTabManager)
-        revealDockForFocus(tabManager: owningTabManager)
-        return owningTabManager
+        return true
     }
 
     /// The window-Dock branch of `controlSurfaceClose`: closes the routed
@@ -318,7 +351,8 @@ extension TerminalController {
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
-        tabManager: TabManager
+        tabManager: TabManager,
+        force: Bool
     ) -> ControlSurfaceCloseResolution? {
         guard let windowDock = windowDockForRouting(routing, tabManager: tabManager) else { return nil }
         let resolved = resolvedWindowDockSurfaceId(
@@ -336,7 +370,12 @@ extension TerminalController {
         guard windowDock.containsPanel(surfaceId) else {
             return .closeFailed(surfaceId)
         }
-        guard windowDock.closePanel(surfaceId, force: true) else {
+        if !force,
+           let panel = windowDock.panel(for: TabID(uuid: surfaceId)),
+           windowDock.dockPanelNeedsConfirmClose(panel) {
+            return .confirmationRequired(surfaceId)
+        }
+        guard windowDock.closePanel(surfaceId, force: force) else {
             return .closeFailed(surfaceId)
         }
         AppDelegate.shared?.notificationStore?.clearNotifications(
@@ -421,6 +460,16 @@ extension TerminalController {
         }
         if let routedSurfaceID = routing.surfaceID {
             return (routedSurfaceID, false)
+        }
+        if let routedPaneID = routing.paneID {
+            guard let paneID = dock.bonsplitController.allPaneIds.first(where: {
+                $0.id == routedPaneID
+            }),
+            let tabID = dock.bonsplitController.selectedTab(inPane: paneID)?.id,
+            let panel = dock.panel(for: tabID) else {
+                return (nil, false)
+            }
+            return (panel.id, false)
         }
         return (dock.focusedPanelId, false)
     }

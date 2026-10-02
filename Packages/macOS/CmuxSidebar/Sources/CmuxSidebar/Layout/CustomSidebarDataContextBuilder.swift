@@ -48,12 +48,31 @@ public struct CustomSidebarDataContextBuilder {
         ])
         return [
             "workspaces": .array(workspaces),
+            "groups": .array(snapshot.groups.map(groupValue(_:))),
             "workspaceCount": .int(snapshot.workspaces.count),
             "selectedTitle": .string(snapshot.selectedWorkspaceTitle),
             "selectedId": .string(snapshot.selectedWorkspaceId?.uuidString ?? ""),
             "unreadTotal": .int(snapshot.totalUnreadCount),
             "clock": clock,
         ]
+    }
+
+    /// Projects one group's snapshot into the interpreter value tree.
+    public func groupValue(_ group: CustomSidebarGroupSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(group.id.uuidString),
+            "name": .string(group.name),
+            "collapsed": .bool(group.isCollapsed),
+            "pinned": .bool(group.isPinned),
+            "anchorId": .string(group.anchorWorkspaceId.uuidString),
+        ]
+        if let color = group.customColor, !color.isEmpty {
+            fields["color"] = .string(color)
+        }
+        if let icon = group.iconSymbol, !icon.isEmpty {
+            fields["icon"] = .string(icon)
+        }
+        return .object(fields)
     }
 
     /// Projects one workspace's snapshot into the interpreter value tree.
@@ -74,6 +93,9 @@ public struct CustomSidebarDataContextBuilder {
             "tabs": .array(workspace.surfaces.map(surfaceValue(_:))),
             "tabCount": .int(workspace.surfaceCount),
         ]
+        if let groupId = workspace.groupId {
+            fields["group"] = .string(groupId.uuidString)
+        }
         if let description = workspace.customDescription, !description.isEmpty {
             fields["description"] = .string(description)
         }
@@ -111,18 +133,84 @@ public struct CustomSidebarDataContextBuilder {
                 "connected": .bool(remote.isConnected),
             ])
         }
+        if !workspace.agents.isEmpty {
+            fields["agents"] = .array(workspace.agents.map(agentValue(_:)))
+        }
+        return .object(fields)
+    }
+
+    /// Projects one agent-session snapshot into the interpreter value tree
+    /// (`workspaces[i].agents[j]`). Optional fields are omitted when absent.
+    public func agentValue(_ agent: CustomSidebarAgentSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(agent.sessionId),
+            "kind": .string(agent.kind),
+            "name": .string(agent.name),
+            "status": .string(agent.status),
+            "lastActivityAt": .int(Int(agent.lastActivityAt.timeIntervalSince1970)),
+        ]
+        if let since = agent.stateSince {
+            fields["sinceEpoch"] = .int(Int(since.timeIntervalSince1970))
+        }
+        if let title = agent.title, !title.isEmpty {
+            fields["title"] = .string(title)
+        }
+        if let panelId = agent.panelId {
+            fields["panelId"] = .string(panelId.uuidString)
+        }
+        if let surfaceId = agent.surfaceId {
+            // The id surface.* verbs accept (surface.focus etc.); panelId
+            // above is the panel behind the tab.
+            fields["surfaceId"] = .string(surfaceId.uuidString)
+        }
+        if let directory = agent.workingDirectory, !directory.isEmpty {
+            fields["directory"] = .string(directory)
+        }
+        if !agent.children.isEmpty {
+            fields["children"] = .array(agent.children.map(agentChildValue(_:)))
+        }
+        if let transcriptPath = agent.transcriptPath, !transcriptPath.isEmpty {
+            fields["transcriptPath"] = .string(transcriptPath)
+        }
+        if let pid = agent.pid {
+            fields["pid"] = .int(pid)
+        }
+        return .object(fields)
+    }
+
+    /// Projects one child agent run into the interpreter value tree
+    /// (`agents[j].children[k]`). Optional fields are omitted when absent.
+    public func agentChildValue(_ child: CustomSidebarAgentChildSnapshot) -> SwiftValue {
+        var fields: [String: SwiftValue] = [
+            "id": .string(child.id),
+            "running": .bool(child.isRunning),
+            "startedEpoch": .int(Int(child.startedAt.timeIntervalSince1970)),
+        ]
+        if let label = child.label, !label.isEmpty {
+            fields["label"] = .string(label)
+        }
+        if let endedAt = child.endedAt {
+            fields["endedEpoch"] = .int(Int(endedAt.timeIntervalSince1970))
+        }
         return .object(fields)
     }
 
     /// Projects one surface snapshot into the interpreter value tree, enriched
-    /// with per-surface directory, pin, git, and ports where available.
+    /// with per-surface directory, pin, git, ports, unread state, and the
+    /// prompt last submitted in that surface where available.
     public func surfaceValue(_ surface: CustomSidebarSurfaceSnapshot) -> SwiftValue {
         var surfaceFields: [String: SwiftValue] = [
             "id": .string(surface.panelId.uuidString),
             "title": .string(surface.title),
             "focused": .bool(surface.isFocused),
             "pinned": .bool(surface.isPinned),
+            "hasUnread": .bool(surface.hasUnreadNotification),
         ]
+        if let surfaceId = surface.surfaceId {
+            // The id surface.* verbs accept (surface.focus etc.); `id` above
+            // is the panel behind the tab.
+            surfaceFields["surfaceId"] = .string(surfaceId.uuidString)
+        }
         if let directory = surface.directory, !directory.isEmpty {
             surfaceFields["directory"] = .string(directory)
         }
@@ -132,6 +220,12 @@ public struct CustomSidebarDataContextBuilder {
         }
         if !surface.listeningPorts.isEmpty {
             surfaceFields["ports"] = .array(surface.listeningPorts.map { .int($0) })
+        }
+        if let prompt = surface.latestSubmittedMessage, !prompt.isEmpty {
+            surfaceFields["latestPrompt"] = .string(prompt)
+        }
+        if let at = surface.latestSubmittedAt {
+            surfaceFields["latestAt"] = .int(Int(at.timeIntervalSince1970))
         }
         return .object(surfaceFields)
     }

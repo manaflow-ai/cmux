@@ -14,6 +14,19 @@ public protocol CmxIrohClientContextProvider: CmxIrohPrivateFallbackValidating, 
         for request: CmxByteTransportRequest,
         basedOn context: CmxIrohClientContext
     ) async throws -> CmxIrohClientContext
+
+    /// Records one terminal dial failure so the provider can invalidate any
+    /// reusable discovery state before the next attempt for the same peer.
+    ///
+    /// - Parameters:
+    ///   - request: The exact peer intent whose dial failed.
+    ///   - dialPlan: The plan the failed dial used.
+    ///   - failure: The bounded classification of the dial error.
+    func noteDialFailure(
+        for request: CmxByteTransportRequest,
+        dialPlan: CmxIrohDialPlan,
+        failure: DiagnosticFailureKind
+    ) async
 }
 
 public extension CmxIrohClientContextProvider {
@@ -31,4 +44,11 @@ public extension CmxIrohClientContextProvider {
     ) async throws {
         throw CmxIrohPrivateFallbackValidationError.unavailable
     }
+
+    /// Providers without reusable discovery state ignore dial outcomes.
+    func noteDialFailure(
+        for _: CmxByteTransportRequest,
+        dialPlan _: CmxIrohDialPlan,
+        failure _: DiagnosticFailureKind
+    ) async {}
 }

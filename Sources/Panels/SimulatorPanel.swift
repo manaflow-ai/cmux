@@ -202,6 +202,14 @@ final class SimulatorPanel: Panel {
         applyRegisteredVisibility()
     }
 
+    /// Registers mobile framebuffer demand without making the panel logically
+    /// visible in AppKit. The coordinator remains the single publication owner.
+    func setMobileFrameDemand(_ active: Bool, consumerID: UUID) {
+        guard !isClosed else { return }
+        coordinator.setMobileFrameDemand(active, consumerID: consumerID)
+        if active { startCoordinator(requiresVisibility: false) }
+    }
+
     func setCanvasRendering(_ rendering: Bool?) {
         guard !isClosed else { return }
         canvasRendering = rendering
@@ -360,8 +368,11 @@ final class SimulatorPanel: Panel {
         requiresExplicitDeviceSelection = false
     }
 
-    private func startCoordinator() {
-        guard !isClosed, !isFeatureDisabled, isEffectivelyVisible, startupTask == nil else { return }
+    private func startCoordinator(requiresVisibility: Bool = true) {
+        guard !isClosed,
+              !isFeatureDisabled,
+              (!requiresVisibility || isEffectivelyVisible),
+              startupTask == nil else { return }
         let coordinator = self.coordinator
         startupTask = Task { await coordinator.start() }
     }

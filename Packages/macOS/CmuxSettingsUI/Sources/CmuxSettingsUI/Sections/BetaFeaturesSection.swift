@@ -2,22 +2,30 @@ import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
-/// **Beta Features** section — a warning note followed by the
-/// experimental toggles. Each toggle gates an unstable feature that is
-/// off by default.
+/// **Beta Features** section — a warning note followed by the experimental
+/// toggles. Each toggle gates an unstable feature that is off by default.
 @MainActor
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
-    @State private var dock: DefaultsValueModel<Bool>
+    @State private var conversationSidebar: DefaultsValueModel<Bool>
+    @State private var cloudMachines: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
     @State private var remoteTmux: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
+    /// `DisableCloud` (MDM). The opt-in is meaningless while an administrator
+    /// forces Cloud off, so the row says so and locks the toggle; re-read on
+    /// ``ManagedDevicePolicy/changeSignals(notificationCenter:)``.
+    @State private var cloudMachinesManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
+    /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
+    /// custom sidebars opt-in.
+    @State private var customSidebarsManagedByPolicy = ManagedDevicePolicy().isEnforced(.disableCustomSidebars)
 
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
-        _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _conversationSidebar = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.conversationSidebar))
+        _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
         _remoteTmux = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmux))
@@ -35,7 +43,9 @@ public struct BetaFeaturesSection: View {
                 SettingsCardDivider()
                 feedRow
                 SettingsCardDivider()
-                dockRow
+                conversationSidebarRow
+                SettingsCardDivider()
+                cloudMachinesRow
                 SettingsCardDivider()
                 extensionsRow
                 SettingsCardDivider()
@@ -49,12 +59,20 @@ public struct BetaFeaturesSection: View {
             }
         }
         .task { startObservingSettings() }
+        .task {
+            for await _ in ManagedDevicePolicy.changeSignals() {
+                let policy = ManagedDevicePolicy()
+                cloudMachinesManagedByPolicy = policy.isEnforced(.disableCloud)
+                customSidebarsManagedByPolicy = policy.isEnforced(.disableCustomSidebars)
+            }
+        }
     }
 
     private func startObservingSettings() {
         let models: [any SettingObservationStarting] = [
             feed,
-            dock,
+            conversationSidebar,
+            cloudMachines,
             extensions,
             customSidebars,
             remoteTmux,
@@ -65,14 +83,29 @@ public struct BetaFeaturesSection: View {
     }
 
     @ViewBuilder
+    private var conversationSidebarRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("sidebar.beta.conversations.enabled"),
+            searchAnchorID: "setting:betaFeatures:conversationSidebar",
+            String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
+            subtitle: conversationSidebar.current
+                ? String(localized: "settings.betaFeatures.conversationSidebar.subtitleOn", defaultValue: "Shows Conversations in the left sidebar picker.")
+                : String(localized: "settings.betaFeatures.conversationSidebar.subtitleOff", defaultValue: "Hides Conversations while preserving existing agent sessions.")
+        ) {
+            Toggle("", isOn: Binding(get: { conversationSidebar.current }, set: { conversationSidebar.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaConversationSidebarToggle")
+        }
+    }
+
+    @ViewBuilder
     private var workspaceTodoControlsRow: some View {
         SettingsCardRow(
             configurationReview: .json("sidebar.beta.workspaceTodos.controls.enabled"),
             searchAnchorID: "setting:betaFeatures:workspace-todo-controls",
             String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"),
-            subtitle: workspaceTodoControls.current
-                ? String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOn", defaultValue: "Shows Add Checklist Item and workspace status controls.")
-                : String(localized: "settings.betaFeatures.workspaceTodoControls.subtitleOff", defaultValue: "Keeps workspace todo summaries read-only unless remote rollout enables the controls.")
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodoControls.subtitle", defaultValue: "Shows Add Checklist Item and status controls on workspaces. A remote rollout can turn them on even while this is off.")
         ) {
             Toggle("", isOn: Binding(get: { workspaceTodoControls.current }, set: { workspaceTodoControls.set($0) }))
                 .labelsHidden()
@@ -87,9 +120,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .json("sidebar.beta.workspaceTodos.checklistStyle"),
             searchAnchorID: "setting:betaFeatures:workspace-todos-checklist-style",
             String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"),
-            subtitle: workspaceTodosChecklistStyle.current == .popover
-                ? String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitlePopover", defaultValue: "Clicking a row's checklist summary opens an anchored popover.")
-                : String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitleInline", defaultValue: "Clicking a row's checklist summary expands the items inline under the row."),
+            subtitle: String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle.subtitle", defaultValue: "Choose whether clicking a workspace checklist opens a popover or expands it under the row."),
             controlWidth: 196
         ) {
             Picker(String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), selection: Binding(
@@ -111,9 +142,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:feed",
             String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"),
-            subtitle: feed.current
-                ? String(localized: "settings.betaFeatures.feed.subtitleOn", defaultValue: "Shows Feed in the right sidebar mode switcher for inline agent decisions.")
-                : String(localized: "settings.betaFeatures.feed.subtitleOff", defaultValue: "Hides Feed from the right sidebar until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.feed.subtitle", defaultValue: "Adds Feed to the right sidebar for answering agent requests.")
         ) {
             Toggle("", isOn: Binding(get: { feed.current }, set: { feed.set($0) }))
                 .labelsHidden()
@@ -123,19 +152,22 @@ public struct BetaFeaturesSection: View {
     }
 
     @ViewBuilder
-    private var dockRow: some View {
+    private var cloudMachinesRow: some View {
         SettingsCardRow(
-            configurationReview: .settingsOnly,
-            searchAnchorID: "setting:betaFeatures:dock",
-            String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"),
-            subtitle: dock.current
-                ? String(localized: "settings.betaFeatures.dock.subtitleOn", defaultValue: "Shows Dock in the right sidebar mode switcher for custom terminal controls.")
-                : String(localized: "settings.betaFeatures.dock.subtitleOff", defaultValue: "Hides Dock from the right sidebar until you enable it here.")
+            configurationReview: .json("cloud.beta.machines.enabled"),
+            searchAnchorID: "setting:betaFeatures:cloudMachines",
+            String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
+            subtitle: cloudMachinesManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off.")
         ) {
-            Toggle("", isOn: Binding(get: { dock.current }, set: { dock.set($0) }))
+            Toggle("", isOn: Binding(get: { cloudMachines.current && !cloudMachinesManagedByPolicy }, set: {
+                CloudMachinesBetaSettingAction(model: cloudMachines).setEnabled($0)
+            }))
                 .labelsHidden()
                 .controlSize(.small)
-                .accessibilityIdentifier("SettingsBetaDockToggle")
+                .disabled(cloudMachinesManagedByPolicy)
+                .accessibilityIdentifier("SettingsBetaCloudMachinesToggle")
         }
     }
 
@@ -145,9 +177,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:extensions",
             String(localized: "settings.betaFeatures.extensions", defaultValue: "Extensions"),
-            subtitle: extensions.current
-                ? String(localized: "settings.betaFeatures.extensions.subtitleOn", defaultValue: "Shows the puzzle button, the sidebar-toggle extension menu, and lets you install and host sidebar extensions.")
-                : String(localized: "settings.betaFeatures.extensions.subtitleOff", defaultValue: "Hides all extension UI until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.extensions.subtitle", defaultValue: "Adds the extensions button and lets cmux install and run sidebar extensions.")
         ) {
             Toggle("", isOn: Binding(get: { extensions.current }, set: { extensions.set($0) }))
                 .labelsHidden()
@@ -162,13 +192,14 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:customSidebars",
             String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"),
-            subtitle: customSidebars.current
-                ? String(localized: "settings.betaFeatures.customSidebars.subtitleOn", defaultValue: "Lists your sidebars from ~/.config/cmux/sidebars in the sidebar picker, rendered in an isolated helper process.")
-                : String(localized: "settings.betaFeatures.customSidebars.subtitleOff", defaultValue: "Hides custom sidebars from the sidebar picker until you enable them here.")
+            subtitle: customSidebarsManagedByPolicy
+                ? String(localized: "settings.managedByOrganization", defaultValue: "Managed by your organization")
+                : String(localized: "settings.betaFeatures.customSidebars.subtitle", defaultValue: "Adds sidebars from ~/.config/cmux/sidebars to the sidebar picker.")
         ) {
-            Toggle("", isOn: Binding(get: { customSidebars.current }, set: { customSidebars.set($0) }))
+            Toggle("", isOn: Binding(get: { customSidebars.current && !customSidebarsManagedByPolicy }, set: { customSidebars.set($0) }))
                 .labelsHidden()
                 .controlSize(.small)
+                .disabled(customSidebarsManagedByPolicy)
                 .accessibilityIdentifier("SettingsBetaCustomSidebarsToggle")
         }
     }
@@ -179,9 +210,7 @@ public struct BetaFeaturesSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:betaFeatures:remoteTmux",
             String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"),
-            subtitle: remoteTmux.current
-                ? String(localized: "settings.betaFeatures.remoteTmux.subtitleOn", defaultValue: "Mirrors a remote host's tmux sessions in the sidebar over ssh tmux -CC; sessions become workspaces and windows become tabs. Quitting cmux leaves the remote tmux server running.")
-                : String(localized: "settings.betaFeatures.remoteTmux.subtitleOff", defaultValue: "Hides remote tmux mirroring until you enable it here.")
+            subtitle: String(localized: "settings.betaFeatures.remoteTmux.subtitle", defaultValue: "Shows tmux sessions on remote hosts as workspaces in the sidebar. The sessions keep running after cmux quits.")
         ) {
             Toggle("", isOn: Binding(get: { remoteTmux.current }, set: { remoteTmux.set($0) }))
                 .labelsHidden()

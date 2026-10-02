@@ -21,9 +21,22 @@ public enum PasteboardTextFidelity {
             (richTextHasLossySubstitution && richTextSubstitutionIsRelevant)
     }
 
+    /// Whether the plain-text flavor looks like an encoder dropped characters
+    /// it could not represent, so the rich-text flavor is worth parsing.
+    ///
+    /// A lossy exporter (MacRoman in #2818) writes U+FFFD or one "?" per lost
+    /// character, so a lost non-Latin word shows up as a run of "?". Ordinary
+    /// text uses isolated "?" (questions, URL query strings), and counting
+    /// those sent everyday pastes down the slow rich-text path (#9998).
     public static func shouldInspectRichTextForPlainTextLoss(_ plainText: String) -> Bool {
-        let metrics = textFidelityMetrics(plainText)
-        return metrics.replacementCharacters > 0 || metrics.questionMarks >= 2
+        var previousWasQuestionMark = false
+        for scalar in plainText.unicodeScalars {
+            if scalar.value == 0xFFFD { return true }
+            let isQuestionMark = scalar.value == 0x3F
+            if isQuestionMark && previousWasQuestionMark { return true }
+            previousWasQuestionMark = isQuestionMark
+        }
+        return false
     }
 
     public static func shouldPreferRichText(
@@ -44,31 +57,7 @@ public enum PasteboardTextFidelity {
     }
 
     public static func htmlHasNoVisibleText(_ html: String) -> Bool {
-        var visibleCandidate = html.replacingOccurrences(
-            of: "<!--[\\s\\S]*?-->",
-            with: " ",
-            options: .regularExpression
-        )
-
-        for hiddenBlockTag in ["script", "style", "noscript", "template"] {
-            visibleCandidate = visibleCandidate.replacingOccurrences(
-                of: "<\(hiddenBlockTag)\\b[^>]*>[\\s\\S]*?</\(hiddenBlockTag)>",
-                with: " ",
-                options: [.regularExpression, .caseInsensitive]
-            )
-        }
-
-        let withoutTags = visibleCandidate.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
-        let normalized = withoutTags
-            .replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
-            .replacingOccurrences(of: "&#160;", with: " ")
-            .replacingOccurrences(of: "&#xA0;", with: " ", options: .caseInsensitive)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalized.isEmpty
+        HTMLPlainTextParser().outcome(from: html).confirmsNoVisibleText
     }
 
     private static func textFidelityMetrics(

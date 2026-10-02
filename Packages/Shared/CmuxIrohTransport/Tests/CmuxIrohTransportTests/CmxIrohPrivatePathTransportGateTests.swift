@@ -72,7 +72,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                         activeNetworkProfiles: [profile]
                     )
                 },
-                customPrivateFallback: { deviceID in
+                customPrivateFallback: { deviceID, _ in
                     guard CmxIrohDeviceID(deviceID)
                         == CmxIrohDeviceID(fixture.acceptor.deviceID) else { return [] }
                     return [customPath]
@@ -227,7 +227,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                         activeNetworkProfiles: [profile]
                     )
                 },
-                customPrivateFallback: { _ in [customPath] },
+                customPrivateFallback: { _, _ in [customPath] },
                 now: { now }
             )
             let context = try await provider.context(for: fixture.request(hints: []))
@@ -288,7 +288,7 @@ struct CmxIrohPrivatePathTransportGateTests {
                     activeNetworkProfiles: []
                 )
             },
-            customPrivateFallback: { _ in [customPath] },
+            customPrivateFallback: { _, _ in [customPath] },
             now: { now }
         )
 

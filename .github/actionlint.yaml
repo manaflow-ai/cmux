@@ -12,11 +12,27 @@ self-hosted-runner:
     # macOS 26 needs route to Blacksmith cloud, not warp-macos-26-arm64-6x: our
     # self-hosted minis carry that label, and GitHub prefers a matching
     # self-hosted runner. See check_no_self_hosted_fleet_runners.
-    - depot-macos-latest
-    - depot-macos-14
-    # Manual E2E canary only. Required CI remains routed through repo variables.
-    - tart-canary
     # Linux: Blacksmith primary (LINUX_RUNNER), WarpBuild overflow fallback.
     - blacksmith-4vcpu-ubuntu-2404
     - blacksmith-8vcpu-ubuntu-2404
+    - blacksmith-32vcpu-ubuntu-2404
     - warp-ubuntu-latest-x64-4x
+    # GitHub-hosted, not self-hosted. actionlint 1.7.7 ships a fixed list of
+    # hosted labels and macos-15-intel postdates it, so the only way to say
+    # "this label is real" is here. It is: run 34656982146's
+    # `compat-tests (macos-15-intel, ...)` job was served by "GitHub Actions
+    # 1000200229", the same kind of runner name as the macos-14 job beside it.
+    - macos-15-intel
+
+paths:
+  .github/workflows/test-ios.yml:
+    ignore:
+      # `swift_package` is a workflow_dispatch choice input whose first option
+      # is "" -- the default, meaning "run the simulator suite, not a SwiftPM
+      # package". actionlint is right that an empty choice option is invalid
+      # per the schema. Removing it is not a lint fix: with `type: choice`,
+      # GitHub validates the submitted value against the option list, so any
+      # existing dispatcher passing an empty string starts getting rejected.
+      # The workflow is dispatch-only and driven from outside this repository,
+      # so that call belongs to whoever owns those dispatchers.
+      - 'string should not be empty'

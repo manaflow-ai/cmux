@@ -1,9 +1,10 @@
 import CryptoKit
 import Foundation
+import IrohLib
 
 /// Builds the two-leg registration proof using the Iroh EndpointID key.
 public struct CmxIrohRegistrationSigner: Sendable {
-    private let secretKey: Data
+    private let signingKey: SecretKey
     private let endpointID: String
 
     /// Creates a signer and proves the supplied secret derives the endpoint.
@@ -11,14 +12,12 @@ public struct CmxIrohRegistrationSigner: Sendable {
     /// - Throws: ``CmxIrohRegistrationError/endpointIdentityMismatch`` when
     ///   route identity and signing identity differ.
     public init(identity: CmxIrohIdentityMaterial, endpointID: String) throws {
-        let privateKey = try Curve25519.Signing.PrivateKey(
-            rawRepresentation: identity.secretKey.bytes
-        )
-        let derivedID = Self.hex(privateKey.publicKey.rawRepresentation)
+        let signingKey = try SecretKey.fromBytes(bytes: identity.secretKey.bytes)
+        let derivedID = Self.hex(signingKey.public().toBytes())
         guard derivedID == endpointID else {
             throw CmxIrohRegistrationError.endpointIdentityMismatch
         }
-        secretKey = identity.secretKey.bytes
+        self.signingKey = signingKey
         self.endpointID = endpointID
     }
 
@@ -64,14 +63,36 @@ public struct CmxIrohRegistrationSigner: Sendable {
         let transcript = Data(
             "cmux/iroh/device-registration/v1\n\(challengeID)\n\(challenge.nonce)\n\(prepared.payloadSHA256)".utf8
         )
-        let privateKey = try Curve25519.Signing.PrivateKey(rawRepresentation: secretKey)
-        let signature = try privateKey.signature(for: transcript)
+        let signature = signingKey.sign(message: transcript).toBytes()
         return CmxIrohRegisterRequest(
             challengeID: challengeID,
             nonce: challenge.nonce,
             payload: prepared.encodedPayload,
             signature: Self.base64URL(signature)
         )
+    }
+
+    /// Signs one authenticated broker request with the registered endpoint key.
+    func signBrokerRequest(
+        bindingID: String,
+        method: String,
+        path: String,
+        timestamp: Int64,
+        body: Data
+    ) throws -> String {
+        guard Self.isBrokerUUID(bindingID),
+              !method.isEmpty,
+              method.utf8.allSatisfy({ (65...90).contains($0) }),
+              !path.isEmpty,
+              path.utf8.allSatisfy({ $0 >= 0x21 && $0 <= 0x7e }),
+              timestamp > 0 else {
+            throw CmxIrohRegistrationError.invalidChallenge
+        }
+        let bodySHA256 = Self.hex(Data(SHA256.hash(data: body)))
+        let transcript = Data(
+            "cmux/iroh/binding-request/v1\n\(bindingID.lowercased())\n\(method)\n\(path)\n\(timestamp)\n\(bodySHA256)".utf8
+        )
+        return Self.base64URL(signingKey.sign(message: transcript).toBytes())
     }
 
     private static func base64URL(_ data: Data) -> String {

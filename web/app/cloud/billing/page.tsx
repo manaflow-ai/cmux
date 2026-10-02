@@ -36,7 +36,6 @@ const STATUS_MESSAGE_KEYS: Record<
   "portal-return": "portalReturn",
 };
 
-export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   searchParams,

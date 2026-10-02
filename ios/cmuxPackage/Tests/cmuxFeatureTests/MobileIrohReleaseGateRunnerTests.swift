@@ -9,6 +9,25 @@ import Testing
 
 @MainActor
 struct MobileIrohReleaseGateRunnerTests {
+    @Test func completedRecoveryPreservesFailureAndSuccessfulProofs() throws {
+        var soak = MobileIrohSoakRunner.Evidence(profile: .stress, requestedDurationSeconds: 3_600)
+        soak.elapsedSeconds = 3_600
+        soak.completedCycles = 700
+        soak.currentOperation = "complete"
+        soak.recoverableFailures = ["terminalRoundTripFailed": 1]
+        let report = MobileIrohReleaseGateRunner.completedReport(
+            mode: .relayOnly, scenario: .standard, probe: Self.successfulProbe,
+            selectedPath: "relay", soak: soak
+        )
+        let serialized = try JSONEncoder().encode(report)
+        let restored = try JSONDecoder().decode(MobileIrohReleaseGateRunner.Report.self, from: serialized)
+        #expect(!restored.passed)
+        #expect(restored.failure == "soak_terminal_recovered")
+        #expect(restored.terminalRoundTripVerified)
+        #expect(restored.soak?.recoverableFailures == ["terminalRoundTripFailed": 1])
+        #expect(restored.soak?.currentOperation == "complete")
+    }
+
     @Test
     func taskRestartReusesOneRunAndOneReportWrite() async throws {
         let configuration = try temporaryConfiguration(mode: .relayOnly)
@@ -92,6 +111,89 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(capturedReport?.failure == "readiness_unavailable")
     }
 
+    @Test(arguments: [
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: false,
+                isConnected: false,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "not_signed_in"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: false,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "not_connected"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: false,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "non_iroh_route"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: true,
+                hasWorkspaceMutation: false,
+                hasTerminal: false
+            ),
+            "workspace_unavailable"
+        ),
+        (
+            MobileIrohReleaseGateRunner.Readiness(
+                isSignedIn: true,
+                isConnected: true,
+                usesIroh: true,
+                hasWorkspaceMutation: true,
+                hasTerminal: false
+            ),
+            "terminal_unavailable"
+        ),
+    ])
+    func readinessTimeoutClassifiesLastObservedState(
+        readiness: MobileIrohReleaseGateRunner.Readiness,
+        expectedFailure: String
+    ) async throws {
+        let configuration = try temporaryConfiguration(mode: .automatic)
+        var capturedReport: MobileIrohReleaseGateRunner.Report?
+        let updates = AsyncStream<MobileIrohReleaseGateRunner.Readiness>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in updates.stream },
+                runProbe: { _, _ in Self.successfulProbe },
+                settingsUpdates: { Self.finishedSettingsUpdates() },
+                writeReport: { report, url in
+                    capturedReport = report
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .milliseconds(20)
+            )
+        )
+
+        updates.continuation.yield(readiness)
+        await runner.run(store: CMUXMobileShellStore.preview())
+        updates.continuation.finish()
+
+        #expect(capturedReport?.failure == expectedFailure)
+    }
+
     @Test
     func probeRequiresTwoReadyObservationsBeforeRunning() async throws {
         let configuration = try temporaryConfiguration(mode: .automatic)
@@ -172,9 +274,12 @@ struct MobileIrohReleaseGateRunnerTests {
         let pendingSettings = AsyncStream<CmxIrohSettingsSnapshot>.makeStream(
             bufferingPolicy: .bufferingNewest(1)
         )
+        // The deadline fires only because the path never arrives, but it must
+        // not fire before readiness and the probe finish, or there are no
+        // proofs to preserve. 20 ms lost that race under the full suite.
         let report = try await runLatePathFailure(
             settingsUpdates: pendingSettings.stream,
-            timeout: .milliseconds(20)
+            timeout: .seconds(3)
         )
         pendingSettings.continuation.finish()
 
@@ -196,7 +301,7 @@ struct MobileIrohReleaseGateRunnerTests {
         )
         #expect(complete.passed)
         #expect(complete.scenario == "relay_rollover")
-        #expect(complete.soakDurationSeconds == 330)
+        #expect(complete.soakDurationSeconds == 1_950)
     }
 
     @Test
@@ -230,7 +335,17 @@ struct MobileIrohReleaseGateRunnerTests {
         ))
         #expect(configuration.mode == .relayOnly)
         #expect(configuration.scenario == .standard)
+        #expect(configuration.startupPath == "stored_pairing")
         #expect(configuration.reportURL.lastPathComponent == "cmux-iroh-release-gate.json")
+
+        let injected = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_DOGFOOD_ATTACH_URL": "https://example.test/pair",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(injected.startupPath == "injected_pairing")
 
         let rollover = try #require(MobileIrohReleaseGateRunner.Configuration(
             environment: [
@@ -247,6 +362,16 @@ struct MobileIrohReleaseGateRunnerTests {
             ],
             cachesDirectory: cache
         ) == nil)
+
+        let rolloverSoak = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
+                "CMUX_IROH_SOAK_PROFILE": "stress",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(rolloverSoak.soakProfile == .stress)
     }
 
     @Test(arguments: [
@@ -288,11 +413,12 @@ struct MobileIrohReleaseGateRunnerTests {
     @Test
     func encodedReportContainsNoTopologyOrIdentityFields() throws {
         let report = MobileIrohReleaseGateRunner.Report(
-            schemaVersion: 3,
+            schemaVersion: 4,
             mode: "relayOnly",
             scenario: "relay_rollover",
             passed: true,
             hostStatusVerified: true,
+            rpcMethodInventoryVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
             independentEventsVerified: true,
@@ -306,10 +432,12 @@ struct MobileIrohReleaseGateRunnerTests {
             independentEventsContinuityVerified: true,
             artifactLaneVerified: true,
             unrefreshedExpiryDisconnectVerified: false,
-            soakDurationSeconds: 330,
+            soakDurationSeconds: 1_950,
             routeKind: "iroh",
             selectedPath: "managed_relay",
-            failure: nil
+            failure: nil,
+            lastDiagnosticEventCode: DiagnosticEventCode.discoveryFailed.rawValue,
+            lastDiagnosticFailureKind: DiagnosticFailureKind.policyUnavailable.rawValue
         )
         let encoded = try JSONEncoder().encode(report)
         let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -320,6 +448,7 @@ struct MobileIrohReleaseGateRunnerTests {
             "scenario",
             "passed",
             "hostStatusVerified",
+            "rpcMethodInventoryVerified",
             "terminalRoundTripVerified",
             "workspaceMutationVerified",
             "independentEventsVerified",
@@ -336,6 +465,8 @@ struct MobileIrohReleaseGateRunnerTests {
             "soakDurationSeconds",
             "routeKind",
             "selectedPath",
+            "lastDiagnosticEventCode",
+            "lastDiagnosticFailureKind",
         ])
         let encodedString = try #require(String(data: encoded, encoding: .utf8))
         #expect(!encodedString.contains("stream_id"))
@@ -344,8 +475,56 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(!encodedString.contains("\"artifacts\""))
     }
 
+    @Test
+    func disconnectedTimeoutCarriesOnlyStableDiagnosticTaxonomy() async throws {
+        let configuration = try temporaryConfiguration(mode: .automatic)
+        var capturedReport: MobileIrohReleaseGateRunner.Report?
+        let updates = AsyncStream<MobileIrohReleaseGateRunner.Readiness>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        let diagnostics = DiagnosticReport(events: [
+            DiagnosticEvent(
+                code: .discoveryFailed,
+                tNanos: 1,
+                b: DiagnosticFailureKind.policyUnavailable.rawValue
+            ),
+        ])
+        let runner = MobileIrohReleaseGateRunner(
+            configuration: configuration,
+            dependencies: .init(
+                readinessUpdates: { _ in updates.stream },
+                runProbe: { _, _ in Self.successfulProbe },
+                settingsUpdates: { Self.finishedSettingsUpdates() },
+                diagnosticReport: { diagnostics },
+                writeReport: { report, url in
+                    capturedReport = report
+                    try Self.write(report: report, to: url)
+                },
+                postReportReady: {},
+                timeout: .milliseconds(20)
+            )
+        )
+
+        let runTask = Task { @MainActor in
+            await runner.run(store: CMUXMobileShellStore.preview())
+        }
+        updates.continuation.yield(.init(
+            isSignedIn: true,
+            isConnected: false,
+            usesIroh: false,
+            hasWorkspaceMutation: false,
+            hasTerminal: false
+        ))
+        await runTask.value
+
+        #expect(capturedReport?.failure == "not_connected")
+        #expect(capturedReport?.lastDiagnosticEventCode == DiagnosticEventCode.discoveryFailed.rawValue)
+        #expect(capturedReport?.lastDiagnosticFailureKind == DiagnosticFailureKind.policyUnavailable.rawValue)
+    }
+
     private static let successfulProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -356,6 +535,7 @@ struct MobileIrohReleaseGateRunnerTests {
 
     private static let successfulRolloverProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -368,11 +548,12 @@ struct MobileIrohReleaseGateRunnerTests {
         controlStreamContinuityVerified: true,
         independentEventsContinuityVerified: true,
         artifactLaneVerified: true,
-        soakDurationSeconds: 330
+        soakDurationSeconds: 1_950
     )
 
     private static let successfulExpiryProbe = MobileIrohReleaseGateProbeResult(
         hostStatusVerified: true,
+        rpcMethodInventoryVerified: true,
         terminalRoundTripVerified: true,
         workspaceMutationVerified: true,
         independentEventsVerified: true,
@@ -460,6 +641,7 @@ struct MobileIrohReleaseGateRunnerTests {
     ) {
         #expect(report.passed == false)
         #expect(report.hostStatusVerified)
+        #expect(report.rpcMethodInventoryVerified)
         #expect(report.terminalRoundTripVerified)
         #expect(report.workspaceMutationVerified)
         #expect(report.independentEventsVerified)

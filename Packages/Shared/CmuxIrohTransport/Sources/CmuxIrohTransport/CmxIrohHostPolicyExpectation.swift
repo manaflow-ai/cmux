@@ -12,6 +12,9 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
     /// The current app-instance UUID, which changes when the account or build tag changes.
     public let appInstanceID: String
 
+    /// The exact Mac app namespace that owns this endpoint.
+    public let clientNamespace: String
+
     /// The build tag registered with the trust broker.
     public let tag: String
 
@@ -36,6 +39,7 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
     ///   - accountID: The current authenticated account identifier.
     ///   - deviceID: The account device's lowercase UUID.
     ///   - appInstanceID: The installation's lowercase app-instance UUID.
+    ///   - clientNamespace: The exact bundle-derived app namespace.
     ///   - tag: The safe build tag used for broker registration.
     ///   - endpointID: The current local Iroh EndpointID.
     ///   - identityGeneration: The positive local identity generation.
@@ -46,6 +50,7 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
         accountID: String,
         deviceID: String,
         appInstanceID: String,
+        clientNamespace: String = "legacy",
         tag: String,
         endpointID: CmxIrohPeerIdentity,
         identityGeneration: Int,
@@ -56,16 +61,18 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
               accountID.utf8.count <= 1_024,
               Self.isCanonicalUUID(deviceID),
               Self.isCanonicalUUID(appInstanceID),
-              Self.isSafeToken(tag),
+              cmxIrohIsSafeToken(clientNamespace, maximumUTF8ByteCount: 255),
+              cmxIrohIsSafeToken(tag),
               (1 ... Int(Int32.max)).contains(identityGeneration),
               capabilities.count <= 32,
               Set(capabilities).count == capabilities.count,
-              capabilities.allSatisfy(Self.isSafeToken) else {
+              capabilities.allSatisfy({ cmxIrohIsSafeToken($0) }) else {
             throw CmxIrohHostPolicyCacheError.invalidExpectation
         }
         self.accountID = accountID
         self.deviceID = deviceID
         self.appInstanceID = appInstanceID
+        self.clientNamespace = clientNamespace
         self.tag = tag
         self.endpointID = endpointID
         self.identityGeneration = identityGeneration
@@ -77,13 +84,4 @@ public struct CmxIrohHostPolicyExpectation: Equatable, Sendable {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
 
-    private static func isSafeToken(_ value: String) -> Bool {
-        guard (1 ... 64).contains(value.utf8.count) else { return false }
-        return value.utf8.allSatisfy { byte in
-            (48 ... 57).contains(byte)
-                || (65 ... 90).contains(byte)
-                || (97 ... 122).contains(byte)
-                || [45, 46, 58, 95].contains(byte)
-        }
-    }
 }

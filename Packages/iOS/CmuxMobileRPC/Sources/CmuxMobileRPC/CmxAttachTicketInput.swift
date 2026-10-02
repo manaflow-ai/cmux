@@ -26,10 +26,10 @@ public struct CmxAttachTicketInput {
         // cmux-ios-dev for development); cross-channel pairing still works when
         // the user scans from inside the app. The emitter picks the matching
         // scheme so the *system camera* routes each channel's QR to its build.
-        if CmxPairingURLScheme.isPairingScheme(url.scheme), url.host == "pair" {
+        if CmxPairingURLScheme(rawValue: url.scheme) != nil, url.host == "pair" {
             return try ticket(from: MobileSyncPairingPayload.decodeURL(url))
         }
-        guard CmxPairingURLScheme.isPairingScheme(url.scheme),
+        guard CmxPairingURLScheme(rawValue: url.scheme) != nil,
               url.host == "attach",
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw MobileSyncPairingPayloadError.invalidURL

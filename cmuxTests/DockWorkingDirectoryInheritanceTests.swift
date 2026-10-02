@@ -262,7 +262,10 @@ struct DockWorkingDirectoryInheritanceTests {
             ))
             let sourcePanel = try terminalPanel(in: store, panelId: sourcePanelId)
             sourcePanel.surface.recordReportedWorkingDirectory(root.path)
-            store.restoredAgentLifecycle.resumeStatesByPanelId[sourcePanelId] = .autoResumeCommandRunning
+            store.restoredAgentLifecycle.setResumeState(
+                .autoResumeCommandRunning,
+                panelId: sourcePanelId
+            )
             liveDirectory = sourceDirectory.path
 
             let newPanelId = try #require(store.newSurface(kind: .terminal, inPane: rootPane, focus: true))

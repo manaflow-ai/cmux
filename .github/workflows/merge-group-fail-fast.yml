@@ -1,0 +1,115 @@
+name: Merge-group fail fast
+
+# One failed job already decides a merge group: the queue will remove it. CI's
+# ci-status reports only after every job finishes, so without this the remaining
+# macOS jobs run to the end first and every pull request queued behind waits for
+# them. This workflow cancels a merge group's CI run once a completed job has a
+# conclusion that ci-status would reject; ci-status runs on cancellation and
+# reports the failure.
+#
+# It needs actions: write, so it is triggered by workflow_run: the code below
+# always comes from the default branch, and a queued pull request cannot change
+# it. The source workflow runs only for merge groups, so ordinary pull-request CI
+# never creates a skipped fail-fast run. This workflow checks out nothing and
+# runs on a GitHub-hosted runner.
+on:
+  workflow_run:
+    workflows: [Merge-group policy checks]
+    types: [in_progress]
+
+permissions: {}
+
+env:
+  # `workflows:` above can only spell a display name, which is presentation and
+  # not identity: renaming that workflow would stop this one from triggering at
+  # all, with nothing red to say so. This records the file that must carry the
+  # name, tests/test_ci_workflow_run_sources.py derives the name from the file,
+  # and the step below confirms it again at run time against the run's own
+  # `path` -- display names are not unique, and the workflow_run object that
+  # arrives here carries the stable path and workflow id next to the name.
+  SOURCE_WORKFLOW_PATHS: .github/workflows/merge-group-policy-checks.yml
+
+jobs:
+  watch:
+    name: watch merge group run
+    runs-on: ubuntu-24.04 # github-hosted-required
+    timeout-minutes: 360
+    permissions:
+      actions: write
+    steps:
+      - name: Locate and watch the merge-group CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_PATH: ${{ github.event.workflow_run.path }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          # The CI run is located by workflow file, never by display name.
+          CI_RUNS: repos/${{ github.repository }}/actions/workflows/ci.yml/runs
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SOURCE_PATH" != "$SOURCE_WORKFLOW_PATHS" ]; then
+            echo "::error::Started by $SOURCE_PATH, not $SOURCE_WORKFLOW_PATHS; refusing to cancel anything."
+            exit 1
+          fi
+
+          if [ "$SOURCE_EVENT" != "merge_group" ]; then
+            echo "::error::$SOURCE_WORKFLOW_PATHS unexpectedly ran for '$SOURCE_EVENT'."
+            exit 1
+          fi
+
+          RUN_ID=""
+          RUN_URL=""
+          errors=0
+          echo "Locating merge-group CI run for $HEAD_SHA."
+          for _ in $(seq 1 30); do
+            if run_info="$(gh api "$CI_RUNS?event=merge_group&head_sha=$HEAD_SHA&per_page=100" \
+              --jq '(.workflow_runs[0] // empty) | [.id, .html_url] | @tsv')"; then
+              errors=0
+              if [ -n "$run_info" ]; then
+                read -r RUN_ID RUN_URL <<< "$run_info"
+                break
+              fi
+            else
+              errors=$((errors + 1))
+              if [ "$errors" -ge 10 ]; then
+                echo "::error::The Actions API failed $errors times in a row while locating CI."
+                exit 1
+              fi
+            fi
+            sleep 2
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No merge-group CI run appeared for $HEAD_SHA."
+            exit 1
+          fi
+
+          RUN="repos/$REPOSITORY/actions/runs/$RUN_ID"
+          errors=0
+          echo "Watching merge-group CI run $RUN_ID: $RUN_URL"
+          while :; do
+            if status="$(gh api "$RUN" --jq .status)" \
+              && failed="$(gh api "$RUN/jobs?filter=latest" --paginate \
+                --jq '[.jobs[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")] | length' \
+                | awk '{ total += $1 } END { print total + 0 }')"; then
+              errors=0
+              if [ "$status" = "completed" ]; then
+                echo "The CI run finished."
+                exit 0
+              fi
+              if [ "$failed" -gt 0 ]; then
+                echo "$failed completed job(s) cannot satisfy ci-status; cancelling the CI run so the queue can move on."
+                gh api -X POST "$RUN/cancel"
+                exit 0
+              fi
+            else
+              errors=$((errors + 1))
+              if [ "$errors" -ge 10 ]; then
+                echo "::error::The Actions API failed $errors times in a row; giving up. The CI run continues without fail fast."
+                exit 1
+              fi
+            fi
+            sleep 20
+          done

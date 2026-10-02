@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -16,6 +17,58 @@ import (
 )
 
 const persistentDaemonShutdownMethod = "daemon.shutdown"
+
+type persistentDaemonActivity struct {
+	activeConnections int64
+	activeSessions    int
+}
+
+func (activity persistentDaemonActivity) isEmpty() bool {
+	return activity.activeConnections == 0 && activity.activeSessions == 0
+}
+
+type persistentDaemonExitReason string
+
+const (
+	persistentDaemonExitSlotLeaseRemoved persistentDaemonExitReason = "slot_lease_removed"
+	persistentDaemonExitEmptyIdleTimeout persistentDaemonExitReason = "empty_idle_timeout"
+)
+
+func persistentDaemonAutomaticExitReason(
+	activity persistentDaemonActivity,
+	slotLeaseMissing bool,
+	emptyIdleExpired bool,
+) persistentDaemonExitReason {
+	if !activity.isEmpty() {
+		return ""
+	}
+	if slotLeaseMissing {
+		return persistentDaemonExitSlotLeaseRemoved
+	}
+	if emptyIdleExpired {
+		return persistentDaemonExitEmptyIdleTimeout
+	}
+	return ""
+}
+
+func logPersistentDaemonExit(
+	stderr io.Writer,
+	now time.Time,
+	reason persistentDaemonExitReason,
+	activity persistentDaemonActivity,
+) {
+	if stderr == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(
+		stderr,
+		"cmuxd-remote persistent daemon exit time=%s reason=%s active_connections=%d active_sessions=%d\n",
+		now.UTC().Format(time.RFC3339Nano),
+		reason,
+		activity.activeConnections,
+		activity.activeSessions,
+	)
+}
 
 const (
 	persistentDaemonStopWaitTimeout = 5 * time.Second

@@ -27,6 +27,18 @@ import Testing
         #expect(response.eventTransport == "iroh_server_events_v1")
     }
 
+    @Test func subscribeResponseDecodesSurfaceEventLaneGrant() throws {
+        let granted = try MobileEventSubscribeResponse.decode(Data(
+            #"{"stream_id":"s","event_transport":"iroh_server_events_v1","surface_event_lanes":"v1"}"#.utf8
+        ))
+        #expect(granted.surfaceEventLanes == "v1")
+        // Older hosts omit the field: render-grid stays on the shared lane.
+        let older = try MobileEventSubscribeResponse.decode(Data(
+            #"{"stream_id":"s","event_transport":"iroh_server_events_v1"}"#.utf8
+        ))
+        #expect(older.surfaceEventLanes == nil)
+    }
+
     @Test func hostStatusDecodesRenderGridCapability() throws {
         let data = Data(#"{"capabilities":["terminal.render_grid.v1"],"terminal_fidelity":"render_grid"}"#.utf8)
         let response = try MobileHostStatusResponse.decode(data)
@@ -47,6 +59,57 @@ import Testing
         let response = try MobileHostStatusResponse.decode(data)
         #expect(response.macInstanceTag == "future-one")
         #expect(response.terminalThemeRevisionEpoch == "boot-one")
+    }
+
+    @Test func hostStatusDecodesAuthenticatedPhonePushReadiness() throws {
+        let response = try MobileHostStatusResponse.decode(Data(
+            """
+            {
+              "mac_device_id": "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+              "phone_push": {
+                "forwarding_enabled": true,
+                "mode": "onlyWhenAway",
+                "admission": "suppressed_mac_active",
+                "queue_persistence": "healthy",
+                "hide_content": true,
+                "api_origin": "https://cmux-staging.vercel.app",
+                "account_scope": "verified_same_account"
+              }
+            }
+            """.utf8
+        ))
+
+        #expect(response.phonePush == MobileHostPhonePushStatus(
+            forwardingEnabled: true,
+            mode: .onlyWhenAway,
+            admission: .suppressedMacActive,
+            queuePersistence: .healthy,
+            hideContent: true,
+            apiOrigin: "https://cmux-staging.vercel.app",
+            accountScope: .verifiedSameAccount
+        ))
+    }
+
+    @Test func hostStatusKeepsMissingQueueHealthDistinctFromFailure() throws {
+        let missing = try MobileHostStatusResponse.decode(Data(
+            #"{"phone_push":{"forwarding_enabled":true,"mode":"always","admission":"allowed","api_origin":"https://cmux.com","account_scope":"verified_same_account"}}"#.utf8
+        ))
+        let failed = try MobileHostStatusResponse.decode(Data(
+            #"{"phone_push":{"forwarding_enabled":true,"mode":"always","admission":"allowed","queue_persistence":"save_failed","api_origin":"https://cmux.com","account_scope":"verified_same_account"}}"#.utf8
+        ))
+
+        #expect(missing.phonePush?.queuePersistence == .unknown)
+        #expect(failed.phonePush?.queuePersistence == .saveFailed)
+    }
+
+    @Test func hostStatusTreatsMissingOrUnknownPhonePushStateAsUnavailable() throws {
+        let missing = try MobileHostStatusResponse.decode(Data("{}".utf8))
+        let unknown = try MobileHostStatusResponse.decode(Data(
+            #"{"phone_push":{"forwarding_enabled":true,"mode":"future","api_origin":"x","account_scope":"future"}}"#.utf8
+        ))
+
+        #expect(missing.phonePush == nil)
+        #expect(unknown.phonePush == nil)
     }
 
     @Test func hostStatusCanonicalizesOnlyUUIDDeviceIDs() throws {

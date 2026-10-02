@@ -4,7 +4,7 @@ import SwiftUI
 
 extension MobilePairingView {
     @ViewBuilder
-    func connectedContent(_ ready: MobilePairingModel.Ready) -> some View {
+    var connectedContent: some View {
         VStack(spacing: 12) {
             Image(systemName: "checkmark.circle.fill")
                 .cmuxFont(size: 36)
@@ -19,70 +19,12 @@ extension MobilePairingView {
         .frame(maxWidth: .infinity, minHeight: 200)
     }
 
-    var steps: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            step(1, String(localized: "mobile.pairing.step.install", defaultValue: "Install cmux on your iPhone and open it."))
-            HStack(spacing: 4) {
-                Spacer(minLength: 30)
-                Text(String(localized: "mobile.pairing.getApp.prompt", defaultValue: "Don't have it yet?"))
-                    .cmuxFont(.caption)
-                    .foregroundStyle(.secondary)
-                Link(
-                    String(localized: "mobile.pairing.getApp.link", defaultValue: "Get cmux for iPhone"),
-                    destination: Self.iphoneAppURL
-                )
-                .cmuxFont(.caption)
-                Spacer(minLength: 0)
-            }
-            step(2, String(localized: "mobile.pairing.step.signIn", defaultValue: "Sign in with the same account you use on this Mac."))
-            step(3, String(
-                localized: "mobile.pairing.step.scan",
-                defaultValue: "On your iPhone, choose Tailscale, tap Scan QR Code, then scan the code above."
-            ))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    func step(_ number: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text("\(number)")
-                .cmuxFont(.caption, weight: .bold)
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(Color.accentColor, in: Circle())
-            Text(text).cmuxFont(.callout).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    func manualFallback(_ ready: MobilePairingModel.Ready) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
-                .cmuxFont(.caption, weight: .semibold)
-                .foregroundStyle(.secondary)
-            ForEach(ready.tailscaleLines, id: \.self) { line in
-                Text(line).cmuxFont(.caption, design: .monospaced)
-                    .textSelection(.enabled).foregroundStyle(.secondary)
-            }
-            if let entry = ready.manualEntry {
-                HStack(spacing: 8) {
-                    copyButton(label: String(localized: "mobile.pairing.manual.copyIP", defaultValue: "Copy IP"), value: entry.host)
-                    copyButton(label: String(localized: "mobile.pairing.manual.copyPort", defaultValue: "Copy Port"), value: String(entry.port))
-                }
-                .padding(.top, 2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-    }
-
     func copyButton(label: String, value: String) -> some View {
         Button {
-            let pasteboard = NSPasteboard.general
-            pasteboard.clearContents()
-            pasteboard.setString(value, forType: .string)
+            guard GhosttyApp.terminalPasteboard.writeString(
+                value,
+                to: .general
+            ) else { return }
             flashCopied(value)
         } label: {
             HStack(spacing: 4) {

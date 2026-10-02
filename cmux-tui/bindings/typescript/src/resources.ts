@@ -87,6 +87,7 @@ import {
   type RenderSnapshot,
   type ScreenSnapshot,
   type SessionEvent,
+  type SessionJournalRecord,
   type SessionDelta,
   type SessionSnapshotItem,
   type SessionSnapshot,
@@ -116,7 +117,18 @@ import {
   type Unknown,
   type ReloadConfigResult,
   type ViewerResizeResult,
+  type ViewerReleaseResult,
   type JsonValue,
+  type JournalAppendResult,
+  type JournalClass,
+  type JournalEventSchema,
+  type JournalIngress,
+  type JournalProducerListResult,
+  type JournalProducerManifest,
+  type JournalProducerPutResult,
+  type JournalReplayPolicy,
+  type JournalSensitivity,
+  type JournalSubject,
   type WorkspaceSnapshot,
 } from "./models.js";
 import type {
@@ -135,9 +147,11 @@ import type {
   LayoutApplyOptions,
   MutationOptions,
   NotificationOptions,
+  ProjectionPutOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
+  SessionJournalOptions,
   SidebarEnsureOptions,
   SidebarInputOptions,
   SidebarResizeOptions,
@@ -238,6 +252,17 @@ function requiredId<Id extends string>(
     throw new CmuxProtocolError(`resource result omitted ${keys.join("/")} ID`);
   }
   return value;
+}
+
+function requiredNullableId<Id extends string>(
+  payload: Record<string, unknown>,
+  key: string,
+  factory: IdFactory<Id>,
+): Id | null {
+  if (!Object.hasOwn(payload, key)) {
+    throw new CmuxProtocolError(`resource result omitted required nullable ${key}`);
+  }
+  return payload[key] === null ? null : requiredId(payload, [key], factory);
 }
 
 function requiredString(payload: Record<string, unknown>, key: string): string {
@@ -546,6 +571,30 @@ function tabSnapshot(value: unknown): TabSnapshot {
 
 function terminalSnapshot(value: unknown): TerminalSnapshot {
   const payload = unwrap(value, ["terminal"]);
+  const hasLegacyTabId = Object.hasOwn(payload, "tab_id");
+  const hasTabIds = Object.hasOwn(payload, "tab_ids");
+  if (!hasLegacyTabId && !hasTabIds) {
+    throw new CmuxProtocolError("terminal snapshot requires tab_ids or tab_id");
+  }
+  const legacyTabId = hasLegacyTabId
+    ? requiredNullableId(payload, "tab_id", tabId)
+    : undefined;
+  let decodedTabIds: TabId[];
+  if (hasTabIds) {
+    const rawTabIds = payload.tab_ids;
+    if (!Array.isArray(rawTabIds)) {
+      throw new CmuxProtocolError("terminal tab_ids must be an array");
+    }
+    decodedTabIds = rawTabIds.map(
+      (item) => requiredId({ id: item }, ["id"], tabId),
+    );
+  } else {
+    decodedTabIds = legacyTabId === null ? [] : [legacyTabId as TabId];
+  }
+  const tabIds = Object.freeze(decodedTabIds);
+  if (hasLegacyTabId && legacyTabId !== (tabIds[0] ?? null)) {
+    throw new CmuxProtocolError("terminal tab_id must be the first tab_ids item");
+  }
   const running = requiredBoolean(payload, "running");
   const lifecycle = requiredEnum(
     payload,
@@ -570,11 +619,11 @@ function terminalSnapshot(value: unknown): TerminalSnapshot {
       payload,
       terminalId,
       [
-        "tab_id", "title", "cwd", "cols", "rows", "running", "lifecycle",
+        "tab_id", "tab_ids", "title", "cwd", "cols", "rows", "running", "lifecycle",
         "exit",
       ],
     ),
-    tabId: requiredId(payload, ["tab_id"], tabId),
+    tabIds,
     title: requiredString(payload, "title"),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
     cols: requiredPositiveUint16(payload, "cols"),
@@ -830,7 +879,10 @@ function frontendProjectionSnapshot(
   const base = snapshotFields(
     payload,
     projectionId,
-    ["session_id", "projection"],
+    [
+      "session_id", "frontend_id", "window_id", "generation", "projection",
+      "projection_revision",
+    ],
   );
   if (!Object.hasOwn(payload, "projection")) {
     throw new CmuxProtocolError("frontend projection omitted projection");
@@ -838,7 +890,11 @@ function frontendProjectionSnapshot(
   return Object.freeze({
     ...base,
     sessionId: requiredId(payload, ["session_id"], sessionId),
+    frontendId: requiredString(payload, "frontend_id"),
+    windowId: requiredString(payload, "window_id"),
+    generation: requiredString(payload, "generation"),
     projection: jsonValue(payload.projection, "frontend projection"),
+    projectionRevision: requiredDecimal(payload, "projection_revision"),
   });
 }
 
@@ -883,11 +939,316 @@ function agentSnapshot(value: unknown): AgentSnapshot {
     source: requiredEnum(
       payload,
       "source",
-      ["hook", "socket", "detected"] as const,
+      ["hook", "socket", "detected", "plugin"] as const,
     ),
     updatedAtMs: requiredDecimal(payload, "updated_at_ms"),
     sourceSession: requiredNullableString(payload, "source_session"),
   });
+}
+
+const JOURNAL_CLASSES = ["state", "observation", "effect", "checkpoint"] as const;
+const JOURNAL_REPLAY_POLICIES = ["required", "advisory", "never"] as const;
+const JOURNAL_SENSITIVITIES = ["public", "metadata", "sensitive", "secret"] as const;
+const MAX_JOURNAL_MANIFEST_BYTES = 1_048_576;
+
+function isPositiveUint32(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isSafeInteger(value)
+    && value >= 1
+    && value <= 0xffff_ffff;
+}
+
+function isJournalComponent(value: string, maximumBytes = 64): boolean {
+  return hasUtf8ByteLength(value, 1, maximumBytes)
+    && /^[a-z0-9][a-z0-9_-]*$/.test(value);
+}
+
+function isJournalKind(value: string): boolean {
+  return hasUtf8ByteLength(value, 1, 128)
+    && value.split(".").every((part) => isJournalComponent(part));
+}
+
+function journalSubject(value: unknown, label = "journal subject"): JournalSubject {
+  const payload = record(value, label);
+  strictObject(payload, ["kind", "id"], label);
+  const kind = requiredString(payload, "kind");
+  const id = requiredString(payload, "id");
+  if (!isJournalComponent(kind)) {
+    throw new CmuxProtocolError(`${label} kind must be a lowercase component`);
+  }
+  if (!hasUtf8ByteLength(id, 1, 512)) {
+    throw new CmuxProtocolError(`${label} id must contain 1 to 512 UTF-8 bytes`);
+  }
+  return Object.freeze({
+    kind,
+    id,
+  });
+}
+
+function journalEventSchema(value: unknown): JournalEventSchema {
+  const payload = record(value, "journal event schema");
+  strictObject(
+    payload,
+    ["kind", "schema_version", "class", "replay", "sensitivity", "payload_schema"],
+    "journal event schema",
+  );
+  const kind = requiredString(payload, "kind");
+  if (!isJournalKind(kind)) {
+    throw new CmuxProtocolError(
+      "journal event kind must be a dotted lowercase name",
+    );
+  }
+  return Object.freeze({
+    kind,
+    schemaVersion: requiredPositiveUint32(payload, "schema_version"),
+    class: requiredEnum(payload, "class", JOURNAL_CLASSES),
+    replay: requiredEnum(payload, "replay", JOURNAL_REPLAY_POLICIES),
+    sensitivity: requiredEnum(payload, "sensitivity", JOURNAL_SENSITIVITIES),
+    payloadSchema: jsonValue(payload.payload_schema, "journal payload schema"),
+  });
+}
+
+function journalProducerManifest(value: unknown): JournalProducerManifest {
+  const payload = record(value, "journal producer manifest");
+  strictObject(
+    payload,
+    [
+      "producer_id", "namespace", "manifest_version", "max_sensitivity",
+      "permissions", "events",
+    ],
+    "journal producer manifest",
+  );
+  if (!Array.isArray(payload.permissions)) {
+    throw new CmuxProtocolError("journal producer permissions must be an array");
+  }
+  if (!Array.isArray(payload.events)) {
+    throw new CmuxProtocolError("journal producer events must be an array");
+  }
+  const result = Object.freeze({
+    producerId: requiredString(payload, "producer_id"),
+    namespace: requiredString(payload, "namespace"),
+    manifestVersion: requiredPositiveUint32(payload, "manifest_version"),
+    maxSensitivity: requiredEnum(payload, "max_sensitivity", JOURNAL_SENSITIVITIES),
+    permissions: Object.freeze(payload.permissions.map((permission, index) => {
+      if (typeof permission !== "string") {
+        throw new CmuxProtocolError(`journal permission ${index} must be a string`);
+      }
+      return permission;
+    })),
+    events: Object.freeze(payload.events.map(journalEventSchema)),
+  });
+  try {
+    journalManifestFields(result);
+  } catch (error) {
+    if (error instanceof CmuxProtocolError) throw error;
+    throw new CmuxProtocolError(
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+  return result;
+}
+
+function journalProducerListResult(value: unknown): JournalProducerListResult {
+  const payload = record(value, "journal producer list result");
+  strictObject(payload, ["producers"], "journal producer list result");
+  if (!Array.isArray(payload.producers)) {
+    throw new CmuxProtocolError("journal producer list must be an array");
+  }
+  if (payload.producers.length > 1024) {
+    throw new CmuxProtocolError("journal producer list contains too many entries");
+  }
+  return Object.freeze({
+    producers: Object.freeze(payload.producers.map(journalProducerManifest)),
+  });
+}
+
+function journalProducerPutResult(value: unknown): JournalProducerPutResult {
+  const payload = record(value, "journal producer result");
+  strictObject(
+    payload,
+    ["producer_id", "manifest_version", "namespace", "sequence", "event_id"],
+    "journal producer result",
+  );
+  const producerId = decodedJournalString(payload, "producer_id", 64);
+  if (!isJournalComponent(producerId)) {
+    throw new CmuxProtocolError("journal producer result has an invalid producer_id");
+  }
+  const namespace = decodedJournalString(payload, "namespace", 128);
+  if (namespace !== `plugin.${producerId}`) {
+    throw new CmuxProtocolError(
+      "journal producer result namespace must equal plugin.<producer_id>",
+    );
+  }
+  const eventId = decodedJournalString(payload, "event_id", 128);
+  return Object.freeze({
+    producerId,
+    manifestVersion: requiredPositiveUint32(payload, "manifest_version"),
+    namespace,
+    sequence: requiredDecimal(payload, "sequence"),
+    eventId,
+  });
+}
+
+function journalAppendResult(value: unknown): JournalAppendResult {
+  const payload = record(value, "journal append result");
+  strictObject(payload, ["producer_id", "sequence", "event_id"], "journal append result");
+  const producerId = decodedJournalString(payload, "producer_id", 64);
+  if (!isJournalComponent(producerId)) {
+    throw new CmuxProtocolError("journal append result has an invalid producer_id");
+  }
+  const eventId = decodedJournalString(payload, "event_id", 128);
+  return Object.freeze({
+    producerId,
+    sequence: requiredDecimal(payload, "sequence"),
+    eventId,
+  });
+}
+
+function journalSensitivityRank(value: JournalSensitivity): number {
+  return JOURNAL_SENSITIVITIES.indexOf(value);
+}
+
+function journalString(value: unknown, label: string, maxBytes: number): string {
+  if (typeof value !== "string" || !hasUtf8ByteLength(value, 1, maxBytes)) {
+    throw new TypeError(`${label} must contain 1 to ${maxBytes} UTF-8 bytes`);
+  }
+  return value;
+}
+
+function decodedJournalString(
+  payload: Record<string, unknown>,
+  key: string,
+  maxBytes: number,
+): string {
+  const value = payload[key];
+  if (typeof value !== "string" || !hasUtf8ByteLength(value, 1, maxBytes)) {
+    throw new CmuxProtocolError(
+      `resource field ${key} must contain 1 to ${maxBytes} UTF-8 bytes`,
+    );
+  }
+  return value;
+}
+
+function journalManifestFields(value: JournalProducerManifest): Record<string, unknown> {
+  const producerId = journalString(value.producerId, "producerId", 64);
+  if (!isJournalComponent(producerId)) {
+    throw new TypeError("producerId must be a lowercase component");
+  }
+  const namespace = journalString(value.namespace, "namespace", 72);
+  if (namespace !== `plugin.${producerId}`) {
+    throw new TypeError("namespace must equal plugin.<producerId>");
+  }
+  if (!isPositiveUint32(value.manifestVersion)) {
+    throw new TypeError("manifestVersion must be a positive uint32");
+  }
+  if (!JOURNAL_SENSITIVITIES.includes(value.maxSensitivity)) {
+    throw new TypeError("maxSensitivity is invalid");
+  }
+  if (value.maxSensitivity === "secret") {
+    throw new TypeError("secret journal payload storage is unavailable");
+  }
+  if (!Array.isArray(value.permissions) || value.permissions.length < 1 || value.permissions.length > 32) {
+    throw new TypeError("permissions must contain 1 to 32 strings");
+  }
+  const permission = `journal.append.${namespace}`;
+  if (!value.permissions.includes(permission)) {
+    throw new TypeError(`permissions must include ${permission}`);
+  }
+  if (!Array.isArray(value.events) || value.events.length < 1 || value.events.length > 64) {
+    throw new TypeError("events must contain 1 to 64 entries");
+  }
+  const seen = new Set<string>();
+  const events = value.events.map((event) => {
+    const kind = journalString(event.kind, "event.kind", 128);
+    if (!kind.startsWith(`${namespace}.`) || !isJournalKind(kind)) {
+      throw new TypeError("event.kind must be a dotted lowercase name inside namespace");
+    }
+    if (!isPositiveUint32(event.schemaVersion)) {
+      throw new TypeError("event.schemaVersion must be a positive uint32");
+    }
+    if (!JOURNAL_CLASSES.includes(event.class) || !JOURNAL_REPLAY_POLICIES.includes(event.replay) || !JOURNAL_SENSITIVITIES.includes(event.sensitivity)) {
+      throw new TypeError("event class, replay, or sensitivity is invalid");
+    }
+    if (event.sensitivity === "secret" || journalSensitivityRank(event.sensitivity) > journalSensitivityRank(value.maxSensitivity)) {
+      throw new TypeError("event sensitivity exceeds producer authority");
+    }
+    const identity = `${kind}:${event.schemaVersion}`;
+    if (seen.has(identity)) throw new TypeError("events must not declare duplicates");
+    seen.add(identity);
+    return {
+      kind,
+      schema_version: event.schemaVersion,
+      class: event.class,
+      replay: event.replay,
+      sensitivity: event.sensitivity,
+      payload_schema: jsonValue(event.payloadSchema, "event.payloadSchema"),
+    };
+  });
+  const fields = {
+    producer_id: producerId,
+    namespace,
+    manifest_version: value.manifestVersion,
+    max_sensitivity: value.maxSensitivity,
+    permissions: value.permissions.map((item) => journalString(item, "permission", 128)),
+    events,
+  };
+  const encoded = JSON.stringify(fields);
+  if (!hasUtf8ByteLength(encoded, 1, MAX_JOURNAL_MANIFEST_BYTES)) {
+    throw new TypeError("journal producer manifest exceeds 1 MiB");
+  }
+  return fields;
+}
+
+function journalIngressFields(value: JournalIngress): Record<string, unknown> {
+  const producerId = journalString(value.producerId, "producerId", 64);
+  if (!isJournalComponent(producerId)) {
+    throw new TypeError("producerId must be a lowercase component");
+  }
+  if (!isPositiveUint32(value.manifestVersion)) {
+    throw new TypeError("manifestVersion must be a positive uint32");
+  }
+  const kind = journalString(value.kind, "kind", 128);
+  if (
+    !isPositiveUint32(value.schemaVersion)
+    || !isJournalKind(kind)
+    || !kind.startsWith(`plugin.${producerId}.`)
+  ) {
+    throw new TypeError(
+      "schemaVersion must be positive and kind must be inside the producer namespace",
+    );
+  }
+  const fields: Record<string, unknown> = {
+    producer_id: producerId,
+    manifest_version: value.manifestVersion,
+    kind,
+    schema_version: value.schemaVersion,
+    payload: jsonValue(value.payload, "journal payload"),
+  };
+  if (value.occurredAtMs !== undefined) fields.occurred_at_ms = decimalString(value.occurredAtMs);
+  if (value.subjects !== undefined) {
+    if (value.subjects.length > 64) throw new TypeError("subjects must contain at most 64 entries");
+    if (value.subjects.length > 0) {
+      fields.subjects = value.subjects.map((subject) => {
+        const subjectKind = journalString(subject.kind, "subject.kind", 64);
+        if (!isJournalComponent(subjectKind)) {
+          throw new TypeError("subject.kind must be a lowercase component");
+        }
+        return {
+          kind: subjectKind,
+          id: journalString(subject.id, "subject.id", 512),
+        };
+      });
+    }
+  }
+  if (value.sensitivity !== undefined) {
+    if (!JOURNAL_SENSITIVITIES.includes(value.sensitivity) || value.sensitivity === "secret") {
+      throw new TypeError("sensitivity is invalid or unavailable");
+    }
+    fields.sensitivity = value.sensitivity;
+  }
+  if (value.causationId !== undefined) fields.causation_id = journalString(value.causationId, "causationId", 128);
+  if (value.correlationId !== undefined) fields.correlation_id = journalString(value.correlationId, "correlationId", 128);
+  return fields;
 }
 
 function sidebarViewSnapshot(value: unknown): SidebarViewSnapshot {
@@ -999,6 +1360,7 @@ function optionFields(options: object): Record<string, unknown> {
       columns: "cols",
       widthPx: "width_px",
       heightPx: "height_px",
+      viewportWidth: "viewport_width",
       readOnly: "read_only",
       deltaRows: "delta_rows",
       deltaX: "delta_x",
@@ -1021,6 +1383,40 @@ function optionFields(options: object): Record<string, unknown> {
   return result;
 }
 
+function journalOptionsFields(options: SessionJournalOptions): Record<string, unknown> {
+  if (options.cursor !== undefined && options.start !== undefined) {
+    throw new TypeError("journal cursor and start are mutually exclusive");
+  }
+  const fields: Record<string, unknown> = {};
+  if (options.cursor !== undefined) fields.cursor = options.cursor;
+  if (options.start !== undefined) fields.start = options.start;
+  if (options.follow !== undefined) fields.follow = options.follow;
+  const filter: Record<string, unknown> = {};
+  if (options.kinds !== undefined) filter.kinds = [...options.kinds];
+  if (options.classes !== undefined) filter.classes = [...options.classes];
+  if (options.subjects !== undefined) {
+    if (options.subjects.some((subject) => subject.kind === undefined && subject.id === undefined)) {
+      throw new TypeError("journal subject filters require kind or id");
+    }
+    filter.subjects = options.subjects.map((subject) => ({ ...subject }));
+  }
+  if (options.maxSensitivity !== undefined) {
+    filter.max_sensitivity = options.maxSensitivity;
+  }
+  if (options.regex !== undefined) {
+    if (!hasUtf8ByteLength(options.regex.pattern, 1, 1024)) {
+      throw new TypeError("journal regex must contain 1 to 1024 UTF-8 bytes");
+    }
+    filter.regex = {
+      pattern: options.regex.pattern,
+      field: options.regex.field ?? "record",
+      case_sensitive: options.regex.caseSensitive ?? true,
+    };
+  }
+  if (Object.keys(filter).length > 0) fields.filter = filter;
+  return fields;
+}
+
 function browserPointerFields(
   input: BrowserMouseOptions | BrowserWheelOptions,
 ): Record<string, unknown> {
@@ -1034,14 +1430,11 @@ function browserPointerFields(
 }
 
 function mutationParams(
-  operation: Operation,
+  _operation: Operation,
   params: Readonly<Record<string, unknown>>,
   options: MutationOptions,
 ): Readonly<Record<string, unknown>> {
   if (options.expectedRevision === undefined) return params;
-  if (operation.name === "workspace.create") {
-    throw new TypeError(`${operation.name} does not accept expectedRevision`);
-  }
   if (typeof options.expectedRevision !== "string") {
     throw new TypeError("expectedRevision must be a decimal string");
   }
@@ -1255,6 +1648,89 @@ function sessionEvent(value: unknown): SessionEvent {
     kind,
     raw: document(payload, "unknown session event"),
   }) satisfies Unknown;
+}
+
+function sessionJournalRecord(value: unknown): SessionJournalRecord {
+  const payload = record(value, "session journal record");
+  strictObject(payload, [
+    "sequence", "event_id", "schema_version", "kind", "class", "replay",
+    "occurred_at_ms", "committed_at_ms", "producer", "authority",
+    "causation_id", "correlation_id", "causation_depth", "subjects",
+    "sensitivity", "payload", "resource_revision", "previous_resource_revision",
+  ], "session journal record");
+  for (const key of ["authority", "payload"] as const) {
+    if (!Object.hasOwn(payload, key)) {
+      throw new CmuxProtocolError(`session journal record omitted required field ${key}`);
+    }
+  }
+  const producer = record(payload.producer, "journal producer");
+  strictObject(producer, ["kind", "id"], "journal producer");
+  const authorityValue = payload.authority;
+  const authority = authorityValue === null ? null : (() => {
+    const authorityPayload = record(authorityValue, "journal authority");
+    strictObject(
+      authorityPayload,
+      ["principal_id", "lease_id", "generation", "role"],
+      "journal authority",
+    );
+    return Object.freeze({
+      principalId: requiredString(authorityPayload, "principal_id"),
+      leaseId: requiredString(authorityPayload, "lease_id"),
+      generation: requiredString(authorityPayload, "generation"),
+      role: requiredString(authorityPayload, "role"),
+    });
+  })();
+  if (!Array.isArray(payload.subjects)) {
+    throw new CmuxProtocolError("journal subjects must be an array");
+  }
+  if (payload.subjects.length > 64) {
+    throw new CmuxProtocolError("journal subjects must contain at most 64 entries");
+  }
+  const subjects = payload.subjects.map((subjectValue, index) =>
+    journalSubject(subjectValue, `journal subject ${index}`));
+  return Object.freeze({
+    sequence: requiredDecimal(payload, "sequence"),
+    eventId: requiredString(payload, "event_id"),
+    schemaVersion: requiredPositiveUint32(payload, "schema_version"),
+    kind: requiredString(payload, "kind"),
+    class: requiredEnum(
+      payload,
+      "class",
+      ["state", "observation", "effect", "checkpoint"] as const,
+    ),
+    replay: requiredEnum(payload, "replay", ["required", "advisory", "never"] as const),
+    occurredAtMs: requiredDecimal(payload, "occurred_at_ms"),
+    committedAtMs: requiredDecimal(payload, "committed_at_ms"),
+    producer: Object.freeze({
+      kind: requiredString(producer, "kind"),
+      id: requiredString(producer, "id"),
+    }),
+    authority,
+    causationId: requiredNullableString(payload, "causation_id"),
+    correlationId: requiredNullableString(payload, "correlation_id"),
+    causationDepth: requiredUint16(payload, "causation_depth"),
+    subjects: Object.freeze(subjects),
+    sensitivity: requiredEnum(
+      payload,
+      "sensitivity",
+      ["public", "metadata", "sensitive", "secret"] as const,
+    ),
+    payload: jsonValue(payload.payload, "journal payload"),
+    resourceRevision: requiredNullableDecimal(payload, "resource_revision"),
+    previousResourceRevision: requiredNullableDecimal(
+      payload,
+      "previous_resource_revision",
+    ),
+  }) satisfies SessionJournalRecord;
+}
+
+function validateSessionJournalStreamItem(
+  record: SessionJournalRecord,
+  cursor: Cursor | undefined,
+): void {
+  if (cursor === undefined || record.sequence !== cursor.revision) {
+    throw new CmuxProtocolError("journal sequence must match its stream cursor");
+  }
 }
 
 function color(payload: Record<string, unknown>, key: string): string {
@@ -1716,13 +2192,27 @@ function terminalScreenResult(value: unknown): TerminalScreenResult {
   strictObject(
     payload,
     [
-      "text", "cols", "rows", "cursor_row", "cursor_col", "cursor_visible",
-      "extra",
+      "text", "revision", "osc_progress", "cols", "rows", "cursor_row",
+      "cursor_col", "cursor_visible", "extra",
     ],
     "terminal screen result",
   );
+  let revision: DecimalString | null | undefined;
+  if (payload.revision !== undefined) {
+    revision = payload.revision === null
+      ? null
+      : requiredDecimal(payload, "revision");
+  }
+  let oscProgress: string | null | undefined;
+  if (payload.osc_progress !== undefined) {
+    oscProgress = payload.osc_progress === null
+      ? null
+      : requiredString(payload, "osc_progress");
+  }
   return Object.freeze({
     text: requiredString(payload, "text"),
+    ...optionalProperty("revision", revision),
+    ...optionalProperty("oscProgress", oscProgress),
     cols: requiredPositiveUint16(payload, "cols"),
     rows: requiredPositiveUint16(payload, "rows"),
     cursorRow: requiredUint16(payload, "cursor_row"),
@@ -1893,7 +2383,15 @@ function processInfoResult(value: unknown): ProcessInfoResult {
   const payload = record(value, "process info result");
   strictObject(
     payload,
-    ["pid", "executable", "argv", "cwd", "children"],
+    [
+      "pid",
+      "executable",
+      "argv",
+      "cwd",
+      "foreground_cwd",
+      "foreground_executable",
+      "children",
+    ],
     "process info result",
   );
   if (
@@ -1910,6 +2408,12 @@ function processInfoResult(value: unknown): ProcessInfoResult {
     ...optionalProperty("executable", optionalString(payload, "executable")),
     argv: Object.freeze([...payload.argv]),
     ...optionalProperty("cwd", optionalString(payload, "cwd")),
+    foregroundCwd: Object.hasOwn(payload, "foreground_cwd")
+      ? requiredNullableString(payload, "foreground_cwd")
+      : null,
+    foregroundExecutable: Object.hasOwn(payload, "foreground_executable")
+      ? requiredNullableString(payload, "foreground_executable")
+      : null,
     children: Object.freeze(
       payload.children.map((item) =>
         requiredUnsignedInteger({ child: item }, "child")),
@@ -1952,10 +2456,15 @@ function rendererGrantResult(value: unknown): RendererGrant {
 
 function viewerResizeResult(value: unknown): ViewerResizeResult {
   const payload = record(value, "viewer resize result");
-  strictObject(payload, ["accepted", "size"], "viewer resize result");
+  strictObject(payload, ["accepted", "size", "outcome"], "viewer resize result");
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: size(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -1965,12 +2474,29 @@ function browserViewerResizeResult(
   const payload = record(value, "browser viewer resize result");
   strictObject(
     payload,
-    ["accepted", "size"],
+    ["accepted", "size", "outcome"],
     "browser viewer resize result",
   );
   return Object.freeze({
     accepted: requiredBoolean(payload, "accepted"),
     size: pixelSize(payload.size),
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
+  });
+}
+
+function viewerReleaseResult(value: unknown): ViewerReleaseResult {
+  const payload = record(value, "viewer release result");
+  strictObject(payload, ["outcome"], "viewer release result");
+  return Object.freeze({
+    outcome: requiredEnum(
+      payload,
+      "outcome",
+      ["applied", "passive", "superseded"] as const,
+    ),
   });
 }
 
@@ -2340,8 +2866,9 @@ export class Client {
     params: Readonly<Record<string, unknown>>,
     decode: (value: unknown) => Value,
     options: RequestOptions = {},
+    validate?: (value: Value, cursor: Cursor | undefined) => void,
   ): Promise<ResourceStream<Value>> {
-    return this.protocol.openStream(operation, params, decode, options);
+    return this.protocol.openStream(operation, params, decode, options, validate);
   }
 
   private createdPath(
@@ -2643,6 +3170,58 @@ export class Session extends Handle<SessionId, SessionSnapshot> {
       { ...this.params(), ...optionFields(options) },
       sessionEvent,
       options,
+    );
+  }
+
+  journal(options: SessionJournalOptions = {}): Promise<ResourceStream<SessionJournalRecord>> {
+    return this.client[streamOperation](
+      operations.sessionJournalSubscribe,
+      { ...this.params(), ...journalOptionsFields(options) },
+      sessionJournalRecord,
+      options,
+      validateSessionJournalStreamItem,
+    );
+  }
+
+  /** Lists generic journal producers installed in this session. */
+  async listJournalProducers(
+    options: RequestOptions = {},
+  ): Promise<readonly JournalProducerManifest[]> {
+    const result = journalProducerListResult(
+      await this.client[readOperation](
+        operations.sessionJournalProducerList,
+        this.params(),
+        options,
+      ),
+    );
+    return result.producers;
+  }
+
+  /** Installs or updates a userland journal producer manifest. */
+  putJournalProducer(
+    manifest: JournalProducerManifest,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<JournalProducerPutResult>> {
+    return this.client[mutateOperation](
+      operations.sessionJournalProducerPut,
+      { ...this.params(), manifest: journalManifestFields(manifest) },
+      options,
+      journalProducerPutResult,
+      (result) => result,
+    );
+  }
+
+  /** Appends one generic journal event from a userland producer. */
+  appendJournal(
+    event: JournalIngress,
+    options: MutationOptions = {},
+  ): Promise<MutationResult<JournalAppendResult>> {
+    return this.client[mutateOperation](
+      operations.sessionJournalAppend,
+      { ...this.params(), event: journalIngressFields(event) },
+      options,
+      journalAppendResult,
+      (result) => result,
     );
   }
 
@@ -3514,22 +4093,26 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: ViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<ViewerResizeResult> {
     return this.client[controlOperation](
       operations.terminalViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       viewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.terminalViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3563,6 +4146,46 @@ export class Terminal extends Handle<TerminalId, TerminalSnapshot> {
       options,
       terminalSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),
+    );
+  }
+
+  project(
+    destination: {
+      workspace: SelectorInput<WorkspaceId>;
+      screen: SelectorInput<ScreenId>;
+      pane: SelectorInput<PaneId>;
+      index: number;
+      name?: string;
+    },
+    options: MutationOptions = {},
+  ): Promise<MutationResult<Tab>> {
+    const encodedWorkspace = encodeSelector(destination.workspace);
+    const encodedScreen = encodeSelector(destination.screen);
+    const encodedPane = encodeSelector(destination.pane);
+    const sessionScope = Object.fromEntries(
+      Object.entries(this.scope).filter(
+        ([key]) => !["workspace", "screen", "pane", "tab"].includes(key),
+      ),
+    );
+    const tabScope = {
+      ...sessionScope,
+      workspace: encodedWorkspace,
+      screen: encodedScreen,
+      pane: encodedPane,
+    };
+    return this.client[mutateOperation](
+      operations.terminalProject,
+      {
+        ...this.params(),
+        destination_workspace: encodedWorkspace,
+        destination_screen: encodedScreen,
+        destination_pane: encodedPane,
+        index: destination.index,
+        ...(destination.name === undefined ? {} : { name: destination.name }),
+      },
+      options,
+      tabSnapshot,
+      (snapshot) => new Tab(this.client, selectId(snapshot.id), tabScope, snapshot),
     );
   }
 
@@ -3651,22 +4274,26 @@ export class Browser extends Handle<BrowserId, BrowserSnapshot> {
   }
 
   resizeViewer(
+    attachmentLease: string,
     size: BrowserViewerSizeOptions,
     options: RequestOptions = {},
   ): Promise<BrowserViewerResizeResult> {
     return this.client[controlOperation](
       operations.browserViewerResize,
-      { ...this.params(), ...optionFields(size) },
+      { ...this.params(), attachment_lease: attachmentLease, ...optionFields(size) },
       browserViewerResizeResult,
       options,
     );
   }
 
-  releaseViewer(options: RequestOptions = {}): Promise<void> {
+  releaseViewer(
+    attachmentLease: string,
+    options: RequestOptions = {},
+  ): Promise<ViewerReleaseResult> {
     return this.client[controlOperation](
       operations.browserViewerRelease,
-      this.params(),
-      emptyResult,
+      { ...this.params(), attachment_lease: attachmentLease },
+      viewerReleaseResult,
       options,
     );
   }
@@ -3806,12 +4433,21 @@ export class PairingRequest extends Handle<PairingRequestId, PairingRequestSnaps
 export class FrontendProjection extends Handle<ProjectionId, FrontendProjectionSnapshot> {
   protected readonly selectorKey = "frontend_projection";
   put(
-    projection: JsonValue,
+    value: ProjectionPutOptions,
     options: MutationOptions = {},
   ): Promise<MutationResult<FrontendProjection>> {
     return this.client[mutateOperation](
       operations.frontendProjectionPut,
-      { ...this.params(), projection },
+      {
+        ...this.params(),
+        frontend_id: value.frontendId,
+        window_id: value.windowId,
+        generation: value.generation,
+        projection: value.projection,
+        ...(value.expectedProjectionRevision !== undefined
+          ? { expected_projection_revision: value.expectedProjectionRevision }
+          : {}),
+      },
       options,
       frontendProjectionSnapshot,
       (snapshot) => this.acceptSnapshot(snapshot),

@@ -1,9 +1,21 @@
 internal import CMUXMobileCore
 import Foundation
+import os
+import CmuxMobileDiagnostics
+
+nonisolated private let tailscalePreparationLog = Logger(
+    subsystem: "com.manaflow.cmux",
+    category: "TailscalePreparation"
+)
 
 /// Defers the actor-isolated route proof until `connect()` while preserving the
 /// synchronous transport-factory contract. The proven interface is set on
 /// `NWParameters` before Network.framework starts the connection.
+///
+/// Waiting for tunnel readiness (including the retry-on-path-update loop and
+/// its deadline) is owned entirely by the route authority; this transport
+/// makes exactly one `prepare` call and maps its failure to the transport
+/// error the pairing classifier turns into actionable Tailscale guidance.
 actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
     private let request: CmxByteTransportRequest
     private let tailscaleRouteAuthority: any CmxTailscaleRouteAuthorizing
@@ -26,8 +38,17 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
     }
 
     func connect() async throws {
+        MobileDebugLog.shared.append("tailscale.transport.connect.begin")
         let transport = try await preparedTransport()
-        try await transport.connect()
+        do {
+            try await transport.connect()
+            MobileDebugLog.shared.append("tailscale.transport.connect.success")
+        } catch {
+            MobileDebugLog.shared.append(
+                "tailscale.transport.connect.failed error=\(String(describing: error))"
+            )
+            throw error
+        }
     }
 
     func receive() async throws -> Data? {
@@ -87,6 +108,12 @@ actor CmxPreparingTailscaleByteTransport: CmxByteTransport {
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
+                    MobileDebugLog.shared.append(
+                        "tailscale.prepare.failed error=\(String(describing: error))"
+                    )
+                    tailscalePreparationLog.error(
+                        "Tailscale preparation failed: \(String(describing: error), privacy: .public)"
+                    )
                     throw CmxNetworkByteTransportError.tailscaleAuthorizationUnavailable
                 }
             }

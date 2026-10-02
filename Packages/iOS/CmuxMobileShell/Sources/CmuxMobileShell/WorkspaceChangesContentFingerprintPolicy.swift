@@ -3,12 +3,14 @@ internal import CmuxAgentChat
 /// Rejects content chunks that no longer match the stat that began their transfer.
 struct WorkspaceChangesContentFingerprintPolicy: Sendable {
     func validate(expected: String?, observed: String?) throws {
-        guard let expected,
-              let observed,
-              isIdentityBearing(expected),
-              isIdentityBearing(observed),
-              observed == expected else {
-            throw ChatArtifactError.macUnreachable
+        guard let expected, let observed else {
+            throw ChatArtifactError.invalidResponse
+        }
+        guard isIdentityBearing(expected), isIdentityBearing(observed) else {
+            throw ChatArtifactError.invalidResponse
+        }
+        guard observed == expected else {
+            throw ChatArtifactError.fileChanged
         }
     }
 

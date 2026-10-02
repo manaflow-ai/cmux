@@ -1,5 +1,6 @@
 import AppKit
 import QuartzCore
+import SwiftUI
 
 final class GPUSpinnerNSView: NSView {
     static let animationKey = "cmux.gpuSpinner.rotation"
@@ -27,6 +28,14 @@ final class GPUSpinnerNSView: NSView {
 
     var color: NSColor = .secondaryLabelColor {
         didSet { applyColor() }
+    }
+
+    /// Concrete cmux scheme used to resolve semantic spinner colors.
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            applyColor()
+        }
     }
 
     override init(frame frameRect: NSRect) {
@@ -131,9 +140,10 @@ final class GPUSpinnerNSView: NSView {
 
     private func applyColor() {
         var cg = CGColor(gray: 0.6, alpha: 1)
-        effectiveAppearance.performAsCurrentDrawingAppearance {
-            cg = Self.resolvedCGColor(color)
-        }
+        cg = Self.resolvedCGColor(
+            SidebarAppearanceColorResolver().resolvedColor(color, for: colorScheme),
+            colorScheme: colorScheme
+        )
         switch style {
         case .macOSSpokes:
             for spoke in spokeLayers {
@@ -147,6 +157,19 @@ final class GPUSpinnerNSView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindowOcclusion()
+        updateAnimationState()
+    }
+
+    /// Sidebar rows hide an idle spinner instead of removing it, so hiding the
+    /// spinner or an ancestor stops the endless animation, and unhiding
+    /// reinstalls it.
+    override func viewDidHide() {
+        super.viewDidHide()
+        updateAnimationState()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
         updateAnimationState()
     }
 
@@ -175,14 +198,9 @@ final class GPUSpinnerNSView: NSView {
         updateAnimationState()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        // Re-resolve snapshotted semantic colors on light/dark switches.
-        applyColor()
-    }
-
     private var shouldAnimate: Bool {
         guard isPresentationActive else { return false }
+        guard !isHiddenOrHasHiddenAncestor else { return false }
         guard let window else { return false }
         guard window.occlusionState.contains(.visible) else { return false }
         if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { return false }
@@ -209,35 +227,60 @@ final class GPUSpinnerNSView: NSView {
 
     private func installAnimationIfNeeded() {
         guard contentLayer.animation(forKey: Self.animationKey) == nil else { return }
+        let duration = style == .macOSSpokes ? Self.cycleDuration : Self.arcDuration
+        contentLayer.add(
+            Self.makeRotationAnimation(style: style, beginTime: syncedBeginTime(duration: duration)),
+            forKey: Self.animationKey
+        )
+    }
+
+    /// Builds the endless rotation for `style`.
+    ///
+    /// Core Animation runs these animations in WindowServer, which otherwise
+    /// may recomposite an animating layer at the display's full refresh rate
+    /// (160 Hz on some external displays), and a translucent or glass window
+    /// makes each of those frames more expensive. The spokes only change ten
+    /// times a second, so they ask for 10-20 Hz; the continuous arc asks for
+    /// at most 60 Hz.
+    static func makeRotationAnimation(style: GPUSpinnerStyle, beginTime: CFTimeInterval) -> CAAnimation {
         switch style {
         case .macOSSpokes:
             // Discrete one-spoke steps, clockwise, matching the native cadence.
             let animation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-            let count = Self.spokeCount
+            let count = spokeCount
             animation.values = (0...count).map { -CGFloat($0) / CGFloat(count) * .pi * 2 }
             animation.keyTimes = (0...count).map { NSNumber(value: Double($0) / Double(count)) }
             animation.calculationMode = .discrete
-            animation.duration = Self.cycleDuration
+            animation.duration = cycleDuration
             animation.repeatCount = .infinity
             animation.isRemovedOnCompletion = false
-            animation.beginTime = syncedBeginTime(duration: Self.cycleDuration)
-            contentLayer.add(animation, forKey: Self.animationKey)
+            animation.beginTime = beginTime
+            let stepsPerSecond = Float(Double(count) / cycleDuration)
+            animation.preferredFrameRateRange = CAFrameRateRange(
+                minimum: stepsPerSecond,
+                maximum: stepsPerSecond * 2,
+                preferred: stepsPerSecond * 2
+            )
+            return animation
         case .arc:
             let animation = CABasicAnimation(keyPath: "transform.rotation.z")
             animation.fromValue = 0
             animation.toValue = CGFloat.pi * 2
-            animation.duration = Self.arcDuration
+            animation.duration = arcDuration
             animation.repeatCount = .infinity
             animation.timingFunction = CAMediaTimingFunction(name: .linear)
             animation.isRemovedOnCompletion = false
-            animation.beginTime = syncedBeginTime(duration: Self.arcDuration)
-            contentLayer.add(animation, forKey: Self.animationKey)
+            animation.beginTime = beginTime
+            animation.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            return animation
         }
     }
 
-    private static func resolvedCGColor(_ color: NSColor) -> CGColor {
+    private static func resolvedCGColor(_ color: NSColor, colorScheme: ColorScheme) -> CGColor {
         color.usingColorSpace(.deviceRGB)?.cgColor
-            ?? NSColor.secondaryLabelColor.usingColorSpace(.deviceRGB)?.cgColor
+            ?? SidebarAppearanceColorResolver()
+                .resolvedColor(.secondaryLabelColor, for: colorScheme)
+                .usingColorSpace(.deviceRGB)?.cgColor
             ?? CGColor(gray: 0.6, alpha: 1)
     }
 }

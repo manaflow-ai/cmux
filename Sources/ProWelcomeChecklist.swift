@@ -1,3 +1,5 @@
+import CmuxFoundation
+import CmuxCloud
 import AppKit
 import CmuxBrowser
 import CmuxTerminalCore
@@ -18,13 +20,15 @@ struct AppWebThemeSnapshot: Equatable {
             ?? GhosttyApp.shared.defaultForegroundColor
         return resolved(
             backgroundColor: backgroundColor,
-            foregroundColor: foregroundColor
+            foregroundColor: foregroundColor,
+            accent: (AppDelegate.shared?.accentColor ?? CmuxAccentColor())
         )
     }
 
     static func resolved(
         backgroundColor: NSColor,
-        foregroundColor: NSColor
+        foregroundColor: NSColor,
+        accent: CmuxAccentColor = CmuxAccentColor()
     ) -> AppWebThemeSnapshot {
         let colorScheme = cmuxReadableColorScheme(for: backgroundColor)
         let appearance = colorScheme == .dark ? "dark" : "light"
@@ -32,7 +36,7 @@ struct AppWebThemeSnapshot: Equatable {
             appearance: appearance,
             background: backgroundColor.hexString(),
             foreground: foregroundColor.hexString(),
-            accent: cmuxAccentNSColor(for: colorScheme).hexString()
+            accent: accent.nsColor(for: colorScheme).hexString()
         )
     }
 

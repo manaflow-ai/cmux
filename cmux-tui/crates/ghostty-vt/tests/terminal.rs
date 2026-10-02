@@ -325,7 +325,7 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
     // replay wrapper re-asserts the true cursor last so a byte-mode frontend
     // does not end parked on the final tabstop column.
     let mut source = Terminal::new(104, 39, 0, Callbacks::default()).unwrap();
-    source.vt_write(b"lawrence in ~ \xce\xbb ");
+    source.vt_write(b"operator in ~ \xce\xbb ");
     let expected = source.cursor_position().unwrap();
     assert_eq!(expected, (16, 0));
 
@@ -340,6 +340,406 @@ fn vt_replay_restores_cursor_position_after_tabstops() {
             "mirror cursor diverged after replay"
         );
     }
+}
+
+fn assert_theme_portable_replay_boundaries(
+    label: &str,
+    transcript: &[u8],
+    cols: u16,
+    rows: u16,
+) -> Vec<usize> {
+    let mut failures = Vec::new();
+    let mut delayed_boundaries = Vec::new();
+
+    for split in 0..=transcript.len() {
+        let mut source = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        source.vt_write(&transcript[..split]);
+        let mut admitted = split;
+        while !source.vt_stream_is_ground() && admitted < transcript.len() {
+            source.vt_write(&transcript[admitted..=admitted]);
+            admitted += 1;
+        }
+        if admitted != split {
+            delayed_boundaries.push(split);
+        }
+        assert!(
+            source.vt_stream_is_ground(),
+            "complete transcript never reached a snapshot boundary after split {split}"
+        );
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+
+        let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        source.vt_write(&transcript[admitted..]);
+        mirror.vt_write(&transcript[admitted..]);
+
+        let source_text = source.viewport_text().unwrap();
+        let mirror_text = mirror.viewport_text().unwrap();
+        let source_cells = snapshot_cells(&mut source);
+        let mirror_cells = snapshot_cells(&mut mirror);
+        let has_replacement = mirror_text.contains('\u{fffd}');
+        let text_equal = source_text == mirror_text;
+        let cells_equal = source_cells == mirror_cells;
+        let cursor_equal = source.cursor_position() == mirror.cursor_position();
+        if has_replacement || !text_equal || !cells_equal || !cursor_equal {
+            failures.push(format!(
+                "{label} split {split}, admitted {admitted}: source={source_text:?} mirror={mirror_text:?} \
+                 source_cursor={:?} mirror_cursor={:?} replacement={has_replacement} \
+                 text_equal={text_equal} cells_equal={cells_equal} cursor_equal={cursor_equal}",
+                source.cursor_position(),
+                mirror.cursor_position()
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "snapshot replay lost incremental parser state:\n{}",
+        failures.join("\n")
+    );
+    delayed_boundaries
+}
+
+// Exact bytes captured from a fresh interactive zsh startup, with the
+// username and hostname replaced by synthetic strings of identical length.
+// This includes zsh's right-prompt erasure, OSC title/cwd updates, styled
+// prompt, UTF-8 lambda, bracketed-paste mode, and end-of-line cleanup.
+const ZSH_STARTUP_CAPTURE: &[u8] = &[
+    0x5e, 0x44, 0x08, 0x08, 0x65, 0x78, 0x69, 0x74, 0x0d, 0x0a, 0x1b, 0x5b, 0x31, 0x6d, 0x1b, 0x5b,
+    0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38, 0x6d, 0x1b, 0x5b, 0x37, 0x6d, 0x25, 0x1b, 0x5b,
+    0x32, 0x37, 0x6d, 0x1b, 0x5b, 0x31, 0x6d, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31,
+    0x38, 0x6d, 0x1b, 0x5b, 0x30, 0x6d, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38,
+    0x6d, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+    0x0d, 0x20, 0x0d, 0x1b, 0x5d, 0x32, 0x3b, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x40,
+    0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2d, 0x68, 0x6f, 0x73, 0x74, 0x2d, 0x6d, 0x61, 0x63,
+    0x68, 0x69, 0x6e, 0x65, 0x2d, 0x30, 0x31, 0x3a, 0x7e, 0x2f, 0x66, 0x75, 0x6e, 0x2f, 0x63, 0x6d,
+    0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68, 0x71, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x74, 0x72,
+    0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74, 0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75,
+    0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61,
+    0x6d, 0x07, 0x1b, 0x5d, 0x31, 0x3b, 0x2e, 0x2e, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73,
+    0x74, 0x72, 0x65, 0x61, 0x6d, 0x07, 0x1b, 0x5d, 0x37, 0x3b, 0x66, 0x69, 0x6c, 0x65, 0x3a, 0x2f,
+    0x2f, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2d, 0x68, 0x6f, 0x73, 0x74, 0x2d, 0x6d, 0x61,
+    0x63, 0x68, 0x69, 0x6e, 0x65, 0x2d, 0x30, 0x31, 0x2e, 0x6c, 0x6f, 0x63, 0x61, 0x6c, 0x2f, 0x55,
+    0x73, 0x65, 0x72, 0x73, 0x2f, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2f, 0x66, 0x75,
+    0x6e, 0x2f, 0x63, 0x6d, 0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68, 0x71, 0x2f, 0x77, 0x6f,
+    0x72, 0x6b, 0x74, 0x72, 0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74, 0x2d, 0x63, 0x6d, 0x75,
+    0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x2d, 0x73,
+    0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5c, 0x0d, 0x1b, 0x5b, 0x30, 0x6d, 0x1b, 0x5b, 0x32, 0x37,
+    0x6d, 0x1b, 0x5b, 0x32, 0x34, 0x6d, 0x1b, 0x5b, 0x4a, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b,
+    0x31, 0x33, 0x35, 0x6d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e, 0x61, 0x6c, 0x1b, 0x5b, 0x30, 0x30,
+    0x6d, 0x20, 0x69, 0x6e, 0x20, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x31, 0x38, 0x6d,
+    0x7e, 0x2f, 0x66, 0x75, 0x6e, 0x2f, 0x63, 0x6d, 0x75, 0x78, 0x74, 0x65, 0x72, 0x6d, 0x2d, 0x68,
+    0x71, 0x2f, 0x77, 0x6f, 0x72, 0x6b, 0x74, 0x72, 0x65, 0x65, 0x73, 0x2f, 0x66, 0x65, 0x61, 0x74,
+    0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e,
+    0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5b, 0x30, 0x30, 0x6d, 0x20, 0x6f,
+    0x6e, 0x20, 0x1b, 0x5b, 0x33, 0x38, 0x3b, 0x35, 0x3b, 0x38, 0x31, 0x6d, 0x66, 0x65, 0x61, 0x74,
+    0x2d, 0x63, 0x6d, 0x75, 0x78, 0x2d, 0x74, 0x75, 0x69, 0x2d, 0x74, 0x65, 0x72, 0x6d, 0x69, 0x6e,
+    0x61, 0x6c, 0x2d, 0x73, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x1b, 0x5b, 0x30, 0x30, 0x6d, 0x1b, 0x5b,
+    0x33, 0x38, 0x3b, 0x35, 0x3b, 0x31, 0x36, 0x36, 0x6d, 0x20, 0xce, 0xbb, 0x1b, 0x5b, 0x30, 0x30,
+    0x6d, 0x20, 0x1b, 0x5b, 0x4b, 0x1b, 0x5b, 0x3f, 0x31, 0x68, 0x1b, 0x3d, 0x1b, 0x5b, 0x3f, 0x32,
+    0x30, 0x30, 0x34, 0x68, 0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x30, 0x34, 0x6c, 0x0d, 0x0d, 0x0a,
+];
+
+#[test]
+fn theme_portable_replay_preserves_zsh_startup_at_every_byte_boundary() {
+    let delayed_boundaries =
+        assert_theme_portable_replay_boundaries("zsh-startup", ZSH_STARTUP_CAPTURE, 97, 69);
+    let osc7 = b"\x1b]7;file://";
+    let osc7_start =
+        ZSH_STARTUP_CAPTURE.windows(osc7.len()).position(|window| window == osc7).unwrap();
+    let unsafe_boundary = osc7_start + 1;
+    assert!(
+        delayed_boundaries.contains(&unsafe_boundary),
+        "unsafe OSC 7 split {unsafe_boundary} was admitted without waiting"
+    );
+}
+
+#[test]
+fn theme_portable_replay_preserves_stream_state_at_every_byte_boundary() {
+    let transcript = concat!(
+        "before λ 🙂 e\u{301} ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ🙂\u{1b}\\",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\r\u{1b}[K",
+        " after"
+    )
+    .as_bytes();
+    let delayed_boundaries = assert_theme_portable_replay_boundaries("mixed", transcript, 80, 4);
+    for (label, sequence, unsafe_prefix) in [
+        ("lambda", "λ".as_bytes(), 1),
+        ("emoji", "🙂".as_bytes(), 1),
+        ("SGR", b"\x1b[1;31m".as_slice(), 1),
+        ("OSC title", b"\x1b]0;title".as_slice(), 1),
+    ] {
+        let start =
+            transcript.windows(sequence.len()).position(|window| window == sequence).unwrap();
+        let boundary = start + unsafe_prefix;
+        assert!(
+            delayed_boundaries.contains(&boundary),
+            "unsafe {label} split {boundary} was admitted without waiting"
+        );
+    }
+    for (sequence, unsafe_prefix) in
+        [(b"\x1bP".as_slice(), 1), (b"\x1b_".as_slice(), 1), (b"\r\x1b[".as_slice(), 2)]
+    {
+        let start =
+            transcript.windows(sequence.len()).position(|window| window == sequence).unwrap();
+        let boundary = start + unsafe_prefix;
+        assert!(
+            delayed_boundaries.contains(&boundary),
+            "unsafe {sequence:?} split {boundary} was admitted without waiting"
+        );
+    }
+}
+
+/// A live terminal is rarely at a parser boundary: streaming agents emit
+/// escape sequences constantly, so attach and resize must be able to replay
+/// from inside any sequence. Unlike
+/// [`assert_theme_portable_replay_boundaries`], this never waits for ground
+/// before snapshotting.
+fn assert_theme_portable_replay_resumes_mid_sequence(
+    label: &str,
+    transcript: &[u8],
+    cols: u16,
+    rows: u16,
+) {
+    let mut failures = Vec::new();
+    for split in 0..=transcript.len() {
+        let mut source = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        source.vt_write(&transcript[..split]);
+        let resumable = source.vt_replay_resumes_stream();
+        let replay = source.vt_replay_bounded_theme_portable_with_aliases(8 * 1024 * 1024).unwrap();
+
+        // Consumers append their own color sequences after the replay bytes,
+        // so those must end at a parser boundary. The incomplete sequence is
+        // written last, right before the live stream that completes it.
+        let mut mirror = Terminal::new(cols, rows, 100, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay.bytes);
+        let bytes_end_at_boundary = mirror.vt_stream_is_ground();
+        mirror.vt_write(&replay.pending_sequence);
+        source.vt_write(&transcript[split..]);
+        mirror.vt_write(&transcript[split..]);
+
+        let source_text = source.viewport_text().unwrap();
+        let mirror_text = mirror.viewport_text().unwrap();
+        let cells_equal = snapshot_cells(&mut source) == snapshot_cells(&mut mirror);
+        let cursor_equal = source.cursor_position() == mirror.cursor_position();
+        let title_equal = source.title() == mirror.title();
+        if !resumable
+            || !bytes_end_at_boundary
+            || source_text != mirror_text
+            || !cells_equal
+            || !cursor_equal
+            || !title_equal
+        {
+            failures.push(format!(
+                "{label} split {split}: resumable={resumable} \
+                 bytes_end_at_boundary={bytes_end_at_boundary} source={source_text:?} \
+                 mirror={mirror_text:?} cells_equal={cells_equal} cursor_equal={cursor_equal} \
+                 title_equal={title_equal}"
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "mid-sequence replay diverged from the source terminal:\n{}",
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn theme_portable_replay_resumes_inside_every_partial_sequence() {
+    let transcript = concat!(
+        "before λ 🙂 e\u{301} ",
+        "\u{1b}[1;31mstyled 赤\u{1b}[0m ",
+        "\u{1b}]0;title λ🙂\u{1b}\\",
+        "\u{1b}]8;;https://example.com\u{7}link\u{1b}]8;;\u{7} ",
+        "\u{1b}P$qm\u{1b}\\",
+        "\u{1b}_ignored\u{1b}\\",
+        "\u{1b}]2;bel title\u{7}",
+        "\u{1b}[2;5H\u{1b}[38;2;10;20;30mrgb\u{1b}[m",
+        "\r\u{1b}[K",
+        " after"
+    )
+    .as_bytes();
+    assert_theme_portable_replay_resumes_mid_sequence("mixed", transcript, 80, 4);
+}
+
+#[test]
+fn theme_portable_replay_resumes_zsh_startup_at_every_byte() {
+    assert_theme_portable_replay_resumes_mid_sequence("zsh-startup", ZSH_STARTUP_CAPTURE, 97, 69);
+}
+
+#[test]
+fn replay_after_invalid_utf8_does_not_duplicate_replacement_characters() {
+    // Ghostty prints U+FFFD for an abandoned lead byte, so that byte is part
+    // of the snapshot and must not be replayed again as a pending sequence.
+    for prefix in [&b"a\xce\x1b[3"[..], &b"a\xe2\x82\x1b]0;t"[..], &b"a\xf0\x9f\x1b"[..]] {
+        let mut source = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+        source.vt_write(prefix);
+        assert!(source.vt_replay_resumes_stream(), "{prefix:?}");
+        let replay = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+        let mut mirror = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+        for term in [&mut source, &mut mirror] {
+            term.vt_write(b"1mX\x07\x1b\\Y");
+        }
+        assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap(), "{prefix:?}");
+        assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror), "{prefix:?}");
+    }
+}
+
+fn pending_after(prefix: &[u8]) -> Vec<u8> {
+    let mut term = Terminal::new(20, 3, 0, Callbacks::default()).unwrap();
+    term.vt_write(prefix);
+    term.vt_replay_bounded_theme_portable_with_aliases(1024 * 1024).unwrap().pending_sequence
+}
+
+/// A pending sequence must hold only bytes the source parser has not acted
+/// on, or the mirror acts on them a second time.
+#[test]
+fn pending_sequence_excludes_bytes_the_parser_already_acted_on() {
+    // ESC ends an OSC, DCS or APC string: Ghostty dispatches it right there,
+    // so only the ESC that may start the string terminator is pending.
+    assert_eq!(pending_after(b"\x1b]52;c;aGk=\x1b"), b"\x1b");
+    assert_eq!(pending_after(b"\x1b]0;title\x1b"), b"\x1b");
+    assert_eq!(pending_after(b"\x1bPq#0\x1b"), b"\x1b");
+    // A new introducer abandons the sequence before it.
+    assert_eq!(pending_after(b"\x1b[3\x1b["), b"\x1b[");
+    // C0 controls inside an escape or CSI sequence execute immediately.
+    assert_eq!(pending_after(b"\x1b[3\n"), b"\x1b[3");
+    assert_eq!(pending_after(b"\x1b[3\x07\r"), b"\x1b[3");
+    // Strictly invalid UTF-8 prints U+FFFD at once; nothing is pending.
+    for invalid in [&b"\xe0\x80"[..], b"\xed\xa0", b"\xf0\x80", b"\xf4\x90"] {
+        assert_eq!(pending_after(invalid), b"", "{invalid:?}");
+    }
+    // A valid lead with its first valid continuation still waits.
+    assert_eq!(pending_after(b"\xe0\xa0"), b"\xe0\xa0");
+}
+
+#[test]
+fn replay_inside_a_csi_does_not_ring_the_bell_again() {
+    let rings = Arc::new(Mutex::new(0));
+    let callbacks = |rings: &Arc<Mutex<u32>>| {
+        let rings = rings.clone();
+        Callbacks {
+            on_bell: Some(Box::new(move || *rings.lock().unwrap() += 1)),
+            ..Callbacks::default()
+        }
+    };
+    let source_rings = Arc::new(Mutex::new(0));
+    let mut source = Terminal::new(20, 3, 0, callbacks(&source_rings)).unwrap();
+    source.vt_write(b"\x1b[3\x07");
+    assert_eq!(*source_rings.lock().unwrap(), 1);
+    let replay = source.vt_replay_bounded_theme_portable(1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(20, 3, 0, callbacks(&rings)).unwrap();
+    mirror.vt_write(&replay);
+    assert_eq!(*rings.lock().unwrap(), 0, "the replayed pending sequence rang the bell again");
+}
+
+#[test]
+fn oversized_pending_sequence_is_reported_as_not_resumable() {
+    // An unterminated control string larger than the pending-sequence budget
+    // cannot be carried in a replay. Callers must see that and fall back to a
+    // fresh attachment instead of silently printing the rest as text.
+    let mut term = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+    term.vt_write(b"\x1b]52;c;");
+    assert!(term.vt_replay_resumes_stream());
+    term.vt_write(&vec![b'A'; 4 * 1024 * 1024]);
+    assert!(!term.vt_replay_resumes_stream());
+    term.vt_write(b"\x07");
+    assert!(term.vt_replay_resumes_stream());
+}
+
+#[test]
+fn theme_portable_replay_preserves_pending_wrap() {
+    for (label, prefix) in [
+        ("narrow", &b"abcde"[..]),
+        ("space", &b"abcd "[..]),
+        ("wide", "abc界".as_bytes()),
+        ("styled", &b"abc\x1b[31mde\x1b[32m"[..]),
+        ("alternate-screen", &b"\x1b[?1049habcde"[..]),
+        ("right-margin", &b"\x1b[?69h\x1b[1;4sabcd"[..]),
+    ] {
+        let mut source = Terminal::new(5, 3, 0, Callbacks::default()).unwrap();
+        source.vt_write(prefix);
+        assert!(source.vt_stream_is_ground(), "{label}");
+
+        let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+        let mut mirror = Terminal::new(5, 3, 0, Callbacks::default()).unwrap();
+        mirror.vt_write(&replay);
+
+        source.vt_write(b"X");
+        mirror.vt_write(b"X");
+        assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror), "{label}");
+        assert_eq!(source.cursor_position(), mirror.cursor_position(), "{label}");
+        assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap(), "{label}");
+    }
+}
+
+#[test]
+fn pending_wrap_replay_preserves_cursor_with_origin_mode() {
+    let mut source = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    source.vt_write(b"\x1b[2;4r\x1b[?6h\x1b[2;1Habcde");
+    assert!(source.mode(6, false));
+
+    let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(5, 5, 0, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+
+    source.vt_write(b"X");
+    mirror.vt_write(b"X");
+    assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror));
+    assert_eq!(source.cursor_position(), mirror.cursor_position());
+    assert_eq!(source.viewport_text().unwrap(), mirror.viewport_text().unwrap());
+}
+
+#[test]
+fn pending_wrap_replay_uses_the_active_area_while_viewport_is_scrolled() {
+    let mut source = Terminal::new(5, 3, 100, Callbacks::default()).unwrap();
+    for line in [b"old-a\r\n", b"old-b\r\n", b"old-c\r\n", b"old-d\r\n"] {
+        source.vt_write(line);
+    }
+    source.vt_write(b"abcde");
+    source.scroll_delta(-2);
+    assert!(source.scrollbar().unwrap().scrolled_back());
+
+    let replay = source.vt_replay_bounded_theme_portable(8 * 1024 * 1024).unwrap();
+    let mut mirror = Terminal::new(5, 3, 100, Callbacks::default()).unwrap();
+    mirror.vt_write(&replay);
+
+    source.vt_write(b"X");
+    mirror.vt_write(b"X");
+    source.scroll_to_bottom();
+    assert_eq!(snapshot_cells(&mut source), snapshot_cells(&mut mirror));
+    assert_eq!(source.cursor_position(), mirror.cursor_position());
+}
+
+#[test]
+fn snapshot_boundary_tracks_raw_c1_normalizer_across_writes() {
+    let mut term = Terminal::new(20, 2, 0, Callbacks::default()).unwrap();
+    assert_eq!(term.vt_write_with_normalized(&[0xc2]).as_ref(), &[0xc2]);
+    assert!(!term.vt_stream_is_ground());
+
+    // 0x9d completes UTF-8 U+009D, so the wrapper must not rewrite it as a
+    // standalone C1 OSC opener.
+    assert_eq!(term.vt_write_with_normalized(&[0x9d]).as_ref(), &[0x9d]);
+    assert!(term.vt_stream_is_ground());
+
+    assert_eq!(term.vt_write_with_normalized(&[0x9d]).as_ref(), b"\x1b]");
+    assert!(!term.vt_stream_is_ground());
+    term.vt_write(b"0;raw-c1");
+
+    // A standalone raw C1 ST is normalized to its 7-bit ESC form and closes
+    // the control string, returning both parsers to a snapshot boundary.
+    assert_eq!(term.vt_write_with_normalized(&[0x9c]).as_ref(), b"\x1b\\");
+    assert!(term.vt_stream_is_ground());
 }
 
 #[test]
@@ -390,6 +790,49 @@ fn selection_text_absolute_preserves_soft_wraps() {
 
     let text = term.selection_text_absolute((0, 0), (4, 1)).unwrap();
     assert_eq!(text.trim_end(), "abcdefghijklmno");
+}
+
+#[test]
+fn vt_replay_preserves_a_hyperlink_across_soft_wrapped_rows() {
+    let url = "http://10.16.0.7:8000/probe/B?encoded=a%2Fb&duplicate=1&duplicate=2#frag-B";
+    let bytes = format!("\x1b]8;;{url}\x1b\\{url}\x1b]8;;\x1b\\");
+    let mut source = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    source.vt_write(bytes.as_bytes());
+
+    // The source text is a single logical link even though its display spans
+    // several physical rows. A replay must retain every query item and the
+    // fragment, rather than stopping at the first soft-wrap boundary.
+    let source_text = source.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert!(source_text.contains("duplicate=2"), "source text was {source_text:?}");
+    assert!(source_text.contains("#frag-B"), "source text was {source_text:?}");
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    assert!(replay.windows(url.len()).any(|window| window == url.as_bytes()));
+
+    let mut target = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    let target_text = target.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(target_text, source_text, "replayed soft-wrap text changed");
+    assert!(target_text.contains("duplicate=2"), "target text was {target_text:?}");
+    assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
+}
+
+#[test]
+fn vt_replay_preserves_plain_url_text_across_soft_wrapped_rows() {
+    let url = b"http://0.0.0.0:8000/probe/B?encoded=a%2Fb&duplicate=1&duplicate=2#frag-B";
+    let mut source = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    source.vt_write(url);
+
+    let source_text = source.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(source_text.trim_end(), String::from_utf8_lossy(url));
+
+    let replay = source.vt_replay_bounded_bytes(1024 * 1024).unwrap();
+    let mut target = Terminal::new(20, 8, 1000, Callbacks::default()).unwrap();
+    target.vt_write(&replay);
+    let target_text = target.selection_text_absolute((0, 0), (19, 7)).unwrap();
+    assert_eq!(target_text, source_text, "replayed plain URL text changed");
+    assert!(target_text.contains("duplicate=2"), "target text was {target_text:?}");
+    assert!(target_text.contains("#frag-B"), "target text was {target_text:?}");
 }
 
 #[test]

@@ -4,6 +4,9 @@ import secrets
 import math
 import base64
 import binascii
+import json
+import os
+import re
 import threading
 from dataclasses import asdict, dataclass, fields
 from typing import (
@@ -23,7 +26,11 @@ from typing import (
 
 from ._operations import Operation, Operations
 from ._protocol import ProtocolConnection, ResourceStream
-from .client_defaults import default_socket_path, env_socket_path
+from .client_defaults import (
+    _legacy_raw_socket_fallback_path,
+    default_socket_path,
+    env_socket_path,
+)
 from .errors import (
     CancelledError,
     CmuxConnectionError,
@@ -103,6 +110,19 @@ from .models import (
     ScreenSnapshot,
     SessionDelta,
     SessionEvent,
+    JournalAuthority,
+    JournalAppendResult,
+    JournalClass,
+    JournalEventSchema,
+    JournalIngress,
+    JournalProducer,
+    JournalProducerListResult,
+    JournalProducerManifest,
+    JournalProducerPutResult,
+    JournalReplayPolicy,
+    JournalSensitivity,
+    JournalSubject,
+    SessionJournalRecord,
     SessionSnapshotItem,
     SessionSnapshot,
     ShellCommand,
@@ -137,6 +157,8 @@ from .models import (
     Size,
     PixelSize,
     Unknown,
+    ViewAttachmentOutcome,
+    ViewerReleaseResult,
     ViewerResizeResult,
     WorkspaceSnapshot,
 )
@@ -158,6 +180,7 @@ from .options import (
     RequestOptions,
     RunOptions,
     SessionEventsOptions,
+    SessionJournalOptions,
     SidebarEnsureOptions,
     SidebarInputOptions,
     SidebarResizeOptions,
@@ -232,6 +255,39 @@ def _options(value: object) -> Dict[str, Any]:
             result[item.name] = _plain(field_value)
         elif name is not None:
             result[name] = _plain(field_value)
+    return result
+
+
+def _journal_options(value: SessionJournalOptions) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    if value.cursor is not None:
+        result["cursor"] = asdict(value.cursor)
+    if value.start is not None:
+        result["start"] = value.start
+    if value.follow is not None:
+        result["follow"] = value.follow
+    if value.filter is None:
+        return result
+    filter_value: Dict[str, Any] = {}
+    if value.filter.kinds is not None:
+        filter_value["kinds"] = list(value.filter.kinds)
+    if value.filter.classes is not None:
+        filter_value["classes"] = list(value.filter.classes)
+    if value.filter.subjects is not None:
+        filter_value["subjects"] = [
+            {
+                key: item
+                for key, item in (("kind", subject.kind), ("id", subject.id))
+                if item is not None
+            }
+            for subject in value.filter.subjects
+        ]
+    if value.filter.max_sensitivity is not None:
+        filter_value["max_sensitivity"] = value.filter.max_sensitivity
+    if value.filter.regex is not None:
+        filter_value["regex"] = asdict(value.filter.regex)
+    if filter_value:
+        result["filter"] = filter_value
     return result
 
 
@@ -398,6 +454,16 @@ def _required_decimal(payload: Mapping[str, Any], key: str) -> str:
     ):
         raise ProtocolError(f"resource field {key} must be a uint64 decimal string")
     return value
+
+
+def _required_nullable_decimal(
+    payload: Mapping[str, Any], key: str
+) -> Optional[str]:
+    if key not in payload:
+        raise ProtocolError(f"resource result omitted required field {key}")
+    if payload[key] is None:
+        return None
+    return _required_decimal(payload, key)
 
 
 def _required_nullable_decimal_int(
@@ -760,6 +826,25 @@ def _tab_snapshot(value: Any) -> TabSnapshot:
 
 def _terminal_snapshot(value: Any) -> TerminalSnapshot:
     payload = _unwrap_resource(value, ("terminal",))
+    has_tab_id = "tab_id" in payload
+    has_tab_ids = "tab_ids" in payload
+    if not has_tab_id and not has_tab_ids:
+        raise ProtocolError("terminal snapshot requires tab_ids or tab_id")
+    legacy_tab_id = None
+    if has_tab_id and payload["tab_id"] is not None:
+        legacy_tab_id = _required_id(payload, ("tab_id",), TabId)
+    if has_tab_ids:
+        raw_tab_ids = payload["tab_ids"]
+        if not isinstance(raw_tab_ids, list):
+            raise ProtocolError("terminal tab_ids must be an array")
+        tab_ids = tuple(
+            _required_id({"id": item}, ("id",), TabId)
+            for item in raw_tab_ids
+        )
+    else:
+        tab_ids = () if legacy_tab_id is None else (legacy_tab_id,)
+    if has_tab_id and legacy_tab_id != (tab_ids[0] if tab_ids else None):
+        raise ProtocolError("terminal tab_id must be the first tab_ids item")
     lifecycle = _required_enum(
         payload,
         "lifecycle",
@@ -785,6 +870,7 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
             TerminalId,
             (
                 "tab_id",
+                "tab_ids",
                 "title",
                 "cwd",
                 "cols",
@@ -794,7 +880,7 @@ def _terminal_snapshot(value: Any) -> TerminalSnapshot:
                 "exit",
             ),
         ),
-        tab_id=_required_id(payload, ("tab_id",), TabId),
+        tab_ids=tab_ids,
         title=_required_string(payload, "title"),
         cwd=_optional_present_string(payload, "cwd"),
         cols=_required_positive_uint16(payload, "cols"),
@@ -922,7 +1008,14 @@ def _aux_snapshot(
             "expires_in_seconds",
             "status",
         ),
-        FrontendProjectionSnapshot: ("session_id", "projection"),
+        FrontendProjectionSnapshot: (
+            "session_id",
+            "frontend_id",
+            "window_id",
+            "generation",
+            "projection",
+            "projection_revision",
+        ),
         NotificationSnapshot: (
             "session_id",
             "title",
@@ -972,9 +1065,16 @@ def _aux_snapshot(
             ("session_id",),
             SessionId,
         )
+        arguments["frontend_id"] = _required_string(payload, "frontend_id")
+        arguments["window_id"] = _required_string(payload, "window_id")
+        arguments["generation"] = _required_string(payload, "generation")
         if "projection" not in payload:
             raise ProtocolError("frontend projection omitted projection")
         arguments["projection"] = payload["projection"]
+        arguments["projection_revision"] = _required_decimal(
+            payload,
+            "projection_revision",
+        )
     elif snapshot_type is NotificationSnapshot:
         arguments.update(
             title=_required_string(payload, "title"),
@@ -1001,7 +1101,7 @@ def _aux_snapshot(
             source=_required_enum(
                 payload,
                 "source",
-                ("hook", "socket", "detected"),
+                ("hook", "socket", "detected", "plugin"),
             ),
             updated_at_ms=_required_decimal(payload, "updated_at_ms"),
             source_session=_required_nullable_string(
@@ -1125,6 +1225,8 @@ def _terminal_screen_result(value: Any) -> TerminalScreenResult:
         payload,
         (
             "text",
+            "revision",
+            "osc_progress",
             "cols",
             "rows",
             "cursor_row",
@@ -1137,14 +1239,26 @@ def _terminal_screen_result(value: Any) -> TerminalScreenResult:
     extra = payload.get("extra", {})
     if not isinstance(extra, Mapping):
         raise ProtocolError("terminal screen extra must be an object")
+    revision = (
+        _required_nullable_decimal(payload, "revision")
+        if "revision" in payload
+        else None
+    )
+    osc_progress = (
+        _required_nullable_string(payload, "osc_progress")
+        if "osc_progress" in payload
+        else None
+    )
     return TerminalScreenResult(
-        _required_string(payload, "text"),
-        _required_positive_uint16(payload, "cols"),
-        _required_positive_uint16(payload, "rows"),
-        _required_uint16(payload, "cursor_row"),
-        _required_uint16(payload, "cursor_col"),
-        _required_bool(payload, "cursor_visible"),
-        dict(extra),
+        text=_required_string(payload, "text"),
+        cols=_required_positive_uint16(payload, "cols"),
+        rows=_required_positive_uint16(payload, "rows"),
+        cursor_row=_required_uint16(payload, "cursor_row"),
+        cursor_col=_required_uint16(payload, "cursor_col"),
+        cursor_visible=_required_bool(payload, "cursor_visible"),
+        extra=dict(extra),
+        revision=revision,
+        osc_progress=osc_progress,
     )
 
 
@@ -1297,7 +1411,15 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
     payload = _mapping(value, "process info result")
     _strict_object(
         payload,
-        ("pid", "executable", "argv", "cwd", "children"),
+        (
+            "pid",
+            "executable",
+            "argv",
+            "cwd",
+            "foreground_cwd",
+            "foreground_executable",
+            "children",
+        ),
         "process info result",
     )
     argv = payload.get("argv")
@@ -1314,22 +1436,37 @@ def _process_info_result(value: Any) -> ProcessInfoResult:
         _optional_present_string(payload, "executable"),
         tuple(argv),
         _optional_present_string(payload, "cwd"),
+        _optional_string(payload, "foreground_cwd"),
         decoded_children,
+        _optional_string(payload, "foreground_executable"),
     )
 
 
 def _viewer_resize_result(value: Any) -> ViewerResizeResult:
     payload = _mapping(value, "viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "viewer resize result",
+    )
     return ViewerResizeResult(
         _required_bool(payload, "accepted"),
         _size(payload.get("size")),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
 
 
 def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
     payload = _mapping(value, "browser viewer resize result")
-    _strict_object(payload, ("accepted", "size"), "browser viewer resize result")
+    _strict_object(
+        payload,
+        ("accepted", "size", "outcome"),
+        "browser viewer resize result",
+    )
     size = _mapping(payload.get("size"), "pixel size")
     _strict_object(size, ("width_px", "height_px"), "pixel size")
     return BrowserViewerResizeResult(
@@ -1338,7 +1475,23 @@ def _browser_viewer_resize_result(value: Any) -> BrowserViewerResizeResult:
             _required_positive_uint32(size, "width_px"),
             _required_positive_uint32(size, "height_px"),
         ),
+        _required_enum(
+            payload,
+            "outcome",
+            ("applied", "passive", "superseded"),
+        ),
     )
+
+
+def _viewer_release_result(value: Any) -> ViewerReleaseResult:
+    payload = _mapping(value, "viewer release result")
+    _strict_object(payload, ("outcome",), "viewer release result")
+    outcome: ViewAttachmentOutcome = _required_enum(
+        payload,
+        "outcome",
+        ("applied", "passive", "superseded"),
+    )
+    return ViewerReleaseResult(outcome)
 
 
 def _cell_pixels_result(value: Any) -> CellPixelsResult:
@@ -1662,6 +1815,494 @@ def _event_item(value: Any) -> SessionEvent:
             tuple(_resource_change(item) for item in values),
         )
     return Unknown(kind, dict(payload))
+
+
+def _journal_record(value: Any) -> SessionJournalRecord:
+    payload = _mapping(value, "session journal record")
+    _strict_object(
+        payload,
+        (
+            "sequence", "event_id", "schema_version", "kind", "class", "replay",
+            "occurred_at_ms", "committed_at_ms", "producer", "authority",
+            "causation_id", "correlation_id", "causation_depth", "subjects",
+            "sensitivity", "payload", "resource_revision",
+            "previous_resource_revision",
+        ),
+        "session journal record",
+    )
+    for required in ("authority", "payload"):
+        if required not in payload:
+            raise ProtocolError(
+                f"session journal record omitted required field {required}"
+            )
+    producer = _mapping(payload.get("producer"), "journal producer")
+    _strict_object(producer, ("kind", "id"), "journal producer")
+    authority_value = payload.get("authority")
+    authority: Optional[JournalAuthority] = None
+    if authority_value is not None:
+        authority_payload = _mapping(authority_value, "journal authority")
+        _strict_object(
+            authority_payload,
+            ("principal_id", "lease_id", "generation", "role"),
+            "journal authority",
+        )
+        authority = JournalAuthority(
+            _required_string(authority_payload, "principal_id"),
+            _required_string(authority_payload, "lease_id"),
+            _required_string(authority_payload, "generation"),
+            _required_string(authority_payload, "role"),
+        )
+    subject_values = payload.get("subjects")
+    if not isinstance(subject_values, list):
+        raise ProtocolError("journal subjects must be an array")
+    if len(subject_values) > 64:
+        raise ProtocolError("journal subjects must contain at most 64 entries")
+    subjects = []
+    for subject_value in subject_values:
+        try:
+            subjects.append(_journal_subject(subject_value))
+        except ProtocolError:
+            raise
+        except (TypeError, ValueError) as error:
+            raise ProtocolError(f"journal subject is invalid: {error}") from error
+    return SessionJournalRecord(
+        _required_decimal(payload, "sequence"),
+        _required_string(payload, "event_id"),
+        _required_positive_uint32(payload, "schema_version"),
+        _required_string(payload, "kind"),
+        _required_enum(payload, "class", ("state", "observation", "effect", "checkpoint")),  # type: ignore[arg-type]
+        _required_enum(payload, "replay", ("required", "advisory", "never")),  # type: ignore[arg-type]
+        _required_decimal(payload, "occurred_at_ms"),
+        _required_decimal(payload, "committed_at_ms"),
+        JournalProducer(
+            _required_string(producer, "kind"),
+            _required_string(producer, "id"),
+        ),
+        authority,
+        _required_nullable_string(payload, "causation_id"),
+        _required_nullable_string(payload, "correlation_id"),
+        _required_uint16(payload, "causation_depth"),
+        tuple(subjects),
+        _required_enum(
+            payload,
+            "sensitivity",
+            ("public", "metadata", "sensitive", "secret"),
+        ),  # type: ignore[arg-type]
+        payload["payload"],
+        _required_nullable_decimal(payload, "resource_revision"),
+        _required_nullable_decimal(payload, "previous_resource_revision"),
+    )
+
+
+_JOURNAL_CLASSES = ("state", "observation", "effect", "checkpoint")
+_JOURNAL_REPLAY_POLICIES = ("required", "advisory", "never")
+_JOURNAL_SENSITIVITIES = ("public", "metadata", "sensitive", "secret")
+
+
+def _journal_json_value(value: Any, label: str) -> Any:
+    """Validate a value before putting it in a JSON protocol field."""
+    try:
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{label} must be a JSON value") from error
+    if isinstance(value, Mapping) and not all(
+        isinstance(key, str) for key in value
+    ):
+        raise TypeError(f"{label} object keys must be strings")
+    if isinstance(value, Mapping):
+        return {
+            key: _journal_json_value(item, f"{label}.{key}")
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [
+            _journal_json_value(item, f"{label}[{index}]")
+            for index, item in enumerate(value)
+        ]
+    return value
+
+
+def _journal_text(value: Any, label: str, maximum: int) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a string")
+    try:
+        length = len(value.encode("utf-8"))
+    except UnicodeEncodeError as error:
+        raise ValueError(f"{label} must contain valid Unicode") from error
+    if length < 1 or length > maximum:
+        raise ValueError(
+            f"{label} must contain 1 to {maximum} UTF-8 bytes"
+        )
+    return value
+
+
+def _journal_component(value: Any, label: str) -> str:
+    value = _journal_text(value, label, 64)
+    if re.fullmatch(r"[a-z0-9][a-z0-9_-]*", value) is None:
+        raise ValueError(
+            f"{label} must match [a-z0-9][a-z0-9_-]*"
+        )
+    return value
+
+
+def _journal_kind(value: Any, label: str) -> str:
+    value = _journal_text(value, label, 128)
+    if any(
+        re.fullmatch(r"[a-z0-9][a-z0-9_-]*", part) is None
+        for part in value.split(".")
+    ):
+        raise ValueError(
+            f"{label} must be a dotted lowercase name"
+        )
+    return value
+
+
+def _journal_decimal(value: Any, label: str) -> str:
+    if isinstance(value, bool):
+        raise TypeError(f"{label} must be a decimal string")
+    if isinstance(value, int):
+        if value < 0 or value > 18_446_744_073_709_551_615:
+            raise ValueError(f"{label} must be an unsigned 64-bit decimal")
+        value = str(value)
+    if not isinstance(value, str):
+        raise TypeError(f"{label} must be a decimal string")
+    return _required_decimal({label: value}, label)
+
+
+def _journal_sensitivity_rank(value: str) -> int:
+    return _JOURNAL_SENSITIVITIES.index(value)
+
+
+def _journal_event_fields(
+    event: JournalEventSchema,
+    namespace: str,
+    max_sensitivity: str,
+    seen: set[tuple[str, int]],
+) -> Dict[str, Any]:
+    if not isinstance(event, JournalEventSchema):
+        raise TypeError("events must contain JournalEventSchema values")
+    kind = _journal_kind(event.kind, "event.kind")
+    prefix = f"{namespace}."
+    if not kind.startswith(prefix):
+        raise ValueError("event.kind must be inside the producer namespace")
+    if (
+        not isinstance(event.schema_version, int)
+        or isinstance(event.schema_version, bool)
+        or not 1 <= event.schema_version <= 4_294_967_295
+    ):
+        raise ValueError("event.schema_version must be a positive uint32")
+    if event.class_ not in _JOURNAL_CLASSES:
+        raise ValueError("event.class is invalid")
+    if event.replay not in _JOURNAL_REPLAY_POLICIES:
+        raise ValueError("event.replay is invalid")
+    if event.sensitivity not in _JOURNAL_SENSITIVITIES:
+        raise ValueError("event.sensitivity is invalid")
+    if (
+        event.sensitivity == "secret"
+        or _journal_sensitivity_rank(event.sensitivity)
+        > _journal_sensitivity_rank(max_sensitivity)
+    ):
+        raise ValueError("event sensitivity exceeds producer authority")
+    identity = (kind, event.schema_version)
+    if identity in seen:
+        raise ValueError("events must not declare duplicates")
+    seen.add(identity)
+    return {
+        "kind": kind,
+        "schema_version": event.schema_version,
+        "class": event.class_,
+        "replay": event.replay,
+        "sensitivity": event.sensitivity,
+        "payload_schema": _journal_json_value(
+            event.payload_schema,
+            "event.payload_schema",
+        ),
+    }
+
+
+def _journal_manifest_fields(
+    manifest: JournalProducerManifest,
+) -> Dict[str, Any]:
+    if not isinstance(manifest, JournalProducerManifest):
+        raise TypeError("manifest must be a JournalProducerManifest")
+    producer_id = _journal_component(manifest.producer_id, "producer_id")
+    namespace = _journal_text(manifest.namespace, "namespace", 72)
+    if namespace != f"plugin.{producer_id}":
+        raise ValueError("namespace must equal plugin.<producer_id>")
+    if (
+        not isinstance(manifest.manifest_version, int)
+        or isinstance(manifest.manifest_version, bool)
+        or not 1 <= manifest.manifest_version <= 4_294_967_295
+    ):
+        raise ValueError("manifest_version must be a positive uint32")
+    if manifest.max_sensitivity not in _JOURNAL_SENSITIVITIES:
+        raise ValueError("max_sensitivity is invalid")
+    if manifest.max_sensitivity == "secret":
+        raise ValueError("secret journal payload storage is unavailable")
+    permissions = tuple(manifest.permissions)
+    if not 1 <= len(permissions) <= 32:
+        raise ValueError("permissions must contain 1 to 32 strings")
+    if not all(isinstance(permission, str) for permission in permissions):
+        raise TypeError("permissions must contain strings")
+    permissions_wire = tuple(
+        _journal_text(permission, "permission", 128)
+        for permission in permissions
+    )
+    required_permission = f"journal.append.{namespace}"
+    if required_permission not in permissions_wire:
+        raise ValueError(
+            f"permissions must include {required_permission}"
+        )
+    events = tuple(manifest.events)
+    if not 1 <= len(events) <= 64:
+        raise ValueError("events must contain 1 to 64 entries")
+    if not all(isinstance(event, JournalEventSchema) for event in events):
+        raise TypeError("events must contain JournalEventSchema values")
+    seen: set[tuple[str, int]] = set()
+    events_wire = tuple(
+        _journal_event_fields(
+            event,
+            namespace,
+            manifest.max_sensitivity,
+            seen,
+        )
+        for event in events
+    )
+    wire = {
+        "producer_id": producer_id,
+        "namespace": namespace,
+        "manifest_version": manifest.manifest_version,
+        "max_sensitivity": manifest.max_sensitivity,
+        "permissions": list(permissions_wire),
+        "events": list(events_wire),
+    }
+    try:
+        encoded = json.dumps(
+            wire,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    except (TypeError, ValueError) as error:
+        raise TypeError("manifest contains an invalid JSON value") from error
+    if len(encoded) > 1024 * 1024:
+        raise ValueError("journal producer manifest exceeds 1048576 bytes")
+    return wire
+
+
+def _journal_ingress_fields(event: JournalIngress) -> Dict[str, Any]:
+    if not isinstance(event, JournalIngress):
+        raise TypeError("event must be a JournalIngress")
+    fields: Dict[str, Any] = {
+        "producer_id": _journal_component(event.producer_id, "producer_id"),
+        "manifest_version": event.manifest_version,
+        "kind": _journal_kind(event.kind, "kind"),
+        "schema_version": event.schema_version,
+        "payload": _journal_json_value(event.payload, "payload"),
+    }
+    if not fields["kind"].startswith(f"plugin.{fields['producer_id']}."):
+        raise ValueError("kind must be inside the producer namespace")
+    for name in ("manifest_version", "schema_version"):
+        value = fields[name]
+        if (
+            not isinstance(value, int)
+            or isinstance(value, bool)
+            or not 1 <= value <= 4_294_967_295
+        ):
+            raise ValueError(f"{name} must be a positive uint32")
+    if event.occurred_at_ms is not None:
+        fields["occurred_at_ms"] = _journal_decimal(
+            event.occurred_at_ms,
+            "occurred_at_ms",
+        )
+    if len(event.subjects) > 64:
+        raise ValueError("subjects must contain at most 64 entries")
+    if event.subjects:
+        subjects = []
+        for subject in event.subjects:
+            if not isinstance(subject, JournalSubject):
+                raise TypeError("subjects must contain JournalSubject values")
+            subjects.append(
+                {
+                    "kind": _journal_component(subject.kind, "subject.kind"),
+                    "id": _journal_text(subject.id, "subject.id", 512),
+                }
+            )
+        fields["subjects"] = subjects
+    if event.sensitivity is not None:
+        if (
+            event.sensitivity not in _JOURNAL_SENSITIVITIES
+            or event.sensitivity == "secret"
+        ):
+            raise ValueError("sensitivity is invalid or unavailable")
+        fields["sensitivity"] = event.sensitivity
+    for name in ("causation_id", "correlation_id"):
+        value = getattr(event, name)
+        if value is not None:
+            fields[name] = _journal_text(value, name, 128)
+    return fields
+
+
+def _journal_subject(value: Any) -> JournalSubject:
+    payload = _mapping(value, "journal subject")
+    _strict_object(payload, ("kind", "id"), "journal subject")
+    return JournalSubject(
+        _journal_component(_required_string(payload, "kind"), "subject.kind"),
+        _journal_text(_required_string(payload, "id"), "subject.id", 512),
+    )
+
+
+def _journal_event_schema(value: Any) -> JournalEventSchema:
+    payload = _mapping(value, "journal event schema")
+    _strict_object(
+        payload,
+        (
+            "kind",
+            "schema_version",
+            "class",
+            "replay",
+            "sensitivity",
+            "payload_schema",
+        ),
+        "journal event schema",
+    )
+    if "payload_schema" not in payload:
+        raise ProtocolError("journal event schema omitted payload_schema")
+    return JournalEventSchema(
+        _required_string(payload, "kind"),
+        _required_positive_uint32(payload, "schema_version"),
+        _required_enum(payload, "class", _JOURNAL_CLASSES),  # type: ignore[arg-type]
+        _required_enum(payload, "replay", _JOURNAL_REPLAY_POLICIES),  # type: ignore[arg-type]
+        _required_enum(payload, "sensitivity", _JOURNAL_SENSITIVITIES),  # type: ignore[arg-type]
+        _journal_json_value(payload["payload_schema"], "payload_schema"),
+    )
+
+
+def _journal_producer_manifest(value: Any) -> JournalProducerManifest:
+    payload = _mapping(value, "journal producer manifest")
+    _strict_object(
+        payload,
+        (
+            "producer_id",
+            "namespace",
+            "manifest_version",
+            "max_sensitivity",
+            "permissions",
+            "events",
+        ),
+        "journal producer manifest",
+    )
+    permissions = payload.get("permissions")
+    events = payload.get("events")
+    if not isinstance(permissions, list) or not all(
+        isinstance(item, str) for item in permissions
+    ):
+        raise ProtocolError("journal producer permissions must be an array of strings")
+    if not isinstance(events, list):
+        raise ProtocolError("journal producer events must be an array")
+    manifest = JournalProducerManifest(
+        _required_string(payload, "producer_id"),
+        _required_string(payload, "namespace"),
+        _required_positive_uint32(payload, "manifest_version"),
+        _required_enum(
+            payload,
+            "max_sensitivity",
+            _JOURNAL_SENSITIVITIES,
+        ),  # type: ignore[arg-type]
+        tuple(permissions),
+        tuple(_journal_event_schema(item) for item in events),
+    )
+    try:
+        _journal_manifest_fields(manifest)
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(
+            f"journal producer manifest is invalid: {error}"
+        ) from error
+    return manifest
+
+
+def _journal_producer_list_result(value: Any) -> JournalProducerListResult:
+    payload = _mapping(value, "journal producer list result")
+    _strict_object(payload, ("producers",), "journal producer list result")
+    producers = payload.get("producers")
+    if not isinstance(producers, list):
+        raise ProtocolError("journal producer list must be an array")
+    if len(producers) > 1024:
+        raise ProtocolError("journal producer list contains too many entries")
+    return JournalProducerListResult(
+        tuple(_journal_producer_manifest(item) for item in producers)
+    )
+
+
+def _journal_producer_put_result(value: Any) -> JournalProducerPutResult:
+    payload = _mapping(value, "journal producer result")
+    _strict_object(
+        payload,
+        ("producer_id", "manifest_version", "namespace", "sequence", "event_id"),
+        "journal producer result",
+    )
+    try:
+        producer_id = _journal_component(
+            _required_string(payload, "producer_id"),
+            "producer_id",
+        )
+        namespace = _journal_text(
+            _required_string(payload, "namespace"),
+            "namespace",
+            128,
+        )
+        if namespace != f"plugin.{producer_id}":
+            raise ValueError(
+                "namespace must equal plugin.<producer_id>"
+            )
+        event_id = _journal_text(
+            _required_string(payload, "event_id"),
+            "event_id",
+            128,
+        )
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"journal producer result is invalid: {error}") from error
+    return JournalProducerPutResult(
+        producer_id,
+        _required_positive_uint32(payload, "manifest_version"),
+        namespace,
+        _required_decimal(payload, "sequence"),
+        event_id,
+    )
+
+
+def _journal_append_result(value: Any) -> JournalAppendResult:
+    payload = _mapping(value, "journal append result")
+    _strict_object(
+        payload,
+        ("producer_id", "sequence", "event_id"),
+        "journal append result",
+    )
+    try:
+        producer_id = _journal_component(
+            _required_string(payload, "producer_id"),
+            "producer_id",
+        )
+        event_id = _journal_text(
+            _required_string(payload, "event_id"),
+            "event_id",
+            128,
+        )
+    except (TypeError, ValueError) as error:
+        raise ProtocolError(f"journal append result is invalid: {error}") from error
+    return JournalAppendResult(
+        producer_id,
+        _required_decimal(payload, "sequence"),
+        event_id,
+    )
+
+
+def _validate_journal_stream_item(
+    record: SessionJournalRecord,
+    cursor: Optional[Cursor],
+) -> None:
+    if cursor is None or record.sequence != cursor.revision:
+        raise ProtocolError("journal sequence must match its stream cursor")
 
 
 def _color(payload: Mapping[str, Any], key: str) -> str:
@@ -2037,11 +2678,18 @@ class Client:
         local_executor: Optional[LocalExecutor] = None,
         random_hex_128: Optional[RandomHex128] = None,
     ) -> None:
-        self.socket_path = (
-            socket_path or env_socket_path() or default_socket_path(session)
-        )
+        explicit = socket_path or env_socket_path()
+        self.socket_path = explicit or default_socket_path(session)
         self.timeout = timeout
-        self._connection = ProtocolConnection(self.socket_path, timeout)
+        fallback = (
+            _legacy_raw_socket_fallback_path(session)
+            if not explicit
+            and os.path.basename(os.path.dirname(self.socket_path)).startswith(
+                "cmux-tui-hashed-"
+            )
+            else None
+        )
+        self._connection = ProtocolConnection(self.socket_path, timeout, fallback_path=fallback)
         self._local_executor = local_executor
         self._random_hex_128 = random_hex_128 or (lambda: secrets.token_hex(16))
         self._request_context = threading.local()
@@ -2289,6 +2937,10 @@ class Client:
         operation: Operation,
         params: Mapping[str, Any],
         decode: Callable[[Any], StreamValueT],
+        *,
+        validate_item: Optional[
+            Callable[[StreamValueT, Optional[Cursor]], None]
+        ] = None,
     ) -> ResourceStream[StreamValueT]:
         if operation.operation_class != "stream_open":
             raise ValueError(f"{operation.wire_name} is not a stream operation")
@@ -2303,6 +2955,7 @@ class Client:
             decode,
             timeout=context.options.timeout if context is not None else None,
             cancel_event=context.cancel_event if context is not None else None,
+            validate_item=validate_item,
         )
 
     def _local(self, operation: Operation, params: Mapping[str, Any]) -> Any:
@@ -2687,6 +3340,95 @@ class Session(_Handle[SessionId, SessionSnapshot]):
             Operations.SESSION_EVENTS,
             {**self._params(), **_options(options)},
             _event_item,
+        )
+
+    def journal(
+        self, options: SessionJournalOptions = SessionJournalOptions()
+    ) -> ResourceStream[SessionJournalRecord]:
+        return self._client._open_stream(
+            Operations.SESSION_JOURNAL_SUBSCRIBE,
+            {**self._params(), **_journal_options(options)},
+            _journal_record,
+            validate_item=_validate_journal_stream_item,
+        )
+
+    def list_journal_producers(self) -> List[JournalProducerManifest]:
+        """List generic journal producers installed for this session."""
+        result = _journal_producer_list_result(
+            self._client._read(
+                Operations.SESSION_JOURNAL_PRODUCER_LIST,
+                self._params(),
+            )
+        )
+        return list(result.producers)
+
+    def journal_producers(self) -> JournalProducerListResult:
+        """Return the typed producer-list result for diagnostic callers."""
+        return _journal_producer_list_result(
+            self._client._read(
+                Operations.SESSION_JOURNAL_PRODUCER_LIST,
+                self._params(),
+            )
+        )
+
+    def put_journal_producer(
+        self,
+        manifest: JournalProducerManifest,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalProducerPutResult]:
+        """Install or replace one userland journal producer manifest."""
+        return self._client._mutation(
+            Operations.SESSION_JOURNAL_PRODUCER_PUT,
+            {**self._params(), "manifest": _journal_manifest_fields(manifest)},
+            idempotency_key,
+            expected_revision,
+            _journal_producer_put_result,
+        )
+
+    def put_journal_producer_manifest(
+        self,
+        manifest: JournalProducerManifest,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalProducerPutResult]:
+        """Compatibility name for put_journal_producer."""
+        return self.put_journal_producer(
+            manifest,
+            idempotency_key=idempotency_key,
+            expected_revision=expected_revision,
+        )
+
+    def append_journal(
+        self,
+        event: JournalIngress,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalAppendResult]:
+        """Append one event from a userland journal producer."""
+        return self._client._mutation(
+            Operations.SESSION_JOURNAL_APPEND,
+            {**self._params(), "event": _journal_ingress_fields(event)},
+            idempotency_key,
+            expected_revision,
+            _journal_append_result,
+        )
+
+    def append_journal_event(
+        self,
+        event: JournalIngress,
+        *,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult[JournalAppendResult]:
+        """Compatibility name for append_journal."""
+        return self.append_journal(
+            event,
+            idempotency_key=idempotency_key,
+            expected_revision=expected_revision,
         )
 
     def close(self, *, idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None) -> MutationResult[ShutdownResult]:
@@ -3904,18 +4646,26 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
             _renderer_grant_result,
         )
 
-    def resize_viewer(self, options: ViewerSizeOptions) -> ViewerResizeResult:
+    def resize_viewer(
+        self,
+        attachment_lease: str,
+        options: ViewerSizeOptions,
+    ) -> ViewerResizeResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.TERMINAL_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def scroll_viewport(
@@ -3960,6 +4710,53 @@ class Terminal(_Handle[TerminalId, TerminalSnapshot]):
                 self._client,
                 Selector.by_id(snapshot.id),
                 self._scope,
+                snapshot,
+            ),
+        )
+
+    def project(
+        self,
+        *,
+        destination_workspace: SelectorInput[WorkspaceId],
+        destination_screen: SelectorInput[ScreenId],
+        destination_pane: SelectorInput[PaneId],
+        index: int,
+        name: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[str] = None,
+    ) -> MutationResult["Tab"]:
+        encoded_workspace = encode_selector(destination_workspace, WorkspaceId)
+        encoded_screen = encode_selector(destination_screen, ScreenId)
+        encoded_pane = encode_selector(destination_pane, PaneId)
+        params: Dict[str, Any] = {
+            **self._params(),
+            "destination_workspace": encoded_workspace,
+            "destination_screen": encoded_screen,
+            "destination_pane": encoded_pane,
+            "index": index,
+        }
+        if name is not None:
+            params["name"] = name
+        tab_scope = {
+            key: value
+            for key, value in self._scope.items()
+            if key not in ("workspace", "screen", "pane", "tab")
+        }
+        tab_scope.update(
+            workspace=encoded_workspace,
+            screen=encoded_screen,
+            pane=encoded_pane,
+        )
+        return self._client._mutation_handle(
+            Operations.TERMINAL_PROJECT,
+            params,
+            idempotency_key,
+            expected_revision,
+            _tab_snapshot,
+            lambda snapshot: Tab(
+                self._client,
+                Selector.by_id(snapshot.id),
+                tab_scope,
                 snapshot,
             ),
         )
@@ -4102,19 +4899,24 @@ class Browser(_Handle[BrowserId, BrowserSnapshot]):
 
     def resize_viewer(
         self,
+        attachment_lease: str,
         options: BrowserViewerSizeOptions,
     ) -> BrowserViewerResizeResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RESIZE,
-            {**self._params(), **_options(options)},
+            {
+                **self._params(),
+                "attachment_lease": attachment_lease,
+                **_options(options),
+            },
             _browser_viewer_resize_result,
         )
 
-    def release_viewer(self) -> None:
+    def release_viewer(self, attachment_lease: str) -> ViewerReleaseResult:
         return self._client._control(
             Operations.BROWSER_VIEWER_RELEASE,
-            self._params(),
-            _empty_result,
+            {**self._params(), "attachment_lease": attachment_lease},
+            _viewer_release_result,
         )
 
     def attach(
@@ -4278,11 +5080,26 @@ class FrontendProjection(
         self,
         projection: Mapping[str, Any],
         *,
+        frontend_id: str,
+        window_id: str,
+        generation: str,
+        expected_projection_revision: Optional[str] = None,
         idempotency_key: Optional[str] = None, expected_revision: Optional[str] = None,
     ) -> MutationResult["FrontendProjection"]:
         return self._client._mutation_handle(
             Operations.FRONTEND_PROJECTION_PUT,
-            {**self._params(), "projection": dict(projection)},
+            {
+                **self._params(),
+                "frontend_id": frontend_id,
+                "window_id": window_id,
+                "generation": generation,
+                "projection": dict(projection),
+                **(
+                    {"expected_projection_revision": expected_projection_revision}
+                    if expected_projection_revision is not None
+                    else {}
+                ),
+            },
             idempotency_key,
             expected_revision,
             lambda result: _aux_snapshot(

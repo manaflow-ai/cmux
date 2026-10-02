@@ -68,4 +68,5 @@ public struct CmxIrohPendingRevocation: Codable, Equatable, Sendable {
     private static func isCanonicalUUID(_ value: String) -> Bool {
         UUID(uuidString: value)?.uuidString.lowercased() == value
     }
+
 }

@@ -15,11 +15,45 @@ import Testing
         #expect(launch.portableWrapperShellCommand(posixCommand: "wrapper --resume").hasPrefix("/bin/sh -c "))
     }
 
+    @Test func hermesProviderOwnsWrapperConfiguration() throws {
+        let launch = try #require(
+            AgentRestoreLaunch(kind: " HERMES-Agent ", sessionID: "hermes-session-123")
+        )
+
+        #expect(launch.executableName == "hermes")
+        #expect(
+            launch.wrapperShellExecutableToken.contains(
+                "CMUX_HERMES_AGENT_WRAPPER_SHIM"
+            )
+        )
+        #expect(
+            launch.customExecutablePathEnvironmentKey
+                == "CMUX_CUSTOM_HERMES_AGENT_PATH"
+        )
+        #expect(
+            launch.portableWrapperShellCommand(posixCommand: "wrapper --resume")
+                .hasPrefix("/bin/sh -c ")
+        )
+    }
+
     @Test func invalidOwnershipCannotCreateRestoreLaunch() {
         #expect(AgentRestoreLaunch(kind: "gemini", sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "codex", sessionID: "not-a-session-id") == nil)
+        #expect(AgentRestoreLaunch(kind: "amp", sessionID: sessionID) == nil)
+        #expect(AgentRestoreLaunch(kind: "amp", sessionID: "not-an-amp-thread") == nil)
         #expect(AgentRestoreLaunch(kind: nil, sessionID: sessionID) == nil)
         #expect(AgentRestoreLaunch(kind: "claude", sessionID: nil) == nil)
+    }
+
+    @Test func ampProviderOwnsNonUUIDThreadAndWrapperConfiguration() throws {
+        let threadID = "T-amp-thread-9758"
+        let launch = try #require(AgentRestoreLaunch(kind: " AMP ", sessionID: threadID))
+
+        #expect(launch.executableName == "amp")
+        #expect(launch.wrapperShellExecutableToken.contains("CMUX_AMP_WRAPPER_SHIM"))
+        #expect(launch.customExecutablePathEnvironmentKey == "CMUX_CUSTOM_AMP_PATH")
+        #expect(launch.authorizationEnvironmentValue == "amp:\(threadID)")
+        #expect(launch.portableWrapperShellCommand(posixCommand: "amp threads continue").hasPrefix("/bin/sh -c "))
     }
 
     @Test func preflightInvocationRequiresExecutableArgument() throws {
@@ -107,6 +141,333 @@ import Testing
         #expect(invocation.arguments.contains("-lc") == false)
     }
 
+    @Test func structuredSubrouterCodexRestoreUsesExplicitSrResumeCommand() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c",
+                    "model_provider=subrouter",
+                ],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "team-codex-1",
+                    "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_SERVER": "team",
+                    "SUBROUTER_CODEX_USER_EMAIL": "operator@example.test",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [
+            "sr", "codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
+        #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "team-codex-1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://router.example.test/v1")
+        #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "team")
+        #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "operator@example.test")
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == nil)
+    }
+
+    @Test("Structured Subrouter restore preserves the captured launcher alias", arguments: ["subrouter", "cx"])
+    func structuredSubrouterCodexRestorePreservesLauncherAlias(command: String) throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "\(command) codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == [
+            command, "codex", "resume", sessionID,
+            "-c", "check_for_update_on_startup=false",
+        ])
+    }
+
+    @Test func structuredSubrouterRestoreRoutesItsChildThroughTheManagedCodexWrapper() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { $0 == "/shim/codex" }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_CODEX_WRAPPER_SHIM": "/shim/codex",
+                ]
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/shim/codex")
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/bin/codex")
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "codex:\(sessionID)")
+    }
+
+    @Test func repeatedStructuredSubrouterRestoreKeepsTheCapturedRealCodexExecutable() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/custom/codex",
+                arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex",
+                    "SUBROUTER_CODEX_BIN": "/shim/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { $0 == "/shim/codex" }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_CODEX_WRAPPER_SHIM": "/shim/codex",
+                ]
+            )
+        )
+
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/shim/codex")
+        #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == "/opt/custom/codex")
+    }
+
+    @Test func structuredSubrouterRestoreKeepsProvedLaunchRoutingInputsAuthoritative() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: [
+                "SUBROUTER_CODEX_ACCOUNT_ID": "replacement-account",
+                "SUBROUTER_CODEX_BASE_URL": "https://replacement.example.test/v1",
+                "SUBROUTER_CODEX_BIN": "/tmp/replacement-codex",
+                "SUBROUTER_CODEX_RESUME_COMMAND": "cx codex resume",
+                "SUBROUTER_CODEX_SERVER": "replacement-server",
+                "SUBROUTER_CODEX_USER_EMAIL": "replacement@example.test",
+            ],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "captured-account",
+                    "SUBROUTER_CODEX_BASE_URL": "https://captured.example.test/v1",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_SERVER": "captured-server",
+                    "SUBROUTER_CODEX_USER_EMAIL": "captured@example.test",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        #expect(invocation.environment["SUBROUTER_CODEX_ACCOUNT_ID"] == "captured-account")
+        #expect(invocation.environment["SUBROUTER_CODEX_BASE_URL"] == "https://captured.example.test/v1")
+        #expect(invocation.environment["SUBROUTER_CODEX_BIN"] == "/opt/bin/codex")
+        #expect(invocation.environment["SUBROUTER_CODEX_RESUME_COMMAND"] == nil)
+        #expect(invocation.environment["SUBROUTER_CODEX_SERVER"] == "captured-server")
+        #expect(invocation.environment["SUBROUTER_CODEX_USER_EMAIL"] == "captured@example.test")
+    }
+
+    @Test func structuredSubrouterRestoreTreatsAbsentLaunchRoutingInputsAsAuthoritative() throws {
+        let inheritedRouting = [
+            "CMUX_CUSTOM_CODEX_PATH": "/ambient/custom-codex",
+            "SUBROUTER_CODEX_ACCOUNT_ID": "ambient-account",
+            "SUBROUTER_CODEX_BASE_URL": "https://ambient.example.test/v1",
+            "SUBROUTER_CODEX_BIN": "/ambient/codex",
+            "SUBROUTER_CODEX_RESUME_COMMAND": "cx codex resume",
+            "SUBROUTER_CODEX_SERVER": "ambient-server",
+            "SUBROUTER_CODEX_USER_EMAIL": "ambient@example.test",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/project",
+            environment: inheritedRouting,
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                executablePath: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        var ambientEnvironment = inheritedRouting
+        ambientEnvironment["PATH"] = "/usr/bin:/bin"
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ambientEnvironment
+            )
+        )
+
+        #expect(invocation.arguments.prefix(4) == ["sr", "codex", "resume", sessionID])
+        for key in inheritedRouting.keys {
+            #expect(invocation.environment[key] == nil, "\(key) leaked into routed restore")
+        }
+    }
+
+    @Test func structuredCodexRestoreCanonicalizesRelativeHomeFromLaunchDirectory() throws {
+        let launchDirectory = "/tmp/codex-launch-root/repository"
+        let restoredDirectory = "/tmp/codex-launch-root/repository/worktree"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: restoredDirectory,
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex"],
+                workingDirectory: launchDirectory,
+                environment: ["CODEX_HOME": ".codex"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(
+            invocation.environment["CODEX_HOME"]
+                == launchDirectory + "/.codex"
+        )
+    }
+
+    @Test func structuredCodexRestoreExpandsHomeUsingCapturedLaunchHome() throws {
+        let launchHome = "/tmp/codex-captured-home"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/codex-project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "codex",
+                arguments: ["codex"],
+                workingDirectory: "/tmp/codex-project",
+                environment: ["CODEX_HOME": "~/.codex-work"],
+                verificationHome: launchHome
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: [
+                    "HOME": "/tmp/restoring-process-home",
+                    "PATH": "/usr/bin:/bin",
+                ]
+            )
+        )
+
+        #expect(
+            invocation.environment["CODEX_HOME"]
+                == launchHome + "/.codex-work"
+        )
+    }
+
     @Test func structuredClaudeRestoreAppliesObservedPermissionModeWithoutParsingShell() throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
@@ -171,6 +532,142 @@ import Testing
         #expect(invocation.arguments.first == executable)
         #expect(invocation.arguments.dropFirst().starts(with: ["resume", sessionID]))
         #expect(invocation.environment["CMUX_CUSTOM_CODEX_PATH"] == executable)
+    }
+
+    @Test func preparedArgumentsOverrideSynthesisForAnEmptyCapture() throws {
+        let preparedArguments = [
+            "/opt/custom-gemini",
+            "--model",
+            "gemini-2.5-pro",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "gemini",
+            checkpointID: "gemini-session-123",
+            source: "agent-hook",
+            workingDirectory: "/tmp/work",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                executablePath: "/opt/captured-gemini",
+                arguments: [],
+                workingDirectory: "/tmp/work"
+            ),
+            preparedArguments: preparedArguments,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in false }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+
+        #expect(invocation.arguments == preparedArguments)
+    }
+
+    @Test func structuredAmpRestoreRoutesThroughWrapperAndReplacesCapturedThread() throws {
+        let oldThreadID = "T-old-thread"
+        let restoredThreadID = "T-restored-thread"
+        let executable = "/opt/custom amp/bin/amp"
+        let shim = "/tmp/cmux-shims/amp"
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "amp",
+            checkpointID: restoredThreadID,
+            source: "agent-hook",
+            workingDirectory: "/tmp/amp project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "amp",
+                executablePath: executable,
+                arguments: [
+                    executable,
+                    "threads", "continue", oldThreadID,
+                    "--mode", "smart",
+                    "--effort", "high",
+                ],
+                workingDirectory: "/tmp/amp project",
+                environment: [
+                    "AMP_SETTINGS_FILE": "/tmp/amp-settings.json",
+                    "CMUX_CUSTOM_AMP_PATH": executable,
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            isExecutableFile: { $0 == shim || $0 == executable }
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "PATH": "/usr/bin:/bin",
+                "CMUX_AMP_WRAPPER_SHIM": shim,
+            ]
+        ))
+
+        #expect(invocation.arguments.first == shim)
+        #expect(Array(invocation.arguments.dropFirst(3)) == [
+            "--mode", "smart", "--effort", "high", restoredThreadID,
+        ])
+        #expect(invocation.arguments.contains(oldThreadID) == false)
+        #expect(invocation.environment["AMP_SETTINGS_FILE"] == "/tmp/amp-settings.json")
+        #expect(invocation.environment["CMUX_CUSTOM_AMP_PATH"] == executable)
+        #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "amp:\(restoredThreadID)")
+    }
+
+    @Test func chainedAmpRestoresKeepOneThreadPositionalAcrossCycles() throws {
+        // A cmux restore relaunches Amp as `amp threads continue <options> <thread>`;
+        // the wrapper execs the real binary with that tail and the plugin
+        // captures it as the next launch. A restore of that restore must not
+        // accumulate thread ids: `amp threads continue` foregrounds the first
+        // positional thread, so the restored thread has to be the only one.
+        let threadID = "T-01a080cd-412e-72eb-a287-94ea1515de6f"
+        let executable = "/Users/example/.local/bin/amp"
+        let shim = "/tmp/cmux-shims/amp"
+        let planner = AgentRestorePlanner(
+            isExecutableFile: { $0 == shim || $0 == executable }
+        )
+        var capturedArguments = [executable, "--mode", "smart"]
+
+        for cycle in 1...3 {
+            let request = AgentRestoreRequest(
+                mode: .resumeAgent,
+                kind: "amp",
+                checkpointID: threadID,
+                source: "agent-hook",
+                workingDirectory: "/tmp/amp project",
+                environment: [:],
+                launchCommand: AgentLaunchCommand(
+                    launcher: "amp",
+                    executablePath: executable,
+                    arguments: capturedArguments,
+                    workingDirectory: "/tmp/amp project",
+                    environment: ["CMUX_CUSTOM_AMP_PATH": executable]
+                ),
+                preparedArguments: nil,
+                observedPermissionMode: nil
+            )
+            let invocation = try #require(planner.invocation(
+                for: request,
+                ambientEnvironment: [
+                    "PATH": "/usr/bin:/bin",
+                    "CMUX_AMP_WRAPPER_SHIM": shim,
+                ]
+            ), "cycle \(cycle)")
+
+            #expect(invocation.arguments.first == shim, "cycle \(cycle)")
+            #expect(
+                Array(invocation.arguments.dropFirst()) == ["threads", "continue", "--mode", "smart", threadID],
+                "cycle \(cycle): \(invocation.arguments)"
+            )
+            #expect(
+                invocation.arguments.filter { $0.hasPrefix("T-") } == [threadID],
+                "cycle \(cycle): exactly one thread positional"
+            )
+            #expect(invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"] == "amp:\(threadID)", "cycle \(cycle)")
+            capturedArguments = [executable] + invocation.arguments.dropFirst()
+        }
     }
 
     @Test func directBindingPreservesStructuredArgumentsBeyondFormerInlineBudget() throws {
@@ -284,26 +781,158 @@ import Testing
             observedPermissionMode: nil
         )
         let invocation = try #require(AgentRestorePlanner(
-            executableFileResolver: AgentRestoreExecutableFileResolver()
+            isExecutableFile: { $0 == "/shim/hermes" || $0 == executable }
         ).invocation(
             for: request,
-            ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+                "CMUX_HERMES_AGENT_WRAPPER_SHIM": "/shim/hermes",
+            ]
         ))
 
-        #expect(invocation.arguments.first == executable)
+        #expect(invocation.arguments.first == "/shim/hermes")
+        #expect(Array(invocation.arguments.prefix(3)) == ["/shim/hermes", "--profile", "default"])
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(invocation.environment["CMUX_CUSTOM_HERMES_AGENT_PATH"] == executable)
+        #expect(
+            invocation.environment["CMUX_AGENT_RESTORE_LAUNCH"]
+                == "hermes-agent:hermes-session-123"
+        )
         #expect(invocation.arguments.contains("--resume"))
         #expect(invocation.arguments.contains("hermes-session-123"))
         #expect(invocation.arguments.contains("openai-codex") == false)
         #expect(invocation.arguments.contains(HermesAgentCodexEnvironment.defaultProvider))
         #expect(invocation.preflightInvocations.count >= 3)
         #expect(invocation.preflightInvocations.allSatisfy {
-            $0.arguments.first == executable &&
-                Array($0.arguments.dropFirst().prefix(2)) == ["config", "set"]
+            Array($0.arguments.prefix(5))
+                == ["/shim/hermes", "--profile", "default", "config", "set"]
         })
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.provider"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.base_url"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("model.api_mode"))
         #expect(invocation.preflightInvocations.flatMap(\.arguments).contains("/bin/sh") == false)
+    }
+
+    @Test func structuredHermesRestorePinsTheDefaultSessionStore() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-default-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: ["hermes", "--tui", "--provider", "anthropic"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--profile", "default",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-default-session",
+                ]
+        )
+    }
+
+    @Test func structuredHermesRestoreKeepsACapturedNamedProfile() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-coder-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: ["hermes", "--tui", "--provider", "anthropic"],
+                environment: ["HERMES_HOME": "/tmp/hermes/profiles/coder"]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "HERMES_HOME": "/tmp/hermes/profiles/wrong",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/tmp/hermes/profiles/coder")
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-coder-session",
+                ]
+        )
+    }
+
+    @Test func structuredHermesRestoreKeepsAnExplicitProfileSelector() throws {
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "hermes-agent",
+            checkpointID: "hermes-coder-session",
+            source: "agent-hook",
+            workingDirectory: "/tmp/hermes",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(
+                launcher: "hermes-agent",
+                arguments: [
+                    "hermes",
+                    "--profile", "coder",
+                    "--tui",
+                    "--provider", "anthropic",
+                ]
+            ),
+            preparedArguments: nil,
+            observedPermissionMode: nil
+        )
+        let invocation = try #require(AgentRestorePlanner(
+            executableFileResolver: AgentRestoreExecutableFileResolver()
+        ).invocation(
+            for: request,
+            ambientEnvironment: [
+                "HOME": "/Users/example",
+                "PATH": "/usr/bin:/bin",
+            ]
+        ))
+
+        #expect(invocation.environment["HERMES_HOME"] == "/Users/example/.hermes")
+        #expect(invocation.arguments.filter { $0 == "--profile" }.count == 1)
+        #expect(
+            invocation.arguments
+                == [
+                    "hermes",
+                    "--profile", "coder",
+                    "--tui",
+                    "--provider", "anthropic",
+                    "--resume", "hermes-coder-session",
+                ]
+        )
     }
 
     @Test func structuredHermesRestoreUsesDefaultCodexBaseURLForPreflights() throws {
@@ -344,7 +973,7 @@ import Testing
         ))
         let baseURLPreflight = try #require(
             invocation.preflightInvocations.first {
-                $0.arguments.dropFirst(3).first == "model.base_url"
+                $0.arguments.dropLast().last == "model.base_url"
             }
         )
 

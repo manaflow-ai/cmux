@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 import Testing
@@ -10,6 +11,24 @@ import Testing
 
 @Suite
 struct ForkParentFallbackGeneralizationTests {
+    @Test func claudeForkLaunchDoesNotTreatResumeArgumentAsSurfaceIdentity() throws {
+        let fixture = try Fixture.make()
+        defer { fixture.cleanup() }
+
+        let detected = detectedSnapshots(
+            fixture: fixture,
+            argv: ["/usr/local/bin/claude", "--resume", fixture.parentClaudeId, "--fork-session"],
+            launchKind: "claude",
+            processName: "claude",
+            processPath: "/usr/local/bin/claude"
+        )
+
+        #expect(
+            detected[fixture.forkKey] == nil,
+            "A fork's --resume argument names its source conversation, not the new session owned by this surface"
+        )
+    }
+
     @Test func codexUnpromptedForkPaneUsesParentThreadWithoutStealingParentPane() throws {
         let fixture = try Fixture.make()
         defer { fixture.cleanup() }
@@ -19,10 +38,10 @@ struct ForkParentFallbackGeneralizationTests {
 
         let detected = detectedSnapshots(
             fixture: fixture,
-            argv: ["/Users/lawrence/.bun/bin/codex", "fork", fixture.parentCodexId, "--model", "gpt-5"],
+            argv: ["/Users/dev/.bun/bin/codex", "fork", fixture.parentCodexId, "--model", "gpt-5"],
             launchKind: "codex",
             processName: "codex",
-            processPath: "/Users/lawrence/.bun/bin/codex"
+            processPath: "/Users/dev/.bun/bin/codex"
         )
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
 
@@ -438,6 +457,7 @@ struct ForkParentFallbackGeneralizationTests {
         let forkPanelId: UUID
         let parentCodexId = "019f436f-1111-4222-8333-aaaaaaaaaaaa"
         let childCodexId = "019f436f-2222-4333-8444-bbbbbbbbbbbb"
+        let parentClaudeId = "019f436f-3333-4444-8555-cccccccccccc"
         let parentPiPath: String
         let childPiPath: String
         let forkProcessID = 5_151

@@ -319,14 +319,14 @@ extension SocketACLReloadRegressionTests {
     @Test func enabledReconciliationStartsListenerWithoutTabManager() throws {
         let controller = TerminalController.shared
         let originalTabManager = controller.tabManager
-        controller.stop()
+        controller.stop(cleanupDiscoveryState: true)
         controller.setActiveTabManager(nil)
 
         let directory = lifecycleTemporaryDirectory(prefix: "scfh")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let socketPath = directory.appendingPathComponent("cmux.sock").path
         defer {
-            controller.stop()
+            controller.stop(cleanupDiscoveryState: true)
             controller.setActiveTabManager(originalTabManager)
             try? FileManager.default.removeItem(at: directory)
         }
@@ -367,11 +367,14 @@ extension SocketACLReloadRegressionTests {
         let legacyDirectory = try #require(
             CmuxStateDirectory.legacyApplicationSupportURL(fileManager: fileManager)
         )
-        let markerPaths = SocketControlSettings.lastSocketPathFiles(
+        let markerPaths = SocketPathMarkerStore(
             bundleIdentifier: "com.cmuxterm.app",
             environment: [:],
+            stateDirectory: currentDirectory,
+            legacyDirectory: legacyDirectory,
+            tmpMarkerPath: SocketPathMarkerFiles.stableTmpPath,
             fileManager: fileManager
-        )
+        ).markerPaths()
 
         #expect(markerPaths.contains(
             currentDirectory.appendingPathComponent("last-socket-path").path

@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class ResourceStream<T> implements AutoCloseable {
     private final Client client;
     private final Ids.StreamId id;
+    private final String attachmentLease;
     private final Client.StreamRoute route;
     private final Client.Decoder<T> decoder;
     private final AtomicBoolean finished = new AtomicBoolean();
@@ -23,17 +24,24 @@ public final class ResourceStream<T> implements AutoCloseable {
     ResourceStream(
         Client client,
         Ids.StreamId id,
+        String attachmentLease,
         Client.StreamRoute route,
         Client.Decoder<T> decoder
     ) {
         this.client = client;
         this.id = id;
+        this.attachmentLease = attachmentLease;
         this.route = route;
         this.decoder = decoder;
     }
 
     public Ids.StreamId id() {
         return id;
+    }
+
+    /** Lease required to size or release a terminal/browser attachment. */
+    public Optional<String> attachmentLease() {
+        return Optional.ofNullable(attachmentLease);
     }
 
     public StreamItem<T> next() {

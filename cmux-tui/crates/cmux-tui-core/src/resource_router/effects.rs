@@ -383,7 +383,7 @@ mod tests {
         params.extend(fields.as_object().unwrap().clone());
         super::super::parse_resource_request(
             &json!({
-                "protocol":"cmux.protocol/1",
+                "protocol":"cmux.protocol/2",
                 "type":"request",
                 "id":"security-test",
                 "operation":"terminal.input.write",

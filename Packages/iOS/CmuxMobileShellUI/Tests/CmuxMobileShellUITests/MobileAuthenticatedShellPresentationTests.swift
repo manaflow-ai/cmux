@@ -30,6 +30,18 @@ struct MobileAuthenticatedShellPresentationTests {
         ) == .workspace)
     }
 
+    @Test func cloudMachineAloneMountsTheWorkspaceShell() {
+        // A Mac-less account with a Cloud machine must get the tab scaffold:
+        // the add-device screen has no tabs, so the Cloud tab (and the
+        // machine's own workspaces) would be unreachable.
+        #expect(MobileAuthenticatedShellPresentation.resolve(
+            connectionState: .disconnected,
+            hasKnownPairedMac: false,
+            hasHiddenComputers: false,
+            hasExternalHosts: true
+        ) == .workspace)
+    }
+
     @Test func connectedSessionUsesWorkspaceShellWithoutPersistedHints() {
         #expect(MobileAuthenticatedShellPresentation.resolve(
             connectionState: .connected,
@@ -37,5 +49,6 @@ struct MobileAuthenticatedShellPresentationTests {
             hasHiddenComputers: false
         ) == .workspace)
     }
+
 }
 #endif
