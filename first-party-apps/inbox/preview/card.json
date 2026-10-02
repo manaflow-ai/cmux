@@ -1,0 +1,586 @@
+{
+  "grant": [
+    "feed:read",
+    "feed:write",
+    "actions:run"
+  ],
+  "scopes": {
+    "feed.list": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.get": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.counts": {
+      "scope": "feed:read",
+      "class": "read"
+    },
+    "feed.mark": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.snooze": {
+      "scope": "feed:write",
+      "class": "mutation"
+    },
+    "feed.respond": {
+      "scope": "feed:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "feed.list": {
+      "items": [
+        {
+          "id": "feed_01",
+          "urgency": "high",
+          "needsResponse": true,
+          "subject": {
+            "workspace": "workspace_1",
+            "workspaceName": "api-server",
+            "terminal": "terminal_1",
+            "tab": "tab_1",
+            "agent": "agent_1"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:35:44.496Z",
+          "updatedAt": "2026-10-02T11:35:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "request",
+          "requestKind": "choice",
+          "title": "Which retry strategy should the webhook sender use?",
+          "body": "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
+          "source": {
+            "kind": "agent",
+            "id": "agent_1",
+            "name": "Claude"
+          },
+          "thread": "agent_1:turn_14",
+          "response": {
+            "type": "choice",
+            "options": [
+              {
+                "value": "exponential",
+                "label": "Exponential backoff"
+              },
+              {
+                "value": "fixed",
+                "label": "Fixed 30 s delay"
+              },
+              {
+                "value": "queue",
+                "label": "Move failures to a retry queue"
+              }
+            ]
+          },
+          "open": {
+            "action": "tab.show",
+            "args": {
+              "tab": "tab_1"
+            }
+          }
+        },
+        {
+          "id": "feed_02",
+          "urgency": "normal",
+          "needsResponse": true,
+          "subject": {
+            "workspace": "workspace_2",
+            "workspaceName": "web-dashboard",
+            "terminal": "terminal_2",
+            "tab": "tab_2",
+            "agent": "agent_2"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:32:44.496Z",
+          "updatedAt": "2026-10-02T11:32:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "request",
+          "requestKind": "approve",
+          "title": "Run npm install --save chart-kit?",
+          "body": "npm install --save chart-kit",
+          "source": {
+            "kind": "agent",
+            "id": "agent_2",
+            "name": "Codex"
+          },
+          "thread": "agent_2:turn_3",
+          "response": {
+            "type": "approve"
+          },
+          "open": {
+            "action": "tab.show",
+            "args": {
+              "tab": "tab_2"
+            }
+          }
+        },
+        {
+          "id": "feed_03",
+          "urgency": "normal",
+          "needsResponse": true,
+          "subject": {
+            "workspace": "workspace_1",
+            "workspaceName": "api-server",
+            "browser": "browser_1",
+            "agent": "agent_1"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:28:44.496Z",
+          "updatedAt": "2026-10-02T11:28:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "request",
+          "requestKind": "sign-in",
+          "title": "Sign in to the staging dashboard",
+          "body": "The agent needs a signed-in session to check the deploy logs.",
+          "source": {
+            "kind": "agent",
+            "id": "agent_1",
+            "name": "Claude"
+          },
+          "thread": "agent_1:turn_14",
+          "response": {
+            "type": "external"
+          },
+          "open": {
+            "action": "browser.duplicateRight",
+            "args": {
+              "browser": "browser_1"
+            }
+          }
+        },
+        {
+          "id": "feed_04",
+          "urgency": "normal",
+          "needsResponse": true,
+          "subject": {},
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:17:44.496Z",
+          "updatedAt": "2026-10-02T11:17:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "request",
+          "requestKind": "input",
+          "title": "Name for the backup volume?",
+          "source": {
+            "kind": "run",
+            "id": "run_7",
+            "name": "nightly-backup"
+          },
+          "response": {
+            "type": "text",
+            "placeholder": "volume name"
+          }
+        },
+        {
+          "id": "feed_05",
+          "urgency": "normal",
+          "needsResponse": true,
+          "subject": {
+            "url": "https://github.com/example-org/payments/pull/412"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T10:57:44.496Z",
+          "updatedAt": "2026-10-02T10:57:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "request",
+          "requestKind": "review",
+          "title": "Add idempotency keys to refunds",
+          "body": "example-org/payments #412 · requested by river",
+          "source": {
+            "kind": "integration",
+            "id": "github",
+            "name": "GitHub"
+          },
+          "thread": "github:example-org/payments#412",
+          "open": {
+            "action": "openBrowser",
+            "args": {
+              "url": "https://github.com/example-org/payments/pull/412"
+            }
+          }
+        },
+        {
+          "id": "feed_06",
+          "urgency": "high",
+          "needsResponse": false,
+          "subject": {
+            "url": "https://github.com/example-org/api-server/pull/88"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T10:27:44.496Z",
+          "updatedAt": "2026-10-02T10:27:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            },
+            {
+              "id": "rerun",
+              "title": "Re-run Failed Checks",
+              "kind": "custom",
+              "target": {
+                "action": "openBrowser",
+                "args": {
+                  "url": "https://github.com/example-org/api-server/pull/88/checks"
+                }
+              }
+            }
+          ],
+          "kind": "notify",
+          "title": "Checks failing: Retry webhook delivery with backoff",
+          "body": "example-org/api-server #88 · 2 failed: unit tests, integration",
+          "source": {
+            "kind": "integration",
+            "id": "github",
+            "name": "GitHub"
+          },
+          "thread": "github:example-org/api-server#88",
+          "open": {
+            "action": "openBrowser",
+            "args": {
+              "url": "https://github.com/example-org/api-server/pull/88"
+            }
+          }
+        },
+        {
+          "id": "feed_08",
+          "urgency": "normal",
+          "needsResponse": false,
+          "subject": {
+            "workspace": "workspace_2",
+            "workspaceName": "web-dashboard"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:34:44.496Z",
+          "updatedAt": "2026-10-02T11:34:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "watch",
+          "title": "Deploying web-dashboard preview",
+          "body": "Step 3 of 5: building assets",
+          "source": {
+            "kind": "run",
+            "id": "run_8",
+            "name": "preview-deploy"
+          }
+        },
+        {
+          "id": "feed_07",
+          "urgency": "normal",
+          "needsResponse": false,
+          "subject": {
+            "workspace": "workspace_2",
+            "workspaceName": "web-dashboard",
+            "terminal": "terminal_2",
+            "tab": "tab_2",
+            "agent": "agent_2"
+          },
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": null,
+          "createdAt": "2026-10-02T11:23:44.496Z",
+          "updatedAt": "2026-10-02T11:23:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "notify",
+          "title": "Finished: dark mode toggle",
+          "body": "Added the toggle to settings and updated 3 tests.",
+          "source": {
+            "kind": "agent",
+            "id": "agent_2",
+            "name": "Codex"
+          },
+          "open": {
+            "action": "tab.show",
+            "args": {
+              "tab": "tab_2"
+            }
+          }
+        },
+        {
+          "id": "feed_09",
+          "urgency": "normal",
+          "needsResponse": false,
+          "subject": {},
+          "status": "open",
+          "snoozedUntil": null,
+          "seenAt": "2026-10-02T09:57:44.496Z",
+          "createdAt": "2026-10-02T08:37:44.496Z",
+          "updatedAt": "2026-10-02T08:37:44.496Z",
+          "revision": "1",
+          "expiresAt": null,
+          "actions": [
+            {
+              "id": "open",
+              "title": "Open",
+              "kind": "open"
+            },
+            {
+              "id": "done",
+              "title": "Done",
+              "kind": "done"
+            },
+            {
+              "id": "snooze",
+              "title": "Snooze",
+              "kind": "snooze"
+            }
+          ],
+          "kind": "notify",
+          "title": "Disk space low",
+          "body": "Less than 5 GB free on the build volume",
+          "source": {
+            "kind": "app",
+            "id": "cmux/disk-monitor",
+            "name": "Disk Monitor"
+          }
+        }
+      ],
+      "cursor": null,
+      "revision": "1",
+      "counts": {
+        "unseen": 8,
+        "open": 9,
+        "needsResponse": 5,
+        "urgent": 2,
+        "snoozed": 1
+      }
+    },
+    "feed.counts": {
+      "unseen": 8,
+      "open": 9,
+      "needsResponse": 5,
+      "urgent": 2,
+      "snoozed": 1
+    },
+    "feed.get": {
+      "id": "feed_01",
+      "urgency": "high",
+      "needsResponse": true,
+      "subject": {
+        "workspace": "workspace_1",
+        "workspaceName": "api-server",
+        "terminal": "terminal_1",
+        "tab": "tab_1",
+        "agent": "agent_1"
+      },
+      "status": "open",
+      "snoozedUntil": null,
+      "seenAt": null,
+      "createdAt": "2026-10-02T11:35:44.496Z",
+      "updatedAt": "2026-10-02T11:35:44.496Z",
+      "revision": "1",
+      "expiresAt": null,
+      "actions": [
+        {
+          "id": "open",
+          "title": "Open",
+          "kind": "open"
+        },
+        {
+          "id": "done",
+          "title": "Done",
+          "kind": "done"
+        },
+        {
+          "id": "snooze",
+          "title": "Snooze",
+          "kind": "snooze"
+        }
+      ],
+      "kind": "request",
+      "requestKind": "choice",
+      "title": "Which retry strategy should the webhook sender use?",
+      "body": "Deliveries fail about 2% of the time. Retrying in place blocks the queue.",
+      "source": {
+        "kind": "agent",
+        "id": "agent_1",
+        "name": "Claude"
+      },
+      "thread": "agent_1:turn_14",
+      "response": {
+        "type": "choice",
+        "options": [
+          {
+            "value": "exponential",
+            "label": "Exponential backoff"
+          },
+          {
+            "value": "fixed",
+            "label": "Fixed 30 s delay"
+          },
+          {
+            "value": "queue",
+            "label": "Move failures to a retry queue"
+          }
+        ]
+      },
+      "open": {
+        "action": "tab.show",
+        "args": {
+          "tab": "tab_1"
+        }
+      }
+    },
+    "feed.mark": {
+      "revision": "2"
+    },
+    "feed.snooze": {
+      "revision": "2"
+    },
+    "feed.respond": {
+      "revision": "2"
+    },
+    "action.run": null,
+    "app.storage.get": null,
+    "app.storage.set": {}
+  }
+}
