@@ -45,7 +45,7 @@ pub struct ServerOp {
 }
 
 const fn op(name: &'static str, owner: Owner, cli: Option<&'static str>, risk: Risk, mcp: Mcp) -> ServerOp {
-    let user_origin_only = matches!(mcp, Mcp::Never);
+    let user_origin_only = matches!(mcp, Never);
     ServerOp { name, owner, cli, risk, mcp, user_origin_only }
 }
 
