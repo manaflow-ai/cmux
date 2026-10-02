@@ -15,20 +15,26 @@ note() {
 TEAM_ID="${IOS_APPSTORE_TEAM_ID:-7WLXT3NR37}"
 BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_IDENTIFIER:-com.cmux.app}"
 EXTENSION_BUNDLE_IDENTIFIER="${IOS_APPSTORE_EXTENSION_BUNDLE_IDENTIFIER:-${BUNDLE_IDENTIFIER}.NotificationService}"
+CLOUD_VPN_BUNDLE_IDENTIFIER="${IOS_APPSTORE_CLOUD_VPN_BUNDLE_IDENTIFIER:-${BUNDLE_IDENTIFIER}.CloudVPN}"
 EXPECTED_APP_ID="${TEAM_ID}.${BUNDLE_IDENTIFIER}"
 EXPECTED_EXTENSION_APP_ID="${TEAM_ID}.${EXTENSION_BUNDLE_IDENTIFIER}"
+EXPECTED_CLOUD_VPN_APP_ID="${TEAM_ID}.${CLOUD_VPN_BUNDLE_IDENTIFIER}"
 KEYCHAIN_NAME="${IOS_APPSTORE_KEYCHAIN_NAME:-ios-app-store.keychain}"
 TMP_ROOT="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
 TMP_PROFILE="$TMP_ROOT/cmux-appstore.mobileprovision"
 TMP_PLIST="$TMP_ROOT/cmux-appstore-profile.plist"
 TMP_EXTENSION_PROFILE="$TMP_ROOT/cmux-appstore-extension.mobileprovision"
 TMP_EXTENSION_PLIST="$TMP_ROOT/cmux-appstore-extension-profile.plist"
+TMP_CLOUD_VPN_PROFILE="$TMP_ROOT/cmux-appstore-cloud-vpn.mobileprovision"
+TMP_CLOUD_VPN_PLIST="$TMP_ROOT/cmux-appstore-cloud-vpn-profile.plist"
 ENV_OUTPUT="${GITHUB_ENV:-$TMP_ROOT/cmux-appstore.env}"
 PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
 RESOLVED_PROFILE_NAME=""
 RESOLVED_PROFILE_UUID=""
 EXTENSION_PROFILE_NAME=""
 EXTENSION_PROFILE_UUID=""
+CLOUD_VPN_PROFILE_NAME=""
+CLOUD_VPN_PROFILE_UUID=""
 EXPECTED_CERT_SHA256=""
 
 validate_profile() {
@@ -91,6 +97,8 @@ validate_extension_profile() {
   local profile_path="$1"
   local plist_path="$2"
   local label="$3"
+  local expected_app_id="${4:-$EXPECTED_EXTENSION_APP_ID}"
+  local require_network_extension="${5:-false}"
 
   if ! security cms -D -i "$profile_path" > "$plist_path"; then
     note "$label is not a readable provisioning profile"
@@ -98,9 +106,25 @@ validate_extension_profile() {
   fi
   local app_id
   app_id="$($PLISTBUDDY -c "Print :Entitlements:application-identifier" "$plist_path" 2>/dev/null || true)"
-  if [ "$app_id" != "$EXPECTED_EXTENSION_APP_ID" ]; then
-    note "$label targets unexpected app ID: ${app_id:-<absent>} (expected $EXPECTED_EXTENSION_APP_ID)"
+  if [ "$app_id" != "$expected_app_id" ]; then
+    note "$label targets unexpected app ID: ${app_id:-<absent>} (expected $expected_app_id)"
     return 1
+  fi
+  if [ "$require_network_extension" = "true" ]; then
+    if ! python3 - "$plist_path" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as handle:
+    entitlements = plistlib.load(handle).get("Entitlements", {})
+values = entitlements.get("com.apple.developer.networking.networkextension", [])
+if "packet-tunnel-provider" not in values:
+    raise SystemExit(1)
+PY
+    then
+      note "$label does not authorize packet-tunnel-provider"
+      return 1
+    fi
   fi
   if ! python3 - "$plist_path" "$EXPECTED_CERT_SHA256" <<'PY'
 import hashlib
@@ -155,6 +179,13 @@ install_extension_profile() {
   note "installed App Store extension profile '$EXTENSION_PROFILE_NAME'"
 }
 
+install_cloud_vpn_profile() {
+  mkdir -p "$PROFILE_DIR"
+  cp "$TMP_CLOUD_VPN_PROFILE" "$PROFILE_DIR/$CLOUD_VPN_PROFILE_UUID.mobileprovision"
+  echo "IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME=$CLOUD_VPN_PROFILE_NAME" >> "$ENV_OUTPUT"
+  note "installed App Store CloudVPN profile '$CLOUD_VPN_PROFILE_NAME'"
+}
+
 try_secret_profile() {
   local label="$1"
   local value="$2"
@@ -187,6 +218,23 @@ try_secret_extension_profile() {
   return 1
 }
 
+try_secret_cloud_vpn_profile() {
+  local label="$1"
+  local value="$2"
+  if [ -z "$value" ]; then
+    return 1
+  fi
+
+  printf '%s' "$value" | base64 --decode > "$TMP_CLOUD_VPN_PROFILE"
+  if validate_extension_profile "$TMP_CLOUD_VPN_PROFILE" "$TMP_CLOUD_VPN_PLIST" "$label" "$EXPECTED_CLOUD_VPN_APP_ID" true; then
+    CLOUD_VPN_PROFILE_NAME="$($PLISTBUDDY -c "Print :Name" "$TMP_CLOUD_VPN_PLIST")"
+    CLOUD_VPN_PROFILE_UUID="$($PLISTBUDDY -c "Print :UUID" "$TMP_CLOUD_VPN_PLIST")"
+    install_cloud_vpn_profile
+    return 0
+  fi
+  return 1
+}
+
 try_installed_extension_profile() {
   local profile_path app_id
   for profile_path in "$PROFILE_DIR"/*.mobileprovision; do
@@ -201,6 +249,28 @@ try_installed_extension_profile() {
     cp "$profile_path" "$TMP_EXTENSION_PROFILE"
     if validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "installed extension profile"; then
       install_extension_profile
+      return 0
+    fi
+  done
+  return 1
+}
+
+try_installed_cloud_vpn_profile() {
+  local profile_path app_id
+  for profile_path in "$PROFILE_DIR"/*.mobileprovision; do
+    [ -f "$profile_path" ] || continue
+    if ! security cms -D -i "$profile_path" > "$TMP_CLOUD_VPN_PLIST" 2>/dev/null; then
+      continue
+    fi
+    app_id="$($PLISTBUDDY -c "Print :Entitlements:application-identifier" "$TMP_CLOUD_VPN_PLIST" 2>/dev/null || true)"
+    if [ "$app_id" != "$EXPECTED_CLOUD_VPN_APP_ID" ]; then
+      continue
+    fi
+    cp "$profile_path" "$TMP_CLOUD_VPN_PROFILE"
+    if validate_extension_profile "$TMP_CLOUD_VPN_PROFILE" "$TMP_CLOUD_VPN_PLIST" "installed CloudVPN profile" "$EXPECTED_CLOUD_VPN_APP_ID" true; then
+      CLOUD_VPN_PROFILE_NAME="$($PLISTBUDDY -c "Print :Name" "$TMP_CLOUD_VPN_PLIST")"
+      CLOUD_VPN_PROFILE_UUID="$($PLISTBUDDY -c "Print :UUID" "$TMP_CLOUD_VPN_PLIST")"
+      install_cloud_vpn_profile
       return 0
     fi
   done
@@ -341,9 +411,11 @@ PY
 ensure_extension_profile_from_asc() {
   resolve_expected_cert_fingerprint
   if try_secret_extension_profile "extension profile secret" "${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64:-}"; then
+    ensure_cloud_vpn_profile_if_enabled
     return 0
   fi
   if try_installed_extension_profile; then
+    ensure_cloud_vpn_profile_if_enabled
     return 0
   fi
 
@@ -408,6 +480,87 @@ ensure_extension_profile_from_asc() {
   validate_extension_profile "$TMP_EXTENSION_PROFILE" "$TMP_EXTENSION_PLIST" "downloaded profile '$profile_name'" ||
     die "downloaded extension profile '$profile_name' is not usable"
   install_extension_profile
+  ensure_cloud_vpn_profile_if_enabled
+}
+
+ensure_cloud_vpn_profile_from_asc() {
+  resolve_expected_cert_fingerprint
+  if try_secret_cloud_vpn_profile "CloudVPN profile secret" "${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64:-}"; then
+    return 0
+  fi
+  if try_installed_cloud_vpn_profile; then
+    return 0
+  fi
+
+  command -v asc >/dev/null || die "release upload CLI is required"
+  command -v python3 >/dev/null || die "python3 is required"
+  command -v openssl >/dev/null || die "openssl is required"
+
+  export ASC_KEY_ID="${ASC_KEY_ID:-${ASC_API_KEY_ID:-}}"
+  export ASC_ISSUER_ID="${ASC_ISSUER_ID:-${ASC_API_ISSUER_ID:-}}"
+  export ASC_PRIVATE_KEY_PATH="${ASC_PRIVATE_KEY_PATH:-${ASC_API_KEY_PATH:-}}"
+  if [ -z "${ASC_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ] || [ -z "${ASC_PRIVATE_KEY_PATH:-}" ]; then
+    die "upload credentials are required to fetch the CloudVPN profile"
+  fi
+
+  local cert_pem cert_serial
+  cert_pem="$TMP_ROOT/ios-distribution-cert.pem"
+  security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" > "$cert_pem" ||
+    die "could not read imported distribution certificate from $KEYCHAIN_NAME"
+  cert_serial="$(openssl x509 -in "$cert_pem" -noout -serial | sed 's/^serial=//' | tr '[:lower:]' '[:upper:]')"
+  cert_serial="$(printf '%s' "$cert_serial" | tr -cd '[:alnum:]')"
+  [ -n "$cert_serial" ] || die "could not resolve imported distribution certificate serial"
+  EXPECTED_CERT_SHA256="$(security find-certificate -c "$IOS_DISTRIBUTION_IDENTITY" -p "$KEYCHAIN_NAME" | openssl x509 -outform DER | openssl dgst -sha256 -r | awk '{print toupper($1)}')"
+  [ -n "$EXPECTED_CERT_SHA256" ] || die "could not fingerprint imported distribution certificate"
+
+  local bundles_json certs_json profiles_json created_json bundle_id certificate_id profile_id profile_name profile_suffix
+  bundles_json="$TMP_ROOT/asc-bundle-ids.json"
+  certs_json="$TMP_ROOT/asc-certificates.json"
+  profiles_json="$TMP_ROOT/asc-cloud-vpn-profiles.json"
+  created_json="$TMP_ROOT/asc-created-cloud-vpn-profile.json"
+
+  asc bundle-ids list --paginate --output json > "$bundles_json"
+  bundle_id="$(json_id_by_bundle_identifier "$bundles_json" "$CLOUD_VPN_BUNDLE_IDENTIFIER")" ||
+    die "configured CloudVPN bundle id not found for $CLOUD_VPN_BUNDLE_IDENTIFIER"
+
+  asc certificates list --certificate-type IOS_DISTRIBUTION,DISTRIBUTION --paginate --output json > "$certs_json"
+  certificate_id="$(json_certificate_id_by_serial "$certs_json" "$cert_serial" || true)"
+  if [ -z "$certificate_id" ]; then
+    print_certificate_summary "$certs_json"
+    die "matching distribution certificate not found for imported certificate serial suffix ${cert_serial: -8}"
+  fi
+
+  profile_suffix="${cert_serial: -8}"
+  profile_name="cmux App Store CloudVPN CI $profile_suffix"
+  asc profiles list --profile-type IOS_APP_STORE --paginate --output json > "$profiles_json"
+  profile_id="$(json_active_profile_id_by_name "$profiles_json" "$profile_name" || true)"
+  if [ -z "$profile_id" ]; then
+    note "creating App Store CloudVPN profile '$profile_name'"
+    asc profiles create \
+      --name "$profile_name" \
+      --profile-type IOS_APP_STORE \
+      --bundle "$bundle_id" \
+      --certificate "$certificate_id" \
+      --output json > "$created_json"
+    profile_id="$(json_single_id "$created_json")" ||
+      die "could not read created CloudVPN profile id"
+  else
+    note "reusing App Store CloudVPN profile '$profile_name'"
+  fi
+
+  rm -f "$TMP_CLOUD_VPN_PROFILE"
+  asc profiles download --id "$profile_id" --output "$TMP_CLOUD_VPN_PROFILE" >/dev/null
+  validate_extension_profile "$TMP_CLOUD_VPN_PROFILE" "$TMP_CLOUD_VPN_PLIST" "downloaded CloudVPN profile '$profile_name'" "$EXPECTED_CLOUD_VPN_APP_ID" true ||
+    die "downloaded CloudVPN profile '$profile_name' is not usable"
+  CLOUD_VPN_PROFILE_NAME="$($PLISTBUDDY -c "Print :Name" "$TMP_CLOUD_VPN_PLIST")"
+  CLOUD_VPN_PROFILE_UUID="$($PLISTBUDDY -c "Print :UUID" "$TMP_CLOUD_VPN_PLIST")"
+  install_cloud_vpn_profile
+}
+
+ensure_cloud_vpn_profile_if_enabled() {
+  if [ "${IOS_APPSTORE_ENABLE_CLOUD_VPN:-0}" = "1" ]; then
+    ensure_cloud_vpn_profile_from_asc
+  fi
 }
 
 download_profile_from_asc() {

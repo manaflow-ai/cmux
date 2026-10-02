@@ -15,9 +15,9 @@ extension Workspace {
         let policy = policy ?? surfaceOwnershipPolicy
         if let resource = snapshot.browser?.cloudResource {
             if let projection, projection.resource != resource { return false }
-            return policy.rejection(for: resource.machine) == nil
+            return policy.rejection(for: resource.machine, kind: resource.kind) == nil
         }
-        if let projection { return policy.rejection(for: projection.resource.machine) == nil }
+        if let projection { return policy.rejection(for: projection.resource.machine, kind: projection.resource.kind) == nil }
         if snapshot.type == .browser, let raw = snapshot.browser?.urlString,
            URL(string: raw)?.path == "/vnc.html" {
             return policy.rejection(for: nil) == nil

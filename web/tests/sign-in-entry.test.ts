@@ -27,6 +27,7 @@ const {
   isReturningFromOAuth,
   oauthLoginHint,
   signInEntry,
+  signInIsForApp,
   signUpPendingHref,
   withContinueMarker,
   withoutContinueMarker,
@@ -59,6 +60,19 @@ describe("sign-in entry", () => {
     expect(signInEntry({ ...signedIn, prompt: "login" })).toBe("continue");
   });
 
+  // Austin's case: sign out in the app, sign in again. The browser is still
+  // signed in, so without this it hands the same account straight back.
+  test("a sign-in for the Mac app confirms the account", () => {
+    expect(signInEntry({ ...signedIn, forApp: true })).toBe("choose-account");
+    expect(signInEntry({ ...signedIn, forApp: true, returningFromOAuth: true })).toBe("continue");
+    expect(signInEntry({ ...signedIn, forApp: true, isRestricted: true })).toBe("onboarding");
+  });
+
+  test("an account signed in on this page just now is not asked again", () => {
+    expect(signInEntry({ ...signedIn, forApp: true, signedInHere: true })).toBe("continue");
+    expect(signInEntry({ ...signedIn, prompt: SELECT_ACCOUNT_PROMPT, signedInHere: true })).toBe("continue");
+  });
+
   test("every signed-in arrival confirms when that policy is on", () => {
     expect(signInEntry({ ...signedIn, chooseOnEverySignedInArrival: true })).toBe("choose-account");
   });
@@ -74,6 +88,25 @@ describe("sign-in entry", () => {
 
   test("a restricted account goes to onboarding before any chooser", () => {
     expect(signInEntry({ ...signedIn, isRestricted: true, prompt: SELECT_ACCOUNT_PROMPT })).toBe("onboarding");
+  });
+});
+
+describe("sign-ins for the Mac app", () => {
+  const appCallback = "cmux://auth-callback?cmux_auth_state=state-123";
+  const afterSignIn = (callback: string) => `/handler/after-sign-in?native_app_return_to=${encodeURIComponent(callback)}`;
+
+  test("an app attempt's return target counts, relative or absolute", () => {
+    expect(signInIsForApp(afterSignIn(appCallback))).toBe(true);
+    expect(signInIsForApp(`https://cmux.com${afterSignIn(appCallback)}`)).toBe(true);
+    expect(signInIsForApp(`${afterSignIn(appCallback)}&cmux_auth_handoff=nonce`)).toBe(true);
+  });
+
+  test("web sign-ins, the pricing webview and malformed targets do not", () => {
+    expect(signInIsForApp(null)).toBe(false);
+    expect(signInIsForApp("/dashboard")).toBe(false);
+    expect(signInIsForApp(afterSignIn("cmux://auth-callback"))).toBe(false);
+    expect(signInIsForApp(`/dashboard?native_app_return_to=${encodeURIComponent(appCallback)}`)).toBe(false);
+    expect(signInIsForApp(afterSignIn("not a url"))).toBe(false);
   });
 });
 
