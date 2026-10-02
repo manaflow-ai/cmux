@@ -1,6 +1,6 @@
 /// A titled submenu that collects the less used rows of a right-click menu
 /// ("Move ▸", "Copy ▸"). A placement names its folder; the menu shows the
-/// folder as one row at its group's position. A folder with one row in a
+/// folder as one row after its group's rows, in declaration order. A folder with one row in a
 /// menu shows that row inline instead.
 public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
     case new
@@ -31,9 +31,6 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .close: .close
         }
     }
-
-    /// Order among folders and rows of the same group (after its rows).
-    public var rank: Int { 90 + (Self.allCases.firstIndex(of: self) ?? 0) }
 
     /// Localized submenu title.
     public var title: String {

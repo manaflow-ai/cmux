@@ -94,24 +94,29 @@ public struct ContextMenuCatalog: Sendable {
     /// folder's position. A folder with one row shows it inline.
     private static func topLevel(_ rows: [Row]) -> [ContextMenuEntry] {
         let roots = rows.filter { $0.placement.parent == nil }
-        var items: [(group: MenuGroup, rank: Int, index: Int, entries: [ContextMenuEntry])] = []
-        for row in roots where row.placement.folder == nil {
-            items.append((row.placement.group, row.placement.rank, row.index, entries([row], all: rows)))
+        // Folders follow their group's rows, in the group's last section.
+        var items: [(group: MenuGroup, folder: Int, rank: Int, index: Int, band: Int, entries: [ContextMenuEntry])] = []
+        var lastBand: [MenuGroup: Int] = [:]
+        func addRow(_ row: Row) {
+            let band = row.placement.rank / 100
+            lastBand[row.placement.group] = max(lastBand[row.placement.group] ?? band, band)
+            items.append((row.placement.group, 0, row.placement.rank, row.index, band, entries([row], all: rows)))
         }
+        for row in roots where row.placement.folder == nil { addRow(row) }
+        var folders: [(MenuFolder, [Row])] = []
         for folder in MenuFolder.allCases {
             let members = roots.filter { $0.placement.folder == folder }
-            guard !members.isEmpty else { continue }
-            if members.count == 1, let only = members.first {
-                items.append((only.placement.group, only.placement.rank, only.index, entries([only], all: rows)))
-            } else {
-                items.append((folder.group, folder.rank, Int.max, [.folder(folder, entries(members, all: rows))]))
-            }
+            if members.count == 1, let only = members.first { addRow(only) } else if !members.isEmpty { folders.append((folder, members)) }
         }
-        items.sort { ($0.group, $0.rank, $0.index) < ($1.group, $1.rank, $1.index) }
+        for (folder, members) in folders {
+            let index = MenuFolder.allCases.firstIndex(of: folder) ?? 0
+            items.append((folder.group, 1, index, index, lastBand[folder.group] ?? 0, [.folder(folder, entries(members, all: rows))]))
+        }
+        items.sort { ($0.group, $0.folder, $0.rank, $0.index) < ($1.group, $1.folder, $1.rank, $1.index) }
         var result: [ContextMenuEntry] = []
         var lastSection: (MenuGroup, Int)?
         for item in items {
-            let section = (item.group, item.rank / 100)
+            let section = (item.group, item.band)
             if let lastSection, lastSection != section { result.append(.separator) }
             lastSection = section
             result += item.entries
