@@ -38,6 +38,9 @@
 //! part of the model; ops name their destination explicitly.
 
 use std::collections::{BTreeMap, BTreeSet};
+
+mod rows;
+pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
 use std::fmt;
 
 pub type TabId = u64;
@@ -93,6 +96,9 @@ pub struct Screen {
 pub struct Column {
     pub id: ColumnId,
     pub panes: Vec<PaneId>,
+    /// Rows partitioning `panes` top to bottom; empty is one implicit row
+    /// ([`rows`] module).
+    pub rows: Vec<Row>,
 }
 
 /// A pane edge for a split drop.
@@ -168,6 +174,36 @@ pub enum LayoutOpKind {
         new_screen: ScreenId,
         new_pane: PaneId,
     },
+    /// A new row below `after_pane`'s row, holding pane `new_pane` with the
+    /// tab `new_tab` (an existing terminal). `base_column` names a split
+    /// screen's tree when it becomes a column, `base_row` an implicit row
+    /// when it becomes explicit (rows.md).
+    InsertRow {
+        after_pane: PaneId,
+        height_permille: u16,
+        new_row: RowId,
+        new_pane: PaneId,
+        new_tab: NewTab,
+        base_column: ColumnId,
+        base_row: RowId,
+    },
+    /// Move `tab` into a new row above (`before`) or below `anchor`'s row,
+    /// with the optional respawn of `MoveTabToSplit`.
+    MoveTabToRow {
+        tab: TabId,
+        anchor: PaneId,
+        before: bool,
+        height_permille: u16,
+        new_row: RowId,
+        new_pane: PaneId,
+        base_column: ColumnId,
+        base_row: RowId,
+        respawn: Option<NewTab>,
+    },
+    /// Set every row height of `column` at once; `fit` requires a sum of 1000.
+    SetRowHeights { column: ColumnId, heights: Vec<(RowId, u16)>, fit: bool },
+    /// Fold `column`'s rows into one implicit row.
+    FlattenRows { column: ColumnId },
     /// Close `tab`.
     CloseTab { tab: TabId },
     /// The session host reports that `runtime` exited. Its tabs stay where
@@ -202,7 +238,9 @@ impl LayoutOpKind {
     /// The tabs this op creates explicitly.
     pub fn created_tabs(&self) -> BTreeSet<TabId> {
         match self {
-            Self::MoveTabToSplit { respawn: Some(respawn), .. } => BTreeSet::from([respawn.tab]),
+            Self::MoveTabToSplit { respawn: Some(respawn), .. }
+            | Self::MoveTabToRow { respawn: Some(respawn), .. } => BTreeSet::from([respawn.tab]),
+            Self::InsertRow { new_tab, .. } => BTreeSet::from([new_tab.tab]),
             _ => BTreeSet::new(),
         }
     }
@@ -219,6 +257,9 @@ pub enum LayoutEvent {
     PaneRemoved { pane: PaneId },
     ColumnCreated { column: ColumnId, screen: ScreenId },
     ColumnRemoved { column: ColumnId },
+    RowCreated { row: RowId, column: ColumnId, index: usize },
+    RowRemoved { row: RowId },
+    RowsResized { column: ColumnId },
     ScreenCreated { screen: ScreenId, workspace: WorkspaceId },
     ScreenRemoved { screen: ScreenId },
     WorkspaceCreated { workspace: WorkspaceId, index: usize },
@@ -246,6 +287,12 @@ pub enum Reject {
     RespawnNotNeeded,
     /// A caller-chosen id for a new entity is already in use.
     IdInUse(u64),
+    /// A row height outside [`ROW_HEIGHT_PERMILLE`].
+    InvalidHeight(u16),
+    /// `SetRowHeights` named a row set other than the column's rows.
+    RowSetMismatch(ColumnId),
+    /// `SetRowHeights { fit: true }` heights that do not sum to 1000.
+    FitSum(u32),
     /// The key was already used for a different op.
     IdempotencyConflict(IdempotencyKey),
     /// The result would break an invariant.
@@ -270,6 +317,11 @@ impl fmt::Display for Reject {
                 write!(f, "a respawn applies only to a split of the pane's only tab")
             }
             Self::IdInUse(id) => write!(f, "id {id} is already in use"),
+            Self::InvalidHeight(height) => write!(f, "row height {height}\u{2030} is out of range"),
+            Self::RowSetMismatch(column) => {
+                write!(f, "the rows named are not column {column}'s rows")
+            }
+            Self::FitSum(sum) => write!(f, "fitted row heights sum to {sum}\u{2030}, not 1000"),
             Self::IdempotencyConflict(key) => {
                 write!(f, "idempotency key {key} was used for another op")
             }
@@ -315,6 +367,8 @@ pub enum Violation {
     EmptyScreen { screen: ScreenId },
     /// I3: a pane has no tab.
     EmptyPane { pane: PaneId },
+    /// R1/R2/R4: a column's rows do not partition its panes.
+    RowLayout { column: ColumnId },
 }
 
 impl fmt::Display for Violation {
@@ -337,6 +391,9 @@ impl fmt::Display for Violation {
             }
             Self::EmptyScreen { screen } => write!(f, "screen {screen} has no column"),
             Self::EmptyPane { pane } => write!(f, "pane {pane} has no tabs"),
+            Self::RowLayout { column } => {
+                write!(f, "column {column}'s rows do not partition its panes")
+            }
         }
     }
 }
@@ -373,6 +430,9 @@ pub fn check_state(state: &LayoutState) -> BTreeSet<Violation> {
                 if column.panes.is_empty() {
                     violations
                         .insert(Violation::EmptyColumn { column: column.id, screen: screen.id });
+                }
+                if !row_layout_is_valid(column) {
+                    violations.insert(Violation::RowLayout { column: column.id });
                 }
                 for pane in &column.panes {
                     *positions.entry(*pane).or_default() += 1;
@@ -655,6 +715,7 @@ impl LayoutState {
                         screen.id == id
                             || (screen.columns_active
                                 && screen.columns.iter().any(|column| column.id == id))
+                            || screen.columns.iter().any(|c| c.rows.iter().any(|row| row.id == id))
                     })
             })
     }
@@ -692,6 +753,7 @@ impl LayoutState {
         let workspace = &mut self.workspaces[slot.workspace];
         let screen = &mut workspace.screens[slot.screen];
         let column = &mut screen.columns[slot.column];
+        column.note_removed(slot.pane, events);
         column.panes.remove(slot.pane);
         if column.panes.is_empty() {
             let column = screen.columns.remove(slot.column);
@@ -772,6 +834,7 @@ fn apply_kind(
             }
             let screen = state.screen_mut(slot);
             let at = if edge.before() { slot.pane } else { slot.pane + 1 };
+            screen.columns[slot.column].note_inserted(slot.pane);
             screen.columns[slot.column].panes.insert(at, *new_pane);
             let screen_id = screen.id;
             state.insert_pane(*new_pane);
@@ -819,7 +882,7 @@ fn apply_kind(
                 screen.columns[0].id = *base_column;
                 events.push(LayoutEvent::ColumnCreated { column: *base_column, screen: screen.id });
             }
-            screen.columns.insert(position, Column { id: *new_column, panes: vec![*new_pane] });
+            screen.columns.insert(position, Column::single(*new_column, vec![*new_pane]));
             let screen_id = screen.id;
             state.insert_pane(*new_pane);
             events.push(LayoutEvent::ColumnCreated { column: *new_column, screen: screen_id });
@@ -891,6 +954,10 @@ fn apply_kind(
                 });
             }
         }
+        LayoutOpKind::InsertRow { .. }
+        | LayoutOpKind::MoveTabToRow { .. }
+        | LayoutOpKind::SetRowHeights { .. }
+        | LayoutOpKind::FlattenRows { .. } => rows::apply(state, kind, events)?,
         LayoutOpKind::CloseTab { tab } => {
             let pane = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             state.tabs.remove(tab);
@@ -912,7 +979,7 @@ fn apply_kind(
 }
 
 fn single_pane_screen(screen: ScreenId, pane: PaneId) -> Screen {
-    Screen { id: screen, columns: vec![Column { id: 0, panes: vec![pane] }], columns_active: false }
+    Screen { id: screen, columns: vec![Column::single(0, vec![pane])], columns_active: false }
 }
 
 #[cfg(test)]
@@ -920,6 +987,9 @@ mod tests;
 
 #[cfg(test)]
 mod exhaustive_tests;
+
+#[cfg(test)]
+mod rows_tests;
 
 #[cfg(kani)]
 mod proofs;

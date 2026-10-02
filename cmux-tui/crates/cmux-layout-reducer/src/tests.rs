@@ -38,7 +38,7 @@ fn build(layout: &[Vec<Vec<Vec<usize>>>]) -> (LayoutState, u64) {
                     state.panes.insert(pane, pane_tabs);
                     built_panes.push(pane);
                 }
-                built_columns.push(Column { id: column, panes: built_panes });
+                built_columns.push(Column::single(column, built_panes));
             }
             built.push(Screen { id: screen, columns: built_columns, columns_active });
         }
