@@ -68,7 +68,9 @@ export function EditBlock({
   return (
     <div className="acpmux-diff-file" data-path={file.path} data-collapsed={view.collapsed ? "" : undefined}>
       {header}
-      {!view.collapsed && edit.hunks.length === 0 && <div className="acpmux-diff-empty-edit">No line changes</div>}
+      {!view.collapsed && edit.hunks.length === 0 && (
+        <div className="acpmux-diff-empty-edit">{file.binary ? "Binary file not shown" : "No line changes"}</div>
+      )}
       {showDiff && <FileDiff className="acpmux-diff-pierre" fileDiff={fileDiff} options={options} />}
     </div>
   );
