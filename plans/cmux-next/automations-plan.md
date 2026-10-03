@@ -32,6 +32,8 @@ SchedulerDO per team (cron, manual, continue, webhook, integration events), one 
 | 12 | Creation form and run history | Dashboard pages first (one editable form that a Chief chat can fill, run list with loud failures and the timeline); the Mac surface follows as a first-party app on the app platform; projection read path (read-only role and Hyperdrive on staging). | 5, 6; app platform lead for the Mac app | no |
 | 13 | Later | Tenant DO classes as facets of `AutomationStateDO` (one more tag); Chief-written apps in the same team repo (`apps/<app>/`, with the app platform lead); R9 note (apps use the automations runtime; graphile-worker with a long poll is the documented Postgres option); import old local rules. | app platform lead | yes |
 
+Flag (slice 2, landed): the hard cap enforces nothing until slice 3 calls `UsageMeterDO.record()` and `check()` from the wrapped step, the tail and the egress gateway. Slice 3 also stores usage as INTEGER micro-dollars (not REAL), caps one automation at 10 of the team's 50 active slots, and must land before production sets any `AUTOMATION_CAP_CEILING_USD`.
+
 Abuse defaults (A18, accepted): CPU 10 s and 1,000 subrequests per invocation, 2,000 steps and 5 retries per run, 24 h run wall clock, 50 concurrent runs, 5 creations/s burst 20, 50 deploys a day, 600 egress requests a minute, 7-day instance retention, and the hard USD cap. Included quotas and overage prices come later from dogfood cost data and must exist before any paid launch.
 
 ## 3. Who I need
