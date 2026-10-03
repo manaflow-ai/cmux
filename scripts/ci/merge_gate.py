@@ -102,7 +102,15 @@ def _check_state(name: str, runs: Sequence[Any], statuses: Sequence[Any], head_s
             continue
         conclusion = item.get("conclusion")
         state = conclusion.lower() if isinstance(conclusion, str) else "pending"
-        when = item.get("completed_at") or item.get("started_at") or item.get("updated_at") or ""
+        when = (
+            item.get("completed_at")
+            or item.get("started_at")
+            or item.get("updated_at")
+            or item.get("created_at")
+            or ""
+        )
+        if state != "success" and not when:
+            return state
         candidates.append((str(when), 0 if state == "success" else 1, state))
     for item in statuses:
         if not isinstance(item, Mapping) or item.get("context") != name:
