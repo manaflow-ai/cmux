@@ -275,6 +275,14 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY cmux-prompt.bash /etc/cmux/prompt.bash
+# Shadows Ubuntu's python completion (bash-completion searches /usr/local/share
+# first) so ble.sh ghost text on `python -m pkg.` lists one package's
+# submodules instead of importing every installed package per keystroke.
+COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
+RUN for f in /usr/share/bash-completion/completions/python?*; do \
+       ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; \
+     done \
+  && bash -n /usr/local/share/bash-completion/completions/python
 RUN echo cmux > /etc/cmux/vm-name
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
