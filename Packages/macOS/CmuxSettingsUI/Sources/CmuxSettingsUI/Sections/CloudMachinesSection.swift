@@ -28,19 +28,27 @@ public struct CloudMachinesSection: View {
             )
             SettingsCard {
                 activationRow
-                SettingsCardDivider()
-                planRow
-                SettingsCardDivider()
-                panelRow
-                SettingsCardDivider()
-                vpnRow
+                // Plan, machines and VPN all need Cloud on; before that each
+                // could only say "Open Machines", so they wait until it is.
+                if activationState.isEnabled {
+                    SettingsCardDivider()
+                    planRow
+                    SettingsCardDivider()
+                    panelRow
+                    SettingsCardDivider()
+                    vpnRow
+                }
             }
-            .settingsSearchAnchors([
-                "setting:cloudMachines:enable",
-                "setting:cloudMachines:plan",
-                "setting:cloudMachines:open-panel",
-                "setting:cloudMachines:vpn",
-            ])
+            .settingsSearchAnchors(
+                activationState.isEnabled
+                    ? [
+                        "setting:cloudMachines:enable",
+                        "setting:cloudMachines:plan",
+                        "setting:cloudMachines:open-panel",
+                        "setting:cloudMachines:vpn",
+                    ]
+                    : ["setting:cloudMachines:enable"]
+            )
             .task { await observeActivation() }
             .task(id: showsEnableToggle) {
                 guard showsEnableToggle else { return }
@@ -61,7 +69,7 @@ public struct CloudMachinesSection: View {
     private var activationRow: some View {
         SettingsCardRow(
             searchAnchorID: "setting:cloudMachines:enable",
-            String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"),
+            String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"),
             subtitle: activationSubtitle
         ) {
             activationControl
@@ -89,7 +97,7 @@ public struct CloudMachinesSection: View {
             )
             .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"))
+            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"))
             .accessibilityIdentifier("SettingsCloudEnableToggle")
         case .enabling:
             HStack(spacing: 8) {
@@ -113,7 +121,7 @@ public struct CloudMachinesSection: View {
             )
             .labelsHidden()
             .controlSize(.small)
-            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title", defaultValue: "Enable Cloud"))
+            .accessibilityLabel(String(localized: "settings.cloudMachines.enable.title.enable", defaultValue: "Enable Cloud Machines"))
             .accessibilityIdentifier("SettingsCloudEnableToggle")
         case .failed(let failure):
             HStack(spacing: 8) {

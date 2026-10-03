@@ -79,10 +79,11 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroSymbol: String {
-        if isProGated { return "lock.circle" }
+        // Same cloud as the enable screen; the title and Upgrade button say why.
+        if isProGated { return "cloud.fill" }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled: return "cloud.fill"
-        case .failed(.requiresPro): return "lock.circle"
+        case .failed(.requiresPro): return "cloud.fill"
         case .failed(.signInRequired): return "person.crop.circle.badge.plus"
         case .failed(.serviceUnavailable): return "exclamationmark.icloud"
         case .unavailable: return "icloud.slash"
@@ -90,10 +91,10 @@ struct CloudMachinesEnablementView: View {
     }
 
     private var heroTint: Color {
-        if isProGated { return .secondary }
+        if isProGated { return .accentColor }
         switch coordinator.state {
         case .disabled, .cancelled, .enabling, .enabled, .failed(.signInRequired): return .accentColor
-        case .failed(.requiresPro): return .secondary
+        case .failed(.requiresPro): return .accentColor
         case .failed(.serviceUnavailable): return .orange
         case .unavailable: return .secondary
         }
