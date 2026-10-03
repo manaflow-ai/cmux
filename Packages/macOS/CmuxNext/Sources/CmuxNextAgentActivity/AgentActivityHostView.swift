@@ -15,12 +15,12 @@ public final class AgentActivityHostView: NSView {
         self.source = source
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        super.init(frame: .zero)
         let bridge = AgentActivityBridge(model: model, source: source)
         model.layout = AgentActivityTunables.layout.value
         configuration.userContentController.addScriptMessageHandler(bridge, contentWorld: .page, name: AgentActivityBridge.handlerName)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
+        super.init(frame: .zero)
         webView.navigationDelegate = bridge
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = false
