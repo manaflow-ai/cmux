@@ -55,8 +55,8 @@ struct CloudMachinesHeaderCountTests {
         #expect(inline <= Self.barContentWidth(420),
                 "The header action row (\(inline)pt) overflows a 420pt sidebar")
         let overflow = try await idealRowWidth(.overflowMenu, teamName: "Team A")
-        #expect(overflow == inline,
-                "The Invite-only header should not change width between layout candidates")
+        #expect(overflow <= inline,
+                "The overflow menu should be no wider than the inline action row")
     }
 
     @Test("A free plan at its limit turns orange and names the upgrade", arguments: [

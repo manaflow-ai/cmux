@@ -55,6 +55,8 @@ final class SurfaceCatalog {
     @ObservationIgnored
     lazy var cloudWorkspaceCreationCoordinator = CloudWorkspaceCreationCoordinator(catalog: self)
     let cloudWorkspaceProjectionCoordinator: CloudWorkspaceProjectionCoordinator
+    /// Writes native Cloud arrangements back to the machine's layout document.
+    let cloudWorkspaceLayoutSyncCoordinator = CloudWorkspaceLayoutSyncCoordinator()
     /// Optimistic Cloud workspace deletes are catalog state so every sidebar and
     /// socket reader sees the same pending/tombstoned tree.
     let cloudWorkspaceDeletionLedger = CloudWorkspaceDeletionLedger()

@@ -478,6 +478,10 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: ./tests/test_testbox_cleanup_receipt_ref.sh
 
+      - name: Test the Testbox approval helper against fake gh and blacksmith
+        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
+        run: ./tests/test_testbox_approve.sh
+
       - name: Lint the Testbox lane helpers
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: shellcheck scripts/blacksmith-bounded-command.sh scripts/blacksmith-cmux-tui-testbox-stage.sh scripts/blacksmith-testbox-cleanup.sh scripts/blacksmith-testbox-keepalive.sh scripts/ci/install-actionlint.sh tests/test_ci_actionlint_download.sh

@@ -356,26 +356,7 @@ final class CmuxTuiSurfaceProviderRegistry {
                 guard let self, access == self.accessEpoch, !Task.isCancelled,
                       let discovered = await self.discoverMachines(force: force, updateExisting: true),
                       access == self.accessEpoch, !Task.isCancelled else { return false }
-                // Another team's machines behind open surfaces are not on the
-                // selected team's page; read them one by one with their own
-                // team, then refresh them so a revoked membership surfaces as
-                // a card, not a freeze.
-                await self.refreshForeignOwnedMachines()
-                guard access == self.accessEpoch, !Task.isCancelled else { return false }
-                let foreign = self.retainedForeignTeamMachineIDs(activeTeamID: self.activeTeamID())
-                    .subtracting(discovered.map(\.machineID))
-                    .compactMap { self.providers[$0] }
-                let candidates = discovered + foreign
-                let activeMachines = (force || !self.hasCompletedInitialRefresh) ? Set(candidates.map(\.machine)) : (self.catalog?.projectedMachines ?? []).union(self.catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(self.pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(discovered.filter { !self.refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
-                await withTaskGroup(of: Void.self) { group in
-                    for provider in candidates where activeMachines.contains(provider.machine) {
-                        group.addTask { @MainActor in
-                            guard access == self.accessEpoch, !Task.isCancelled else { return }
-                            let succeeded = await self.refreshProvider(provider, force); if succeeded, provider.isRegisteredInCatalog() { self.refreshedMachineIDs.insert(provider.machine) }
-                        }
-                    }
-                }
-                self.hasCompletedInitialRefresh = true; return access == self.accessEpoch && !Task.isCancelled
+                return await self.refreshDiscoveredMachines(discovered, force: force, access: access)
             }
             refreshInFlight = task
             let listed = await task.value
@@ -383,6 +364,41 @@ final class CmuxTuiSurfaceProviderRegistry {
             guard access == accessEpoch, isCloudEnabled(), !Task.isCancelled else { return false }
             return listed
         }
+    }
+
+    /// Detail work shares the registry's refresh owner, but is not a prerequisite
+    /// for presenting a newly selected team's fleet.
+    private func refreshDiscoveredMachines(
+        _ discovered: [CmuxTuiSurfaceProvider], force: Bool, access: UInt64
+    ) async -> Bool {
+        let scope = creationEpoch
+        guard access == accessEpoch, !Task.isCancelled else { return false }
+        // Another team's machines behind open surfaces are not on the
+        // selected team's page; read them one by one with their own
+        // team, then refresh them so a revoked membership surfaces as
+        // a card, not a freeze.
+        await refreshForeignOwnedMachines()
+        guard access == accessEpoch, scope == creationEpoch, !Task.isCancelled else { return false }
+        let foreign = retainedForeignTeamMachineIDs(activeTeamID: activeTeamID())
+            .subtracting(discovered.map(\.machineID))
+            .compactMap { providers[$0] }
+        let candidates = discovered + foreign
+        let activeMachines = (force || !hasCompletedInitialRefresh) ? Set(candidates.map(\.machine)) : (catalog?.projectedMachines ?? []).union(catalog?.pendingRestoredMachineIDs.map(SurfaceMachineID.cloud) ?? []).union(pendingMachineCreationIDs.map(SurfaceMachineID.cloud)).union(Set(discovered.filter { !refreshedMachineIDs.contains($0.machine) || $0.info.linkState != .connected || $0.cloudState?.cursor == nil }.map(\.machine)))
+        await withTaskGroup(of: Void.self) { group in
+            for provider in candidates where activeMachines.contains(provider.machine) {
+                group.addTask { @MainActor in
+                    guard access == self.accessEpoch, scope == self.creationEpoch, !Task.isCancelled else { return }
+                    let succeeded = await self.refreshProvider(provider, force)
+                    if succeeded, access == self.accessEpoch, scope == self.creationEpoch,
+                       !Task.isCancelled, provider.isRegisteredInCatalog() {
+                        self.refreshedMachineIDs.insert(provider.machine)
+                    }
+                }
+            }
+        }
+        guard access == accessEpoch, scope == creationEpoch, !Task.isCancelled else { return false }
+        hasCompletedInitialRefresh = true
+        return true
     }
 
     /// Serializes only fleet listing and registration. The returned provider
@@ -554,7 +570,27 @@ final class CmuxTuiSurfaceProviderRegistry {
         for (id, provider) in providers where provider.ownerTeamID != active && !retained.contains(id) {
             unregisterMachine(id)
         }
-        _ = await refresh(force: true)
+        let access = accessEpoch
+        let scope = creationEpoch
+        guard let discovered = await discoverMachines(force: true, updateExisting: true),
+              access == accessEpoch, scope == creationEpoch, !Task.isCancelled else { return }
+        // Readiness means the selected team's fleet has been reconciled. A slow
+        // link, workspace snapshot, or foreign-team read must not hold the
+        // sidebar behind the detail refresh. Retain the task under the normal
+        // refresh owner so a later team change, sign-out, or feature suspension
+        // cancels it, and ordinary refresh callers still join it.
+        if refreshInFlight == nil {
+            refreshInFlight = Task { [weak self] in
+                guard let self, scope == self.creationEpoch else { return false }
+                defer {
+                    // A cancelled older pass must not clear its replacement.
+                    if !Task.isCancelled, access == self.accessEpoch, scope == self.creationEpoch {
+                        self.refreshInFlight = nil
+                    }
+                }
+                return await self.refreshDiscoveredMachines(discovered, force: true, access: access)
+            }
+        }
     }
 
     /// The provider for a machine that may have been created a moment ago (`cmux vm new`
