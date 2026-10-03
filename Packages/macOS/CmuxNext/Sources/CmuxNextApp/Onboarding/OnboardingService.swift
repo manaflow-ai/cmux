@@ -22,6 +22,7 @@ final class OnboardingService {
     private(set) var profile: OnboardingProfile?
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
+    private var projectScanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
 
     /// Shows onboarding on the first launch even in a no-activate test launch.
@@ -45,7 +46,7 @@ final class OnboardingService {
         }
         // Keep Cmd-T off the file system hot path. The scan is bounded and runs
         // once in the background while the app is starting.
-        Task { [weak self] in
+        projectScanTask = Task { [weak self] in
             let folders = await Task.detached {
                 var scan = AgentProjectScan.live()
                 scan.filesPerApp = 200

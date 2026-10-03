@@ -5,7 +5,6 @@ import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextTabs
-
 /// Agent chat tabs (the React acpmux pane, CmuxNextAgentPane). cmux-tui has
 /// no agent tab kind yet, so like `LocalBrowserTab` they live only in this
 /// app session and are not restored after relaunch; the acpmux sessions they

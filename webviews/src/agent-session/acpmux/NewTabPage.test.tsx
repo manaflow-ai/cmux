@@ -334,7 +334,6 @@ test("Cmd-L brings the keyboard back to the field, and an untouched location is 
   await act(async () => root.unmount());
 });
 
-
 test("the project pill changes the cwd used by a new agent chat", async () => {
   const container = dom.window.document.getElementById("root")!;
   const root = createRoot(container);
@@ -356,9 +355,13 @@ test("the project pill changes the cwd used by a new agent chat", async () => {
     ),
   );
   await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-project-button")!.click());
-  const web = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find((node) => node.textContent === "web");
+  const web = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (node) => node.textContent === "web",
+  );
   expect(web).toBeTruthy();
-  await act(async () => web!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+  await act(async () =>
+    web!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+  );
   const field = container.querySelector<HTMLInputElement>(".acpmux-newtab-field")!;
   const setValue = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
   await act(async () => {
