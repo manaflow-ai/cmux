@@ -110,7 +110,6 @@ Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
@@ -509,7 +508,6 @@ Open the `.dmg` and drag cmux to your Applications folder. cmux auto-updates via
 ### Homebrew
 
 ```bash
-brew tap manaflow-ai/cmux
 brew install --cask cmux
 ```
 
