@@ -15,6 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),
+        .package(path: "../../Packages/Shared/CmuxHomeRender"),
         .package(path: "../../Packages/Shared/CmuxFeedPushCore"),
         .package(path: "../../Packages/Shared/CmuxInstallAuthCore"),
         .package(path: "../../Packages/Shared/CmuxTextConfirmCore"),
@@ -65,6 +66,7 @@ let package = Package(
             dependencies: [
                 "CmuxiOSDesign",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             resources: [.process("Resources")],
             swiftSettings: [.swiftLanguageMode(.v6)]
