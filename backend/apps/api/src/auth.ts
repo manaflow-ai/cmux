@@ -143,16 +143,16 @@ export const derToRawP256 = (der: Uint8Array): Uint8Array | null => {
   const out = new Uint8Array(64)
   let at = 2
   for (const slot of [0, 32]) {
-    if (der[at] !== 0x02) return null
+    if (at + 2 > der.length || der[at] !== 0x02) return null
     const len = der[at + 1]!
     const start = at + 2
     if (len < 1 || len > 33 || start + len > der.length) return null
     let v = der.subarray(start, start + len)
-    // A leading zero only pads a high bit; a longer value is not a P-256 scalar.
-    if (v.length === 33) {
-      if (v[0] !== 0 || (v[1]! & 0x80) === 0) return null
-      v = v.subarray(1)
-    }
+    // Minimal, non-negative INTEGERs only: no high bit without a pad, and a leading zero
+    // only to pad a high bit. A 33-byte value must be such a pad.
+    if (v[0]! & 0x80) return null
+    if (v.length > 1 && v[0] === 0 && (v[1]! & 0x80) === 0) return null
+    if (v.length === 33) v = v.subarray(1)
     out.set(v, slot + 32 - v.length)
     at = start + len
   }
@@ -164,9 +164,12 @@ export const verifyInstallSignature = async (jwk: JsonWebKey, message: string, s
   try {
     const key = await crypto.subtle.importKey("jwk", { ...jwk, ext: true }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"])
     const bytes = Uint8Array.from(atob(signatureB64u.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(signatureB64u.length / 4) * 4, "=")), (c) => c.charCodeAt(0))
-    const sig = bytes.length === 64 ? bytes : derToRawP256(bytes)
-    if (!sig) return false
-    return await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, new TextEncoder().encode(message))
+    const data = new TextEncoder().encode(message)
+    const verify = (sig: Uint8Array) => crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, sig, data)
+    // 64 bytes is raw r||s, except a rare 64-byte DER signature: try raw, then DER.
+    if (bytes.length === 64 && (await verify(bytes))) return true
+    const der = derToRawP256(bytes)
+    return der ? await verify(der) : false
   } catch {
     return false
   }
