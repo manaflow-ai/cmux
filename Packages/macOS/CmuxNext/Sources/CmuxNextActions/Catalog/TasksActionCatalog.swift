@@ -11,7 +11,7 @@ nonisolated enum TasksActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tasks.show", title: t("action.tasks.show", "Open Tasks"),
                 keywords: ["tasks", "issues", "todo", "inbox", "board", "backlog", "agents"],
-                category: .other, symbol: "checklist", surfaces: [.palette, .keyboard],
+                category: .agents, symbol: "checklist", surfaces: [.palette, .keyboard],
                 cliName: "tasks open",
                 surfacePlan: ActionSurfacePlan(
                     // A tab of the active window; automation opens it without
@@ -21,7 +21,7 @@ nonisolated enum TasksActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "tasks.showMine", title: t("action.tasks.showMine", "My Tasks"),
                 keywords: ["tasks", "mine", "assigned", "issues", "todo"],
-                category: .other, symbol: "person.crop.circle.badge.checkmark", surfaces: [.palette, .keyboard],
+                category: .agents, symbol: "person.crop.circle.badge.checkmark", surfaces: [.palette, .keyboard],
                 cliName: "tasks mine",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
