@@ -803,6 +803,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-chief"
+version = "0.1.0"
+dependencies = [
+ "cmux-conversation",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-cli"
 version = "0.1.0"
 
