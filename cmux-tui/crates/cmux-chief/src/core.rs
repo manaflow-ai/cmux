@@ -1,10 +1,21 @@
 //! The sans-I/O brain host (plans/cmux-next/chief-mac.md section 3):
-//! `Core::step(input, now_ms) -> effects`. Port of `mux/host/src/host.ts`.
+//! `Core::step(input, now_ms) -> effects`. A port of the TypeScript core
+//! (`mux/packages/brain/src/core/core.ts`), which is the behavior source:
+//! both pass the corpus that `mux/packages/brain/conformance/generate.ts`
+//! writes, and a difference is fixed here, never in the corpus.
+//!
 //! The host shell does every read, write and timer the effects name and
 //! reports results back as inputs. When a step changed the durable state,
 //! its first effect is `persist`: the shell writes it before it runs the
 //! other effects (write-ahead), so a crash only replays keyed effects that
 //! an owner dedupes.
+//!
+//! Shell contract: a failed daemon read (`list_conversations`,
+//! `fetch_snapshot`, `fetch_history`) is reported as
+//! `disconnected {daemon}` (the shell drops that connection and connects
+//! again); a failed acpmux read answers with an empty `sessions` or
+//! `child_events`. A `*_connected` input while that port is up counts as a
+//! disconnect first: the core drops what it held for the old connection.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -12,7 +23,9 @@ use cmux_conversation::{Change, Message, Op, Part, Summary, WorkStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::acp::{AcpmuxEvent, SessionStatus, SessionSummary, TurnFolder, TurnOutput, last_reply};
+use crate::acp::{
+    AcpmuxEvent, SessionStatus, SessionSummary, TurnFolder, TurnOutput, js_trim, last_reply,
+};
 use crate::rules::{
     AGENT_GAP_RETRY_MS, AGENT_GAP_TIMER_SLACK_MS, AGENT_MUX, MUX_SESSION_NAME, PAGE, PARENT_TAG,
     child_finished_prompt, child_permission_prompt, excerpt, inbox_prompt, turn_ended, turn_key,
@@ -63,11 +76,14 @@ pub enum Input {
         change: Option<Change>,
     },
     /// The acpmux port is up: the Chief's session exists and `events` is the
-    /// attach replay after `state.acpmux_seq`.
+    /// attach replay. `cursor_reset`: acpmux refused the saved cursor
+    /// (`cursor_future`, a re-imported session), so the replay starts at 0.
     AcpmuxConnected {
         session_id: String,
         sessions: Vec<SessionSummary>,
         events: Vec<AcpmuxEvent>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        cursor_reset: bool,
     },
     AcpmuxEvent {
         event: AcpmuxEvent,
@@ -80,9 +96,11 @@ pub enum Input {
         permission_id: String,
         request: Value,
     },
+    /// The answer to `fetch_sessions` (empty when the request failed).
     Sessions {
         sessions: Vec<SessionSummary>,
     },
+    /// The answer to `fetch_child_events` (empty when the request failed).
     ChildEvents {
         session_id: String,
         events: Vec<AcpmuxEvent>,
@@ -143,13 +161,16 @@ pub enum Effect {
         key: String,
         at: u64,
     },
-    /// Both ports are up and the first catch-up ran.
+    /// Both ports are up and a catch-up ran.
     Ready,
     Log {
         line: String,
     },
 }
 
+/// Inbox work, one item at a time. `CatchUp` and `Ready` continue a running
+/// catch-up: they need only the daemon (a catch-up that started goes on when
+/// acpmux drops; its prompts stay outstanding).
 #[derive(Debug, Clone, PartialEq)]
 enum InboxItem {
     Live(Box<Message>),
@@ -158,22 +179,47 @@ enum InboxItem {
     Ready,
 }
 
+impl InboxItem {
+    fn is_continuation(&self) -> bool {
+        matches!(self, Self::CatchUp(_) | Self::Ready)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct Paging {
+    summary: Summary,
+    from: u64,
+    pending: Vec<Message>,
+}
+
+/// Messages handled in order with a copy of the summary taken when the task
+/// started (later summary events do not change it).
+#[derive(Debug, Clone, PartialEq)]
+struct Handling {
+    summary: Summary,
+    queue: VecDeque<Message>,
+    /// The prompt id and message seq waiting for acpmux.
+    waiting: Option<(String, u64)>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 enum Task {
     #[default]
     Idle,
     Listing,
+    /// A live message in a conversation the core has no summary for: its
+    /// tail-1 snapshot.
+    Summary(Box<Message>),
     Snapshot(String),
-    History {
-        conversation: String,
-        from: u64,
-        pending: Vec<Message>,
-    },
-    Handling {
-        conversation: String,
-        queue: VecDeque<Message>,
-        waiting: Option<(String, u64)>,
-    },
+    History(Box<Paging>),
+    Handling(Box<Handling>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PendingPermission {
+    session_id: String,
+    permission_id: String,
+    request: Value,
 }
 
 /// The brain host's core. `state` is durable; the rest is rebuilt on connect.
@@ -187,18 +233,27 @@ pub struct Core {
     acpmux_up: bool,
     mux_session: Option<String>,
     summaries: BTreeMap<String, Summary>,
+    /// Highest message seq the inbox handled per conversation.
     handled: BTreeMap<String, u64>,
+    /// Message id -> author, for the reply-to-Chief wake rule.
     authors: BTreeMap<String, String>,
     folder: TurnFolder,
     typing_in: Option<String>,
     session_status: BTreeMap<String, SessionStatus>,
     session_info: BTreeMap<String, SessionSummary>,
+    /// Per child: the event seq when its previous turn ended.
     child_turn_floor: BTreeMap<String, u64>,
+    /// Children whose turn ended, waiting for `child_events`.
     pending_children: BTreeMap<String, SessionSummary>,
-    pending_permissions: Vec<(String, String, Value)>,
+    /// Later `session_changed` inputs of a child with a pending finish.
+    held_changes: BTreeMap<String, VecDeque<SessionSummary>>,
+    pending_permissions: Vec<PendingPermission>,
     inbox: VecDeque<InboxItem>,
     task: Task,
+    /// The outbox head's key while the owner has not answered it.
     outbox_inflight: Option<String>,
+    /// When the armed outbox timer fires (cleared when it fires).
+    outbox_timer_at: Option<u64>,
 }
 
 impl Core {
@@ -219,8 +274,8 @@ impl Core {
             Input::OpResult { idempotency_key, reason, change } => {
                 self.op_result(&idempotency_key, reason.as_deref(), change);
             }
-            Input::AcpmuxConnected { session_id, sessions, events } => {
-                self.acpmux_connected(session_id, sessions, &events);
+            Input::AcpmuxConnected { session_id, sessions, events, cursor_reset } => {
+                self.acpmux_connected(session_id, sessions, &events, cursor_reset);
             }
             Input::AcpmuxEvent { event } => {
                 if event.session_id.is_some() && event.session_id == self.mux_session {
@@ -231,16 +286,18 @@ impl Core {
             Input::PermissionPending { session_id, permission_id, request } => {
                 self.permission(session_id, permission_id, request);
             }
-            Input::Sessions { sessions } => self.sessions(sessions),
+            Input::Sessions { sessions } => self.sessions(&sessions),
             Input::ChildEvents { session_id, events } => {
                 if let Some(session) = self.pending_children.remove(&session_id) {
                     self.finish_child(&session, &last_reply(&events));
+                    self.replay_held(&session_id);
                     self.flush_outbox();
                 }
             }
             Input::PromptSettled { prompt_id } => self.accept(&prompt_id),
             Input::Timer { key } => {
                 if key == OUTBOX_TIMER {
+                    self.outbox_timer_at = None;
                     self.flush_outbox();
                 }
             }
@@ -265,6 +322,9 @@ impl Core {
     // MARK: daemon
 
     fn daemon_connected(&mut self, conversation: Summary) {
+        if self.daemon_up {
+            self.disconnected(Port::Daemon);
+        }
         self.summaries.clear();
         if self.state.default_conversation.as_deref() != Some(conversation.id.as_str()) {
             self.state.default_conversation = Some(conversation.id.clone());
@@ -307,18 +367,43 @@ impl Core {
     }
 
     fn disconnected(&mut self, port: Port) {
-        self.inbox.clear();
-        self.task = Task::Idle;
         match port {
             Port::Daemon => {
                 self.daemon_up = false;
                 self.outbox_inflight = None;
+                self.inbox.clear();
+                // Every daemon read fails with the connection; a prompt-only
+                // handling task goes on.
+                if !matches!(self.task, Task::Handling(_)) {
+                    self.task = Task::Idle;
+                }
             }
             Port::Acpmux => {
                 self.acpmux_up = false;
-                self.pending_children.clear();
+                self.inbox.retain(InboxItem::is_continuation);
+                self.pending_permissions.clear();
                 if let Some(conversation) = self.typing_in.clone() {
                     self.set_typing(&conversation, false);
+                }
+                // The waiting prompt settles: the inbox moves on and the
+                // prompt stays outstanding, resent on the next connect.
+                let waiting = match &self.task {
+                    Task::Handling(handling) => handling.waiting.as_ref().map(|(id, _)| id.clone()),
+                    _ => None,
+                };
+                if let Some(prompt_id) = waiting {
+                    self.accept(&prompt_id);
+                }
+                // A child whose events fetch dies with the connection
+                // finishes with no reply text.
+                let children = std::mem::take(&mut self.pending_children);
+                let any = !children.is_empty();
+                for (session_id, session) in children {
+                    self.finish_child(&session, "");
+                    self.replay_held(&session_id);
+                }
+                if any {
+                    self.flush_outbox();
                 }
             }
         }
@@ -326,9 +411,13 @@ impl Core {
 
     // MARK: inbox
 
-    /// Starts inbox work, one item at a time, while both ports are up.
+    /// Starts inbox work, one item at a time, while the ports it needs are up.
     fn drive(&mut self) {
-        while self.task == Task::Idle && self.daemon_up && self.acpmux_up {
+        while self.task == Task::Idle {
+            let Some(item) = self.inbox.front() else { return };
+            if !self.daemon_up || (!item.is_continuation() && !self.acpmux_up) {
+                return;
+            }
             let Some(item) = self.inbox.pop_front() else { return };
             match item {
                 InboxItem::Live(message) => self.live(*message),
@@ -347,26 +436,38 @@ impl Core {
         self.task = Task::Snapshot(conversation);
     }
 
-    /// A live message: handled in seq order, or the conversation is caught up
-    /// when the core missed some (or does not know the conversation).
+    /// A live message: handled in seq order, or the conversation is caught
+    /// up when the core missed some.
     fn live(&mut self, message: Message) {
-        let Some(summary) = self.summaries.get_mut(&message.conversation) else {
-            return self.catch_up(message.conversation.clone());
-        };
+        match self.summaries.get(&message.conversation) {
+            Some(summary) => {
+                let summary = summary.clone();
+                self.live_with(summary, message);
+            }
+            None => {
+                let conversation = message.conversation.clone();
+                self.emit(Effect::FetchSnapshot { conversation, tail: 1 });
+                self.task = Task::Summary(Box::new(message));
+            }
+        }
+    }
+
+    fn live_with(&mut self, summary: Summary, message: Message) {
         if !summary.participants.iter().any(|p| p.id == AGENT_MUX) {
             return;
         }
-        let handled = self.handled.get(&message.conversation).copied().unwrap_or(0);
+        let handled = self.handled.get(&summary.id).copied().unwrap_or(0);
         if message.seq <= handled {
             return;
         }
         if message.seq > handled + 1 {
-            return self.catch_up(message.conversation.clone());
+            return self.catch_up(summary.id);
         }
-        summary.last_seq = summary.last_seq.max(message.seq);
-        let conversation = message.conversation.clone();
-        self.task =
-            Task::Handling { conversation, queue: VecDeque::from([message]), waiting: None };
+        self.task = Task::Handling(Box::new(Handling {
+            summary,
+            queue: VecDeque::from([message]),
+            waiting: None,
+        }));
         self.process();
     }
 
@@ -389,109 +490,118 @@ impl Core {
     }
 
     fn snapshot(&mut self, summary: Summary, messages: Vec<Message>) {
-        if self.task != Task::Snapshot(summary.id.clone()) {
-            return;
+        match std::mem::take(&mut self.task) {
+            Task::Summary(message) if message.conversation == summary.id => {
+                self.remember(summary.clone());
+                self.live_with(summary, *message);
+            }
+            Task::Snapshot(conversation) if conversation == summary.id => {
+                let cursor = summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
+                let from = self.handled.get(&conversation).copied().unwrap_or(0).max(cursor);
+                self.summaries.insert(conversation.clone(), summary.clone());
+                self.handled.insert(conversation, from);
+                for message in &messages {
+                    self.authors.insert(message.id.clone(), message.author.clone());
+                }
+                let pending = messages.into_iter().filter(|m| m.seq > from).collect();
+                self.page(summary, from, pending);
+            }
+            other => self.task = other,
         }
-        let conversation = summary.id.clone();
-        let cursor = summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
-        let from = self.handled.get(&conversation).copied().unwrap_or(0).max(cursor);
-        self.summaries.insert(conversation.clone(), summary);
-        self.handled.insert(conversation.clone(), from);
-        for message in &messages {
-            self.authors.insert(message.id.clone(), message.author.clone());
-        }
-        let pending = messages.into_iter().filter(|m| m.seq > from).collect();
-        self.page(conversation, from, pending);
     }
 
     fn history(&mut self, conversation: &str, older: Vec<Message>) {
-        let Task::History { conversation: expected, from, pending } =
-            std::mem::take(&mut self.task)
-        else {
-            return;
-        };
-        if expected != conversation {
-            self.task = Task::History { conversation: expected, from, pending };
-            return;
+        match std::mem::take(&mut self.task) {
+            Task::History(paging) if paging.summary.id == conversation => {
+                let Paging { summary, from, pending } = *paging;
+                if older.is_empty() {
+                    return self.handle_all(summary, pending);
+                }
+                let mut merged: Vec<Message> = older.into_iter().filter(|m| m.seq > from).collect();
+                merged.extend(pending);
+                self.page(summary, from, merged);
+            }
+            other => self.task = other,
         }
-        if older.is_empty() {
-            return self.handle_all(expected, pending);
-        }
-        let mut merged: Vec<Message> = older.into_iter().filter(|m| m.seq > from).collect();
-        merged.extend(pending);
-        self.page(expected, from, merged);
     }
 
     /// Pages back until the first missing message is in hand, then handles.
-    fn page(&mut self, conversation: String, from: u64, pending: Vec<Message>) {
+    fn page(&mut self, summary: Summary, from: u64, pending: Vec<Message>) {
         if let Some(first) = pending.first()
             && first.seq > from + 1
         {
             self.emit(Effect::FetchHistory {
-                conversation: conversation.clone(),
+                conversation: summary.id.clone(),
                 before_seq: first.seq,
                 limit: PAGE,
             });
-            self.task = Task::History { conversation, from, pending };
+            self.task = Task::History(Box::new(Paging { summary, from, pending }));
             return;
         }
-        self.handle_all(conversation, pending);
+        self.handle_all(summary, pending);
     }
 
-    fn handle_all(&mut self, conversation: String, pending: Vec<Message>) {
-        self.task = Task::Handling { conversation, queue: pending.into(), waiting: None };
+    fn handle_all(&mut self, summary: Summary, pending: Vec<Message>) {
+        self.task =
+            Task::Handling(Box::new(Handling { summary, queue: pending.into(), waiting: None }));
         self.process();
     }
 
     /// Handles queued messages in order; stops while a prompt waits for acpmux.
     fn process(&mut self) {
         loop {
-            let Task::Handling { conversation, queue, waiting } = &mut self.task else { return };
-            if waiting.is_some() {
+            let Task::Handling(handling) = &mut self.task else { return };
+            if handling.waiting.is_some() {
                 return;
             }
-            let Some(message) = queue.pop_front() else {
+            let Some(message) = handling.queue.pop_front() else {
                 self.task = Task::Idle;
                 return;
             };
-            let conversation = conversation.clone();
             self.authors.insert(message.id.clone(), message.author.clone());
+            let Task::Handling(handling) = &self.task else { return };
+            let conversation = handling.summary.id.clone();
             if message.seq <= self.handled.get(&conversation).copied().unwrap_or(0) {
                 continue;
             }
-            let Some(summary) = self.summaries.get(&conversation) else { continue };
             let authors = &self.authors;
             let wake = !self.state.is_answered(&message.id)
-                && wakes(summary, &message, |id| authors.get(id).is_some_and(|a| a == AGENT_MUX));
+                && wakes(&handling.summary, &message, |id| {
+                    authors.get(id).is_some_and(|a| a == AGENT_MUX)
+                });
             if wake {
-                let text = inbox_prompt(summary, &message);
+                let text = inbox_prompt(&handling.summary, &message);
                 self.state.prompts.insert(
                     message.id.clone(),
                     OutstandingPrompt { conversation, text, seq: Some(message.seq) },
                 );
                 self.dirty = true;
-                if let Task::Handling { waiting, .. } = &mut self.task {
-                    *waiting = Some((message.id.clone(), message.seq));
+                if let Task::Handling(handling) = &mut self.task {
+                    handling.waiting = Some((message.id.clone(), message.seq));
                 }
+                // Without a session the prompt stays outstanding (sent on the
+                // next acpmux connect).
                 if !self.send_prompt(&message.id) {
-                    // No session to prompt: the prompt stays outstanding and is
-                    // sent on the next acpmux connect.
                     self.accept(&message.id);
                 }
                 return;
             }
-            self.finish_message(&message.conversation, message.seq);
+            self.finish_message(message.seq);
         }
     }
 
-    fn finish_message(&mut self, conversation: &str, seq: u64) {
-        self.handled.insert(conversation.to_owned(), seq);
-        let Some(summary) = self.summaries.get(conversation) else { return };
-        if seq <= summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0) {
+    /// The running handling task's message is handled: agent_mux's read
+    /// cursor moves past it (when the daemon is up).
+    fn finish_message(&mut self, seq: u64) {
+        let Task::Handling(handling) = &self.task else { return };
+        let conversation = handling.summary.id.clone();
+        let cursor = handling.summary.read_cursors.get(AGENT_MUX).copied().unwrap_or(0);
+        self.handled.insert(conversation.clone(), seq);
+        if !self.daemon_up || seq <= cursor {
             return;
         }
         self.emit(Effect::ConversationOp {
-            conversation: conversation.to_owned(),
+            conversation,
             idempotency_key: format!("cursor:{AGENT_MUX}:{seq}"),
             op: Op::ReadCursorSet { seq },
         });
@@ -510,13 +620,13 @@ impl Core {
 
     /// acpmux holds the prompt (or answered its request): the inbox moves on.
     fn accept(&mut self, prompt_id: &str) {
-        let Task::Handling { conversation, waiting, .. } = &mut self.task else { return };
-        if waiting.as_ref().is_none_or(|(id, _)| id != prompt_id) {
-            return;
-        }
-        let (_, seq) = waiting.take().expect("checked above");
-        let conversation = conversation.clone();
-        self.finish_message(&conversation, seq);
+        let Task::Handling(handling) = &mut self.task else { return };
+        let seq = match &handling.waiting {
+            Some((id, seq)) if id == prompt_id => *seq,
+            _ => return,
+        };
+        handling.waiting = None;
+        self.finish_message(seq);
         self.process();
     }
 
@@ -527,11 +637,19 @@ impl Core {
         session_id: String,
         sessions: Vec<SessionSummary>,
         events: &[AcpmuxEvent],
+        cursor_reset: bool,
     ) {
+        if self.acpmux_up {
+            self.disconnected(Port::Acpmux);
+        }
         if self.state.mux_session_id.as_deref() != Some(session_id.as_str()) {
             self.state.mux_session_id = Some(session_id.clone());
             self.state.acpmux_seq = 0;
             self.dirty = true;
+        } else if cursor_reset {
+            // The log is shorter than the saved cursor: replay it all; the
+            // owner dedupes replies.
+            self.state.acpmux_seq = 0;
         }
         self.mux_session = Some(session_id);
         for session in sessions {
@@ -543,6 +661,7 @@ impl Core {
             self.apply_mux_event(event);
         }
         self.acpmux_up = true;
+        // Prompts acpmux may have dropped with an old connection, in id order.
         let outstanding: Vec<String> = self.state.prompts.keys().cloned().collect();
         for prompt_id in outstanding {
             self.send_prompt(&prompt_id);
@@ -564,7 +683,7 @@ impl Core {
                 }
                 TurnOutput::Ended { turn, seq, error } => {
                     let conversation = self.conversation_for(turn.prompt_id.as_deref());
-                    let mut text = turn.text.trim().to_owned();
+                    let mut text = js_trim(&turn.text).to_owned();
                     if text.is_empty()
                         && let Some(error) = error
                     {
@@ -604,6 +723,7 @@ impl Core {
 
     fn conversation_for(&self, prompt_id: Option<&str>) -> Option<String> {
         prompt_id
+            .filter(|id| !id.is_empty())
             .and_then(|id| self.state.prompts.get(id))
             .map(|p| p.conversation.clone())
             .filter(|c| !c.is_empty())
@@ -623,8 +743,13 @@ impl Core {
     fn flush_outbox(&mut self) {
         while self.daemon_up && self.outbox_inflight.is_none() {
             let Some(entry) = self.state.outbox.first() else { return };
-            if entry.not_before.is_some_and(|at| self.now < at) {
-                return; // its one-shot timer flushes it
+            if let Some(at) = entry.not_before
+                && self.now < at
+            {
+                // Its one-shot timer flushes it; armed again here after a
+                // restart or an early fire.
+                self.arm_outbox_timer(at + AGENT_GAP_TIMER_SLACK_MS);
+                return;
             }
             let op = match (&entry.child, &entry.op) {
                 (Some(child), Op::MessageEdit { parts, .. }) => self
@@ -632,6 +757,7 @@ impl Core {
                     .children
                     .get(child)
                     .and_then(|c| c.message_id.clone())
+                    .filter(|id| !id.is_empty())
                     .map(|message_id| Op::MessageEdit { message_id, parts: parts.clone() }),
                 _ => Some(entry.op.clone()),
             };
@@ -645,6 +771,14 @@ impl Core {
             self.outbox_inflight = Some(key.clone());
             self.emit(Effect::ConversationOp { conversation, idempotency_key: key, op });
         }
+    }
+
+    fn arm_outbox_timer(&mut self, at: u64) {
+        if self.outbox_timer_at == Some(at) {
+            return;
+        }
+        self.outbox_timer_at = Some(at);
+        self.emit(Effect::ArmTimer { key: OUTBOX_TIMER.to_owned(), at });
     }
 
     fn op_result(&mut self, key: &str, reason: Option<&str>, change: Option<Change>) {
@@ -680,10 +814,7 @@ impl Core {
                 head.not_before = Some(at);
                 self.dirty = true;
                 self.log(format!("op {key} inside the agent gap; retrying once after it"));
-                self.emit(Effect::ArmTimer {
-                    key: OUTBOX_TIMER.to_owned(),
-                    at: at + AGENT_GAP_TIMER_SLACK_MS,
-                });
+                self.arm_outbox_timer(at + AGENT_GAP_TIMER_SLACK_MS);
                 return;
             }
             Some(reason) => self.log(format!("dropping rejected op {key}: {reason}")),
@@ -701,6 +832,14 @@ impl Core {
     }
 
     fn session_changed(&mut self, session: SessionSummary) {
+        // A child's finish waits for its events: its later changes wait
+        // behind it, in order.
+        if self.held_changes.contains_key(&session.session_id)
+            || self.pending_children.contains_key(&session.session_id)
+        {
+            self.held_changes.entry(session.session_id.clone()).or_default().push_back(session);
+            return;
+        }
         let before = self.session_status.insert(session.session_id.clone(), session.status);
         self.session_info.insert(session.session_id.clone(), session.clone());
         if !self.is_child(&session) {
@@ -729,7 +868,23 @@ impl Core {
         self.flush_outbox();
     }
 
-    /// The child's record, registered (with a work card) when new.
+    /// Replays a child's held changes after its finish, until one starts
+    /// another finish.
+    fn replay_held(&mut self, session_id: &str) {
+        let Some(mut held) = self.held_changes.remove(session_id) else { return };
+        while let Some(next) = held.pop_front() {
+            self.session_changed(next);
+            if self.pending_children.contains_key(session_id) {
+                if !held.is_empty() {
+                    self.held_changes.insert(session_id.to_owned(), held);
+                }
+                return;
+            }
+        }
+    }
+
+    /// The child's record, registered (with a work card in the conversation
+    /// the Chief is answering) when new.
     fn child(&mut self, session: &SessionSummary) -> ChildRecord {
         if let Some(child) = self.state.children.get(&session.session_id) {
             return child.clone();
@@ -841,30 +996,41 @@ impl Core {
     }
 
     fn permission(&mut self, session_id: String, permission_id: String, request: Value) {
-        let known =
-            self.session_info.get(&session_id).is_some_and(|s| s.tags.contains_key(PARENT_TAG));
-        if !known && self.acpmux_up {
-            self.pending_permissions.push((session_id, permission_id, request));
+        let known = self.session_info.get(&session_id).cloned();
+        let tagged = known
+            .as_ref()
+            .is_some_and(|s| s.tags.get(PARENT_TAG).is_some_and(|tag| !tag.is_empty()));
+        if !tagged && self.acpmux_up {
+            // Not known as a child yet: look it up in a fresh session list.
+            self.pending_permissions.push(PendingPermission { session_id, permission_id, request });
             self.emit(Effect::FetchSessions);
             return;
         }
-        self.on_permission(&session_id, &permission_id, &request);
+        self.on_permission(known.as_ref(), &session_id, &permission_id, &request);
     }
 
-    fn sessions(&mut self, sessions: Vec<SessionSummary>) {
-        for session in sessions {
-            self.session_info.insert(session.session_id.clone(), session);
-        }
-        for (session_id, permission_id, request) in std::mem::take(&mut self.pending_permissions) {
-            self.on_permission(&session_id, &permission_id, &request);
+    /// The fetched list answers the pending permissions only; it does not
+    /// replace the session info that `session_changed` keeps.
+    fn sessions(&mut self, sessions: &[SessionSummary]) {
+        for pending in std::mem::take(&mut self.pending_permissions) {
+            let session = sessions.iter().find(|s| s.session_id == pending.session_id);
+            self.on_permission(
+                session,
+                &pending.session_id,
+                &pending.permission_id,
+                &pending.request,
+            );
         }
     }
 
-    fn on_permission(&mut self, session_id: &str, permission_id: &str, request: &Value) {
-        let Some(session) = self.session_info.get(session_id).cloned() else { return };
-        if !self.is_child(&session) {
-            return;
-        }
+    fn on_permission(
+        &mut self,
+        session: Option<&SessionSummary>,
+        session_id: &str,
+        permission_id: &str,
+        request: &Value,
+    ) {
+        let Some(session) = session.filter(|s| self.is_child(s)).cloned() else { return };
         self.child(&session);
         self.edit_work(session_id, &session.name, WorkStatus::Waiting, session.preview.as_deref());
         let prompt_id = format!("perm:{session_id}:{permission_id}");
@@ -878,7 +1044,8 @@ impl Core {
         self.send_prompt(&prompt_id);
     }
 
-    /// After a reconnect: children whose turn ended while the host was away.
+    /// After a reconnect: children whose turn ended (or whose session is
+    /// gone) while the host was away, in id order.
     fn reconcile_children(&mut self) {
         let children: Vec<(String, ChildRecord)> =
             self.state.children.iter().map(|(id, c)| (id.clone(), c.clone())).collect();
