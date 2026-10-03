@@ -26,6 +26,8 @@ final class HomeTranscriptView: UIView {
     private var fieldIsSend = false
     /// The rows changed (not only the viewport): an older page, a new message.
     var onRowsChange: () -> Void = {}
+    /// The tapback picker over the rows (double tap, React in the menu, VoiceOver).
+    private(set) lazy var tapbacks = HomeTapbackPresenter(container: self, rowHost: scroll.rowHost, controller: controller)
 
     static let fieldInset: CGFloat = 8
     static let fieldBottom: CGFloat = 8
@@ -58,10 +60,14 @@ final class HomeTranscriptView: UIView {
         scroll.controller = controller
         scroll.rowHost.controller = controller
         scroll.rowHost.host(controller.rootLayer)
-        controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
+        controller.onScrollGeometryChange = { [weak self] g in
+            self?.scroll.apply(g)
+            self?.tapbacks.follow()
+        }
         controller.onAccessibilityChange = { [weak self] in self?.scroll.rowHost.invalidateAccessibility() }
         controller.onRowsChange = { [weak self] in
             self?.scroll.rowHost.rowsChanged()
+            self?.tapbacks.follow()
             self?.onRowsChange()
         }
         // A send the owner refused before logging it (HomeStoreBinding ->
@@ -70,6 +76,7 @@ final class HomeTranscriptView: UIView {
             guard let self, self.field.text.isEmpty else { return }
             self.field.text = text
         }
+        scroll.rowHost.showTapbacks = { [weak self] target in self?.tapbacks.show(target) }
         field.onSend = { [weak self] in self?.send() }
         field.onHeightChange = { [weak self] in self?.setNeedsLayout() }
 
