@@ -230,7 +230,7 @@ pub fn grow_udp_buffers(s: &std::net::UdpSocket) {
 mod tests {
     use super::*;
     use cmux_rd_proto::{
-        MAX_STREAM_FRAME, STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame,
+        encode_stream_frame, StreamDeframer, MAX_STREAM_FRAME, STREAM_CONTROL, STREAM_DATAGRAM,
     };
     use std::net::TcpListener;
     use std::time::{Duration, Instant};
@@ -268,7 +268,10 @@ mod tests {
         assert_eq!(bytes, GOLDEN);
         let mut d = StreamDeframer::default();
         d.extend(&bytes);
-        assert_eq!(d.next_frame().expect("frame"), Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec())));
+        assert_eq!(
+            d.next_frame().expect("frame"),
+            Some((STREAM_CONTROL, br#"{"t":"stop"}"#.to_vec()))
+        );
         assert_eq!(d.next_frame().expect("frame"), Some((STREAM_DATAGRAM, vec![7, 7, 7])));
         assert_eq!(d.next_frame().expect("end"), None);
     }
