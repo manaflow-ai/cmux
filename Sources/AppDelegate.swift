@@ -5649,7 +5649,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func moveWorkspaceToNewWindow(workspaceId: UUID, focus: Bool = true) -> UUID? {
-        let windowId = createMainWindow()
+        // Resolve the owner before creating the destination. The active/fallback
+        // window may differ from the workspace's source, especially when moving
+        // a workspace out of a native fullscreen window.
+        let sourceWindow = mainWindowContainingWorkspace(workspaceId)
+        let windowId = createMainWindow(sourceWindow: sourceWindow)
         guard let destinationManager = tabManagerFor(windowId: windowId) else { return nil }
         let bootstrapWorkspaceId = destinationManager.tabs.first?.id
 
