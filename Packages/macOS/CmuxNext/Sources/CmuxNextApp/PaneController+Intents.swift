@@ -60,7 +60,7 @@ extension PaneController {
     /// An action run without view-change permission selects nothing.
     func select(_ id: StripTabID, source: FocusEvent.Source = .intent) {
         guard let workspace else {
-            guard ViewChangePolicy.allowed() else { return }
+            guard ActionRunScope.viewChangeAllowed() else { return }
             return applySelection(id)
         }
         workspace.focus.send(.selectTab(pane: paneKey, tab: id.rawValue, source: source))
@@ -238,7 +238,7 @@ extension PaneController {
         guard let tab = tab(id) else { return }
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
-        if target !== self, ViewChangePolicy.allowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
+        if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
             guard !ok else { return }
             self?.resyncStrip()

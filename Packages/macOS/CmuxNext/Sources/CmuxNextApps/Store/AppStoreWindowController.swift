@@ -26,7 +26,7 @@ public final class AppStoreWindowController: NSWindowController, NSWindowDelegat
         window.setFrameAutosaveName("cmux.appStore")
         super.init(window: window)
         window.delegate = self
-        window.contentView = AppStoreContentView(model: model)
+        window.contentView = model.makeContentView()
     }
 
     @available(*, unavailable)
@@ -53,7 +53,16 @@ public final class AppStoreWindowController: NSWindowController, NSWindowDelegat
     }
 }
 
-/// The hosting view: resolves the scene colors in the window's theme scope.
+extension AppStoreModel {
+    /// The App Store content as one self-contained view: the window hosts it
+    /// today; a pane (internal page tab) hosts the same view once the shared
+    /// page mechanism lands.
+    public func makeContentView() -> NSView { AppStoreContentView(model: self) }
+}
+
+/// The App Store content: one self-contained view that resolves the scene
+/// colors in its window's theme scope. The window hosts it today; a pane
+/// (internal page tab) hosts the same view once the shared page mechanism lands.
 final class AppStoreContentView: NSHostingView<AnyView> {
     private let appearanceModel = AppSceneAppearance()
 
