@@ -73,9 +73,9 @@ impl SnapshotAttachParams {
     pub(crate) fn wants_snapshot(&self) -> anyhow::Result<bool> {
         match self.snapshot.as_deref() {
             None => Ok(false),
-            Some(SNAPSHOT_ENCODING_GHOSTSNP) => {
-                Ok(self.snapshot_version == Some(ghostty_vt::snapshot_version()))
-            }
+            // Version 0 means this host cannot encode snapshots: replay.
+            Some(SNAPSHOT_ENCODING_GHOSTSNP) => Ok(host_snapshot_version()
+                .is_some_and(|version| self.snapshot_version == Some(version))),
             Some(other) => anyhow::bail!("invalid: unsupported snapshot encoding {other:?}"),
         }
     }
@@ -152,6 +152,12 @@ impl SnapshotViewers {
     }
 }
 
+/// The host's GHOSTSNP version, or `None` when it cannot encode snapshots
+/// (`snapshot_version()` reports 0 when its probe encode failed).
+fn host_snapshot_version() -> Option<u16> {
+    Some(ghostty_vt::snapshot_version()).filter(|version| *version != 0)
+}
+
 /// Longest accepted `request_id` in bytes.
 pub(crate) const MAX_REQUEST_ID_BYTES: usize = 128;
 /// The `reason` values of the channel message `snapshot_request`.
@@ -184,8 +190,11 @@ pub(crate) fn handle_request(
     validate_request(&params)?;
     let surface = get_surface(mux, params.surface)?;
     require_pty(&surface)?;
+    let Some(host_version) = host_snapshot_version() else {
+        anyhow::bail!("unsupported_version");
+    };
     if let Some(version) = params.have.as_ref().and_then(|have| have.snapshot_version)
-        && version != ghostty_vt::snapshot_version()
+        && version != host_version
     {
         anyhow::bail!("unsupported_version");
     }
