@@ -130,11 +130,13 @@ pub fn access_policy(layout: &Layout) -> Vec<PathAccess> {
             // The LaunchDaemon runs as the account in its `UserName`.
             posix(state, user, None, 0o700),
         ],
-        // The root is shared: `~/Library/Application Support/cmux`, which
-        // the app may have created 0755 before the server existed, and
-        // `~/.local/share/cmux`, which cmux-tui also uses. Requiring 0700
-        // there would refuse those installs. Only the server's own state
-        // folder must be 0700 (decision SV-R4; Linux by decision D2).
+        // macOS: the root is the shared `~/Library/Application Support/cmux`,
+        // which the app may have created 0755 before the server existed;
+        // requiring 0700 there would refuse those installs (decision SV-R4).
+        // Linux `~/.local/share/cmux` follows the same rule (decision D2):
+        // the store root holds only signed public packages, so "not
+        // writable by others" (0755) is enough. Only the server's own state
+        // folder must be 0700.
         (Platform::Linux | Platform::MacOs, InstallMode::User) => {
             vec![posix(root, user, None, 0o755), posix(state, user, None, 0o700)]
         }
