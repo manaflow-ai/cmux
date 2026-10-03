@@ -4,7 +4,7 @@
 // ghostty_surface_encode_snapshot, and compare them with the session host's
 // libghostty-vt snapshots (ghostty-vt tests/terminal_corpus.rs output).
 //
-// Usage: crosscheck <corpus dir> <host snapshot dir> <out dir> <ghostty config file>
+// Usage: crosscheck <corpus dir> <host digest file> <out dir> <ghostty config file>
 //        crosscheck --cell-size <ghostty config file>   (prints WxH of a surface cell)
 import AppKit
 import GhosttyNextKit
@@ -108,6 +108,39 @@ func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> (Bool, Strin
     return (false, "\(label) DIFFERS phone \(phone.count) B host \(host.count) B: \(diffs.prefix(8).joined(separator: ", "))")
 }
 
+/// The host's per-record digests (ghostty-vt tests/terminal_corpus.rs writes
+/// them; hosted CI checks them): `<case> <phase> <index> <tag> <digest>`.
+let hostDigestLines: [String] = probeCellSize ? [] :
+    (try! String(contentsOf: hostDir, encoding: .utf8)).split(separator: "\n")
+        .map(String.init).filter { !$0.hasPrefix("#") && !$0.isEmpty }
+
+func fnv1a64(_ bytes: [UInt8]) -> UInt64 {
+    bytes.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x0000_0100_0000_01b3 }
+}
+
+/// Same digest as the Rust test, with the same two normalizations.
+func digestLines(_ name: String, _ phase: String, _ snapshot: [UInt8]) -> [String] {
+    normalizedRecords(snapshot).enumerated().map { index, record in
+        let (tag, payload) = record
+        let length = UInt32(payload.count)
+        let header: [UInt8] = [UInt8(tag & 0xff), UInt8(tag >> 8),
+                               UInt8(length & 0xff), UInt8((length >> 8) & 0xff),
+                               UInt8((length >> 16) & 0xff), UInt8(length >> 24)]
+        return "\(name) \(phase) \(index) \(tag) " + String(format: "%016llx", fnv1a64(header + payload))
+    }
+}
+
+func compareDigests(_ name: String, _ phase: String, _ snapshot: [UInt8]) -> (Bool, String) {
+    let phone = digestLines(name, phase, snapshot)
+    let host = hostDigestLines.filter { $0.hasPrefix("\(name) \(phase) ") }
+    let label = phase.uppercased()
+    if phone == host { return (true, "\(label) equal (\(phone.count) records)") }
+    let first = zip(phone, host).enumerated().first { $0.element.0 != $0.element.1 }?.offset
+        ?? min(phone.count, host.count)
+    let tag = first < phone.count ? UInt16(phone[first].split(separator: " ")[3]) ?? 0 : 0
+    return (false, "\(label) DIFFERS at record \(first) \(tagNames[tag] ?? "?") (phone \(phone.count), host \(host.count) records)")
+}
+
 /// A MANUAL_MIRROR surface on an unattached view, like the corpus cases use.
 @MainActor
 func makeSurface() -> (NSView, ghostty_surface_t) {
@@ -163,11 +196,9 @@ func run() {
         guard let ready, let complete else { print("\(c.name): encode failed"); exit(1) }
         try! Data(ready).write(to: outDir.appendingPathComponent("\(c.name).ready.ghostsnp"))
         try! Data(complete).write(to: outDir.appendingPathComponent("\(c.name).complete.ghostsnp"))
-        let hostReady = try! [UInt8](Data(contentsOf: hostDir.appendingPathComponent("\(c.name).ready.ghostsnp")))
-        let hostComplete = try! [UInt8](Data(contentsOf: hostDir.appendingPathComponent("\(c.name).complete.ghostsnp")))
         let excluded = c.features.contains { $0.contains("excluded") }
-        let (readyEqual, r) = compare("READY", ready, hostReady)
-        let (completeEqual, k) = compare("COMPLETE", complete, hostComplete)
+        let (readyEqual, r) = compareDigests(c.name, "ready", ready)
+        let (completeEqual, k) = compareDigests(c.name, "complete", complete)
         if !(readyEqual && completeEqual) && !excluded { allEqual = false }
         print("case \(c.name)\(excluded ? " (excluded feature)" : ""): \(r); \(k)")
         ghostty_surface_free(raw)

@@ -2,10 +2,20 @@
 //!
 //! For each case in `schemas/terminal-corpus/manifest.json`, feed its bytes to
 //! a libghostty-vt terminal of the manifest size with the session host's
-//! default scrollback, encode the READY and COMPLETE GHOSTSNP snapshots, and
-//! write them to `$CARGO_TARGET_TMPDIR/terminal-corpus/<case>.{ready,complete}.ghostsnp`
-//! (or `$CMUX_TERMINAL_CORPUS_OUT` when set) for the cross check against
-//! GhosttyNextKit's `ghostty_surface_encode_snapshot`.
+//! default scrollback, the frontend's default colors and the cross check's
+//! cell size, encode the READY and COMPLETE GHOSTSNP snapshots, and check
+//! their per-record digests against
+//! `schemas/terminal-corpus/host-snapshots-<os>-<arch>.txt`.
+//! The GhosttyNextKit cross check (crosscheck/run.sh, a Mac build host with no
+//! cargo) compares the surface's snapshots with the same file.
+//! `CMUX_TERMINAL_CORPUS_UPDATE=1` rewrites the file. The snapshots are also
+//! written to `$CARGO_TARGET_TMPDIR/terminal-corpus` (or
+//! `$CMUX_TERMINAL_CORPUS_OUT`).
+//!
+//! Digest of one record: FNV-1a 64 over its `u16` tag, `u32` payload length
+//! and payload (CRC excluded), with two documented TERMINAL normalizations:
+//! pixel size (payload bytes 4..12) and mouse shape (byte 37, presentation
+//! state the surface sets for its pointer).
 
 use std::path::PathBuf;
 
@@ -63,12 +73,43 @@ fn cases() -> Vec<Case> {
         .collect()
 }
 
-/// `CMUX_TERMINAL_CORPUS_CELL_PX=WxH`: the viewer's cell pixel size (the
-/// cross check passes the surface's). Kitty placements size in cells from it.
-fn cell_pixels() -> Option<(u32, u32)> {
-    let value = std::env::var("CMUX_TERMINAL_CORPUS_CELL_PX").ok()?;
-    let (width, height) = value.split_once('x')?;
-    Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
+/// The cross check's surface cell size (its default font at scale 1);
+/// crosscheck/run.sh fails when the surface reports another size. Kitty
+/// placements size in cells from it. `CMUX_TERMINAL_CORPUS_CELL_PX=WxH`
+/// overrides it.
+const CROSSCHECK_CELL_PX: (u32, u32) = (8, 17);
+
+fn cell_pixels() -> (u32, u32) {
+    std::env::var("CMUX_TERMINAL_CORPUS_CELL_PX")
+        .ok()
+        .and_then(|value| {
+            let (width, height) = value.split_once('x')?;
+            Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
+        })
+        .unwrap_or(CROSSCHECK_CELL_PX)
+}
+
+fn fnv1a64(bytes: impl IntoIterator<Item = u8>) -> u64 {
+    bytes.into_iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
+}
+
+/// `<case> <phase> <index> <tag> <digest>` lines for one snapshot.
+fn digest_lines(case: &str, phase: &str, snapshot: &[u8]) -> Vec<String> {
+    snapshot_records(snapshot)
+        .enumerate()
+        .map(|(index, record)| {
+            let mut payload = record.payload().to_vec();
+            if record.tag == snapshot_tag::TERMINAL && payload.len() > 37 {
+                payload[4..12].fill(0);
+                payload[37] = 0;
+            }
+            let header = record.tag.to_le_bytes().into_iter().chain((payload.len() as u32).to_le_bytes());
+            let digest = fnv1a64(header.chain(payload.iter().copied()));
+            format!("{case} {phase} {index} {} {digest:016x}", record.tag)
+        })
+        .collect()
 }
 
 fn out_dir() -> PathBuf {
@@ -86,6 +127,12 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
     let out = out_dir();
     let mut mismatches = Vec::new();
     let mut report = Vec::new();
+    let mut digests = vec![format!(
+        "# ghostty-vt tests/terminal_corpus.rs (CMUX_TERMINAL_CORPUS_UPDATE=1); GHOSTSNP {}, cell {}x{}",
+        snapshot_version(),
+        cell_pixels().0,
+        cell_pixels().1
+    )];
     for case in cases {
         let bytes = std::fs::read(corpus_dir().join(&case.file)).unwrap();
         assert_eq!(bytes.len(), case.bytes, "{}: manifest byte count", case.name);
@@ -93,9 +140,8 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
             Terminal::new(case.cols, case.rows, HOST_SCROLLBACK_BYTES, Callbacks::default())
                 .unwrap();
         term.set_default_colors(Some(HOST_DEFAULT_FOREGROUND), Some(HOST_DEFAULT_BACKGROUND), None);
-        if let Some((width, height)) = cell_pixels() {
-            term.resize(case.cols, case.rows, width, height).unwrap();
-        }
+        let (width, height) = cell_pixels();
+        term.resize(case.cols, case.rows, width, height).unwrap();
         term.vt_write(&bytes);
         let ready = term.encode_snapshot(SnapshotPhase::Ready).unwrap();
         let complete = term.encode_snapshot(SnapshotPhase::Complete).unwrap();
@@ -115,6 +161,8 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
         if viewer != ready {
             mismatches.push(case.name.clone());
         }
+        digests.extend(digest_lines(&case.name, "ready", &ready));
+        digests.extend(digest_lines(&case.name, "complete", &complete));
         std::fs::write(out.join(format!("{}.ready.ghostsnp", case.name)), &ready).unwrap();
         std::fs::write(out.join(format!("{}.complete.ghostsnp", case.name)), &complete).unwrap();
         let line = format!(
@@ -140,4 +188,23 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
         }
     }
     assert!(mismatches.is_empty(), "READY restore round trip differs for {mismatches:?}");
+    // Page records split at the OS page size (16 KiB on Apple arm64, 4 KiB on
+    // Linux x86_64), so the digests are per platform.
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let expected_path = corpus_dir().join(format!("host-snapshots-{platform}.txt"));
+    let actual = digests.join("\n") + "\n";
+    if std::env::var_os("CMUX_TERMINAL_CORPUS_UPDATE").is_some() {
+        std::fs::write(&expected_path, &actual).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(&expected_path).ok();
+    if expected.as_deref() != Some(actual.as_str()) {
+        // Direct stderr bypasses libtest capture, so CI logs carry the file.
+        let _ = std::io::Write::write_all(
+            &mut std::io::stderr(),
+            format!("host-snapshots BEGIN\n{actual}host-snapshots END\n").as_bytes(),
+        );
+        // A platform with no committed file only reports its digests.
+        assert!(expected.is_none(), "host snapshots differ from {}", expected_path.display());
+    }
 }
