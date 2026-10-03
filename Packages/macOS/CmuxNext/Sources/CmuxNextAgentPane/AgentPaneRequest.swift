@@ -29,6 +29,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The new tab page's "default: X" toggle: what Cmd-T opens
     /// (`tabs.newTabKind`; the App checks the value).
     case setDefaultKind(String)
+    /// The new tab page asked the app to run a user facing action.
+    case runAction(String)
     /// The page reports whether repository checkpoint actions are available so
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
@@ -120,6 +122,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
+            } else {
+                self = .unsupported(method)
+            }
+        case "action.run":
+            if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
+                self = .runAction(id)
             } else {
                 self = .unsupported(method)
             }

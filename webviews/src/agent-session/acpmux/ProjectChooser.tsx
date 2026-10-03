@@ -13,12 +13,14 @@ export function ProjectChooser({
   currentLabel,
   icon,
   onPick,
+  onBrowse,
 }: {
   projects: Project[];
   current?: string;
   currentLabel?: string;
   icon: React.ReactNode;
   onPick(cwd: string): void;
+  onBrowse?(): void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -170,6 +172,19 @@ export function ProjectChooser({
             ))}
             {shown.length === 0 && <div className="acpmux-project-empty">{t("project.none")}</div>}
           </div>
+          {onBrowse && (
+            <button
+              type="button"
+              className="acpmux-project-browse"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                close(false);
+                onBrowse();
+              }}
+            >
+              {t("project.browse")}
+            </button>
+          )}
         </div>
       )}
     </span>

@@ -95,9 +95,20 @@ import Testing
         #expect(request("tab.jump", ["target": "tab", "id": ""]) == .unsupported("tab.jump"))
         #expect(request("shortcut.edit", ["kind": "agent"]) == .editShortcut(.agent))
         #expect(request("shortcut.edit", [:]) == .unsupported("shortcut.edit"))
+        #expect(request("action.run", ["id": "palette.welcomeChecklist"]) == .runAction("palette.welcomeChecklist"))
+        #expect(request("action.run", ["id": "closeWindow"]) == .runAction("closeWindow"))
         #expect(request("tab.setDefaultKind", ["kind": "auto"]) == .setDefaultKind("auto"))
         #expect(request("tab.setDefaultKind", ["kind": ""]) == .unsupported("tab.setDefaultKind"))
         #expect(request("tab.setDefaultKind", ["kind": String(repeating: "a", count: 40)]) == .unsupported("tab.setDefaultKind"))
+    }
+
+    @Test func newTabRunsOnlyTheImportAndSyncAction() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        var actions: [String] = []
+        model.onRunAction = { actions.append($0) }
+        #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
+        #expect(actions == ["palette.welcomeChecklist"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a

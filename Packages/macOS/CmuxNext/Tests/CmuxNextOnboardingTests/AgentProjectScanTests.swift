@@ -97,6 +97,15 @@ import Testing
         #expect(AgentProjectScan(home: home).run(now: now).isEmpty)
     }
 
+    @Test func includesGitRepositoriesUnderProjectsRoots() throws {
+        defer { try? FileManager.default.removeItem(at: home) }
+        let repository = home.appending(path: "Projects/demo", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: repository.appending(path: ".git"), withIntermediateDirectories: true)
+        let projects = AgentProjectScan(home: home).run(now: now)
+        #expect(projects.map(\.id) == [repository.standardizedFileURL.path])
+        #expect(projects[0].sessions == 0)
+    }
+
     @Test func liveHonorsTheAgentsOwnHomeVariables() {
         defer { try? FileManager.default.removeItem(at: home) }
         let scan = AgentProjectScan.live(environment: ["CLAUDE_CONFIG_DIR": "/cfg/claude", "CODEX_HOME": "/cfg/codex", "PI_CODING_AGENT_DIR": "",
