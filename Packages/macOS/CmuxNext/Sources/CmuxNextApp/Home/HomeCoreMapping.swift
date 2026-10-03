@@ -75,8 +75,9 @@ nonisolated enum HomeCoreMapping {
                 })
             case .work(let work):
                 return .work(session: work.session, host: work.host, status: work.status.rawValue, preview: work.preview)
-            case .approval(let approval):
-                return .text(approval.prompt, runs: [])
+            case .approval, .attachment, .linkPreview, .location:
+                // The local owner stores only text and work parts.
+                return .text(part.plainText, runs: [])
             }
         }
     }
@@ -94,7 +95,7 @@ nonisolated enum HomeCoreMapping {
             case .emoji(let emoji): .emoji(emoji)
             }
             return (conversation.rawValue, .addReaction(messageID: message.rawValue, partIndex: partIndex, kind: kind))
-        case .createGroup, .createChief, .startConversation, .invite, .setPinned, .setMuted:
+        case .createGroup, .createChief, .startConversation, .invite, .setPinned, .setMuted, .setTyping:
             return nil
         }
     }

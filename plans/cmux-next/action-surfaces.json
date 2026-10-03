@@ -6336,9 +6336,14 @@
       "context_menus" : [
 
       ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "home.show",
       "mcp" : "focusMove",
-      "palette" : "offered"
+      "palette" : "offered",
+      "title" : "Go to Home",
+      "title_key" : "action.home.show",
+      "title_table" : "Localizable"
     },
     {
       "cli" : "offered",

@@ -105,6 +105,13 @@ nonisolated final class DaemonHomeSource: HomeSource, @unchecked Sendable {
     }
 
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
+        // Typing is never stored: the owner's typing frame, not an op.
+        if case .setTyping(let conversation, let on) = intent.op {
+            try await Self.mapped {
+                try await ConversationClient(self.requireConnection()).typing(conversation.rawValue, actor: me.id.rawValue, on: on)
+            }
+            return HomeOpResult(rev: 0, conversation: conversation)
+        }
         guard let mapped = HomeCoreMapping.op(intent.op, key: intent.key) else {
             throw HomeRejection.invalid("unsupported_on_local_owner")
         }

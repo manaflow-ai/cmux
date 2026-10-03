@@ -5,6 +5,8 @@
     "batch-close-v1",
     "bookmarks-v1",
     "browser-profiles-v1",
+    "conversation-search-v1",
+    "conversation-tabs-v1",
     "creation-attempt-keys-v1",
     "creation-receipts-v1",
     "edge-docks-v1",
@@ -37,6 +39,7 @@
     "terminal-reap-v1",
     "terminal-shell-args-v1",
     "workspace-groups-v1",
+    "workspace-kind-v1",
     "workspace-metadata-v1",
     "workspace-pin-v1"
   ],
