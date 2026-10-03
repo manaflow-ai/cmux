@@ -523,6 +523,8 @@ fn sticky_column_on_a_split_screen_uses_the_implicit_single_column() {
     wire.ok(json!({"cmd": "set-column-sticky", "pane": panes[0], "sticky": false}));
     assert_eq!(wire.screen()["layout"], before["layout"]);
     assert!(wire.screen().get("columns").is_none());
+}
+
 #[test]
 fn edge_docks_capability_is_advertised() {
     let mut wire = Wire::new();
