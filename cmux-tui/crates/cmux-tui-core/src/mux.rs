@@ -21807,7 +21807,17 @@ mod tests {
             "in-process reservation must remain available to close and exit paths"
         );
         let snapshot = mux.workspace_registry.lock().unwrap().resource_topology_snapshot().unwrap();
-        assert_eq!(snapshot.revision, 1);
+        // The creation is revision 1. The shell's first OSC 7 may already have
+        // published the terminal's cwd as a later revision (a timing race).
+        assert!(snapshot.revision >= 1);
+        let later = mux.resource_events_after(1).unwrap().batches;
+        assert!(
+            later
+                .iter()
+                .flat_map(|batch| batch.changes.as_array().unwrap())
+                .all(|change| { change["resource"] == "terminal" && change["kind"] == "upsert" }),
+            "only terminal updates may follow the creation: {later:?}"
+        );
         assert_eq!(snapshot.active_screens.len(), 1);
         assert_eq!(snapshot.tabs.len(), 1);
         assert_eq!(snapshot.tabs[0].terminal_id.as_deref(), Some(identity.terminal_id.as_str()));

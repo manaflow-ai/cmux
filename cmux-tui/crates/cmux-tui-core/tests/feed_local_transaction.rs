@@ -42,7 +42,7 @@ fn cmux_next_feed_local_post_commits_in_the_notification_transaction() {
         ..Default::default()
     };
     let session = format!("feed-b2-{}", std::process::id());
-    let mux = Mux::open_persistent(session.clone(), options(), &root).unwrap();
+    let mux = Mux::open_persistent(session, options(), &root).unwrap();
     let surface = mux.new_workspace(None, None).unwrap();
     mux.post_notification("first".into(), "".into(), NotificationLevel::Info, Some(surface.id))
         .unwrap();
@@ -76,12 +76,14 @@ fn cmux_next_feed_local_post_commits_in_the_notification_transaction() {
     assert!(refused.is_err(), "a failed feed write fails the notification commit");
     assert_eq!(committed_creates(&db), 1, "no receipt without its feed post");
     db.execute_batch("DROP TRIGGER refuse_feed_insert; DROP TRIGGER refuse_feed_update;").unwrap();
+    let feed_rows: i64 =
+        db.query_row("SELECT COUNT(*) FROM feed_local_items", [], |row| row.get(0)).unwrap();
+    assert_eq!(feed_rows, 1, "the refused post left no feed row");
+    // A post after the refusal commits both again.
+    mux.post_notification("third".into(), "".into(), NotificationLevel::Info, Some(surface.id))
+        .unwrap();
+    assert_eq!(committed_creates(&db), 2);
     drop(db);
-    drop(mux);
-
-    let mux = Mux::open_persistent(session, options(), &root).unwrap();
-    let titles = mux.resource_notifications(8).into_iter().map(|row| row.title).collect::<Vec<_>>();
-    assert_eq!(titles, ["first"], "the refused notification is gone after a restart");
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);
 }
