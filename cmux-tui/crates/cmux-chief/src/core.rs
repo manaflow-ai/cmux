@@ -94,14 +94,10 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cursor_reset: bool,
         /// The log's identity: the `at` of its seq 1 event (absent for an
-        /// empty log). Anything but a non-negative safe integer reads as
-        /// absent, as in TypeScript.
-        #[serde(
-            default,
-            deserialize_with = "crate::acp::lenient_count",
-            skip_serializing_if = "Option::is_none"
-        )]
-        log_id: Option<u64>,
+        /// empty log). Anything but a non-negative safe integer is ignored
+        /// with a log, as in TypeScript.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        log_id: Option<Value>,
         /// The shell created the session on this connect: its log is new,
         /// nothing can reuse its keys.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -322,6 +318,18 @@ impl Core {
                 log_id,
                 created,
             } => {
+                let log_id = match log_id {
+                    None | Some(Value::Null) => None,
+                    Some(value) => match crate::acp::lenient_count_value(&value) {
+                        Some(id) => Some(id),
+                        None => {
+                            self.log(format!(
+                                "ignoring log_id {value}: not a non-negative integer"
+                            ));
+                            None
+                        }
+                    },
+                };
                 let connect = Connect { cursor_reset, log_id, created };
                 self.acpmux_connected(session_id, sessions, &events, connect);
             }
@@ -780,9 +788,9 @@ impl Core {
             self.state.acpmux_seq = 0;
             // identity + 1: an older core used the identity itself as the
             // first epoch (downgrade-safe).
-            let candidate = identity.map_or(self.now, |identity| identity + 1);
+            let candidate = identity.map_or(self.now, |identity| identity.saturating_add(1));
             self.state.acpmux_epoch = Some(match self.state.acpmux_epoch {
-                Some(previous) => candidate.max(previous + 1),
+                Some(previous) => candidate.max(previous.saturating_add(1)),
                 None => candidate,
             });
             self.dirty = true;
@@ -792,9 +800,10 @@ impl Core {
             self.dirty = true;
         }
         self.mux_session = Some(session_id);
-        // The connect's session list also answers permissions that waited.
-        let listed =
-            if self.pending_permissions.is_empty() { Vec::new() } else { sessions.clone() };
+        // The connect's waiting sessions: they keep their permission prompts
+        // and answer permissions that waited.
+        let waiting: Vec<SessionSummary> =
+            sessions.iter().filter(|s| s.status == SessionStatus::Waiting).cloned().collect();
         for session in sessions {
             self.session_status.insert(session.session_id.clone(), session.status);
             self.session_info.insert(session.session_id.clone(), session);
@@ -806,6 +815,25 @@ impl Core {
         }
         self.reset_replay = false;
         self.acpmux_up = true;
+        // A permission prompt whose session is not waiting in this list was
+        // answered meanwhile (or the session is gone): dropped, not resent.
+        // (The `sessions` reply path keeps its rule: acpmux's event order
+        // there is not confirmed.)
+        let stale: Vec<String> = self
+            .state
+            .prompts
+            .keys()
+            .filter(|id| {
+                id.starts_with("perm:")
+                    && !waiting.iter().any(|s| id.starts_with(&format!("perm:{}:", s.session_id)))
+            })
+            .cloned()
+            .collect();
+        for prompt_id in stale {
+            self.state.prompts.remove(&prompt_id);
+            self.dirty = true;
+            self.log(format!("dropping permission prompt {prompt_id}: its session is not waiting"));
+        }
         // Prompts acpmux may have dropped with an old connection, in
         // recorded order (absent = 0), then id.
         let mut outstanding: Vec<(u64, String)> = self
@@ -822,8 +850,6 @@ impl Core {
         // last connection's loss).
         if !self.pending_permissions.is_empty() {
             // One whose session is no longer waiting was answered meanwhile.
-            let waiting: Vec<SessionSummary> =
-                listed.into_iter().filter(|s| s.status == SessionStatus::Waiting).collect();
             self.sessions(&waiting);
         }
         self.reconcile_children();
