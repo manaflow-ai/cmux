@@ -239,6 +239,7 @@ impl H264Encoder for OpenH264 {
 }
 
 impl Drop for OpenH264 {
+    /// Uninitialize is safe on an encoder whose InitializeExt failed (openh264 checks its state).
     fn drop(&mut self) {
         // SAFETY: uninitialize and destroy a live encoder exactly once.
         unsafe {

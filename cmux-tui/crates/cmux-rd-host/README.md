@@ -36,9 +36,15 @@ VM), never on a Mac: `cargo build --release`.
 
 ## Security (phase 1)
 
-- `--bind` has no default: listen only on a private VPC or overlay address. The `hello`
-  message carries principal claims that the host trusts until the overlay link's token
-  (lane 12) replaces them.
-- Admission, consent, grants and the input gate come from `cmux-rd-core::session`: only the
-  host's owner (or a granted principal) may view; only a person's client may control;
-  agents never control. Datagrams are accepted only from the viewer's IP address.
+- `--bind` has no default and must be a loopback, RFC 1918, CGNAT or ULA address.
+- Known gap until the overlay link token (lane 12) replaces them: the host trusts the
+  principal claims in the `hello`. Every process that can reach the bind address can claim
+  the owner and an interactive person, including agent VMs on a team VPC and every tailnet
+  node when the address is in 100.64/10. Run phase-1 hosts on loopback (reached through SSH
+  or a tunnel) or on a single-tenant overlay only.
+- For honest claims, admission, consent, grants and the input gate come from
+  `cmux-rd-core::session`: only the host's owner (or a granted principal) may view; only a
+  person's client may control; agent principals never control.
+- UDP datagrams are accepted only from the viewer's exact socket (address and port named
+  in the hello); a viewer behind NAT must use the stream carrier. Viewers send feedback at
+  least once per second on both carriers; three silent seconds end the session.

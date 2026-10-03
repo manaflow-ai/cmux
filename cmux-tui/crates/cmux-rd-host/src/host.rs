@@ -8,7 +8,7 @@ use crate::stream::{MediaSession, SessionCfg};
 use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL};
 use crate::Res;
 use cmux_rd_core::policy::{ConsentRule, HostPolicy, Mode, Principal, PrincipalClass};
-use cmux_rd_core::session::{Actor, SessionTable, StartRequest};
+use cmux_rd_core::session::{Actor, SessionId, SessionTable, StartRequest};
 use cmux_rd_proto::{MAX_DATAGRAM_DEFAULT, OVERLAY_PORT};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::time::Duration;
@@ -27,7 +27,9 @@ pub fn run(opts: &Opts) -> Res<()> {
     }
     eprintln!(
         "cmux-rd host: phase 1 trusts the principal claims in each hello: every process that can reach {bind} can \
-         claim the owner. Use loopback (through SSH or a tunnel) or a single-tenant overlay."
+         claim the owner and an interactive person, including agent VMs on a team VPC and every tailnet \
+         node on a 100.64/10 address. Use loopback (through SSH or a tunnel) or a single-tenant overlay \
+         until the link token (lane 12) replaces the claims."
     );
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
     let owner =
@@ -144,7 +146,10 @@ fn serve_viewer(
     }
     let principal = Principal { user, install, class: parse_class(&class), interactive };
     // Never larger than the viewer asked for: a smaller path MTU would fragment or drop.
-    let max_datagram = max_datagram.clamp(512, MAX_DATAGRAM_DEFAULT);
+    if max_datagram < 512 {
+        return Err("max_datagram below 512 refused".into());
+    }
+    let max_datagram = max_datagram.min(MAX_DATAGRAM_DEFAULT);
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
@@ -168,6 +173,47 @@ fn serve_viewer(
             return Ok(format!("refused: {reason:?}"));
         }
     };
+    let reason = match stream_session(
+        &mut stream,
+        &mut reader,
+        udp,
+        table,
+        cfg,
+        session,
+        &principal,
+        udp_port,
+        max_datagram,
+    ) {
+        Ok(reason) => reason,
+        Err(e) => format!("failed: {e}"),
+    };
+    // Every exit path ends the session in the table (single writer of rd_session).
+    let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
+    let _ = write_control(&mut stream, &Control::Ended { reason: reason.clone() });
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
+    Ok(reason)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_session(
+    stream: &mut TcpStream,
+    reader: &mut FrameReader,
+    udp: &UdpSocket,
+    table: &mut SessionTable,
+    cfg: &SessionCfg,
+    session: SessionId,
+    principal: &Principal,
+    udp_port: Option<u16>,
+    max_datagram: usize,
+) -> Res<String> {
+    // Datagrams left over from an earlier viewer must not reach this session (bounded).
+    let mut scratch = [0u8; 2048];
+    for _ in 0..256 {
+        if udp.recv_from(&mut scratch).is_err() {
+            break;
+        }
+    }
     let peer_ip = stream.peer_addr()?.ip();
     let out = match udp_port {
         Some(p) => DatagramOut::Udp { sock: udp.try_clone()?, peer: SocketAddr::new(peer_ip, p) },
@@ -177,7 +223,7 @@ fn serve_viewer(
     let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip)?;
     let (width, height) = media.size();
     write_control(
-        &mut stream,
+        stream,
         &Control::Welcome {
             encoder: media.encoder_name(),
             width,
@@ -186,15 +232,8 @@ fn serve_viewer(
             carrier: carrier.into(),
         },
     )?;
-    write_control(&mut stream, &Control::Started { session })?;
-    // Datagrams left over from an earlier viewer must not reach this session.
-    let mut scratch = [0u8; 2048];
-    while udp.recv_from(&mut scratch).is_ok() {}
-    let reason = media.run(&mut stream, &mut reader, udp, table, session, &principal);
+    write_control(stream, &Control::Started { session })?;
+    let reason = media.run(stream, reader, udp, table, session, principal);
     media.release_input();
-    let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));
-    let _ = write_control(&mut stream, &Control::Ended { reason: reason.clone() });
-    stream.set_nonblocking(false)?;
-    stream.set_read_timeout(Some(Duration::from_millis(200)))?;
     Ok(reason)
 }

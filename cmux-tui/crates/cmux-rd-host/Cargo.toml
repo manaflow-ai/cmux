@@ -5,7 +5,7 @@ edition = "2021"
 license = "MIT"
 readme = "README.md"
 publish = false
-description = "cmux remote desktop host engine for Linux (virtual X display): damage capture, x264, cmux.rd/1 over UDP or a stream, XTest input; plus the bench client"
+description = "cmux remote desktop host engine for Linux (virtual X display): damage capture, H.264 (openh264; x264 optional), cmux.rd/1 over UDP or a stream, XTest input; plus the bench client"
 
 # Own workspace: links C libraries (x264, openh264 for the bench), so it stays out of
 # the cmux-tui workspace build until those dependencies are feature-gated for every OS.
