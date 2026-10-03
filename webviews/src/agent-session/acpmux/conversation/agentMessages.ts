@@ -1,5 +1,5 @@
 // Tool calls that send a message to another agent: `tell-coordinator`, `cmux send`, a write
-// into a mailbox (`inbox/<name>/<message>`) and Claude Code's SendMessage. The transcript draws
+// into a coordinator mailbox (`coordinator-inbox/<name>.jsonl`) and Claude Code's SendMessage. The transcript draws
 // them as message cards (MessageCard.tsx) instead of raw shell or JSON.
 import type { AcpmuxActivity } from "../model";
 
@@ -22,9 +22,12 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 export function agentMessage(tool: Tool): AgentMessage | undefined {
   if (tool.command) return commandMessage(tool.command);
   const input = parseInput(tool.inputSummary);
-  if (input && /send.?message/i.test(tool.title) && typeof input.to === "string") {
-    const text = [input.message, input.summary, input.content].find((value) => typeof value === "string");
-    return { channel: "agent", to: input.to, text: oneMessage(String(text ?? "")) };
+  // Claude Code's own tool, by its exact name: an MCP tool such as `mcp__gmail__send_message`
+  // is not a message to an agent.
+  if (input && /^send ?message$/i.test(tool.title.trim()) && typeof input.to === "string") {
+    const body = input.message ?? input.summary ?? input.content;
+    const text = typeof body === "string" ? body : body === undefined ? "" : JSON.stringify(body, null, 2);
+    return { channel: "agent", to: input.to, text: oneMessage(text) };
   }
   // A file tool that creates or appends to a message in a mailbox. A rewrite of an existing
   // file is an edit, whatever folder it is in.
@@ -49,24 +52,26 @@ function parseInput(summary: string | undefined): Record<string, unknown> | unde
   }
 }
 
-/// The recipient of a mailbox path: `coordinator-inbox/<name>.jsonl`, or a message file in a
-/// recipient's folder, `inbox/<name>/<message>`, where the message has no extension or a text
-/// one. Source folders named inbox (`src/inbox/reducer.ts`, `inbox/components/List.tsx`) are
-/// not mailboxes.
+/// The recipient of a coordinator mailbox, `coordinator-inbox/<name>.jsonl`, the one mailbox
+/// convention agents write. Any other folder named inbox (`first-party-apps/inbox/strings/`,
+/// `src/inbox/reducer.ts`) holds source files.
 export function mailboxRecipient(path: string): string | undefined {
-  const coordinator = /(?:^|\/)coordinator-inbox\/([\w-]+)\.jsonl$/.exec(path);
-  if (coordinator) return coordinator[1];
-  const mailbox = /(?:^|\/)inbox\/([\w-]+)\/[^/]+$/.exec(path);
-  if (!mailbox) return undefined;
-  const file = path.split("/").pop()!;
-  return !file.includes(".") || /\.(?:md|txt|json|jsonl|msg)$/.test(file) ? mailbox[1] : undefined;
+  return /(?:^|\/)coordinator-inbox\/([\w-]+)\.jsonl$/.exec(path)?.[1];
 }
 
 /// A shell command line's message: its first step that sends one.
 export function commandMessage(command: string): AgentMessage | undefined {
   const heredoc = heredocBody(command);
   const steps = shellSteps(withoutHeredoc(command)).map(parseStep);
-  for (const [index, { words, redirects }] of steps.entries()) {
+  for (const [index, step] of steps.entries()) {
+    // `CMUX_TAG=x scripts/cmux-debug-cli.sh send …`: assignments before the program are not it.
+    const words = step.words.slice(
+      Math.max(
+        0,
+        step.words.findIndex((word) => !/^\w+=/.test(word)),
+      ),
+    );
+    const redirects = step.redirects;
     const program = words[0]?.split("/").pop();
     if (program === "tell-coordinator") return coordinatorMessage(words.slice(1), heredoc);
     if ((program === "cmux" || program === "cmux-debug-cli.sh") && words[1] === "send")
@@ -92,28 +97,27 @@ function option(args: readonly string[], index: number, name: string): [string |
   return undefined;
 }
 
-/// `tell-coordinator [--to NAME] [--re ID] [--from CLAIM] TEXT|-`. Without `--to` it goes to the
-/// coordinator. `--help` sends nothing.
+/// `tell-coordinator [--to NAME] [--re ID] [--from CLAIM] TEXT|-`, read as the script reads it:
+/// options until the first other word, which starts the text. Without `--to` it goes to the
+/// coordinator; `-h` or `--help` among the options sends nothing.
 function coordinatorMessage(args: string[], heredoc: string | undefined): AgentMessage | undefined {
-  if (args.includes("--help") || args.includes("-h")) return undefined;
   const message: AgentMessage = { channel: "coordinator", to: "coordinator", text: "" };
-  const rest: string[] = [];
-  for (let index = 0; index < args.length;) {
-    const to = option(args, index, "--to");
-    const from = option(args, index, "--from");
-    const re = option(args, index, "--re");
-    if (to) message.to = to[0] ?? message.to;
-    else if (from) message.from = from[0];
-    else if (!re) rest.push(args[index]!);
-    index += (to ?? from ?? re)?.[1] ?? 1;
+  let index = 0;
+  for (; index < args.length; index += 2) {
+    const word = args[index];
+    if (word === "-h" || word === "--help") return undefined;
+    if (word === "--to") message.to = args[index + 1] ?? message.to;
+    else if (word === "--from") message.from = args[index + 1];
+    else if (word !== "--re") break;
   }
-  const text = rest.join(" ");
+  const text = args.slice(index).join(" ");
   message.text = oneMessage(text === "-" || !text ? (heredoc ?? "") : text);
   return message;
 }
 
 /// `cmux send [--workspace W] [--surface S] TEXT`: typed into another terminal, usually another agent's.
-function sendMessage(args: string[]): AgentMessage {
+function sendMessage(args: string[]): AgentMessage | undefined {
+  if (args.includes("--help") || args.includes("-h")) return undefined;
   let workspace: string | undefined;
   let surface: string | undefined;
   const rest: string[] = [];

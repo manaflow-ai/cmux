@@ -36,11 +36,12 @@ describe("agent messages", () => {
   });
 
   test("a shell write into a mailbox names the mailbox", () => {
-    expect(commandMessage(`echo "ready for review" >> ~/inbox/leo/coordinator`)).toEqual({
+    expect(commandMessage(`echo "ready for review" >> ~/.cache/coordinator-inbox/leo.jsonl`)).toEqual({
       channel: "mailbox",
       to: "leo",
       text: "ready for review",
     });
+    expect(commandMessage(`echo "ready for review" >> ~/inbox/leo/coordinator`)).toBeUndefined();
     expect(mailboxRecipient("/home/a/.cache/coordinator-inbox/leoli-24.jsonl")).toBe("leoli-24");
     expect(mailboxRecipient("src/inboxes/x.ts")).toBeUndefined();
     expect(commandMessage(`cat README.md > out.txt`)).toBeUndefined();
@@ -57,7 +58,11 @@ describe("agent messages", () => {
     ).toEqual({ channel: "agent", to: "cc-pane-composer", text: "Batch 2 is yours" });
     expect(
       agentMessage(
-        tool({ kind: "edit", title: "Write", diffs: [{ path: "/repo/inbox/leo/note.md", newText: "Done\n" }] }),
+        tool({
+          kind: "edit",
+          title: "Write",
+          diffs: [{ path: "/h/.cache/coordinator-inbox/leo.jsonl", newText: "Done\n" }],
+        }),
       ),
     ).toEqual({ channel: "mailbox", to: "leo", text: "Done" });
     expect(agentMessage(tool({ kind: "execute", title: "ls", command: "ls -la" }))).toBeUndefined();
@@ -88,8 +93,10 @@ describe("what is not a message", () => {
     expect(edit("backend/packages/home-core/src/inbox/reducer.ts", "a\n", "b\n")).toBeUndefined();
     expect(edit("first-party-apps/inbox/README.md", undefined, "# Inbox\n")).toBeUndefined();
     expect(edit("src/inbox/components/List.tsx", undefined, "x")).toBeUndefined();
-    expect(edit("/home/a/inbox/leo/note.md", "first\n", "changed\n")).toBeUndefined();
-    expect(edit("/home/a/inbox/leo/note.md", "first\n", "first\nsecond\n")).toEqual({
+    expect(edit("first-party-apps/inbox/strings/en.json", "{\n", '{\n  "a": "b",\n')).toBeUndefined();
+    expect(edit("first-party-apps/inbox/preview/x.json", undefined, "{}")).toBeUndefined();
+    expect(edit("/home/a/.cache/coordinator-inbox/leo.jsonl", "first\n", "changed\n")).toBeUndefined();
+    expect(edit("/home/a/.cache/coordinator-inbox/leo.jsonl", "first\n", "first\nsecond\n")).toEqual({
       channel: "mailbox",
       to: "leo",
       text: "second",
@@ -126,14 +133,15 @@ describe("shell details", () => {
       to: "surface:2",
       text: "go",
     });
-    expect(commandMessage(`tell-coordinator --to=cc-next-ci --re=7 "ok"`)).toMatchObject({
-      to: "cc-next-ci",
-      text: "ok",
+    // tell-coordinator has no = forms: the script takes `--to=x` as the text's first word.
+    expect(commandMessage(`tell-coordinator --to=cc-next-ci "ok"`)).toMatchObject({
+      to: "coordinator",
+      text: "--to=cc-next-ci ok",
     });
   });
 
   test("tee and echo into a mailbox", () => {
-    expect(commandMessage(`echo "ready" | tee -a ~/inbox/leo/coordinator`)).toEqual({
+    expect(commandMessage(`echo "ready" | tee -a ~/.cache/coordinator-inbox/leo.jsonl`)).toEqual({
       channel: "mailbox",
       to: "leo",
       text: "ready",
@@ -143,5 +151,31 @@ describe("shell details", () => {
       to: "leoli-24",
       text: '{"text":"hi"}',
     });
+  });
+});
+
+describe("as the scripts read them", () => {
+  test("tell-coordinator options end at the first word of the text", () => {
+    expect(commandMessage(`tell-coordinator done, retry with --to leo`)).toMatchObject({
+      to: "coordinator",
+      text: "done, retry with --to leo",
+    });
+    expect(commandMessage(`tell-coordinator use -h for help`)?.text).toBe("use -h for help");
+  });
+
+  test("assignments before the program, and --help on cmux send", () => {
+    expect(commandMessage(`CMUX_TAG=foo scripts/cmux-debug-cli.sh send --surface surface:1 "echo ok"`)).toEqual({
+      channel: "terminal",
+      to: "surface:1",
+      text: "echo ok",
+    });
+    expect(commandMessage(`cmux send --help`)).toBeUndefined();
+  });
+
+  test("only Claude Code's SendMessage, and an object message as JSON", () => {
+    const input = (title: string, value: unknown) =>
+      agentMessage(tool({ title, inputSummary: JSON.stringify({ to: "x", message: value }) }));
+    expect(input("mcp__gmail__send_message", "hi")).toBeUndefined();
+    expect(input("SendMessage", { type: "shutdown" })?.text).toBe('{\n  "type": "shutdown"\n}');
   });
 });
