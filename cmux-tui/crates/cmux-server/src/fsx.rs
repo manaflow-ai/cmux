@@ -101,9 +101,24 @@ pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {
     }
 }
 
-/// Creates `path` and its parents; sets `mode` on `path` itself.
+/// Creates `path` when it is missing: every missing component gets `mode`
+/// (less the umask) and `path` itself gets exactly `mode`. An existing
+/// directory is left as it is, mode included (decision SV-R4: the server
+/// never changes a directory it did not just create; the policy paths in
+/// `cmux_server_core::access` are checked, and refused when wider, by
+/// [`crate::access`]).
 pub fn ensure_dir(path: &Path, mode: u32) -> Result<()> {
-    fs::create_dir_all(path).ctx(path.display())?;
+    if fs::metadata(path).is_ok_and(|m| m.is_dir()) {
+        return Ok(());
+    }
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(mode);
+    }
+    builder.create(path).ctx(path.display())?;
     set_mode(path, mode).ctx(path.display())
 }
 

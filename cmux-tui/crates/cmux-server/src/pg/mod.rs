@@ -14,7 +14,7 @@ pub mod port;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use cmux_server_core::access::socket_dir_check;
+use cmux_server_core::access::{access_policy, socket_dir_check};
 use cmux_server_core::layout::Layout;
 use cmux_server_core::pg::{
     ADMIN_DATABASE, ADMIN_ROLE, AppDb, CONF_FILE, CONF_INCLUDE_LINE, ClusterSpec, PgError, PgPlan,
@@ -260,6 +260,9 @@ impl<'a> Postgres<'a> {
             socket_dir: self.socket_dir(),
             ..ClusterReport::default()
         };
+        // The state directory first: created 0700, or refused when it is
+        // wider (decision SV-R4), before any secret is written under it.
+        access::ensure(&access_policy(self.layout), self.runner)?;
         for rel in ["postgres", "postgres/17", "logs", "backups", "backups/wal"] {
             fsx::ensure_dir(&self.state_dir(rel), 0o700)?;
         }

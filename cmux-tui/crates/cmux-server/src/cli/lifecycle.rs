@@ -387,6 +387,9 @@ pub fn upgrade(ctx: &Context<'_>, args: &Args) -> Result<Output> {
             (flip.from, flip.to, flip.from != Some(flip.to))
         }
         None => {
+            // The store root and the state directory (`updater.json`) with
+            // their modes, or refused when wider (decision SV-R4).
+            access::ensure(&access_policy(&layout), ctx.runner)?;
             let report = apply_channel(ctx, args, &layout, &config(&layout)?)?;
             (report.from, report.to, report.changed)
         }
