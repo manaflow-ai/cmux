@@ -291,6 +291,12 @@
       "title" : "Record Terminal Commands",
       "type" : "boolean"
     },
+    "labs.previewFeatures" : {
+      "default" : false,
+      "description" : "Unfinished surfaces, such as the agent session's coverage label and Pull requests view.",
+      "title" : "Show Preview Features",
+      "type" : "boolean"
+    },
     "layout.centerFocusedColumn" : {
       "default" : "never",
       "description" : "layout.centerFocusedColumn",
