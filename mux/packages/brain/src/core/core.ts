@@ -453,7 +453,7 @@ export class Core {
         !isAnswered(this.state, message.id) &&
         wakes(summary, message, (id) => this.authors.get(id) === AGENT_MUX);
       if (wake) {
-        this.state.prompts[message.id] = { conversation: summary.id, text: inboxPrompt(summary, message), seq: message.seq };
+        this.recordPrompt(message.id, { conversation: summary.id, text: inboxPrompt(summary, message), seq: message.seq });
         this.dirty = true;
         task.waiting = { promptId: message.id, seq: message.seq };
         // Without a session the prompt stays outstanding (sent on the next acpmux connect).
@@ -474,6 +474,12 @@ export class Core {
       idempotency_key: `cursor:${AGENT_MUX}:${seq}`,
       op: { kind: "read_cursor.set", seq },
     });
+  }
+
+  /** Records an outstanding prompt with the next order (one more than any outstanding one). */
+  private recordPrompt(promptId: string, entry: { conversation: string; text: string; seq?: number }): void {
+    const last = Math.max(0, ...Object.values(this.state.prompts).map((p) => p.order ?? 0));
+    this.state.prompts[promptId] = { ...entry, order: last + 1 };
   }
 
   /** Emits the prompt for an outstanding entry; false without a session. */
@@ -554,8 +560,10 @@ export class Core {
     for (const event of events) this.applyMuxEvent(event);
     this.resetReplay = false;
     this.acpmuxUp = true;
-    // Prompts acpmux may have dropped with an old connection; it dedupes the rest by promptId.
-    for (const promptId of Object.keys(this.state.prompts).sort(compare)) this.sendPrompt(promptId);
+    // Prompts acpmux may have dropped with an old connection, in recorded order; it dedupes the rest by promptId.
+    const order = (id: string) => this.state.prompts[id].order ?? 0;
+    for (const promptId of Object.keys(this.state.prompts).sort((a, b) => order(a) - order(b) || compare(a, b)))
+      this.sendPrompt(promptId);
     this.reconcileChildren();
     if (this.daemonUp) this.inbox.push({ type: "catch_up_all" });
   }
@@ -789,10 +797,10 @@ export class Core {
     this.childTurnFloor.set(session.sessionId, session.lastSeq ?? 0);
     this.editWork(session.sessionId, session.name, workStatus(session.status), excerpt(reply, 200) || session.preview);
     const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq ?? 0}`;
-    this.state.prompts[promptId] = {
+    this.recordPrompt(promptId, {
       conversation: this.childConversation(session.sessionId),
       text: childFinishedPrompt(session, reply),
-    };
+    });
     this.dirty = true;
     this.log(`child ${session.name} finished; telling the mux`);
     this.sendPrompt(promptId);
@@ -839,10 +847,10 @@ export class Core {
       this.editWork(sessionId, session.name, "waiting", session.preview);
     }
     const promptId = `perm:${sessionId}:${permissionId}`;
-    this.state.prompts[promptId] = {
+    this.recordPrompt(promptId, {
       conversation: this.childConversation(sessionId),
       text: childPermissionPrompt(session, request),
-    };
+    });
     this.dirty = true;
     this.flushOutbox();
     this.sendPrompt(promptId);

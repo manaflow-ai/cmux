@@ -35,6 +35,8 @@ export interface OutstandingPrompt {
   text: string;
   /** The human message it answers (inbox prompts only). */
   seq?: number;
+  /** When it was recorded, among outstanding prompts (resend order; absent reads as 0, ties by id). */
+  order?: number;
 }
 
 export interface OutboxEntry {
