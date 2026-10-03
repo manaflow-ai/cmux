@@ -9211,6 +9211,221 @@
    }
   },
   {
+   "name": "log identity: a session the host created keeps plain keys, even though its log already holds the created event",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {},
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "daemon_connected",
+      "conversation": {
+       "id": "conv_a",
+       "owner": "local",
+       "title": "conv_a",
+       "participants": [
+        {
+         "id": "user_local",
+         "kind": "human",
+         "display_name": "Me"
+        },
+        {
+         "id": "agent_mux",
+         "kind": "agent",
+         "display_name": "mux",
+         "agent_class": "mux",
+         "acp_session": "mux"
+        }
+       ],
+       "last_seq": 0,
+       "rev": 1,
+       "created_at": "2026-10-03T00:00:00.000Z",
+       "updated_at": "2026-10-03T00:00:00.000Z",
+       "read_cursors": {}
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600002,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [],
+      "events": [
+       {
+        "sessionId": "s_mux",
+        "seq": 1,
+        "dir": "mux",
+        "kind": "created",
+        "msg": {
+         "policy": "approve-all"
+        },
+        "at": 1790985600010
+       }
+      ],
+      "log_id": 1790985600010,
+      "created": true
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {},
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux",
+        "acpmuxLog": 1790985600010
+       }
+      },
+      {
+       "kind": "list_conversations"
+      }
+     ]
+    },
+    {
+     "now": 1790985600003,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 2,
+       "dir": "mux",
+       "kind": "turn_started",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
+      }
+     ]
+    },
+    {
+     "now": 1790985600004,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 3,
+       "dir": "agent",
+       "kind": "agent_message_chunk",
+       "msg": {
+        "params": {
+         "update": {
+          "content": {
+           "type": "text",
+           "text": "hello"
+          }
+         }
+        }
+       }
+      }
+     },
+     "effects": []
+    },
+    {
+     "now": 1790985600005,
+     "input": {
+      "kind": "acpmux_event",
+      "event": {
+       "sessionId": "s_mux",
+       "seq": 4,
+       "dir": "mux",
+       "kind": "turn_end",
+       "msg": {}
+      }
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 4,
+        "prompts": {},
+        "answered": [],
+        "outbox": [
+         {
+          "conversation": "conv_a",
+          "idempotency_key": "turn:s_mux:2",
+          "op": {
+           "kind": "message.send",
+           "client_msg_id": "turn:s_mux:2",
+           "parts": [
+            {
+             "type": "text",
+             "text": "hello"
+            }
+           ]
+          }
+         }
+        ],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux",
+        "acpmuxLog": 1790985600010
+       }
+      },
+      {
+       "kind": "conversation_op",
+       "conversation": "conv_a",
+       "idempotency_key": "turn:s_mux:2",
+       "op": {
+        "kind": "message.send",
+        "client_msg_id": "turn:s_mux:2",
+        "parts": [
+         {
+          "type": "text",
+          "text": "hello"
+         }
+        ]
+       }
+      },
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": false
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 4,
+    "prompts": {},
+    "answered": [],
+    "outbox": [
+     {
+      "conversation": "conv_a",
+      "idempotency_key": "turn:s_mux:2",
+      "op": {
+       "kind": "message.send",
+       "client_msg_id": "turn:s_mux:2",
+       "parts": [
+        {
+         "type": "text",
+         "text": "hello"
+        }
+       ]
+      }
+     }
+    ],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux",
+    "acpmuxLog": 1790985600010
+   }
+  },
+  {
    "name": "log identity: after a lost host.json a non-empty log is a reset: its replay posts nothing and new keys get an epoch from now",
    "state": {
     "acpmuxSeq": 0,
