@@ -103,6 +103,31 @@ import Testing
         #expect(backend.sentClientIDs == ["rapid-1", "rapid-2", "rapid-3"])
     }
 
+    @Test func aFailedSendStaysBelowMyEarlierSendsAckedLater() async throws {
+        let backend = ScriptedBackend(total: 5)
+        backend.stampAcksWithServerNow = true
+        let ids = ClientIDSequence(prefix: "order")
+        let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { ids.next() })
+        store.apply(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+
+        backend.holdSend = true
+        store.send(text: "first")
+        let secondRow = try #require(store.send(text: "second"))
+        try await waitUntil { backend.sentClientIDs == ["order-1"] }
+        backend.failNextSend = true
+        backend.releaseSend()
+        try await waitUntil { store.message(rowID: secondRow)?.delivery?.isFailed == true }
+        // A later arrival re-sorts the transcript. The server stamped "first"
+        // after "second" was composed locally; the failed send must still read
+        // after it, in the order they were sent, with the arrival below both.
+        var arrival = backend.makeMessage(seq: 7, sender: "lc")
+        arrival.sentAt = Date().addingTimeInterval(10)
+        store.apply(.message(arrival, eventSeq: 901))
+        let texts = store.messages.suffix(3).map(\.text)
+        #expect(texts == ["first", "second", "message 7"])
+    }
+
     @Test func failedSendStaysVisibleAndRetryReusesClientID() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30, makeClientMessageID: { "client-2" })
@@ -216,6 +241,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     private var _sendWaiters: [CheckedContinuation<Void, Never>] = []
     private var _sentClientIDs: [String] = []
     private var _sendCount = 0
+    private var _stampAcksWithServerNow = false
 
     init(total: Int) { _total = total }
 
@@ -225,6 +251,8 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
     var holdSend: Bool { get { lock.withLock { _holdSend } } set { lock.withLock { _holdSend = newValue } } }
     var sentClientIDs: [String] { lock.withLock { _sentClientIDs } }
     var sendCount: Int { lock.withLock { _sendCount } }
+    /// Acks carry a server time later than any local send time, as a real server's do.
+    var stampAcksWithServerNow: Bool { get { lock.withLock { _stampAcksWithServerNow } } set { lock.withLock { _stampAcksWithServerNow = newValue } } }
 
     func releaseSend() {
         let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
@@ -283,6 +311,7 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         message.clientMessageID = draft.clientMessageID
         message.text = draft.text
         message.delivery = .sent
+        if stampAcksWithServerNow { message.sentAt = Date().addingTimeInterval(5) }
         return message
     }
 
