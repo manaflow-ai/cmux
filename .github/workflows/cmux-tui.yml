@@ -518,25 +518,20 @@ jobs:
 
       - name: Mac discovery and socket tests
         working-directory: cmux-tui
-        run: |
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::explicit_xdg_ghostty_config_does_not_add_application_support_candidates \
-            -- --exact
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::packaged_and_pinned_ghostty_precede_path_and_system_installs \
-            -- --exact
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::private_socket_peer_uid_must_match_the_expected_user \
-            -- --exact
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::private_socket_listener_admits_only_the_owner_and_root \
-            -- --exact
+        # The platform module contains the macOS discovery, socket and cwd
+        # checks. Run its one test binary once instead of rebuilding it for
+        # each selector.
+        run: cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2
 
       - name: Mac process and PTY tests
         working-directory: cmux-tui
         run: |
-          cargo test -p cmux-tui-core --lib unix_process_scope::tests::mac_process_scope_ \
-            -- --test-threads=1
+          cargo test -p cmux-tui-core --lib \
+            unix_process_scope::tests::mac_process_scope_launcher_stops_before_the_requested_program \
+            -- --exact
+          cargo test -p cmux-tui-core --lib \
+            unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
+            -- --exact
           cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
             -- --test-threads=1
 
@@ -549,16 +544,6 @@ jobs:
             macos_headless_and_app_layouts -- --exact
           cargo test -p cmux-server-core --test units_golden launch_ \
             -- --test-threads=1
-
-      - name: Mac smoke tests
-        working-directory: cmux-tui
-        run: |
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::default_terminal_cwd_prefers_a_live_launch_directory \
-            -- --exact
-          cargo test -p cmux-tui-core --lib \
-            platform::tests::default_terminal_cwd_rejects_roots_and_vanished_directories \
-            -- --exact
 
   test:
     name: test (${{ matrix.os }})
