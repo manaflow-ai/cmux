@@ -1307,7 +1307,12 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
           const vm = fs.vms.ref(vmId);
-          const r = await vm.exec({ command, timeoutMs, linuxUser: GUEST_LINUX_USER });
+          // Public `vm exec` commands belong to the same account as Cloud
+          // terminals and coding agents. Leaving `linuxUser` unset asks the
+          // provider for its uid-1000 account (`cmux` on current images), while
+          // preserving the provider's legacy fallback to root on older images.
+          // Driver maintenance stays explicitly root below.
+          const r = await vm.exec({ command, timeoutMs });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });
