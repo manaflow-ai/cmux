@@ -104,7 +104,7 @@ final class LocationTrailService {
     /// selected and its pane takes focus.
     private func focus(_ location: HistoryLocation) -> Bool {
         // A run without view-change permission (automation) moves nothing.
-        guard ViewChangePolicy.allowed() else { return false }
+        guard ActionRunScope.viewChangeAllowed() else { return false }
         return services.revealTab(location.key.tab)
     }
 

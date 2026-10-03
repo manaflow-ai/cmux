@@ -40,7 +40,7 @@ extension AppActionContext {
     /// Shows `tab` in its workspace and pane and selects it.
     /// Nothing when the run may not change this client's view.
     func reveal(_ located: LocatedTab) {
-        guard ViewChangePolicy.allowed(), let controller = window(showing: located.workspace.id) else { return }
+        guard ActionRunScope.viewChangeAllowed(), let controller = window(showing: located.workspace.id) else { return }
         controller.state.selection.select(located.tab.id, in: located.pane.id)
         services.paneController(for: located.pane)?.select(StripTabID(located.tab.id))
     }

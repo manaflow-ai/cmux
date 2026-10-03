@@ -27,7 +27,7 @@ enum GlobalSearchHandlers {
     /// workspace, brings that window forward, and runs Find there. A
     /// workspace no window showed mounts later, so Find waits for it.
     private static func show(_ located: LocatedTab, find needle: String, _ registry: ActionRegistry, _ ctx: AppActionContext) {
-        guard ViewChangePolicy.allowed(), let controller = ctx.window(showing: located.workspace.id) else { return }
+        guard ActionRunScope.viewChangeAllowed(), let controller = ctx.window(showing: located.workspace.id) else { return }
         controller.state.selection.select(located.tab.id, in: located.pane.id)
         ctx.services.windows.bringToFront(controller)
         let find = {

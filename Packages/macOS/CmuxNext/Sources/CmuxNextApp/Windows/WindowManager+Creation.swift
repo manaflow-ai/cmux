@@ -71,7 +71,7 @@ extension WindowManager {
         guard services.machines.workspace(id: workspaceID) != nil else {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
-            if !ViewChangePolicy.allowed() {
+            if !ActionRunScope.viewChangeAllowed() {
                 if registry.value.window(windowID)?.isOpen == true { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
             }
             return

@@ -12,8 +12,8 @@ extension TabContentCache {
         let session = TerminalSession(io: io, ownsGeometry: true)
         session.delegate = sessionDelegate
         let key = tab.id
-        if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale.apply(zoom, to: session.surfaceView) }
-        TerminalFontScale.observe(session.surfaceView) { [weak daemon] scale in
+        if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
+        TerminalFontScale(session.surfaceView).observe { [weak daemon] scale in
             guard let daemon else { return }
             Self.saveFontScale(scale, tab: key, daemon: daemon)
         }

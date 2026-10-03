@@ -213,14 +213,14 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// action run without view-change permission (a CLI, script or agent
     /// run without `focus: true`) creates the tab in the background.
     func selectWhenReported(surface: SurfaceID) {
-        guard ViewChangePolicy.allowed() else { return apply(snapshot()) }
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
         pendingSelectSurface = surface
         apply(snapshot())
     }
 
     /// Same, for a tab named by its resource id (a reopened tab).
     func selectWhenReported(tab: String) {
-        guard ViewChangePolicy.allowed() else { return apply(snapshot()) }
+        guard ActionRunScope.viewChangeAllowed() else { return apply(snapshot()) }
         pendingSelectTab = tab
         apply(snapshot())
     }
