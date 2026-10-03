@@ -18,6 +18,7 @@ mod workflow;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::actor::Actor;
 use crate::event::EventKind;
 use crate::ids::Principal;
 use crate::model::{LEDGER_RETENTION_MS, LedgerEntry, State, ledger_key};
@@ -130,7 +131,16 @@ pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit
         return Err(invalid("idempotency key must be 1..=200 bytes"));
     }
     let print = fingerprint(&envelope.op);
-    let ledger_id = ledger_key(envelope.actor.id(), &envelope.key);
+    // Stamped records scope keys to the accountable person, not to the
+    // principal or the stamp: the same key sent again under another
+    // credential of the same person is a replay and keeps the first actor
+    // (identity.md section 3). Records written before the stamp existed keep
+    // their old principal scope, so an old log replays byte for byte.
+    let scope = match envelope.stamp {
+        Some(_) => envelope.actor.human(),
+        None => envelope.actor.id(),
+    };
+    let ledger_id = ledger_key(scope, &envelope.key);
     if let Some(entry) = state.ledger.get(&ledger_id) {
         if entry.fingerprint != print {
             return Err(Reject::new(
@@ -151,7 +161,13 @@ pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit
     {
         return Err(forbidden(format!("{} needs a grant for ordinary agents", envelope.op.name())));
     }
-    let mut tx = Tx { state, actor: &envelope.actor, now: ctx.now, events: Vec::new() };
+    let mut tx = Tx {
+        state,
+        actor: &envelope.actor,
+        stamp: envelope.stamp.as_ref(),
+        now: ctx.now,
+        events: Vec::new(),
+    };
     let result = tx.apply(&envelope.op)?;
     let Tx { state, events, .. } = tx;
     state.seq += 1;
@@ -183,6 +199,7 @@ fn prune_ledger(state: &mut State, now: i64) {
 pub(crate) struct Tx<'a> {
     pub state: &'a mut State,
     pub actor: &'a Principal,
+    pub stamp: Option<&'a Actor>,
     pub now: i64,
     pub events: Vec<EventKind>,
 }

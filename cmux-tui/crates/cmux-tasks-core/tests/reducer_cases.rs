@@ -25,6 +25,7 @@ impl World {
         self.now += 10;
         let env = Envelope {
             actor: actor.clone(),
+            stamp: None,
             origin: Origin::Cli,
             key: format!("k{}", self.key),
             grants: Default::default(),

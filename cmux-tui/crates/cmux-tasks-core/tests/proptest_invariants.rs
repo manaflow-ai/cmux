@@ -143,6 +143,7 @@ fn envelope(step: &Step) -> Envelope {
     }
     Envelope {
         actor: actors[step.actor].clone(),
+        stamp: None,
         origin: Origin::Cli,
         key: format!("k{}", step.key),
         grants,
@@ -212,7 +213,7 @@ proptest! {
         prop_assume!(title_a != title_b);
         let mut state = State::new("team_t", "CMX");
         let actor = Principal::user("usr_a");
-        let make = |title: &str| Envelope { actor: actor.clone(), origin: Origin::Cli, key: "same".to_owned(), grants: Default::default(), op: Op::TaskCreate(TaskCreate { id: "task_a".to_owned(), title: title.to_owned(), ..TaskCreate::default() }) };
+        let make = |title: &str| Envelope { actor: actor.clone(), stamp: None, origin: Origin::Cli, key: "same".to_owned(), grants: Default::default(), op: Op::TaskCreate(TaskCreate { id: "task_a".to_owned(), title: title.to_owned(), ..TaskCreate::default() }) };
         reduce(&mut state, &make(&title_a), Ctx { now: 1 }).unwrap();
         let err = reduce(&mut state, &make(&title_b), Ctx { now: 2 }).unwrap_err();
         prop_assert_eq!(err.code, cmux_tasks_core::RejectCode::IdempotencyConflict);

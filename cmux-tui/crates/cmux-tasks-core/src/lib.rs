@@ -6,6 +6,7 @@
 //! checker and the operation catalog entries. It performs no I/O; the
 //! service crate (`cmux-tasks`) adds the op log, snapshots and transport.
 
+pub mod actor;
 pub mod catalog;
 pub mod event;
 pub mod ids;
@@ -16,6 +17,7 @@ pub mod query;
 pub mod reduce;
 pub mod sort_key;
 
+pub use actor::{Actor, UserActor};
 pub use event::{Event, EventKind};
 pub use ids::{AgentClass, AgentRef, Principal};
 pub use model::{

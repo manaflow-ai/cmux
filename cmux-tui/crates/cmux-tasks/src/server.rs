@@ -10,15 +10,16 @@
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread;
 
-use cmux_tasks_core::ids::Principal;
 use serde_json::{Value, json};
 
 use crate::engine::Engine;
+use crate::identity::{Caller, Identity};
 use crate::owner::LocalOwner;
-use crate::protocol::{ClientLine, ErrorBody, ErrorCode, Request, ServerLine, Settled};
+use crate::protocol::{ErrorBody, ErrorCode, Hello, Request, ServerLine, Settled};
 
 const MAX_BATCH: usize = 256;
 /// Requests queued for the writer; a full queue blocks that client's reader
@@ -31,7 +32,7 @@ const OUT_QUEUE: usize = 4_096;
 enum Msg {
     Request {
         conn: u64,
-        actor: Principal,
+        caller: Box<Caller>,
         request: Request,
     },
     Hangup {
@@ -53,8 +54,14 @@ fn line(value: &ServerLine) -> String {
 }
 
 /// Bind the socket and serve until the process exits. `on_ready` runs once
-/// the socket accepts connections.
-pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io::Result<()> {
+/// the socket accepts connections. `identity` stamps every request's actor
+/// (credentials are verified on the connection threads, never the writer).
+pub fn serve(
+    owner: &LocalOwner,
+    engine: Engine,
+    identity: Arc<Identity>,
+    on_ready: impl FnOnce(),
+) -> io::Result<()> {
     // We hold the store lock, so any socket file left here is stale.
     let _ = std::fs::remove_file(&owner.socket);
     let listener = UnixListener::bind(&owner.socket)?;
@@ -76,9 +83,10 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
         next_conn += 1;
         let conn = next_conn;
         let tx = tx.clone();
+        let identity = Arc::clone(&identity);
         thread::Builder::new()
             .name(format!("tasks-conn-{conn}"))
-            .spawn(move || connection(conn, stream, tx))?;
+            .spawn(move || connection(conn, stream, tx, &identity))?;
         if writer.is_finished() {
             return Err(io::Error::other("tasks writer stopped"));
         }
@@ -86,7 +94,7 @@ pub fn serve(owner: &LocalOwner, engine: Engine, on_ready: impl FnOnce()) -> io:
     Ok(())
 }
 
-fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>) {
+fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>, identity: &Identity) {
     let Ok(write_half) = stream.try_clone() else { return };
     let (out_tx, out_rx) = mpsc::sync_channel::<String>(OUT_QUEUE);
     // Only the writer holds the sender, so dropping it there closes the
@@ -109,34 +117,76 @@ fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>) {
         // the socket so the client sees EOF and reconnects.
         let _ = write_half.shutdown(std::net::Shutdown::Both);
     });
-    // Without a hello the connection acts as the machine's person, never
-    // as whatever agent environment the server itself was started in.
-    let mut actor = crate::owner::local_person();
+    // Without a credential a request acts as the machine's person, never as
+    // whatever agent environment the server itself was started in, and never
+    // as an actor the client states (P8).
+    let mut hello_credential: Option<String> = None;
+    let mut first = true;
     for raw in BufReader::new(stream).lines() {
         let Ok(raw) = raw else { break };
         if raw.trim().is_empty() {
             continue;
         }
-        match serde_json::from_str::<ClientLine>(&raw) {
-            Ok(ClientLine::Hello { hello }) => actor = hello.actor,
-            Ok(ClientLine::Request(request)) => {
-                if tx.send(Msg::Request { conn, actor: actor.clone(), request }).is_err() {
-                    break;
+        let is_first = std::mem::replace(&mut first, false);
+        let msg = match parse_line(&raw, is_first) {
+            Ok(Line::Hello(hello)) => {
+                hello_credential = hello.credential;
+                continue;
+            }
+            Ok(Line::Request(request)) => {
+                let credential = request.credential.as_deref().or(hello_credential.as_deref());
+                match identity.caller(credential) {
+                    Ok(caller) => Msg::Request { conn, caller: Box::new(caller), request },
+                    Err(err) => refuse(conn, request.id, request.key.clone(), err),
                 }
             }
-            Err(e) => {
-                let err = ServerLine::Err {
-                    id: 0,
-                    err: ErrorBody::new(ErrorCode::Usage, format!("bad line: {e}")),
-                };
-                if tx.send(Msg::Raw { conn, text: line(&err) }).is_err() {
-                    break;
-                }
-            }
+            Err(err) => Msg::Raw { conn, text: line(&ServerLine::Err { id: 0, err }) },
+        };
+        if tx.send(msg).is_err() {
+            break;
         }
     }
     let _ = tx.send(Msg::Hangup { conn });
     let _ = pump.join();
+}
+
+enum Line {
+    Hello(Hello),
+    Request(Request),
+}
+
+/// One client line. A hello is accepted only as the first line, and only
+/// with a credential: a hello that states an actor is refused.
+fn parse_line(raw: &str, first: bool) -> Result<Line, ErrorBody> {
+    let usage = |m: String| ErrorBody::new(ErrorCode::Usage, m);
+    let value: Value = serde_json::from_str(raw).map_err(|e| usage(format!("bad line: {e}")))?;
+    if let Some(hello) = value.get("hello") {
+        if !first {
+            return Err(usage("hello must be the first line".to_owned()));
+        }
+        if hello.get("actor").is_some() {
+            return Err(usage(
+                "actor_not_accepted: the owner stamps the actor; send a credential".to_owned(),
+            ));
+        }
+        return serde_json::from_value(hello.clone())
+            .map(Line::Hello)
+            .map_err(|e| usage(format!("bad hello: {e}")));
+    }
+    serde_json::from_value(value).map(Line::Request).map_err(|e| usage(format!("bad line: {e}")))
+}
+
+/// The reply and settle lines for a request refused before the writer.
+/// They go out at once, so they can precede replies to requests sent
+/// earlier on the same connection; clients match lines by id. The settle
+/// `seq` is 0 because nothing was committed for this request.
+fn refuse(conn: u64, id: u64, tx: Option<String>, err: ErrorBody) -> Msg {
+    let text = format!(
+        "{}\n{}",
+        line(&ServerLine::Err { id, err }),
+        line(&ServerLine::Settled { settled: Settled { id, tx, seq: 0 } })
+    );
+    Msg::Raw { conn, text }
 }
 
 fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
@@ -168,10 +218,10 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
                     outs.remove(&conn);
                     subscribers.remove(&conn);
                 }
-                Msg::Request { conn, actor, request } if request.op == "task.subscribe" => {
-                    subscribes.push((conn, actor, request));
+                Msg::Request { conn, caller, request } if request.op == "task.subscribe" => {
+                    subscribes.push((conn, *caller, request));
                 }
-                Msg::Request { conn, actor, request } => requests.push((conn, actor, request)),
+                Msg::Request { conn, caller, request } => requests.push((conn, *caller, request)),
             }
         }
         let conns: Vec<u64> = requests.iter().map(|(c, _, _)| *c).collect();
@@ -211,8 +261,8 @@ fn writer_loop(mut engine: Engine, rx: Receiver<Msg>) {
                 }
             }
         }
-        for (conn, actor, request) in subscribes {
-            subscribe(&engine, &outs, &mut subscribers, conn, &actor, &request);
+        for (conn, caller, request) in subscribes {
+            subscribe(&engine, &outs, &mut subscribers, conn, &caller, &request);
         }
     }
 }
@@ -231,7 +281,7 @@ fn subscribe(
     outs: &BTreeMap<u64, SyncSender<String>>,
     subscribers: &mut BTreeMap<u64, SyncSender<String>>,
     conn: u64,
-    actor: &Principal,
+    caller: &Caller,
     request: &Request,
 ) {
     let Some(out) = outs.get(&conn) else { return };
@@ -241,8 +291,9 @@ fn subscribe(
         None => {
             let _ = out.try_send(line(&ServerLine::Ok { id: request.id, ok: json!({"seq": seq}) }));
             let _ = out.try_send(line(&settled));
-            let _ = out
-                .try_send(line(&ServerLine::Snapshot { snapshot: engine.snapshot_value(actor) }));
+            let _ = out.try_send(line(&ServerLine::Snapshot {
+                snapshot: engine.snapshot_value(&caller.principal),
+            }));
         }
         Some(after) => match engine.events_after(after) {
             // More catch-up than one connection may queue: start over.

@@ -29,14 +29,15 @@ use crate::client::Conn;
 use crate::owner::{self, LocalOwner, Owner};
 use crate::protocol::{ErrorBody, ErrorCode, ServerLine};
 
-const DEFAULT_PREFIX: &str = "CMX";
+/// The default task key prefix (`CMX-12`).
+pub const DEFAULT_PREFIX: &str = "CMX";
 
-fn fail(code: u8, message: &str) -> ExitCode {
+fn fail(code: u8, message: &str) -> u8 {
     let _ = writeln!(std::io::stderr(), "cmux task: {message}");
-    ExitCode::from(code)
+    code
 }
 
-fn fail_body(err: &ErrorBody) -> ExitCode {
+fn fail_body(err: &ErrorBody) -> u8 {
     fail(err.code.exit_code(), &err.message)
 }
 
@@ -52,6 +53,12 @@ fn help() -> String {
 
 /// Entry point. `args` excludes the program name and may start with `task`.
 pub fn run(args: &[String]) -> ExitCode {
+    ExitCode::from(run_code(args))
+}
+
+/// `run` as a process exit status (the `cmux` binary mounts `cmux task`
+/// through this; plans/cmux-next/tasks.md section 14 item 3).
+pub fn run_code(args: &[String]) -> u8 {
     let (global, mut words) = match args::split_global(args) {
         Ok(split) => split,
         Err(e) => return fail(2, &e),
@@ -61,7 +68,7 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     if words.is_empty() {
         print!("{}", help());
-        return if global.help { ExitCode::SUCCESS } else { ExitCode::from(2) };
+        return if global.help { 0 } else { 2 };
     }
     let owner = match owner::resolve(global.team.as_deref(), global.data.clone()) {
         Ok(Owner::Local(local)) => local,
@@ -97,14 +104,14 @@ pub fn run(args: &[String]) -> ExitCode {
     };
     if global.help {
         print!("{}", args::usage(entry));
-        return ExitCode::SUCCESS;
+        return 0;
     }
     let params = match args::params(entry, &words[used - 1..]) {
         Ok(p) => p,
         Err(e) => return fail(2, &format!("{e}\n\n{}", args::usage(entry))),
     };
-    let actor = owner::local_actor();
-    let mut conn = match Conn::open(&owner, &actor, &prefix) {
+    let credential = launch_credential();
+    let mut conn = match Conn::open(&owner, credential.as_deref(), &prefix) {
         Ok(conn) => conn,
         Err(e) => return fail_body(&e),
     };
@@ -130,7 +137,7 @@ pub fn run(args: &[String]) -> ExitCode {
                 }
             };
             print!("{text}");
-            ExitCode::SUCCESS
+            0
         }
         Err(e) => {
             if let Some(key) = key {
@@ -179,7 +186,7 @@ fn resolve_current(mut params: Value) -> Result<Value, String> {
     Ok(params)
 }
 
-fn print_catalog(words: &[String]) -> ExitCode {
+fn print_catalog(words: &[String]) -> u8 {
     let format = words
         .iter()
         .position(|w| w == "--format")
@@ -195,34 +202,76 @@ fn print_catalog(words: &[String]) -> ExitCode {
         other => return fail(2, &format!("unknown format {other}; use json, ts or mcp")),
     };
     println!("{text}");
-    ExitCode::SUCCESS
+    0
+}
+
+/// The caller's launch credential (P8): the owner stamps the actor from it.
+fn launch_credential() -> Option<String> {
+    std::env::var("CMUX_LAUNCH_CREDENTIAL").ok().filter(|c| !c.is_empty())
+}
+
+/// The app supervisor's environment for a server app (server.md 7.3):
+/// `CMUX_APP_DATA` (data directory), `CMUX_APP_SOCKET` (listener path),
+/// `CMUX_APP_EPOCH` (lease epoch) and `CMUX_APP_HOST` (this host's id).
+/// Returns the owner to serve and the durability settings.
+fn supervised(
+    owner: &LocalOwner,
+    env: impl Fn(&str) -> Option<String>,
+) -> Result<(LocalOwner, crate::store::Durability), String> {
+    let mut owner = owner.clone();
+    if let Some(data) = env("CMUX_APP_DATA").filter(|d| !d.is_empty()) {
+        owner.dir = data.into();
+        owner.socket = owner.dir.join("tasks.sock");
+    }
+    if let Some(socket) = env("CMUX_APP_SOCKET").filter(|s| !s.is_empty()) {
+        owner.socket = socket.into();
+    }
+    let mut durability = crate::store::Durability::local();
+    if let Some(epoch) = env("CMUX_APP_EPOCH").filter(|e| !e.is_empty()) {
+        let epoch: u64 =
+            epoch.parse().map_err(|_| format!("CMUX_APP_EPOCH must be a number, got {epoch:?}"))?;
+        let host = env("CMUX_APP_HOST")
+            .filter(|h| !h.is_empty() && h.len() <= 200)
+            .ok_or("CMUX_APP_EPOCH needs CMUX_APP_HOST (this host's id)")?;
+        durability.epoch = Some(crate::store::EpochClaim { epoch, host });
+    }
+    Ok((owner, durability))
 }
 
 #[cfg(unix)]
-fn serve(owner: &LocalOwner, prefix: &str) -> ExitCode {
-    let engine = match crate::engine::Engine::open(
+fn serve(owner: &LocalOwner, prefix: &str) -> u8 {
+    let (owner, durability) = match supervised(owner, |name| std::env::var(name).ok()) {
+        Ok(supervised) => supervised,
+        Err(e) => return fail(2, &e),
+    };
+    let owner = &owner;
+    let engine = match crate::engine::Engine::open_durable(
         &owner.dir,
         &owner.team,
         prefix,
         crate::engine::system_clock(),
+        crate::store::Limits::default(),
+        durability,
     ) {
         Ok(engine) => engine,
         Err(crate::store::OpenError::Locked) => {
             return fail(5, "another Tasks owner already serves this team");
         }
+        Err(crate::store::OpenError::Fenced(m)) => return fail(5, &m),
         Err(e) => return fail(1, &e.to_string()),
     };
+    let identity = std::sync::Arc::new(crate::identity::Identity::local(owner::local_person()));
     let socket = owner.socket.display().to_string();
-    match crate::server::serve(owner, engine, || {
+    match crate::server::serve(owner, engine, identity, || {
         let _ = writeln!(std::io::stderr(), "cmux task: serving {socket}");
     }) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(()) => 0,
         Err(e) => fail(1, &e.to_string()),
     }
 }
 
 #[cfg(not(unix))]
-fn serve(_owner: &LocalOwner, _prefix: &str) -> ExitCode {
+fn serve(_owner: &LocalOwner, _prefix: &str) -> u8 {
     fail(2, "serve needs a Unix socket")
 }
 
@@ -232,7 +281,7 @@ fn watch(
     json_out: bool,
     count: Option<u64>,
     timeout: Option<u64>,
-) -> ExitCode {
+) -> u8 {
     if conn.is_in_process() {
         return fail(5, "watch needs a running owner (`cmux task serve`)");
     }
@@ -247,7 +296,7 @@ fn watch(
         match deadline {
             Some(deadline) => match deadline.checked_duration_since(std::time::Instant::now()) {
                 Some(left) if !left.is_zero() => conn.set_deadline(left),
-                _ => return ExitCode::SUCCESS,
+                _ => return 0,
             },
             None => conn.clear_deadline(),
         }
@@ -259,11 +308,11 @@ fn watch(
                     format!("{} {} {}", event.seq, event.body.kind, event.actor.id())
                 };
                 if writeln!(stdout, "{text}").and_then(|()| stdout.flush()).is_err() {
-                    return ExitCode::SUCCESS;
+                    return 0;
                 }
                 seen += 1;
                 if count.is_some_and(|n| seen >= n) {
-                    return ExitCode::SUCCESS;
+                    return 0;
                 }
             }
             Ok(ServerLine::Snapshot { snapshot }) if json_out => {
@@ -271,7 +320,7 @@ fn watch(
             }
             Ok(_) => {}
             // The deadline ends a bounded watch normally.
-            Err(e) if e.code == ErrorCode::Timeout => return ExitCode::SUCCESS,
+            Err(e) if e.code == ErrorCode::Timeout => return 0,
             Err(e) => return fail_body(&e),
         }
     }
@@ -292,7 +341,7 @@ fn slug(title: &str) -> String {
     out.trim_end_matches('-').to_owned()
 }
 
-fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[String]) -> ExitCode {
+fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[String]) -> u8 {
     let Some(task) = words.iter().find(|w| !w.starts_with("--")) else {
         return fail(2, "`task start` needs KEY");
     };
@@ -310,8 +359,8 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
         task.clone()
     };
     let no_branch = words.iter().any(|w| w == "--no-branch");
-    let actor = owner::local_actor();
-    let mut conn = match Conn::open(owner, &actor, prefix) {
+    let credential = launch_credential();
+    let mut conn = match Conn::open(owner, credential.as_deref(), prefix) {
         Ok(conn) => conn,
         Err(e) => return fail_body(&e),
     };
@@ -361,5 +410,45 @@ fn start(owner: &LocalOwner, prefix: &str, global: &args::Global, words: &[Strin
             detail.get("key").and_then(Value::as_str).unwrap_or(task)
         );
     }
-    ExitCode::SUCCESS
+    0
+}
+
+#[cfg(test)]
+mod supervised_tests {
+    use super::*;
+
+    fn owner() -> LocalOwner {
+        LocalOwner { team: "t".into(), dir: "/a".into(), socket: "/a/tasks.sock".into() }
+    }
+
+    #[test]
+    fn without_supervisor_env_the_owner_is_unchanged() {
+        let (o, d) = supervised(&owner(), |_| None).unwrap();
+        assert_eq!(o, owner());
+        assert!(d.epoch.is_none());
+    }
+
+    #[test]
+    fn supervisor_env_sets_data_socket_and_epoch() {
+        let env = |name: &str| match name {
+            "CMUX_APP_DATA" => Some("/srv/team/apps/cmux_tasks/data".to_owned()),
+            "CMUX_APP_SOCKET" => Some("/run/cmux/apps/tasks.sock".to_owned()),
+            "CMUX_APP_EPOCH" => Some("7".to_owned()),
+            "CMUX_APP_HOST" => Some("team-vm".to_owned()),
+            _ => None,
+        };
+        let (o, d) = supervised(&owner(), env).unwrap();
+        assert_eq!(o.dir, std::path::PathBuf::from("/srv/team/apps/cmux_tasks/data"));
+        assert_eq!(o.socket, std::path::PathBuf::from("/run/cmux/apps/tasks.sock"));
+        let claim = d.epoch.unwrap();
+        assert_eq!((claim.epoch, claim.host.as_str()), (7, "team-vm"));
+    }
+
+    #[test]
+    fn an_epoch_needs_a_number_and_a_host() {
+        let bad = |name: &str| (name == "CMUX_APP_EPOCH").then(|| "x".to_owned());
+        assert!(supervised(&owner(), bad).is_err());
+        let no_host = |name: &str| (name == "CMUX_APP_EPOCH").then(|| "3".to_owned());
+        assert!(supervised(&owner(), no_host).is_err());
+    }
 }

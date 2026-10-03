@@ -48,9 +48,24 @@ impl Tx<'_> {
         self.actor.is_user() || self.actor.is_mux() || self.actor.id() == session.agent.principal
     }
 
-    /// Status and plan come only from the session's agent or a mux acting for it.
+    /// Status and plan come only from the session's agent principal, the
+    /// ACP session attached to it (P8 stamp), or a mux acting for it
+    /// (invariant 10). Records without a stamp replay with the principal
+    /// rules only.
     fn may_report(&self, session: &AgentSession) -> bool {
-        self.actor.is_mux() || self.actor.id() == session.agent.principal
+        self.actor.is_mux()
+            || self.actor.id() == session.agent.principal
+            || self.stamp_is_attached(session)
+    }
+
+    /// The stamp is the ACP session attached to `session` (and, when both
+    /// name one, on the same session host).
+    fn stamp_is_attached(&self, session: &AgentSession) -> bool {
+        let Some(crate::actor::Actor::AcpSession { id, host, .. }) = self.stamp else {
+            return false;
+        };
+        session.links.acp_session.as_deref() == Some(id.as_str())
+            && session.links.host.as_deref().is_none_or(|linked| linked == host)
     }
 
     pub(super) fn task_delegate(&mut self, p: &TaskDelegate) -> Result<OpResult, Reject> {
@@ -193,7 +208,9 @@ impl Tx<'_> {
     pub(super) fn session_update(&mut self, p: &SessionUpdate) -> Result<OpResult, Reject> {
         let session = self.session(&p.session)?;
         if !self.may_report(&session) {
-            return Err(forbidden("only the session's agent or a mux may report its status"));
+            return Err(forbidden(
+                "only the session's agent, its attached ACP session or a mux may report its status",
+            ));
         }
         if session.status.is_terminal() {
             return Err(conflict("session has ended"));

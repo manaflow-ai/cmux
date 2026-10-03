@@ -10,9 +10,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cmux_tasks_core::catalog::{self, Class};
 use cmux_tasks_core::ids::Principal;
 use cmux_tasks_core::query::{self, ListFilter};
-use cmux_tasks_core::{Envelope, Event, Op, Origin, Reject, RejectCode, State};
+use cmux_tasks_core::{Actor, Envelope, Event, Op, Origin, Reject, RejectCode, State};
 use serde_json::{Value, json};
 
+use crate::identity::Caller;
 use crate::protocol::{ErrorBody, ErrorCode, Request, Settled};
 use crate::store::{OpenError, Store};
 
@@ -36,6 +37,11 @@ pub struct Engine {
     /// Events of commits with `seq <= floor` are no longer in the ring.
     floor: u64,
     clock: Clock,
+    /// Set when a flush failed: memory is ahead of the durable tier, so the
+    /// engine refuses every request until the process restarts from disk.
+    /// `state`, `snapshot_value` and `events_after` are not guarded: the
+    /// server exits on a failed flush, so only an embedder could read them.
+    poisoned: bool,
 }
 
 fn reject_body(reject: Reject) -> ErrorBody {
@@ -54,6 +60,7 @@ fn stamp(
     tx: &str,
     at: i64,
     actor: &Principal,
+    by: Option<&Actor>,
     origin: Origin,
     kinds: Vec<cmux_tasks_core::EventKind>,
 ) -> Vec<Event> {
@@ -66,6 +73,7 @@ fn stamp(
             tx: tx.to_owned(),
             at,
             actor: actor.clone(),
+            stamp: by.cloned(),
             origin,
             body,
         })
@@ -73,9 +81,10 @@ fn stamp(
 }
 
 /// Fill omitted generated ids (`task_…`, `cmt_…`, `asess_…`, …) from the
-/// actor and idempotency key: deterministic, so a retry with the same key
-/// names the same entity and replays instead of conflicting.
-fn derive_ids(op: &str, params: &mut Value, actor: &Principal, key: &str) {
+/// accountable person and idempotency key (the ledger's scope): deterministic,
+/// so a retry with the same key names the same entity and replays instead of
+/// conflicting, under any credential of the same person.
+fn derive_ids(op: &str, params: &mut Value, person: &str, key: &str) {
     let Some(entry) = catalog::find(op) else { return };
     let Some(object) = params.as_object_mut() else { return };
     for param in entry.params {
@@ -84,7 +93,7 @@ fn derive_ids(op: &str, params: &mut Value, actor: &Principal, key: &str) {
         {
             object.insert(
                 param.name.to_owned(),
-                json!(format!("{prefix}{}", stable_hash(&[actor.id(), key, param.name]))),
+                json!(format!("{prefix}{}", stable_hash(&[person, key, param.name]))),
             );
         }
     }
@@ -114,12 +123,32 @@ impl Engine {
         clock: Clock,
         limits: crate::store::Limits,
     ) -> Result<Self, OpenError> {
-        let (store, recovered) = Store::open_with(dir, team, key_prefix, limits)?;
+        Self::open_durable(dir, team, key_prefix, clock, limits, crate::store::Durability::local())
+    }
+
+    /// Open under the supervisor's durability settings (lease epoch, replica).
+    pub fn open_durable(
+        dir: &Path,
+        team: &str,
+        key_prefix: &str,
+        clock: Clock,
+        limits: crate::store::Limits,
+        durability: crate::store::Durability,
+    ) -> Result<Self, OpenError> {
+        let (store, recovered) = Store::open_durable(dir, team, key_prefix, limits, durability)?;
         let floor = recovered.first().map_or(store.state().seq, |(record, _)| record.seq - 1);
-        let mut engine = Self { store, ring: VecDeque::new(), floor, clock };
+        let mut engine = Self { store, ring: VecDeque::new(), floor, clock, poisoned: false };
         for (record, kinds) in recovered {
             let env = &record.envelope;
-            let events = stamp(record.seq, &env.key, record.at, &env.actor, env.origin, kinds);
+            let events = stamp(
+                record.seq,
+                &env.key,
+                record.at,
+                &env.actor,
+                env.stamp.as_ref(),
+                env.origin,
+                kinds,
+            );
             engine.push_events(events);
         }
         Ok(engine)
@@ -131,18 +160,21 @@ impl Engine {
 
     /// Handle requests as one group commit: one fsync for all mutations.
     /// An `Err` means the log write failed; the caller must exit.
-    pub fn handle_batch(
-        &mut self,
-        requests: Vec<(Principal, Request)>,
-    ) -> io::Result<Vec<Outcome>> {
+    pub fn handle_batch(&mut self, requests: Vec<(Caller, Request)>) -> io::Result<Vec<Outcome>> {
+        if self.poisoned {
+            return Err(io::Error::other("an earlier log write failed; restart the owner"));
+        }
         let mut outcomes = Vec::with_capacity(requests.len());
-        for (actor, request) in requests {
-            let (reply, events) = self.handle_one(&actor, &request);
+        for (caller, request) in requests {
+            let (reply, events) = self.handle_one(&caller, &request);
             let settled =
                 Settled { id: request.id, tx: request.key.clone(), seq: self.store.state().seq };
             outcomes.push(Outcome { reply, settled, events });
         }
-        self.store.flush()?;
+        if let Err(e) = self.store.flush() {
+            self.poisoned = true;
+            return Err(e);
+        }
         let events: Vec<Event> = outcomes.iter().flat_map(|o| o.events.iter().cloned()).collect();
         self.push_events(events);
         Ok(outcomes)
@@ -157,16 +189,30 @@ impl Engine {
         }
     }
 
-    pub fn handle(&mut self, actor: &Principal, request: Request) -> io::Result<Outcome> {
-        let mut outcomes = self.handle_batch(vec![(actor.clone(), request)])?;
+    pub fn handle(&mut self, caller: &Caller, request: Request) -> io::Result<Outcome> {
+        let mut outcomes = self.handle_batch(vec![(caller.clone(), request)])?;
         Ok(outcomes.remove(0))
     }
 
     fn handle_one(
         &mut self,
-        actor: &Principal,
+        caller: &Caller,
         request: &Request,
     ) -> (Result<Value, ErrorBody>, Vec<Event>) {
+        // A request routed under another lease epoch reached a stale or a
+        // newer owner: refuse it (server.md 7.2). Unrouted local requests
+        // carry no epoch.
+        if let (Some(theirs), Some(ours)) = (request.epoch, self.store.epoch())
+            && theirs != ours
+        {
+            return (
+                Err(ErrorBody::new(
+                    ErrorCode::OwnerMoved,
+                    format!("owner_moved: request epoch {theirs}, owner epoch {ours}"),
+                )),
+                Vec::new(),
+            );
+        }
         let Some(entry) = catalog::find(&request.op) else {
             return (
                 Err(ErrorBody::new(ErrorCode::Usage, format!("unknown op {}", request.op))),
@@ -174,18 +220,18 @@ impl Engine {
             );
         };
         match entry.class {
-            Class::Read => (self.read(actor, &request.op, &request.params), Vec::new()),
+            Class::Read => (self.read(&caller.principal, &request.op, &request.params), Vec::new()),
             Class::Stream => (
                 Err(ErrorBody::new(ErrorCode::Usage, "streams need the socket server")),
                 Vec::new(),
             ),
-            Class::Mutation => self.mutate(actor, request),
+            Class::Mutation => self.mutate(caller, request),
         }
     }
 
     fn mutate(
         &mut self,
-        actor: &Principal,
+        caller: &Caller,
         request: &Request,
     ) -> (Result<Value, ErrorBody>, Vec<Event>) {
         let Some(key) = request.key.clone() else {
@@ -195,7 +241,7 @@ impl Engine {
             );
         };
         let mut params = if request.params.is_null() { json!({}) } else { request.params.clone() };
-        derive_ids(&request.op, &mut params, actor, &key);
+        derive_ids(&request.op, &mut params, caller.principal.human(), &key);
         let wire = json!({"op": request.op, "params": params});
         let op: Op = match serde_json::from_value(wire) {
             Ok(op) => op,
@@ -208,11 +254,26 @@ impl Engine {
         };
         let origin = request.origin.unwrap_or_default();
         let grants = Default::default();
-        let envelope = Envelope { actor: actor.clone(), origin, key: key.clone(), grants, op };
+        let envelope = Envelope {
+            actor: caller.principal.clone(),
+            stamp: Some(caller.stamp.clone()),
+            origin,
+            key: key.clone(),
+            grants,
+            op,
+        };
         let now = (self.clock)();
         match self.store.stage(&envelope, now) {
             Ok(commit) => {
-                let events = stamp(commit.seq, &key, now, actor, origin, commit.events);
+                let events = stamp(
+                    commit.seq,
+                    &key,
+                    now,
+                    &caller.principal,
+                    Some(&caller.stamp),
+                    origin,
+                    commit.events,
+                );
                 let value = serde_json::to_value(&commit.result).unwrap_or(Value::Null);
                 (Ok(json!({"result": value, "seq": commit.seq, "replay": commit.replay})), events)
             }

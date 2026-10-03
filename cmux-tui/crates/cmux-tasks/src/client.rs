@@ -4,10 +4,10 @@
 
 use std::io::{self, BufRead, BufReader, Write};
 
-use cmux_tasks_core::ids::Principal;
 use serde_json::Value;
 
 use crate::engine::{Engine, system_clock};
+use crate::identity::{Caller, Identity};
 use crate::owner::LocalOwner;
 use crate::protocol::{ErrorBody, ErrorCode, Request, ServerLine};
 use crate::store::OpenError;
@@ -24,7 +24,7 @@ pub enum Conn {
     },
     InProcess {
         engine: Box<Engine>,
-        actor: Principal,
+        caller: Caller,
     },
 }
 
@@ -34,21 +34,28 @@ fn unreachable(message: impl Into<String>) -> ErrorBody {
 
 impl Conn {
     /// Connect to the local owner: socket first, else open the store.
+    /// `credential` is the caller's launch credential (`CMUX_LAUNCH_CREDENTIAL`);
+    /// the owner stamps the actor from it (P8), the client never states one.
     pub fn open(
         owner: &LocalOwner,
-        actor: &Principal,
+        credential: Option<&str>,
         key_prefix: &str,
     ) -> Result<Self, ErrorBody> {
         #[cfg(unix)]
         if let Ok(stream) = std::os::unix::net::UnixStream::connect(&owner.socket) {
             let writer = stream.try_clone().map_err(|e| unreachable(e.to_string()))?;
             let mut conn = Conn::Socket { reader: BufReader::new(stream), writer, next_id: 0 };
-            conn.send_line(&serde_json::json!({"hello": {"actor": actor}}))
-                .map_err(|e| unreachable(e.to_string()))?;
+            if let Some(credential) = credential {
+                conn.send_line(&serde_json::json!({"hello": {"credential": credential}}))
+                    .map_err(|e| unreachable(e.to_string()))?;
+            }
             return Ok(conn);
         }
         match Engine::open(&owner.dir, &owner.team, key_prefix, system_clock()) {
-            Ok(engine) => Ok(Conn::InProcess { engine: Box::new(engine), actor: actor.clone() }),
+            Ok(engine) => {
+                let caller = Identity::local(crate::owner::local_person()).caller(credential)?;
+                Ok(Conn::InProcess { engine: Box::new(engine), caller })
+            }
             Err(OpenError::Locked) => {
                 Err(unreachable("the Tasks owner holds the store but its socket is not answering"))
             }
@@ -121,9 +128,17 @@ impl Conn {
         key: Option<String>,
     ) -> Result<(Value, u64), ErrorBody> {
         match self {
-            Conn::InProcess { engine, actor } => {
-                let request = Request { id: 1, op: op.to_owned(), params, key, origin: None };
-                let outcome = engine.handle(actor, request).map_err(|e| {
+            Conn::InProcess { engine, caller } => {
+                let request = Request {
+                    id: 1,
+                    op: op.to_owned(),
+                    params,
+                    key,
+                    origin: None,
+                    credential: None,
+                    epoch: None,
+                };
+                let outcome = engine.handle(caller, request).map_err(|e| {
                     ErrorBody::new(ErrorCode::Internal, format!("log write failed: {e}"))
                 })?;
                 outcome.reply.map(|v| (v, outcome.settled.seq))
@@ -133,7 +148,15 @@ impl Conn {
                 *next_id += 1;
                 let id = *next_id;
                 self.set_deadline(CALL_DEADLINE);
-                let request = Request { id, op: op.to_owned(), params, key, origin: None };
+                let request = Request {
+                    id,
+                    op: op.to_owned(),
+                    params,
+                    key,
+                    origin: None,
+                    credential: None,
+                    epoch: None,
+                };
                 let value = serde_json::to_value(&request)
                     .map_err(|e| ErrorBody::new(ErrorCode::Internal, e.to_string()))?;
                 self.send_line(&value).map_err(|e| unreachable(e.to_string()))?;

@@ -6,6 +6,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::actor::Actor;
 use crate::ids::{AgentClass, Principal};
 use crate::model::{
     AgentFlow, Category, GhosttyColor, PlanStep, Priority, ProjectState, RelationKind,
@@ -25,11 +26,16 @@ pub enum Origin {
     Automation,
 }
 
-/// One request to the owner. `actor` and `grants` are set by the service
-/// from the authenticated connection, never by the client.
+/// One request to the owner. `actor`, `stamp` and `grants` are set by the
+/// service from the authenticated connection, never by the client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Envelope {
+    /// Who the reducer authorizes (derived from `stamp` by the service).
     pub actor: Principal,
+    /// The P8 actor stamp (which process acted). Absent in records written
+    /// before the stamp existed; those replay with the principal rules only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<Actor>,
     #[serde(default)]
     pub origin: Origin,
     /// Client-chosen idempotency key (required for every mutation).

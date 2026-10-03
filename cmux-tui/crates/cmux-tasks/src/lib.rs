@@ -6,6 +6,7 @@
 pub mod cli;
 pub mod client;
 pub mod engine;
+pub mod identity;
 pub mod owner;
 pub mod protocol;
 #[cfg(unix)]

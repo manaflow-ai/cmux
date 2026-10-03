@@ -318,8 +318,8 @@ pub struct State {
     pub ledger_order: VecDeque<String>,
 }
 
-pub fn ledger_key(actor: &str, key: &str) -> String {
-    format!("{actor}\u{1f}{key}")
+pub fn ledger_key(person: &str, key: &str) -> String {
+    format!("{person}\u{1f}{key}")
 }
 
 impl State {

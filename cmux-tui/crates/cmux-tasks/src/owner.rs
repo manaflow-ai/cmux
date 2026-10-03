@@ -9,7 +9,7 @@
 use std::env;
 use std::path::PathBuf;
 
-use cmux_tasks_core::ids::{AgentClass, AgentRef, Principal, is_valid_id, prefix};
+use cmux_tasks_core::ids::{Principal, is_valid_id, prefix};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LocalOwner {
@@ -85,27 +85,6 @@ pub fn person_from(env: impl Fn(&str) -> Option<String>) -> Principal {
 /// connection that sends no hello).
 pub fn local_person() -> Principal {
     person_from(env_var)
-}
-
-/// The local caller, as a client states it in its hello. Locally the trust
-/// boundary is the user (same uid, a 0700 store directory and socket), like
-/// the control socket: an agent process states its principal through
-/// `CMUX_AGENT_PRINCIPAL` (set by acpmux), everyone else acts as the local
-/// person. Remote owners take the actor from the authenticated connection.
-pub fn local_actor() -> Principal {
-    let person = local_person();
-    match env_var("CMUX_AGENT_PRINCIPAL") {
-        Some(agent) if is_valid_id(&agent, prefix::AGENT) => Principal::Agent(AgentRef {
-            principal: agent,
-            class: match env_var("CMUX_AGENT_CLASS").as_deref() {
-                Some("mux") => AgentClass::Mux,
-                _ => AgentClass::Ordinary,
-            },
-            harness: env_var("CMUX_AGENT_HARNESS").unwrap_or_else(|| "unknown".to_owned()),
-            on_behalf_of: person.id().to_owned(),
-        }),
-        _ => person,
-    }
 }
 
 /// Mint a time-ordered public id: `<prefix><ms base36><8 random base36>`.

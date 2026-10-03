@@ -26,8 +26,11 @@ fn create(engine: &mut Engine, i: usize) {
         params: json!({"id": format!("task_{i}"), "title": format!("Task {i}")}),
         key: Some(format!("k{i}")),
         origin: None,
+        credential: None,
+        epoch: None,
     };
-    let outcome = engine.handle(&Principal::user("usr_a"), request).unwrap();
+    let caller = cmux_tasks::identity::Caller::person(Principal::user("usr_a"));
+    let outcome = engine.handle(&caller, request).unwrap();
     assert!(outcome.reply.is_ok(), "{:?}", outcome.reply.err());
 }
 
@@ -113,4 +116,73 @@ fn recovers_across_snapshots_and_rotations() {
     drop(engine);
     let engine = Engine::open_with(dir.path(), "local", "CMX", clock(), limits).unwrap();
     assert_eq!(engine.state(), &live);
+}
+
+/// Records written before the P8 stamp existed have no `stamp` field; they
+/// still recover to the same state (the reducer uses the principal only).
+#[test]
+fn records_without_a_stamp_still_recover() {
+    let dir = tempfile::tempdir().unwrap();
+    let live = {
+        let mut engine = Engine::open(dir.path(), "local", "CMX", clock()).unwrap();
+        for i in 0..5 {
+            create(&mut engine, i);
+        }
+        engine.state().clone()
+    };
+    let path = segment(dir.path());
+    let text = fs::read_to_string(&path).unwrap();
+    assert!(text.contains("\"stamp\""), "new records carry the stamp");
+    let legacy: String = text
+        .lines()
+        .map(|line| {
+            let mut value: serde_json::Value = serde_json::from_str(line).unwrap();
+            value.as_object_mut().unwrap().remove("stamp");
+            format!("{value}\n")
+        })
+        .collect();
+    fs::write(&path, legacy).unwrap();
+    let engine = Engine::open(dir.path(), "local", "CMX", clock()).unwrap();
+    assert_eq!(engine.state(), &live);
+    assert!(engine.events_after(0).unwrap().iter().all(|e| e.stamp.is_none()));
+}
+
+/// Review finding: before the stamp, ledger keys were scoped to the
+/// principal, so one person's agent and the person could commit the same key
+/// for different ops. Such a log must still recover to the same state.
+#[test]
+fn a_legacy_log_with_one_key_under_two_principals_recovers() {
+    use cmux_tasks_core::ids::{AgentClass, AgentRef};
+    use cmux_tasks_core::op::{Op, TaskCreate};
+    use cmux_tasks_core::{Envelope, Origin};
+    let dir = tempfile::tempdir().unwrap();
+    let agent = Principal::Agent(AgentRef {
+        principal: "agt_x".to_owned(),
+        class: AgentClass::Ordinary,
+        harness: "claude".to_owned(),
+        on_behalf_of: "usr_a".to_owned(),
+    });
+    let legacy = |actor: Principal, id: &str| Envelope {
+        actor,
+        stamp: None,
+        origin: Origin::Cli,
+        key: "k".to_owned(),
+        grants: Default::default(),
+        op: Op::TaskCreate(TaskCreate {
+            id: id.to_owned(),
+            title: id.to_owned(),
+            ..TaskCreate::default()
+        }),
+    };
+    let live = {
+        let (mut store, _) = Store::open(dir.path(), "local", "CMX").unwrap();
+        store.stage(&legacy(agent, "task_a"), 1_000).unwrap();
+        let second = store.stage(&legacy(Principal::user("usr_a"), "task_b"), 1_010).unwrap();
+        assert!(!second.replay, "old records keep the principal scope");
+        store.flush().unwrap();
+        store.state().clone()
+    };
+    let (store, _) = Store::open(dir.path(), "local", "CMX").unwrap();
+    assert_eq!(store.state(), &live);
+    assert_eq!(store.state().tasks.len(), 2);
 }

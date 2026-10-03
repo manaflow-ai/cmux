@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::actor::Actor;
 use crate::ids::Principal;
 use crate::model::{AgentSession, Comment, Label, Project, Relation, Status, Task, TeamSettings};
 use crate::op::Origin;
@@ -70,7 +71,11 @@ pub struct Event {
     /// The request's idempotency key (the transaction a client waits on).
     pub tx: String,
     pub at: i64,
+    /// The accountable principal (who the reducer authorized).
     pub actor: Principal,
+    /// The P8 actor stamp (which process acted), when the record has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stamp: Option<Actor>,
     pub origin: Origin,
     #[serde(flatten)]
     pub body: EventKind,
