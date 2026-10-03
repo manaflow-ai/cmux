@@ -557,7 +557,7 @@ pub(super) fn run(global: &GlobalArgs, command: AppCommand) -> i32 {
 pub(super) fn run_cli_action(global: &GlobalArgs, name: &str, args: &[String]) -> Option<i32> {
     let command = run_action(name, args, ActionName::Cli).ok()?;
     let socket = socket_path(global).ok()?;
-    let stream = connect(&socket).ok()?;
+    let mut stream = connect(&socket).ok()?;
     match call(global, &mut stream, command) {
         Ran::Done(code) => Some(code),
         Ran::NoSuchCliAction(_) => None,
@@ -575,7 +575,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         Ok(socket) => socket,
         Err(error) => return Ran::Done(failure("app.not_found", &error, global.output, 3)),
     };
-    let stream = match connect(&socket) {
+    let mut stream = match connect(&socket) {
         Ok(stream) => stream,
         Err(error) => return Ran::Done(failure("app.unreachable", &error, global.output, 3)),
     };
