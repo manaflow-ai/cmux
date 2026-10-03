@@ -191,13 +191,17 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         // `.shared` is main-actor-isolated, so it cannot be a default argument
         // (default values evaluate in a nonisolated context); resolve it here.
         let coordinator = coordinator ?? .shared
-        if Self.shouldPresentUpgrade(for: plan) {
+        // The panel's snapshot can be stale or still empty while the shared
+        // cache already has the authoritative plan. Use one effective plan for
+        // both the upgrade gate and the model so they cannot disagree.
+        let effectivePlan = dataCache?.currentData?.plan ?? plan
+        if Self.shouldPresentUpgrade(for: effectivePlan) {
             ProUpgradePresenter.present(source: .newMachineAtLimit)
             return
         }
         let model = NewMachineModel(
             mode: .newMachine,
-            plan: plan,
+            plan: effectivePlan,
             memoryOptionsMb: memoryOptionsMb,
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
             memoryUpgradePlanId: memoryUpgradePlanId,
