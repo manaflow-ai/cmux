@@ -252,33 +252,39 @@ export class MuxHost {
         }
         return;
       case "list_conversations":
-        this.read(daemon, daemon.list(), (conversations) => ({ kind: "conversations_listed", conversations }));
+        this.read(daemon, undefined, daemon.list(), (conversations) => ({ kind: "conversations_listed", conversations }));
         return;
       case "fetch_snapshot":
-        this.read(daemon, daemon.snapshot(effect.conversation, effect.tail), ({ conversation, messages }) => ({
+        this.read(daemon, effect.conversation, daemon.snapshot(effect.conversation, effect.tail), ({ conversation, messages }) => ({
           kind: "snapshot",
           conversation,
           messages,
         }));
         return;
       case "fetch_history":
-        this.read(daemon, daemon.history(effect.conversation, effect.before_seq, effect.limit), (messages) => ({
-          kind: "history",
-          conversation: effect.conversation,
-          messages,
-        }));
+        this.read(
+          daemon,
+          effect.conversation,
+          daemon.history(effect.conversation, effect.before_seq, effect.limit),
+          (messages) => ({ kind: "history", conversation: effect.conversation, messages }),
+        );
         return;
     }
   }
 
   /**
-   * A daemon read the inbox waits for. A failed read drops the connection: the
-   * reconnect catches up again from the read cursors.
+   * A daemon read the inbox waits for. An owner refusal (a reject with a
+   * reason) skips that read (`fetch_refused`, no reconnect); any other
+   * failure drops the connection, and the reconnect catches up again.
    */
-  private read<T>(daemon: DaemonClient, request: Promise<T>, input: (value: T) => Input): void {
+  private read<T>(daemon: DaemonClient, conversation: string | undefined, request: Promise<T>, input: (value: T) => Input): void {
     request.then(
       (value) => this.feed(input(value)),
       (error) => {
+        if (error instanceof DaemonError) {
+          this.feed({ kind: "fetch_refused", ...(conversation === undefined ? {} : { conversation }), reason: error.message });
+          return;
+        }
         this.log(`daemon read failed: ${String(error)}; reconnecting`);
         daemon.close();
       },

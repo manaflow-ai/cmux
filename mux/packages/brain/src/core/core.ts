@@ -31,10 +31,11 @@ import { compareCodePoints as compare, plain } from "./text.ts";
 // (write-ahead), so a crash only replays keyed effects that an owner dedupes.
 // Wire shapes are snake_case `kind` tags; the state is host.json (camelCase).
 //
-// Shell contract: a failed daemon read (list, snapshot, history) is reported
-// as `disconnected {daemon}` (the shell drops that connection and connects
-// again); a failed acpmux read answers with an empty `sessions` or
-// `child_events`. A `*_connected` input while that port is up counts as a
+// Shell contract: a daemon read (list, snapshot, history) that the owner
+// refuses is reported as `fetch_refused` (no reconnect); one that fails with
+// the connection, or times out, is `disconnected {daemon}` (the shell drops
+// that connection and connects again); a failed acpmux read answers with an
+// empty `sessions` or `child_events`. A `*_connected` input while that port is up counts as a
 // disconnect first: the core drops what it held for the old connection.
 
 /** The timer key of the one-shot outbox retry. */
@@ -49,6 +50,12 @@ export type Input =
   | { kind: "conversations_listed"; conversations: Summary[] }
   | { kind: "snapshot"; conversation: Summary; messages: Message[] }
   | { kind: "history"; conversation: string; messages: Message[] }
+  /**
+   * The owner refused a read (a reject with a reason, not a lost connection):
+   * the list when `conversation` is absent, else that conversation's snapshot
+   * or history page. The core skips that read; the shell does not reconnect.
+   */
+  | { kind: "fetch_refused"; conversation?: string; reason: string }
   | { kind: "conversation_changed"; conversation: string; change: Change }
   /** The owner answered a `conversation_op`: `reason` is set on a reject. */
   | { kind: "op_result"; idempotency_key: string; reason?: string; change?: Change }
@@ -175,6 +182,9 @@ export class Core {
         break;
       case "history":
         this.history(input.conversation, input.messages);
+        break;
+      case "fetch_refused":
+        this.fetchRefused(input.conversation, input.reason);
         break;
       case "conversation_changed":
         this.changed(input.conversation, input.change);
@@ -392,6 +402,21 @@ export class Core {
     if (task.type !== "history" || task.summary.id !== conversation) return;
     if (older.length === 0) return this.handleAll(task.summary, task.pending);
     this.page(task.summary, task.from, [...older.filter((m) => m.seq > task.from), ...task.pending]);
+  }
+
+  /** A refused read: its task is dropped and the inbox goes on (a refused list still ends in ready). */
+  private fetchRefused(conversation: string | undefined, reason: string): void {
+    const task = this.task;
+    const matches =
+      conversation === undefined
+        ? task.type === "listing"
+        : (task.type === "snapshot" && task.conversation === conversation) ||
+          (task.type === "summary" && task.message.conversation === conversation) ||
+          (task.type === "history" && task.summary.id === conversation);
+    if (!matches) return;
+    this.log(`the owner refused ${conversation === undefined ? "the conversation list" : `reading ${conversation}`}: ${reason}; skipped`);
+    this.task = IDLE;
+    if (conversation === undefined) this.inbox.unshift({ type: "ready" });
   }
 
   /** Pages back until the first missing message is in hand, then handles. */
