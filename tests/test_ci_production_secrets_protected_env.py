@@ -25,12 +25,13 @@ FAILURES = []
 # Publishing a commit- or tree-addressed cmux-tui build is not a production
 # release: cmux-next builds bundle the daemon of their own cmux-tui tree, and
 # helper branches (cmux-tui-pin-*) publish an unmerged branch's tree. Those
-# jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
-# cmux-tui-pin-*), which holds only the R2 upload credentials.
+# jobs run in the `tui-artifacts` environment (policy: main, feat-cmux-next,
+# cmux-tui-pin-*), which holds only TUI_R2_*, a token that can write only the
+# cmux-tui-artifacts bucket (never cmux-binaries and its release feeds).
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish", "publish-tree"],
 }
-ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+ARTIFACT_SECRETS = {"TUI_R2_ACCESS_KEY_ID", "TUI_R2_SECRET_ACCESS_KEY", "TUI_R2_ACCOUNT_ID"}
 
 NIGHTLY_TRACK_ENVIRONMENT = "${{ needs.decide.outputs.environment }}"
 NIGHTLY_TRACK_ENVIRONMENT_RULE = "core.setOutput('environment', isNextRef ? 'release-next' : 'release');"
@@ -74,7 +75,7 @@ def main():
         document = yaml.load(text, Loader=yaml.BaseLoader)
         for job in jobs:
             definition = document["jobs"].get(job, {})
-            _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
+            _check(definition.get("environment") == "tui-artifacts", f"{name} {job} runs in the tui-artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
     if FAILURES:
