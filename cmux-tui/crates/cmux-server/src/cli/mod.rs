@@ -62,56 +62,66 @@ pub fn running_version() -> &'static str {
 /// Entry point. `args` excludes the program name and may start with
 /// `server`.
 pub fn run(args: &[String]) -> ExitCode {
-    run_with_guard(args, std::env::var(GUARD_ENV).ok())
+    ExitCode::from(run_code(args, std::env::var(GUARD_ENV).ok(), running_version()))
 }
 
 /// [`run`] with the re-exec guard already read (the standalone binary
 /// reads it and removes it from its environment before anything starts).
 pub fn run_with_guard(args: &[String], guard: Option<String>) -> ExitCode {
+    ExitCode::from(run_code(args, guard, running_version()))
+}
+
+/// The mount for `cmux server …` in the `cmux` binary: `running_cmux` is
+/// that binary's release version (manifest `min_cmux_version`). Returns
+/// the exit code.
+pub fn run_code(args: &[String], guard: Option<String>, running_cmux: &str) -> u8 {
     let runner = SystemRunner;
     let ctx = Context {
         runner: &runner,
         fetcher: None,
         exec: &SystemExec,
         keys: keys::baked(),
-        running_cmux: running_version().to_owned(),
+        running_cmux: running_cmux.to_owned(),
         // Only ever stops a re-exec, so the environment cannot widen trust.
         reexec_guard: guard.filter(|v| !v.is_empty()),
         env: host::layout_env(),
         now_ms: host::now_ms(),
     };
-    run_with(&ctx, args)
+    run_with_code(&ctx, args)
 }
 
-/// [`run`] with an explicit context (tests, and the `cmux` binary when it
-/// knows its own version).
+/// [`run`] with an explicit context (tests).
 pub fn run_with(ctx: &Context<'_>, args: &[String]) -> ExitCode {
+    ExitCode::from(run_with_code(ctx, args))
+}
+
+fn run_with_code(ctx: &Context<'_>, args: &[String]) -> u8 {
     let parsed = match parse(args) {
         Ok(parsed) => parsed,
         Err(e) => return fail(args.iter().any(|a| a == "--json"), &e),
     };
     if parsed.help {
         print!("{}", args::help());
-        return ExitCode::SUCCESS;
+        return 0;
     }
     match dispatch(ctx, &parsed) {
         Ok(Output { json: value, human }) => {
             let mut stdout = std::io::stdout().lock();
             let _ =
                 if parsed.json { writeln!(stdout, "{value}") } else { write!(stdout, "{human}") };
-            ExitCode::SUCCESS
+            0
         }
         Err(e) => fail(parsed.json, &e),
     }
 }
 
-fn fail(json: bool, e: &Error) -> ExitCode {
+fn fail(json: bool, e: &Error) -> u8 {
     if json {
         let body = json!({"error": {"kind": e.kind.as_str(), "message": e.message}});
         let _ = writeln!(std::io::stdout(), "{body}");
     }
     let _ = writeln!(std::io::stderr(), "cmux server: {}", e.message);
-    ExitCode::from(e.kind.code())
+    e.kind.code()
 }
 
 /// A verb's result: the `--json` object and the human text.

@@ -138,7 +138,7 @@ fn server_stats_parses_with_routing_options() {
     assert_eq!(global.session.as_deref(), Some("review-session"));
     assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
     assert!(
-        scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
+        scope_help_for("server stats", crate::localization::catalog()).contains("daemon stats")
     );
 }
 
@@ -239,12 +239,88 @@ fn cmux_accepts_what_its_own_processes_send_through_the_parser() {
         vec!["agent", "hook", "emit", "--source", "claude", "--event", "Stop"],
         // `cmux acp open` (acp.rs).
         vec!["pane", "current", "run", "--", "/bin/cmux", "acp", "attach", "review"],
-        // The app's daemon launcher and iOS remotes.
-        vec!["--session", "cmux-app", "--json", "server", "ensure"],
-        vec!["--session", "cmux-app", "--json", "server", "status"],
+        // The daemon lifecycle on `cmux` (decision D1).
+        vec!["--session", "cmux-app", "--json", "daemon", "ensure"],
+        vec!["--session", "cmux-app", "--json", "daemon", "status"],
     ] {
         assert!(parse(&strings(&args), Surface::Cmux).is_ok(), "{args:?}");
     }
+    // The app's daemon launcher and iOS remotes run the binary as
+    // `cmux-tui`, where `server` stays the lifecycle.
+    for args in [
+        vec!["--session", "cmux-app", "--json", "server", "ensure"],
+        vec!["--session", "cmux-app", "--json", "server", "status"],
+    ] {
+        assert!(parse(&strings(&args), Surface::CmuxTui).is_ok(), "{args:?}");
+    }
+}
+
+/// The lifecycle action that `args` parse to on `surface`, or `None`.
+fn lifecycle_action(args: &[&str], surface: Surface) -> Option<String> {
+    match parse(&strings(args), surface) {
+        Ok(ParsedCommand::Command { plan: CommandPlan::Server(plan), .. }) => {
+            Some(format!("{:?}", plan.action))
+        }
+        _ => None,
+    }
+}
+
+#[test]
+fn cmux_daemon_and_cmux_tui_server_are_the_lifecycle() {
+    // Decision D1: `cmux daemon …` on `cmux`; `server` (and the `daemon`
+    // alias) on `cmux-tui`.
+    for action in ["ensure", "status", "stop"] {
+        let want = lifecycle_action(&["server", action], Surface::CmuxTui)
+            .unwrap_or_else(|| panic!("cmux-tui server {action}"));
+        assert_eq!(lifecycle_action(&["daemon", action], Surface::Cmux).as_ref(), Some(&want));
+        assert_eq!(lifecycle_action(&["daemon", action], Surface::CmuxTui).as_ref(), Some(&want));
+        assert_eq!(lifecycle_action(&["srv", action], Surface::Cmux).as_ref(), Some(&want));
+        // No hidden `server` alias of the lifecycle on `cmux`.
+        assert_eq!(lifecycle_action(&["server", action], Surface::Cmux), None, "{action}");
+    }
+    // `start` is rewritten to the headless owner only where it names the
+    // lifecycle.
+    let lifecycle = machine_server::lifecycle_scope_for;
+    assert!(lifecycle("daemon", Surface::Cmux));
+    assert!(lifecycle("server", Surface::CmuxTui));
+    assert!(lifecycle("daemon", Surface::CmuxTui));
+    assert!(!lifecycle("server", Surface::Cmux));
+    // `cmux daemon --help` is the lifecycle help; `cmux help server` is the
+    // machine server's.
+    let Ok(ParsedCommand::Help(Some(topic))) =
+        parse(&strings(&["daemon", "--help"]), Surface::Cmux)
+    else {
+        panic!("daemon --help");
+    };
+    assert_eq!(topic, "server");
+    let Ok(ParsedCommand::Help(Some(topic))) = parse(&strings(&["help", "server"]), Surface::Cmux)
+    else {
+        panic!("help server");
+    };
+    assert!(scope_help(&topic).contains("cmux server: run this machine"), "{topic}");
+    let catalog = crate::localization::catalog_for_locale("en_US.UTF-8");
+    assert!(catalog.local_server.cmux_root_help.contains("\n  daemon "));
+    assert!(catalog.local_server.help.contains("cmux daemon ensure"));
+}
+
+#[test]
+fn cmux_server_is_the_machine_server() {
+    // Decision D1: on `cmux`, `server …` goes to cmux_server::cli.
+    let args = |line: &[&str], surface| machine_server::args_for(&strings(line), surface);
+    assert_eq!(args(&["server", "status"], Surface::Cmux), Some(strings(&["status"])));
+    assert_eq!(
+        args(&["--json", "server", "upgrade", "--channel-url", "https://c.example"], Surface::Cmux),
+        Some(strings(&["upgrade", "--channel-url", "https://c.example", "--json"]))
+    );
+    assert_eq!(args(&["server", "--help"], Surface::Cmux), Some(strings(&["--help"])));
+    assert_eq!(args(&["server", "status"], Surface::CmuxTui), None, "cmux-tui keeps the lifecycle");
+    assert_eq!(args(&["daemon", "status"], Surface::Cmux), None);
+    assert_eq!(args(&["workspace", "list"], Surface::Cmux), None);
+    // The routed words parse as the machine server's `status` verb.
+    let routed = args(&["server", "status"], Surface::Cmux).unwrap();
+    let parsed = cmux_server::cli::parse(&routed).unwrap();
+    assert_eq!(parsed.verb_str(), "status");
+    assert!(!machine_server::release_version().is_empty());
 }
 
 #[test]

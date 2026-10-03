@@ -103,10 +103,7 @@ impl Env {
     /// Like [`Env::publish`] with a `min_cmux_version`. Returns the
     /// `cmux` package.
     fn publish_needing(&self, sequence: u64, version: &'static str, min_cmux: &str) -> Pkg {
-        let archive = files_package(&[
-            ("cmux", version.as_bytes()),
-            ("cmux-server", format!("server {version}").as_bytes()),
-        ]);
+        let archive = files_package(&[("cmux", format!("cmux {version}").as_bytes())]);
         self.publish_archive(sequence, version, min_cmux, archive)
     }
 
@@ -313,17 +310,17 @@ fn a_manifest_needing_newer_cmux_reexecs_once_into_the_verified_package() {
     let request = &requests[0];
     let layout = layout_at(env.tmp.path(), host::platform());
     let package = std::path::Path::new(layout.store.as_str()).join(sha_hex(&pkg.archive));
-    assert_eq!(request.program, std::fs::canonicalize(package.join("bin/cmux-server")).unwrap());
-    assert_eq!(std::fs::read(&request.program).unwrap(), b"server 9.0.0", "the staged binary");
+    assert_eq!(request.program, std::fs::canonicalize(package.join("bin/cmux")).unwrap());
+    assert_eq!(std::fs::read(&request.program).unwrap(), b"cmux 9.0.0", "the staged binary");
     assert_eq!(
         request.args,
-        words("upgrade --channel-url=https://chan.example.test --json"),
-        "the same verb and flags, no `server` noun"
+        words("server upgrade --channel-url=https://chan.example.test --json"),
+        "the same verb and flags under the `server` noun"
     );
     assert_eq!(request.env.len(), 1);
     assert_eq!(request.env[0].0, "CMUX_SERVER_REEXEC");
     assert!(request.env[0].1.starts_with("2:"), "the marker names sequence 2: {:?}", request.env);
-    // The argv parses back to the same verb.
+    // The argv parses back to the same verb (`parse` skips `server`).
     let back = parse(&request.args).unwrap();
     assert_eq!((back.verb_str(), back.json), ("upgrade".to_owned(), true));
     let store = cmux_server::store::Store::new(&layout);
@@ -343,15 +340,15 @@ fn a_manifest_needing_newer_cmux_reexecs_once_into_the_verified_package() {
 }
 
 #[test]
-fn a_package_without_the_server_binary_is_refused_and_nothing_runs() {
+fn a_package_without_the_cmux_binary_is_refused_and_nothing_runs() {
     if cmux_server::sys::is_root() {
         return;
     }
     let env = Env::new();
-    env.publish_archive(1, "9.0.0", "9.0.0", files_package(&[("cmux", b"only cmux")]));
+    env.publish_archive(1, "9.0.0", "9.0.0", files_package(&[("other", b"not cmux")]));
     let err = env.run(&format!("install {CHAN}")).unwrap_err();
     assert_eq!(err.kind, ExitKind::Rejected, "{err}");
-    assert!(err.message.contains("bin/cmux-server"), "{err}");
+    assert!(err.message.contains("bin/cmux"), "{err}");
     assert!(env.exec.requests().is_empty());
 }
 
@@ -367,7 +364,7 @@ fn a_tampered_staged_package_is_never_executed() {
     let layout = layout_at(env.tmp.path(), host::platform());
     let dir = std::path::Path::new(layout.store.as_str()).join(sha_hex(&pkg.archive));
     std::fs::create_dir_all(dir.join("bin")).unwrap();
-    std::fs::write(dir.join("bin/cmux-server"), b"evil").unwrap();
+    std::fs::write(dir.join("bin/cmux"), b"evil").unwrap();
     {
         // The store root keeps a mode its access policy accepts.
         use std::os::unix::fs::PermissionsExt;
@@ -383,14 +380,14 @@ fn a_tampered_staged_package_is_never_executed() {
         size: pkg.archive.len() as u64,
         roles: vec!["all".to_owned()],
     };
-    let err = store.verified_package_file(&package, &dir.join("bin/cmux-server")).unwrap_err();
+    let err = store.verified_package_file(&package, &dir.join("bin/cmux")).unwrap_err();
     assert_eq!(err.kind, ExitKind::Verification, "{err}");
     // Through the verb: the unmarked directory is replaced by a verified
     // unpack before anything runs, so the exec gets the real bytes.
     let _ = env.run(&format!("install {CHAN}"));
     let requests = env.exec.requests();
     assert_eq!(requests.len(), 1);
-    assert_eq!(std::fs::read(&requests[0].program).unwrap(), b"server 9.0.0");
+    assert_eq!(std::fs::read(&requests[0].program).unwrap(), b"cmux 9.0.0");
 }
 
 /// Set in the child process of `the_reexec_really_execs_the_server_binary`
@@ -405,7 +402,7 @@ fn the_reexec_really_execs_the_server_binary() {
         return;
     }
     if let Ok(dir) = std::env::var(EXEC_CHILD) {
-        // Child: stage a package whose bin/cmux-server is a script that
+        // Child: stage a package whose bin/cmux is a script that
         // records its argv and the guard, then exec it for real.
         let out = std::path::Path::new(&dir).join("exec.out");
         let script = format!(
@@ -414,12 +411,7 @@ fn the_reexec_really_execs_the_server_binary() {
         );
         let mut env = Env::new();
         env.tmp = tempfile::tempdir_in(&dir).unwrap();
-        env.publish_archive(
-            1,
-            "9.0.0",
-            "9.0.0",
-            files_package(&[("cmux", b"x"), ("cmux-server", script.as_bytes())]),
-        );
+        env.publish_archive(1, "9.0.0", "9.0.0", files_package(&[("cmux", script.as_bytes())]));
         let mut ctx = env.ctx();
         let system = cmux_server::exec::SystemExec;
         ctx.exec = &system;
@@ -436,9 +428,12 @@ fn the_reexec_really_execs_the_server_binary() {
     assert!(status.success(), "{status}");
     let out = std::fs::read_to_string(tmp.path().join("exec.out")).unwrap();
     let lines: Vec<&str> = out.lines().collect();
-    assert_eq!(lines[..3], ["upgrade", "--channel-url=https://chan.example.test", "--json"]);
-    assert!(lines[3].starts_with("guard=1:"), "{out}");
-    assert_eq!(lines.len(), 4, "{out}");
+    assert_eq!(
+        lines[..4],
+        ["server", "upgrade", "--channel-url=https://chan.example.test", "--json"]
+    );
+    assert!(lines[4].starts_with("guard=1:"), "{out}");
+    assert_eq!(lines.len(), 5, "{out}");
 }
 
 #[cfg(unix)]

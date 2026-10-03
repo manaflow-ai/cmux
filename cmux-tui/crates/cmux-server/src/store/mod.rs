@@ -95,7 +95,7 @@ pub struct StagedCmux {
     pub manifest_sha256: [u8; 32],
     /// `<store>/<sha256>`.
     pub dir: PathBuf,
-    /// The package's `bin/cmux-server` (`reexec::REEXEC_BINARY`), resolved
+    /// The package's `bin/cmux` (`reexec::REEXEC_BINARY`), resolved
     /// and checked by [`Store::verified_package_file`] while the store lock
     /// was held; `Err` says why it cannot run.
     pub program: std::result::Result<PathBuf, String>,

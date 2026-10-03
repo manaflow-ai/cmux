@@ -4359,7 +4359,7 @@ mod tests {
         )
         .expect_err("remote stop terminated an embedded server");
 
-        assert!(error.to_string().contains("cmux server stop"), "{error:#}");
+        assert!(error.to_string().contains("cmux daemon stop"), "{error:#}");
         assert!(error.to_string().contains("SSH"), "{error:#}");
     }
 

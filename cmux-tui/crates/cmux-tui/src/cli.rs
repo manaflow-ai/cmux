@@ -13,6 +13,8 @@ mod command;
 mod docs;
 mod federation;
 mod lifecycle;
+mod machine_server;
+pub(crate) use machine_server::is_lifecycle_scope;
 #[cfg(unix)]
 mod mcp;
 mod raw;
@@ -185,6 +187,9 @@ pub(super) fn canonical_scope(value: &str) -> &str {
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
+    if let Some(code) = machine_server::run_if_requested(args, surface) {
+        return code;
+    }
     #[cfg(unix)]
     if let Some(code) = mcp::run_if_requested(args).or_else(|| coderouter::run_if_requested(args)) {
         return code;
@@ -302,6 +307,9 @@ fn parse_command(
     command_args: Vec<String>,
     surface: Surface,
 ) -> Result<ParsedCommand, UsageError> {
+    if let Some(decided) = machine_server::cmux_words(&command_args, surface) {
+        return decided;
+    }
     let mut command_args = shorthand::normalize(&command_args)?;
     federation::apply_qualifiers(&mut global, &mut command_args)?;
     if command_args.is_empty() {
@@ -329,9 +337,6 @@ fn parse_command(
         return Err(UsageError::new(
             crate::localization::catalog().remote_client.inline_relay_ticket_rejected,
         ));
-    }
-    if command_args[0] == "daemon" {
-        return Err(UsageError::new(crate::localization::catalog().local_server.daemon_removed));
     }
     if command_args[0] == "help" {
         return match command_args.get(1) {
@@ -621,6 +626,7 @@ fn scope_help_for(
 ) -> Cow<'static, str> {
     let text = code_mode::scope_help(scope).unwrap_or_else(|| match scope {
         "shorthands" => Cow::Owned(shorthand::help(&catalog.local_server)),
+        machine_server::HELP_TOPIC => Cow::Owned(machine_server::help()),
         "docs" => Cow::Borrowed(docs::help()),
         "server" => Cow::Borrowed(catalog.local_server.help),
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
