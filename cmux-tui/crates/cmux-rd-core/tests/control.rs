@@ -209,10 +209,7 @@ fn send_times_survive_sequence_wrap() {
     let mut arrivals = Vec::new();
     for i in 0..10u64 {
         cc.on_sent(seq, now + i * 100);
-        arrivals.push(Arrival {
-            transport_seq: seq,
-            arrival_us: (now + i * 100 + 25_000) as u32,
-        });
+        arrivals.push(Arrival { transport_seq: seq, arrival_us: (now + i * 100 + 25_000) as u32 });
         seq = seq.wrapping_add(1);
     }
     cc.on_feedback(&arrivals, 0.0, now + 16_667);

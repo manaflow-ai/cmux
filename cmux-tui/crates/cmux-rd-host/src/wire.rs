@@ -193,7 +193,13 @@ pub fn grow_udp_buffers(s: &std::net::UdpSocket) {
     for name in [libc::SO_SNDBUF, libc::SO_RCVBUF] {
         // SAFETY: setsockopt with a valid fd and a pointer to a local int.
         unsafe {
-            libc::setsockopt(s.as_raw_fd(), libc::SOL_SOCKET, name, (&size as *const i32).cast(), std::mem::size_of::<i32>() as libc::socklen_t);
+            libc::setsockopt(
+                s.as_raw_fd(),
+                libc::SOL_SOCKET,
+                name,
+                (&size as *const i32).cast(),
+                std::mem::size_of::<i32>() as libc::socklen_t,
+            );
         }
     }
 }
