@@ -13,7 +13,6 @@ script=$4
 proxy_socket=$5
 temp_dir=$6
 cloud_socket=${7:-}
-bun_home=$(dirname "$(dirname "$(dirname "$bun")")")
 script_dir=$(dirname "$script")
 
 # Seatbelt literals are quoted strings. Reject control characters and escape the
@@ -58,17 +57,12 @@ EOF_PROFILE
 (allow file-read* (literal "/dev/null"))
 (allow file-read* (literal "/dev/random"))
 (allow file-read* (literal "/dev/urandom"))
-; Bun probes the filesystem root and dtrace helper during startup.
+; Bun probes the filesystem root during startup. This literal does not grant
+; access to its children.
 (allow file-read* (literal "/"))
-(allow file-write-data (literal "/dev/dtracehelper"))
-(allow file-read* (literal "/dev/dtracehelper"))
-(allow file-read-metadata (literal "/Users"))
 EOF_PROFILE
-  printf '(allow file-read* (literal "%s"))\n' "$(literal "$bun_home")"
   cat <<'EOF_PROFILE'
 (allow sysctl-read)
-(allow ipc-posix-shm-read*)
-(allow ipc-posix-shm-write*)
 
 ; The script may write only its per-run temporary directory.
 EOF_PROFILE
@@ -78,15 +72,12 @@ EOF_PROFILE
 
   # Unix-domain sockets need an AF_UNIX socket descriptor plus a remote socket
   # path. The proxy owns the target cmux socket, so the sandbox sees only these
-  # relays. A path filter directly on network-outbound is invalid SBPL and
-  # makes sandbox-exec abort while compiling the profile.
+  # relays. Match the destination path, never all local Unix sockets.
   printf '(allow system-socket (socket-domain AF_UNIX))\n'
   printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$proxy_socket")"
-  printf '(allow network-bind (local unix-socket (subpath "%s")))\n' "$(literal "$proxy_socket")"
   printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$proxy_socket")"
   if [ -n "$cloud_socket" ]; then
     printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$cloud_socket")"
-    printf '(allow network-bind (local unix-socket (subpath "%s")))\n' "$(literal "$cloud_socket")"
     printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$cloud_socket")"
   fi
 } >"$profile"

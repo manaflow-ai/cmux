@@ -140,12 +140,15 @@ if [ "$(uname -s)" = Darwin ]; then
     "${cloud_relay_pid:+$cloud_socket}"
   run_tmp="$proxy_dir/run-tmp"
   mkdir -m 700 "$run_tmp"
-  env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+  (
+    cd "$run_tmp"
+    exec env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin \
     HOME="$run_tmp" TMPDIR="$run_tmp" \
     CMUX_TUI_SOCKET="$proxy_socket" CMUX_TUI_SESSION="$session" \
     ${cloud_relay_pid:+CMUX_CLOUD_SOCKET="$cloud_socket"} \
     "$sandbox_exec" -f "$profile" \
-    "$bun" "$sdk/code-mode/run.ts" "$script" "$@" &
+    "$bun" "$sdk/code-mode/run.ts" "$script" "$@"
+  ) &
   sandbox_pid=$!
   if wait "$sandbox_pid"; then
     status=0
