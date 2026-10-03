@@ -38,7 +38,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use crate::config::{InterfaceAddress, WgConfig};
 use crate::device::VirtualDevice;
 pub use crate::error::WgError;
-use crate::pacing::{Pacer, Priority};
+use crate::pacing::{DropCounters, Pacer, Priority};
 use crate::probing;
 use crate::stream::{Outbound, WgStream};
 use crate::timers::TimerSchedule;
@@ -92,6 +92,7 @@ pub struct WgNet {
     routes: Arc<[IpNetwork]>,
     addresses: Arc<[InterfaceAddress]>,
     max_datagram: usize,
+    drops: Arc<DropCounters>,
     driver: Option<JoinHandle<()>>,
 }
 
@@ -131,21 +132,8 @@ impl WgNet {
     /// Start the tunnel on a fresh unbound-port UDP socket whose family matches
     /// the resolved endpoint. Requires a configured endpoint.
     pub async fn start_with_new_socket(config: WgConfig) -> Result<Self, WgError> {
-        let endpoint = config
-            .endpoint
-            .as_ref()
-            .ok_or_else(|| WgError::EndpointUnresolved("<none configured>".into()))?;
-        let candidates = endpoint
-            .resolve()
-            .await
-            .map_err(|_| WgError::EndpointUnresolved(endpoint.host.clone()))?;
-        let peer = *candidates
-            .first()
-            .ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
-        let bind: SocketAddr = if peer.is_ipv4() { "0.0.0.0:0".parse() } else { "[::]:0".parse() }
-            .expect("literal bind address");
-        let socket = UdpSocket::bind(bind).await?;
-        Self::start_with_underlay(config, SocketPath::new(socket, Some(peer)))
+        let path = crate::single_path::new_socket_path(&config).await?;
+        Self::start_with_underlay(config, path)
     }
 
     /// Start the tunnel on a caller-built underlay, for example a
@@ -161,9 +149,11 @@ impl WgNet {
         underlay.set_max_datagram(max_datagram);
         let driver = Driver::new(config, underlay, commands_rx, Arc::clone(&wake))?;
         let wakeups = Arc::clone(&driver.wakeups);
+        let drops = Arc::clone(&driver.pacer.drops);
         let handle = tokio::spawn(driver.run());
         let commands = commands_tx;
-        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, driver: Some(handle) })
+        let driver = Some(handle);
+        Ok(Self { commands, wake, wakeups, routes, addresses, max_datagram, drops, driver })
     }
 
     /// How many times the driver task has woken since it started: datagrams,
@@ -956,7 +946,7 @@ mod timer_ops;
 
 #[path = "net_datagrams.rs"]
 mod datagram_ops;
-pub use datagram_ops::{Datagram, WgDatagramSocket};
+pub use datagram_ops::{Datagram, DatagramDrops, WgDatagramSocket};
 
 #[path = "net_sockets.rs"]
 mod socket_ops;
