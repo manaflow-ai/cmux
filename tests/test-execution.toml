@@ -1011,7 +1011,8 @@ lane = "legacy"
 
 [[test]]
 path = "tests/test_cli_omo_tmux_respawn_pane.py"
-lane = "legacy"
+lane = "macos-cli-no-socket"
+requirements = ["cmux-cli"]
 
 [[test]]
 path = "tests/test_cli_omx_hud_tmux_split.py"

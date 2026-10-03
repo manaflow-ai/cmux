@@ -333,6 +333,7 @@ extension TerminalController {
                 command: inputs.command,
                 workingDirectory: inputs.workingDirectory,
                 tmuxStartCommand: inputs.tmuxStartCommand,
+                startupEnvironment: inputs.startupEnvironment,
                 focus: focus,
                 allowTextBoxFocusDefault: focus == true
             )
