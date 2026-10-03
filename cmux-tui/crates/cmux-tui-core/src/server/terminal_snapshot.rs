@@ -677,3 +677,7 @@ mod tests {
         assert_eq!(tiny.backlog_bytes(), MIN_VIEWER_BACKLOG_BYTES);
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "terminal_snapshot_socket_tests.rs"]
+mod socket_tests;

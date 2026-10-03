@@ -281,6 +281,16 @@ impl Surface {
         pty.term.lock().unwrap().read_marker_range(epoch, from, to, vt)
     }
 
+    /// Apply `bytes` as PTY output the way the reader does (parse, then
+    /// broadcast, under the terminal lock).
+    #[cfg(test)]
+    pub(crate) fn inject_output_for_test(&self, bytes: &[u8]) {
+        let pty = self.as_pty().expect("a PTY surface");
+        let mut term = pty.term.lock().unwrap();
+        let normalized = term.vt_write_with_normalized(bytes).into_owned();
+        pty.broadcast_attach_output(&normalized);
+    }
+
     /// `(generation, offset)` of the published stream.
     pub(crate) fn snapshot_stream_position(&self) -> Option<(u64, u64)> {
         self.as_pty().map(|pty| pty.snapshot_position.load())
