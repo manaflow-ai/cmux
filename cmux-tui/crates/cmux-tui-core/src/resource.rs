@@ -643,10 +643,10 @@ impl ResourceOperation {
     }
 }
 
+mod ids;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;
-mod ids;
 mod scope;
 use ids::resource_id_has_kind;
 
