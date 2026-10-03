@@ -193,6 +193,12 @@ struct CloudPortsVPNAffordanceTests {
         #expect(status.message == CloudPortsStatusPresentation.routeNote)
     }
 
+    @Test("Loading status hides transport details")
+    func loadingStatusHidesTransportDetails() {
+        let status = CloudPortsStatusPresentation(state: .loading)
+        #expect(status.message.isEmpty)
+    }
+
     @Test("Ports stay closed until the person opens the group")
     func portsStartCollapsed() {
         #expect(CloudTreeNode.Kind.portsGroup(machine: .cloud("default-collapsed"))
@@ -227,6 +233,11 @@ struct CloudPortsVPNAffordanceTests {
         #expect(content.hitTest(point) === button)
         #expect(content.hitTest(content.convert(NSPoint(x: 4, y: 4), to: parent)) == nil)
         #expect(button.accessibilityRole() == .button)
+        #expect(button.title.isEmpty)
+        #expect(button.imagePosition == .imageOnly)
+        #expect(button.toolTip == status.actionTitle)
+        #expect(button.accessibilityLabel() == status.actionTitle)
+        #expect(button.frame.minX >= content.bounds.midX)
         button.performClick(nil)
         #expect(calls == 1)
     }
