@@ -73,17 +73,50 @@ enum MacConversationRowBuilder {
         } else if store.hasLoadedNewest, store.older != .idle {
             rows.append(.loadingOlder)
         }
+        rows += messageRows(
+            store.messages, info: info, meID: store.meID, typingParticipantIDs: store.typingParticipantIDs,
+            quote: { store.message(id: $0) }
+        )
+        if !store.typingParticipantIDs.isEmpty {
+            rows.append(.typing(participantIDs: store.typingParticipantIDs))
+        }
+        return rows
+    }
+
+    /// A thread as Messages shows it in reply focus: the root and its replies
+    /// as ordinary rows (names, avatars, timestamps), without quotes, reply
+    /// counts or delivery footers.
+    static func threadRows(rootID: String, store: ConversationStore) -> [MacConversationRow] {
+        guard let info = store.info else { return [] }
+        let thread = store.messages.filter { $0.id == rootID || $0.replyToID == rootID }.map { message -> ConversationMessage in
+            var plain = message
+            plain.replyToID = nil
+            plain.replyCount = 0
+            return plain
+        }
+        var rows = messageRows(thread, info: info, meID: store.meID, typingParticipantIDs: [], quote: { _ in nil }, footers: false)
+        // The thread always opens with the root's timestamp.
+        if let first = thread.first, rows.first.map({ if case .timestamp = $0 { return false } else { return true } }) ?? false {
+            rows.insert(.timestamp(id: "ts:\(first.rowID)", date: first.sentAt), at: 0)
+        }
+        return rows
+    }
+
+    private static func messageRows(
+        _ messages: [ConversationMessage], info: ConversationInfo, meID: String?, typingParticipantIDs: [String],
+        quote quoted: (String) -> ConversationMessage?, footers: Bool = true
+    ) -> [MacConversationRow] {
+        var rows: [MacConversationRow] = []
         let isGroup = info.kind == .group
-        let meID = store.meID
-        let plan = ConversationRunPlan(messages: store.messages, meID: meID, typingParticipantIDs: store.typingParticipantIDs)
-        for (index, message) in store.messages.enumerated() {
+        let plan = ConversationRunPlan(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs)
+        for (index, message) in messages.enumerated() {
             let entry = plan.entries[index]
             if entry.showsTimestamp {
                 rows.append(.timestamp(id: "ts:\(message.rowID)", date: message.sentAt))
             }
             let isOutgoing = message.senderID == meID
             let sender = info.participant(message.senderID)
-            let quote = message.replyToID.flatMap { store.message(id: $0) }.map {
+            let quote = message.replyToID.flatMap(quoted).map {
                 MacReplyQuote(
                     text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text,
                     isOutgoing: $0.senderID == meID,
@@ -104,7 +137,7 @@ enum MacConversationRowBuilder {
                 showsAvatar: isGroup && !isOutgoing && entry.isLastInRun,
                 showsTail: entry.isLastInRun || quote != nil,
                 isFirstInRun: entry.isFirstInRun,
-                footer: footer(entry.status, isGroup: isGroup),
+                footer: footers ? footer(entry.status, isGroup: isGroup) : .none,
                 replyQuote: quote,
                 isEmojiOnly: message.attachments.isEmpty && isEmojiOnly(message.text),
                 reactionKinds: message.reactions.reduce(into: []) { kinds, mark in
@@ -113,9 +146,6 @@ enum MacConversationRowBuilder {
                 hasMyReaction: message.reactions.contains { $0.participantID == meID },
                 myReactions: Set(message.reactions.filter { $0.participantID == meID }.map(\.reaction))
             )))
-        }
-        if !store.typingParticipantIDs.isEmpty {
-            rows.append(.typing(participantIDs: store.typingParticipantIDs))
         }
         return rows
     }

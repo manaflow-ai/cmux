@@ -193,7 +193,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     private func lastRowTrailingSpace() -> CGFloat {
-        guard let last = rows.last else { return 0 }
+        rows.last.map { lastRowTrailingSpace(of: $0) } ?? 0
+    }
+
+    private func lastRowTrailingSpace(of last: MacConversationRow) -> CGFloat {
         guard case let .message(model) = last else {
             // Measured: the typing bubble draws 3.5 pt past its row bottom.
             if case .typing = last { return -3.5 }
@@ -382,6 +385,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             animateTyping(to: 1)
         }
 
+        defer { if threadFocus != nil { reloadThread(animated: false) } }
         trace("change.before \(change)")
         programmatic {
             apply(newRows, from: oldRows)
@@ -718,7 +722,8 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             flightSource = nil
             updateInsets()
         }
-        if replyTarget != nil { exitReplyOrEdit(sent: true) }
+        // In a thread the focus stays up and the new reply joins it.
+        if replyTarget != nil, threadFocus == nil { exitReplyOrEdit(sent: true) }
     }
 
     func composerDidTapApps(_ composer: MacComposerView) {
@@ -755,26 +760,59 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         view.window?.makeFirstResponder(composer.textView)
     }
 
-    /// Messages' reply mode: the transcript blurs behind a lifted copy of the
-    /// message being answered, which springs down to sit on the composer.
+    /// Messages' reply focus: the transcript darkens and blurs, and the
+    /// whole thread (root and replies) is laid out as ordinary rows at the
+    /// transcript's own margins, bottom-anchored above the composer. It stays
+    /// up after a send, so further replies go to the same thread.
     private func showReplyFocus(for message: ConversationMessage) {
-        replyFocus?.removeFromSuperview()
-        guard let index = rows.firstIndex(where: { if case let .message(model) = $0 { return model.message.id == message.id } else { return false } }),
-              let row = rowView(at: index) else { return }
-        let focus = MacReplyFocusView(frame: scrollView.frame)
-        focus.messageID = message.id
+        threadFocus?.removeFromSuperview()
+        let rootID = message.replyToID ?? message.id
+        threadRootID = rootID
+        replyTarget = store.message(id: rootID) ?? message
+        let focus = MacThreadFocusView(frame: scrollView.frame)
         focus.autoresizingMask = [.width, .height]
         focus.onDismiss = { [weak self] in self?.exitReplyOrEdit() }
         view.addSubview(focus, positioned: .above, relativeTo: scrollView)
-        let source = row.convert(row.bounds, to: focus)
-        let bottomInset = view.safeAreaInsets.bottom + 10
-        var target = source
-        target.origin.y = focus.isFlipped ? focus.bounds.height - bottomInset - source.height : bottomInset
-        focus.present(snapshotOf: row, from: source, to: target)
-        replyFocus = focus
+        threadFocus = focus
+        reloadThread(animated: true)
+    }
+
+    private var threadFocus: MacThreadFocusView?
+    private var threadRootID: String?
+
+    private func reloadThread(animated: Bool) {
+        guard let focus = threadFocus, let rootID = threadRootID else { return }
+        let threadRows = MacConversationRowBuilder.threadRows(rootID: rootID, store: store)
+        let width = transcriptWidth
+        var views: [(NSView, CGFloat)] = []
+        for (index, row) in threadRows.enumerated() {
+            switch row {
+            case let .timestamp(_, date):
+                let view = MacTimestampRowView()
+                view.configure(date: date)
+                views.append((view, MacTimestampRowView.height))
+            case let .message(model):
+                let container = MacMessageContainerView()
+                let spacing = index > 0 && threadRows[index - 1].isMessage
+                    ? (model.isFirstInRun ? MacConversationTheme.runSpacing : MacConversationTheme.groupedSpacing) : 4
+                container.topSpacing = spacing
+                let layout = layoutCache.layout(model, width: width)
+                container.row.configure(model, layout: layout, text: layoutCache.text(model))
+                views.append((container, layout.height + spacing))
+            default:
+                break
+            }
+        }
+        let trailing = threadRows.last.map { lastRowTrailingSpace(of: $0) } ?? 0
+        focus.show(views, width: width, top: view.safeAreaInsets.top, bottom: 50 - trailing, animated: animated)
     }
 
     private func dismissReplyFocus(sent: Bool) {
+        if let focus = threadFocus {
+            threadFocus = nil
+            threadRootID = nil
+            focus.dismiss()
+        }
         guard let focus = replyFocus else { return }
         replyFocus = nil
         var destination: CGRect?
@@ -1574,6 +1612,95 @@ final class MacFlightOverlayView: NSView {
         body.add(spring("cornerRadius", min(fromBody.height, radius * 2) / 2, min(radius, toBody.height / 2)), forKey: "r")
         textLayer.add(spring("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY)), NSValue(point: CGPoint(x: toText.midX, y: toText.midY))), forKey: "p")
         CATransaction.commit()
+    }
+}
+
+/// The reply-focus backdrop and thread: darkened blur over the transcript
+/// and the thread's rows in a bottom-anchored scroll view.
+final class MacThreadFocusView: NSView {
+    var onDismiss: (() -> Void)?
+    private let blur = NSVisualEffectView()
+    private let dim = NSView()
+    private let scroll = NSScrollView()
+    private let stack = MacFlippedView()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        blur.material = .underWindowBackground
+        blur.blendingMode = .withinWindow
+        blur.state = .active
+        blur.frame = bounds
+        blur.autoresizingMask = [.width, .height]
+        addSubview(blur)
+        // Measured: Messages darkens the blurred transcript to near black.
+        dim.wantsLayer = true
+        dim.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.5).cgColor
+        dim.frame = bounds
+        dim.autoresizingMask = [.width, .height]
+        addSubview(dim)
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = stack
+        addSubview(scroll)
+        setAccessibilityIdentifier("conversation.threadFocus")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var isFlipped: Bool { true }
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if !scroll.frame.contains(point) { onDismiss?() }
+    }
+
+    func show(_ views: [(NSView, CGFloat)], width: CGFloat, top: CGFloat, bottom: CGFloat, animated: Bool) {
+        stack.subviews.forEach { $0.removeFromSuperview() }
+        var y: CGFloat = 0
+        for (view, height) in views {
+            view.frame = CGRect(x: 0, y: y, width: width, height: height)
+            stack.addSubview(view)
+            y += height
+        }
+        let available = max(0, bounds.height - top - bottom)
+        let visible = min(y, available)
+        scroll.frame = CGRect(x: 0, y: bounds.height - bottom - visible, width: bounds.width, height: visible)
+        stack.frame = CGRect(x: 0, y: 0, width: width, height: y)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y - visible)))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        guard animated else { return }
+        for view in [blur, dim] {
+            view.alphaValue = 0
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                view.animator().alphaValue = 1
+            }
+        }
+        scroll.wantsLayer = true
+        let rise = CASpringAnimation(keyPath: "transform.translation.y")
+        rise.fromValue = 18
+        rise.toValue = 0
+        rise.stiffness = 300
+        rise.damping = 30
+        rise.duration = rise.settlingDuration
+        scroll.layer?.add(rise, forKey: "rise")
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        fade.duration = 0.18
+        scroll.layer?.add(fade, forKey: "fade")
+    }
+
+    func dismiss() {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.18
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            MainActor.assumeIsolated { self?.removeFromSuperview() }
+        })
     }
 }
 
