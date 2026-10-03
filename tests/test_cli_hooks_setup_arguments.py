@@ -63,6 +63,10 @@ class HooksSetupArgumentTests(unittest.TestCase):
             with self.subTest(args=args):
                 self.assert_rejected(args, '--agent requires a value')
 
+    def test_repeated_agent_with_different_values_is_rejected(self):
+        self.assert_rejected(['hooks', 'setup', '--agent', 'codex', '--agent', 'pi'],
+                             '--agent was given more than once with different values')
+
     def test_legacy_aliases_reject_unknown_options(self):
         for command in ('setup-hooks', 'uninstall-hooks'):
             with self.subTest(command=command):
@@ -86,6 +90,16 @@ class HooksSetupArgumentTests(unittest.TestCase):
                 result = self.run_cli(*args)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn('pi', result.stdout)
+
+
+    def test_agent_name_aliases_still_resolve(self):
+        for args, agent in ((['hooks', 'setup', 'agy', '--yes'], 'antigravity'),
+                            (['hooks', 'setup', '--agent', 'rovo', '--yes'], 'rovodev'),
+                            (['hooks', 'uninstall', '--agent=agy', '--yes'], 'antigravity')):
+            with self.subTest(args=args):
+                result = self.run_cli(*args)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f'  {agent}:', result.stdout)
 
 
 if __name__ == '__main__':

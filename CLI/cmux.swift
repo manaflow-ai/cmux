@@ -42450,7 +42450,10 @@ export default {
                 ))
             }
             if let existing = parsed.flagAgent, existing != value {
-                throw CLIError(message: "Conflicting hooks target: use either --agent or a positional target, not both")
+                throw CLIError(message: String(
+                    localized: "cli.hooks.setup.error.conflictingAgent",
+                    defaultValue: "--agent was given more than once with different values. Specify one agent."
+                ))
             }
             parsed.flagAgent = value
         }

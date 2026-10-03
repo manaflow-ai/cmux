@@ -619030,6 +619030,65 @@
           }
         }
       }
+    },
+    "cli.hooks.setup.error.conflictingAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent was given more than once with different values. Specify one agent."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تمرير --agent أكثر من مرة بقيم مختلفة. حدد وكيلًا واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent wurde mehrmals mit unterschiedlichen Werten angegeben. Gib einen Agenten an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent se indicó más de una vez con valores distintos. Indica un solo agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent a été indiqué plusieurs fois avec des valeurs différentes. Indiquez un seul agent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent が異なる値で複数回指定されました。エージェントを 1 つだけ指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent가 서로 다른 값으로 여러 번 지정되었습니다. 에이전트를 하나만 지정하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。请只指定一个代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--agent 被多次指定且值不同。請只指定一個代理程式。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
