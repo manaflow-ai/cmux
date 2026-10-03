@@ -624,6 +624,112 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const first = T0 + 500;
+    const c = new CaseBuilder("log identity: a repeated import of the same bundle gets a new epoch (previous + 1), so new turns never reuse keys", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 9,
+      acpmuxEpoch: first,
+      acpmuxLog: first,
+    } as Partial<HostStateData>);
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [{ ...ev(1, "turn_started"), at: first }, chunk(2, "bundle turn"), ev(3, "turn_end")],
+        cursor_reset: true,
+        log_id: first,
+      } as Input,
+      ["persist", "list_conversations"],
+      (e) => {
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
+        c.check(state.acpmuxEpoch === first + 1, `epoch is previous + 1, got ${state.acpmuxEpoch}`);
+        c.check(state.acpmuxLog === first && state.outbox.length === 0, "same log identity, nothing posted");
+      },
+    );
+    c.step(mux(ev(4, "turn_started")), ["typing"]);
+    c.step(mux(chunk(5, "new turn")), []);
+    c.step(mux(ev(6, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${first + 1}:4`, `new key, got ${opKey(c, e)}`),
+    );
+    cases.push(c.end());
+  }
+
+  {
+    const first = T0 + 500;
+    const c = new CaseBuilder("log identity: after a lost host.json a non-empty log is a reset: its replay posts nothing and new keys get an epoch from now", {
+      defaultConversation: "conv_a",
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    let connectedAt = 0;
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [
+          { ...ev(1, "user_message", { promptId: "m_lost" }), at: first },
+          ev(2, "turn_started"),
+          chunk(3, "old answer"),
+          ev(4, "turn_end"),
+          ev(5, "turn_started"),
+          chunk(6, "old promptless"),
+          ev(7, "turn_end"),
+        ],
+        log_id: first,
+      } as Input,
+      ["persist", "list_conversations"],
+      (e) => {
+        connectedAt = c.now;
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
+        c.check(state.outbox.length === 0 && state.acpmuxSeq === 7, "nothing posted, cursor moved");
+        c.check(state.acpmuxEpoch === c.now && state.acpmuxLog === first, `epoch from now, got ${state.acpmuxEpoch}`);
+      },
+    );
+    c.step(mux(ev(8, "turn_started")), ["typing"]);
+    c.step(mux(chunk(9, "fresh")), []);
+    c.step(mux(ev(10, "turn_end")), ["persist", "conversation_op", "typing"], (e) =>
+      c.check(opKey(c, e) === `turn:${MUX_SESSION}:${connectedAt}:8`, `epoch key, got ${opKey(c, e)}`),
+    );
+    cases.push(c.end());
+  }
+
+  {
+    const first = T0 + 500;
+    const c = new CaseBuilder("log identity: the same log keeps plain keys; a different log for the same session is a reset", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      acpmuxSeq: 4,
+      acpmuxLog: first,
+    } as Partial<HostStateData>);
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [ev(5, "turn_started"), chunk(6, "same log"), ev(7, "turn_end")], log_id: first } as Input,
+      ["persist", "typing", "conversation_op", "typing", "list_conversations"],
+      (e) => c.check(opKey(c, e) === `turn:${MUX_SESSION}:5`, "plain key"),
+    );
+    c.step({ kind: "op_result", idempotency_key: `turn:${MUX_SESSION}:5` }, ["persist"]);
+    c.step({ kind: "disconnected", port: "acpmux" }, []);
+    c.step(
+      {
+        kind: "acpmux_connected",
+        session_id: MUX_SESSION,
+        sessions: [],
+        events: [{ ...ev(1, "turn_started"), at: T0 + 900 }, chunk(2, "other log"), ev(3, "turn_end")],
+        log_id: T0 + 900,
+      } as Input,
+      ["persist"],
+      (e) => {
+        const state = c.persisted(e) as HostStateData & { acpmuxEpoch?: number; acpmuxLog?: number };
+        c.check(state.acpmuxEpoch === T0 + 900 && state.acpmuxLog === T0 + 900 && state.outbox.length === 0, "reset by identity");
+      },
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("turns: a replayed turn of an answered prompt (conv_b) posts nothing, not even to the default conversation", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
