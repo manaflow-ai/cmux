@@ -90,6 +90,17 @@ public struct ThemeTokens: Hashable, Sendable {
     /// `background-blur` as Ghostty encodes it (0 off, >0 radius, <0 macOS glass).
     public var backgroundBlur: Int
 
+    /// Theme-derived tint opacity used when a wallpaper is selected.
+    ///
+    /// Dark themes keep a denser tint for readable text; lighter and higher
+    /// contrast themes can reveal more of the wallpaper without losing legibility.
+    public var wallpaperTintOpacity: Double {
+        let contrastHeadroom = min(max((textPrimary.contrast(with: windowBackground) - Self.minimumTextContrast) / 8, 0), 1)
+        let luminanceBias = min(max((windowBackground.relativeLuminance - 0.18) * 0.12, -0.03), 0.08)
+        let themeFloor = isDark ? 0.62 : 0.56
+        return min(max(themeFloor + (1 - contrastHeadroom) * 0.10 + luminanceBias, 0.52), 0.76)
+    }
+
     /// Minimum contrast for primary and secondary chrome text.
     public static let minimumTextContrast = 4.5
     /// Minimum contrast for tertiary text and status marks.

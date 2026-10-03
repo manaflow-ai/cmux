@@ -80,10 +80,14 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter art: Bundled art below the window's material and tint.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity) {
-        self.init(backgroundOpacity: tokens.backgroundOpacity, backgroundBlur: tokens.backgroundBlur,
+        let resolvedSelection = selection ?? art.map(BackdropSelection.art)
+        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
+            ? tokens.backgroundOpacity
+            : tokens.wallpaperTintOpacity
+        self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
         self.art = art
-        self.selection = selection ?? art.map(BackdropSelection.art)
+        self.selection = resolvedSelection
         self.tuning = tuning
     }
 }
