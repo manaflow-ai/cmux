@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7e6b56e9932a8f8f88925ec1afd0adb35bfe5b91cb922e2f9e8eb5727d53830c.
+// cmux-tui mux protocol 12, IR e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2521,6 +2521,8 @@ pub struct TerminalReadRangeRequest {
     pub from: T::RowMarkerPoint,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub marker_epoch: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub max_bytes: Optional<u64>,
     pub surface: T::Id,
     pub to: T::RowMarkerPoint,
 }

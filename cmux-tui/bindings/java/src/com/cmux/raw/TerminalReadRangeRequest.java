@@ -15,6 +15,7 @@ public final class TerminalReadRangeRequest implements WireValue {
     private final Field<String> format;
     private final RowMarkerPoint from;
     private final Field<UInt64> markerEpoch;
+    private final Field<UInt64> maxBytes;
     private final UInt64 surface;
     private final RowMarkerPoint to_;
 
@@ -23,6 +24,7 @@ public final class TerminalReadRangeRequest implements WireValue {
         if (!builder.fromSet) throw new IllegalArgumentException("from is required");
         this.from = Wire.nonNull(builder.from, "from");
         this.markerEpoch = builder.markerEpoch;
+        this.maxBytes = builder.maxBytes;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         if (!builder.to_Set) throw new IllegalArgumentException("to is required");
@@ -34,6 +36,7 @@ public final class TerminalReadRangeRequest implements WireValue {
     public Field<String> format() { return format; }
     public RowMarkerPoint from() { return from; }
     public Field<UInt64> markerEpoch() { return markerEpoch; }
+    public Field<UInt64> maxBytes() { return maxBytes; }
     public UInt64 surface() { return surface; }
     public RowMarkerPoint to_() { return to_; }
 
@@ -50,6 +53,10 @@ public final class TerminalReadRangeRequest implements WireValue {
         if (!Wire.isMissing(rawMarkerEpoch)) {
             builder.markerEpoch(rawMarkerEpoch == null ? null : Wire.uint64(rawMarkerEpoch, "TerminalReadRangeRequest.marker_epoch"));
         }
+        Object rawMaxBytes = Wire.optional(object, "max_bytes");
+        if (!Wire.isMissing(rawMaxBytes)) {
+            builder.maxBytes(rawMaxBytes == null ? null : Wire.uint64(rawMaxBytes, "TerminalReadRangeRequest.max_bytes"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "TerminalReadRangeRequest.surface"));
         Object rawTo = Wire.required(object, "to");
@@ -63,6 +70,7 @@ public final class TerminalReadRangeRequest implements WireValue {
         Wire.put(object, "format", format);
         Wire.put(object, "from", from);
         Wire.put(object, "marker_epoch", markerEpoch);
+        Wire.put(object, "max_bytes", maxBytes);
         Wire.put(object, "surface", surface);
         Wire.put(object, "to", to_);
         return Collections.unmodifiableMap(object);
@@ -71,11 +79,11 @@ public final class TerminalReadRangeRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof TerminalReadRangeRequest that)) return false;
-        return Objects.equals(format, that.format) && Objects.equals(from, that.from) && Objects.equals(markerEpoch, that.markerEpoch) && Objects.equals(surface, that.surface) && Objects.equals(to_, that.to_);
+        return Objects.equals(format, that.format) && Objects.equals(from, that.from) && Objects.equals(markerEpoch, that.markerEpoch) && Objects.equals(maxBytes, that.maxBytes) && Objects.equals(surface, that.surface) && Objects.equals(to_, that.to_);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(format, from, markerEpoch, surface, to_); }
+    public int hashCode() { return Objects.hash(format, from, markerEpoch, maxBytes, surface, to_); }
 
     @Override
     public String toString() { return "TerminalReadRangeRequest" + toWire(); }
@@ -85,6 +93,7 @@ public final class TerminalReadRangeRequest implements WireValue {
         private RowMarkerPoint from;
         private boolean fromSet;
         private Field<UInt64> markerEpoch = Field.omitted();
+        private Field<UInt64> maxBytes = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private RowMarkerPoint to_;
@@ -101,6 +110,10 @@ public final class TerminalReadRangeRequest implements WireValue {
         }
         public Builder markerEpoch(UInt64 value) {
             this.markerEpoch = Field.ofNullable(value);
+            return this;
+        }
+        public Builder maxBytes(UInt64 value) {
+            this.maxBytes = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

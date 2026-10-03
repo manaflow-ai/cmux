@@ -8584,6 +8584,9 @@ Result<Json> Codec<TerminalReadRangeResult>::encode(const TerminalReadRangeResul
     auto encoded_text = encode_value(value.text);
     if (!encoded_text) return std::move(encoded_text).error();
     object.emplace("text", std::move(encoded_text).value());
+    auto encoded_truncated = encode_value(value.truncated);
+    if (!encoded_truncated) return std::move(encoded_truncated).error();
+    object.emplace("truncated", std::move(encoded_truncated).value());
     return Json(std::move(object));
 }
 
@@ -8608,6 +8611,15 @@ Result<TerminalReadRangeResult> Codec<TerminalReadRangeResult>::decode(const Jso
         auto decoded = decode_value<std::string>(*field_text);
         if (!decoded) return std::move(decoded).error();
         result.text = std::move(decoded).value();
+    }
+    const Json* field_truncated = value.find("truncated");
+    if (!field_truncated) {
+        return make_error(ErrorCode::decode, "missing required field 'truncated'");
+    }
+    if (field_truncated) {
+        auto decoded = decode_value<bool>(*field_truncated);
+        if (!decoded) return std::move(decoded).error();
+        result.truncated = std::move(decoded).value();
     }
     return result;
 }
@@ -21000,6 +21012,11 @@ Result<Json> Codec<TerminalReadRangeRequest>::encode(const TerminalReadRangeRequ
         if (!encoded) return std::move(encoded).error();
         object.emplace("marker_epoch", std::move(encoded).value());
     }
+    if (!value.max_bytes.is_absent()) {
+        auto encoded = encode_value(value.max_bytes);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("max_bytes", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -21040,6 +21057,16 @@ Result<TerminalReadRangeRequest> Codec<TerminalReadRangeRequest>::decode(const J
             auto decoded = decode_value<std::uint64_t>(*field_marker_epoch);
             if (!decoded) return std::move(decoded).error();
             result.marker_epoch = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_max_bytes = value.find("max_bytes");
+    if (field_max_bytes) {
+        if (field_max_bytes->is_null()) {
+            result.max_bytes = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_max_bytes);
+            if (!decoded) return std::move(decoded).error();
+            result.max_bytes = Field<std::uint64_t>(std::move(decoded).value());
         }
     }
     const Json* field_surface = value.find("surface");

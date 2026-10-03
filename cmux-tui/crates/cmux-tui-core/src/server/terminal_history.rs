@@ -50,6 +50,23 @@ pub(crate) struct TerminalReadRangeParams {
     format: Option<String>,
     #[serde(default)]
     marker_epoch: Option<u64>,
+    /// Largest `text` in bytes (default 1 MiB, at most 8 MiB); a longer
+    /// range is cut at a character boundary and answers `truncated: true`.
+    #[serde(default)]
+    max_bytes: Option<usize>,
+}
+
+/// Cut `text` to at most `max_bytes` at a character boundary.
+fn truncate_text(mut text: String, max_bytes: usize) -> (String, bool) {
+    if text.len() <= max_bytes {
+        return (text, false);
+    }
+    let mut end = max_bytes;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.truncate(end);
+    (text, true)
 }
 
 fn marker_error(error: ghostty_vt::MarkerError) -> anyhow::Error {
@@ -89,6 +106,11 @@ pub(crate) fn history(mux: &Arc<Mux>, params: TerminalHistoryParams) -> anyhow::
 pub(crate) fn read_range(mux: &Arc<Mux>, params: TerminalReadRangeParams) -> anyhow::Result<Value> {
     let surface = get_surface(mux, params.surface)?;
     require_pty(&surface)?;
+    let max_bytes = params.max_bytes.unwrap_or(TERMINAL_HISTORY_DEFAULT_BYTES);
+    anyhow::ensure!(
+        (1..=TERMINAL_HISTORY_MAX_BYTES).contains(&max_bytes),
+        "invalid: max_bytes must be 1..={TERMINAL_HISTORY_MAX_BYTES}"
+    );
     let vt = match params.format.as_deref().unwrap_or("text") {
         "text" => false,
         "vt" => true,
@@ -102,5 +124,19 @@ pub(crate) fn read_range(mux: &Arc<Mux>, params: TerminalReadRangeParams) -> any
             vt,
         )
         .map_err(marker_error)?;
-    Ok(json!({"surface": params.surface, "text": text}))
+    let (text, truncated) = truncate_text(text, max_bytes);
+    Ok(json!({"surface": params.surface, "text": text, "truncated": truncated}))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_text;
+
+    #[test]
+    fn read_range_text_is_cut_at_a_character_boundary() {
+        assert_eq!(truncate_text("abc".into(), 8), ("abc".to_string(), false));
+        assert_eq!(truncate_text("abcdef".into(), 4), ("abcd".to_string(), true));
+        // "é" is two bytes: a cut inside it backs off to the boundary.
+        assert_eq!(truncate_text("aé".into(), 2), ("a".to_string(), true));
+    }
 }
