@@ -299,6 +299,7 @@ describe("direct client session state", () => {
       { mcpServers: [], _meta: { acpmux: { harness: "claude", adopt } } },
     ]);
     expect(snapshots.at(-1)?.summary?.sessionId).toBe("adopted");
+    expect(client.adopted).toBe("adopted");
     expect(await client.ensureSession()).toBe("adopted");
     expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
   });
@@ -309,10 +310,11 @@ describe("direct client session state", () => {
       if (method === "session/new") return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
       return {};
     };
-    await AcpmuxDirectClient.connect(
+    const client = await AcpmuxDirectClient.connect(
       { ...host, sessionId: undefined, newSession: true, adopt: { harness: "codex", agentSessionId: "01999a2b" } },
       (snapshot) => snapshots.push(snapshot),
     );
+    expect(client.adopted).toBeUndefined();
     const kills = ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/kill");
     expect(kills.map((request) => request.params)).toEqual([{ sessionId: "fresh", purge: true }]);
     expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(false);
@@ -322,6 +324,24 @@ describe("direct client session state", () => {
       kind: "notice",
       text: "Couldn't resume this chat: this acpmux can't resume chats",
     });
+  });
+
+  test("a socket that drops while adopting fails the connect instead of claiming the chat can't resume", async () => {
+    ScriptedSocket.respond = ({ method }) => (method === "_acpmux/watch" ? { sessions: [] } : {});
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "claude", agentSessionId: "0a1b2c3d" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.drop();
+    expect(
+      await connecting.then(
+        () => "connected",
+        () => "rejected",
+      ),
+    ).toBe("rejected");
+    expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {

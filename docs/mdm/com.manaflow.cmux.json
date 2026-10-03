@@ -220,6 +220,17 @@
       "title" : "EnrollmentToken",
       "type" : "string"
     },
+    "focus.inactiveTabStyle" : {
+      "default" : "fade",
+      "description" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.",
+      "enum" : [
+        "fade",
+        "tonal",
+        "quiet"
+      ],
+      "title" : "Unfocused Pane Tabs",
+      "type" : "string"
+    },
     "focusRing.color" : {
       "description" : "focusRing.color",
       "title" : "Color",

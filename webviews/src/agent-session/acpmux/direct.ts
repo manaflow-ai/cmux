@@ -1071,23 +1071,32 @@ export class AcpmuxDirectClient {
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
   }
+  /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
+  adopted?: string;
   /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
   /// without adopt starts a fresh one) is removed, and the pane says so instead of posing as it.
+  /// A socket that drops meanwhile fails the connect, so the host reconnects and adopts again
+  /// (acpmux maps one chat to one session).
   private async adoptChat(adopt: AcpmuxAdopt): Promise<void> {
     this.host = { ...this.host, adopt: undefined };
-    let reason = "";
+    let result: any;
     try {
-      const result = await this.request("session/new", newSessionParams({ adopt }));
-      const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
-      if (sessionId && adoptedBy(result, adopt)) {
-        await this.select(sessionId);
-        return;
-      }
-      if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
-      reason = ": this acpmux can't resume chats";
+      result = await this.request("session/new", newSessionParams({ adopt }));
     } catch (error) {
-      reason = error instanceof Error && error.message ? `: ${error.message}` : "";
+      if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
+      return;
     }
+    const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (sessionId && adoptedBy(result, adopt)) {
+      this.adopted = sessionId;
+      await this.select(sessionId);
+      return;
+    }
+    if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+    this.adoptFailed(": this acpmux can't resume chats");
+  }
+  private adoptFailed(reason: string): void {
     const at = Date.now();
     this.rows.set(`notice-adopt-${at}`, {
       id: `notice-adopt-${at}`,
