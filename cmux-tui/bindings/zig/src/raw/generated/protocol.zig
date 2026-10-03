@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d";
+pub const ir_sha256 = "429080267e4b0d004cf1e6e3e4d8c932df493ae976c4a3a4c8cd5c141c4f86f2";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -757,6 +757,11 @@ pub const NewRowResult = struct {
     surface: Id,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
+    transaction: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "transaction",
+    };
 };
 
 pub const NoteSizeActivityResult = struct {
@@ -4859,6 +4864,7 @@ pub const NewRowRequest = struct {
     rows: wire.Field(u16) = .absent,
     shell_args: wire.Field([]const []const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
+    transaction: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "keep",

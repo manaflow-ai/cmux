@@ -112,6 +112,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.LayoutUndoUndone, "confirmation_required");
     try expectExplicitNullRejected(protocol.LivePane, "focused_at");
     try expectExplicitNullRejected(protocol.LivePane, "short_id");
+    try expectExplicitNullRejected(protocol.NewRowResult, "transaction");
     try expectExplicitNullRejected(protocol.NotificationMarker, "source");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_col");
     try expectExplicitNullRejected(protocol.RenderGraphicPlacement, "anchor_row");

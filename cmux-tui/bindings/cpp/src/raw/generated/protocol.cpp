@@ -2958,6 +2958,11 @@ Result<Json> Codec<NewRowResult>::encode(const NewRowResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_incarnation", std::move(encoded).value());
     }
+    if (value.transaction) {
+        auto encoded = encode_value(*value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -3002,6 +3007,12 @@ Result<NewRowResult> Codec<NewRowResult>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.terminal_incarnation = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        auto decoded = decode_value<std::string>(*field_transaction);
+        if (!decoded) return std::move(decoded).error();
+        result.transaction = std::move(decoded).value();
     }
     return result;
 }
@@ -16138,6 +16149,11 @@ Result<Json> Codec<NewRowRequest>::encode(const NewRowRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("terminal_id", std::move(encoded).value());
     }
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -16227,6 +16243,16 @@ Result<NewRowRequest> Codec<NewRowRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_terminal_id);
             if (!decoded) return std::move(decoded).error();
             result.terminal_id = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::string>(std::move(decoded).value());
         }
     }
     return result;

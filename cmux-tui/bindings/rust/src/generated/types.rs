@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ed267db94d6999692c3c78c9eb7a2fdebb873cec9b3f6b29f0ff07bed8fa4d7d.
+// cmux-tui mux protocol 12, IR 429080267e4b0d004cf1e6e3e4d8c932df493ae976c4a3a4c8cd5c141c4f86f2.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -651,6 +651,8 @@ pub struct NewRowResult {
     pub terminal_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub terminal_incarnation: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
 }
 
 #[rustfmt::skip]

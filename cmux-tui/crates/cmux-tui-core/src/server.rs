@@ -114,7 +114,8 @@ pub use launch_snapshot::{
     start_launch_snapshot_writer_with,
 };
 use responses::{
-    send_bad_request, send_request_error, send_request_error_with_delivery, send_response,
+    response_error_code, send_bad_request, send_request_error, send_request_error_with_delivery,
+    send_response,
 };
 use screen_json::screen_json;
 use split_respawn::{SplitRespawnRequest, placement_spawn_options, shell_argv, split_tab};
@@ -11106,25 +11107,6 @@ fn write_vt_state_command_json(
     write_kitty_replay_state_json(output, kitty_state)?;
     output.write_all(b"}}")?;
     Ok(())
-}
-
-fn response_error_code(error: &anyhow::Error) -> Option<String> {
-    error
-        .downcast_ref::<crate::LayoutUndoError>()
-        .map(|error| error.code().to_string())
-        .or_else(|| error.downcast_ref::<LayoutRatioError>().map(|error| error.code().to_string()))
-        .or_else(|| {
-            error.downcast_ref::<ViewportWidthError>().map(|error| error.code().to_string())
-        })
-        .or_else(|| {
-            error
-                .downcast_ref::<crate::ColumnStickyError>()
-                .and_then(|error| error.code().map(str::to_string))
-        })
-        .or_else(|| rows::error_code(error))
-        .or_else(|| bookmarks::error_code(error))
-        .or_else(|| conversations::error_code(error))
-        .or_else(|| crate::state::home_error_code(error))
 }
 
 fn auth_token(message: &str) -> Option<String> {

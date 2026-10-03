@@ -975,8 +975,7 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
     pub managed_ssh_requires_unix: &'static str,
-    /// Compact machine spend readout template: `{usd}` is the formatted
-    /// dollar amount and `{days}` the trailing window length.
+    /// Spend readout template: `{usd}` formatted dollars, `{days}` the window.
     pub machine_usage_readout: &'static str,
 }
 
@@ -1038,9 +1037,8 @@ impl SidebarMessages {
     }
 }
 
-/// Format a dollar amount with two decimals and thousands separators.
-/// Non-finite or negative inputs render as zero so a bad upstream number
-/// can never produce a misleading readout.
+/// Format a dollar amount with two decimals and thousands separators. Non-finite
+/// or negative inputs render as zero, so a bad number never misleads.
 pub(crate) fn format_usd(amount: f64) -> String {
     let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
     let cents = (amount * 100.0).round() as u64;
@@ -1214,8 +1212,7 @@ pub(crate) struct AgentWrapperMessages {
     pub agent_start_failed: &'static str,
 }
 
-/// `cmux app|action|settings|window|events` and action verbs: the scopes the
-/// cmux app owns (cli/app.rs).
+/// `cmux app|action|settings|window|events` and action verbs (cli/app.rs).
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct AppControlMessages {
     pub action_describe_usage: &'static str,

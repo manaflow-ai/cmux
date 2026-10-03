@@ -21,6 +21,7 @@ public final class NewRowRequest implements WireValue {
     private final Field<Integer> rows;
     private final Field<List<String>> shellArgs;
     private final Field<String> terminalId;
+    private final Field<String> transaction;
 
     private NewRowRequest(Builder builder) {
         this.cols = builder.cols;
@@ -34,6 +35,7 @@ public final class NewRowRequest implements WireValue {
         this.rows = builder.rows;
         this.shellArgs = builder.shellArgs.map(value -> List.copyOf(value));
         this.terminalId = builder.terminalId;
+        this.transaction = builder.transaction;
     }
 
     public static Builder builder() { return new Builder(); }
@@ -47,6 +49,7 @@ public final class NewRowRequest implements WireValue {
     public Field<Integer> rows() { return rows; }
     public Field<List<String>> shellArgs() { return shellArgs; }
     public Field<String> terminalId() { return terminalId; }
+    public Field<String> transaction() { return transaction; }
 
     public static NewRowRequest fromWire(Object value) {
         Map<String, Object> object = Wire.object(value, "NewRowRequest");
@@ -83,6 +86,10 @@ public final class NewRowRequest implements WireValue {
         if (!Wire.isMissing(rawTerminalId)) {
             builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "NewRowRequest.terminal_id"));
         }
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "NewRowRequest.transaction"));
+        }
         return builder.build();
     }
 
@@ -98,17 +105,18 @@ public final class NewRowRequest implements WireValue {
         Wire.put(object, "rows", rows);
         Wire.put(object, "shell_args", shellArgs);
         Wire.put(object, "terminal_id", terminalId);
+        Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
     }
 
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof NewRowRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(heightPermille, that.heightPermille) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId);
+        return Objects.equals(cols, that.cols) && Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(heightPermille, that.heightPermille) && Objects.equals(keep, that.keep) && Objects.equals(pane, that.pane) && Objects.equals(rows, that.rows) && Objects.equals(shellArgs, that.shellArgs) && Objects.equals(terminalId, that.terminalId) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, cwd, env, heightPermille, keep, pane, rows, shellArgs, terminalId); }
+    public int hashCode() { return Objects.hash(cols, cwd, env, heightPermille, keep, pane, rows, shellArgs, terminalId, transaction); }
 
     @Override
     public String toString() { return "NewRowRequest" + toWire(); }
@@ -125,6 +133,7 @@ public final class NewRowRequest implements WireValue {
         private Field<Integer> rows = Field.omitted();
         private Field<List<String>> shellArgs = Field.omitted();
         private Field<String> terminalId = Field.omitted();
+        private Field<String> transaction = Field.omitted();
 
         public Builder cols(Integer value) {
             this.cols = Field.ofNullable(value);
@@ -162,6 +171,10 @@ public final class NewRowRequest implements WireValue {
         }
         public Builder terminalId(String value) {
             this.terminalId = Field.ofNullable(value);
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.ofNullable(value);
             return this;
         }
         public NewRowRequest build() { return new NewRowRequest(this); }

@@ -5505,6 +5505,7 @@ fn parse_resource_layout_document(
         "layout screen belongs to another workspace"
     );
     let current = &state.workspaces[workspace_index].screens[screen_index];
+    rows::refuse_layout_replace(current)?;
     let active_pane = parse_layout_pane(state, screen_slot, &object["active_pane_id"])?;
     let zoomed_pane = match object.get("zoomed_pane_id") {
         Some(Value::Null) | None => None,
