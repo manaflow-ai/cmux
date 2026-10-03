@@ -31,10 +31,18 @@ do {
 if arguments.count > 3 {
     let fifo = arguments[3]
     Thread.detachNewThread {
+        // Opened read-write so the pipe never reports EOF between writers;
+        // reading to EOF and reopening dropped lines from back-to-back writes.
+        guard let handle = FileHandle(forUpdatingAtPath: fifo) else { return }
+        var pending = Data()
         while true {
-            guard let handle = FileHandle(forReadingAtPath: fifo) else { return }
-            let data = handle.readDataToEndOfFile()
-            for line in String(decoding: data, as: UTF8.self).split(separator: "\n").map(String.init) {
+            let chunk = handle.availableData
+            if chunk.isEmpty { continue }
+            pending.append(chunk)
+            guard let lastNewline = pending.lastIndex(of: UInt8(ascii: "\n")) else { continue }
+            let complete = pending[pending.startIndex...lastNewline]
+            pending = Data(pending[pending.index(after: lastNewline)...])
+            for line in String(decoding: complete, as: UTF8.self).split(separator: "\n").map(String.init) {
                 DispatchQueue.main.sync {
                     MainActor.assumeIsolated {
                         let reply: String

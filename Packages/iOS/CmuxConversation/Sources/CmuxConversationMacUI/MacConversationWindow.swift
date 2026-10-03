@@ -128,6 +128,12 @@ final class MacConversationSplitController: NSSplitViewController, NSToolbarDele
         composer.autoresizingMask = [.width]
         composerHost.needsLayout = true
         view.needsLayout = true
+        // Settle the accessory at its new height now, then place the pill
+        // against it; otherwise a multi-line paste lays the pill out against
+        // the old accessory and it stays clipped until the next keystroke.
+        view.layoutSubtreeIfNeeded()
+        composer.needsLayout = true
+        composer.layoutSubtreeIfNeeded()
     }
 
     override func viewDidLayout() {

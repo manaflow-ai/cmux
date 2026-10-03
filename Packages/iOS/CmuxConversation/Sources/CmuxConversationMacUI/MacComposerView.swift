@@ -252,6 +252,14 @@ final class MacComposerView: MacFlippedView, NSTextViewDelegate {
         }
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        // Frame-based layout: a new size (the accessory grew for a pasted
+        // block) must re-place the pill even when nothing else marks layout.
+        if changed { needsLayout = true }
+    }
+
     override func layout() {
         super.layout()
         // Measured against macOS 26 Messages (window coordinates): 30 pt glass

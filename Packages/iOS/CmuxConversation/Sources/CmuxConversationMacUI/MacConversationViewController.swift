@@ -976,6 +976,9 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         case "send":
             composer.textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
             return "ok"
+        case "composer":
+            let host = composer.superview
+            return String(format: "field %.1f composer %@ inWindow %@ host %@ hostInWindow %@", composer.fieldHeight, NSStringFromRect(composer.frame), NSStringFromRect(composer.convert(composer.bounds, to: nil)), NSStringFromRect(host?.frame ?? .zero), NSStringFromRect(host.map { $0.convert($0.bounds, to: nil) } ?? .zero))
         case "insets":
             let last = rows.last.map { row -> String in
                 switch row { case .message: return "message"; case .typing: return "typing"; default: return "other" }
