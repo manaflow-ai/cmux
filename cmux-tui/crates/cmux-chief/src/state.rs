@@ -50,6 +50,10 @@ pub struct OutstandingPrompt {
     /// The human message it answers (inbox prompts only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub seq: Option<u64>,
+    /// When it was recorded, among outstanding prompts (resend order; absent
+    /// reads as 0, ties by id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,7 +129,12 @@ mod tests {
         let mut state = HostState::default();
         state.prompts.insert(
             "p".into(),
-            OutstandingPrompt { conversation: "c".into(), text: "t".into(), seq: None },
+            OutstandingPrompt {
+                conversation: "c".into(),
+                text: "t".into(),
+                seq: None,
+                order: None,
+            },
         );
         state.mark_answered("p");
         assert!(state.prompts.is_empty() && state.is_answered("p"));

@@ -63,6 +63,15 @@ pub enum Input {
         conversation: String,
         messages: Vec<Message>,
     },
+    /// The owner refused a read (a reject with a reason, not a lost
+    /// connection): the list when `conversation` is absent, else that
+    /// conversation's snapshot or history page. The core skips that read;
+    /// the shell does not reconnect.
+    FetchRefused {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        conversation: Option<String>,
+        reason: String,
+    },
     ConversationChanged {
         conversation: String,
         change: Change,
@@ -100,9 +109,13 @@ pub enum Input {
         permission_id: String,
         request: Value,
     },
-    /// The answer to `fetch_sessions` (empty when the request failed).
+    /// The answer to `fetch_sessions`. `failed`: the request failed
+    /// (sessions is empty); pending permissions stay for the next list or
+    /// acpmux connect.
     Sessions {
         sessions: Vec<SessionSummary>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        failed: bool,
     },
     /// The answer to `fetch_child_events` (empty when the request failed).
     ChildEvents {
@@ -275,6 +288,9 @@ impl Core {
             Input::ConversationsListed { conversations } => self.listed(conversations),
             Input::Snapshot { conversation, messages } => self.snapshot(conversation, messages),
             Input::History { conversation, messages } => self.history(&conversation, messages),
+            Input::FetchRefused { conversation, reason } => {
+                self.fetch_refused(conversation.as_deref(), &reason);
+            }
             Input::ConversationChanged { conversation, change } => {
                 self.changed(&conversation, change);
             }
@@ -293,7 +309,15 @@ impl Core {
             Input::PermissionPending { session_id, permission_id, request } => {
                 self.permission(session_id, permission_id, request);
             }
-            Input::Sessions { sessions } => self.sessions(&sessions),
+            Input::Sessions { sessions, failed } => {
+                if !failed {
+                    self.sessions(&sessions);
+                } else if !self.pending_permissions.is_empty() {
+                    self.log(
+                        "session list failed; pending permissions wait for the next one".to_owned(),
+                    );
+                }
+            }
             Input::ChildEvents { session_id, events } => {
                 if let Some(session) = self.pending_children.remove(&session_id) {
                     self.finish_child(&session, &last_reply(&events));
@@ -388,7 +412,8 @@ impl Core {
             Port::Acpmux => {
                 self.acpmux_up = false;
                 self.inbox.retain(InboxItem::is_continuation);
-                self.pending_permissions.clear();
+                // Pending permissions stay: the session list of the next
+                // acpmux connect answers them.
                 if let Some(conversation) = self.typing_in.clone() {
                     self.set_typing(&conversation, false);
                 }
@@ -532,6 +557,30 @@ impl Core {
         }
     }
 
+    /// A refused read: its task is dropped and the inbox goes on (a refused
+    /// list still ends in ready).
+    fn fetch_refused(&mut self, conversation: Option<&str>, reason: &str) {
+        let matches = match (&self.task, conversation) {
+            (Task::Listing, None) => true,
+            (Task::Snapshot(expected), Some(conversation)) => expected == conversation,
+            (Task::Summary(message), Some(conversation)) => message.conversation == conversation,
+            (Task::History(paging), Some(conversation)) => paging.summary.id == conversation,
+            _ => false,
+        };
+        if !matches {
+            return;
+        }
+        let what = match conversation {
+            Some(conversation) => format!("reading {conversation}"),
+            None => "the conversation list".to_owned(),
+        };
+        self.log(format!("the owner refused {what}: {reason}; skipped"));
+        self.task = Task::Idle;
+        if conversation.is_none() {
+            self.inbox.push_front(InboxItem::Ready);
+        }
+    }
+
     /// Pages back until the first missing message is in hand, then handles.
     fn page(&mut self, summary: Summary, from: u64, pending: Vec<Message>) {
         if let Some(first) = pending.first()
@@ -578,10 +627,7 @@ impl Core {
                 });
             if wake {
                 let text = inbox_prompt(&handling.summary, &message);
-                self.state.prompts.insert(
-                    message.id.clone(),
-                    OutstandingPrompt { conversation, text, seq: Some(message.seq) },
-                );
+                self.record_prompt(message.id.clone(), conversation, text, Some(message.seq));
                 self.dirty = true;
                 if let Task::Handling(handling) = &mut self.task {
                     handling.waiting = Some((message.id.clone(), message.seq));
@@ -612,6 +658,22 @@ impl Core {
             idempotency_key: format!("cursor:{AGENT_MUX}:{seq}"),
             op: Op::ReadCursorSet { seq },
         });
+    }
+
+    /// Records an outstanding prompt with the next order (one more than any
+    /// outstanding one).
+    fn record_prompt(
+        &mut self,
+        prompt_id: String,
+        conversation: String,
+        text: String,
+        seq: Option<u64>,
+    ) {
+        let last = self.state.prompts.values().map(|p| p.order.unwrap_or(0)).max().unwrap_or(0);
+        self.state.prompts.insert(
+            prompt_id,
+            OutstandingPrompt { conversation, text, seq, order: Some(last + 1) },
+        );
     }
 
     /// Emits the prompt for an outstanding entry; false without a session.
@@ -693,6 +755,9 @@ impl Core {
             self.dirty = true;
         }
         self.mux_session = Some(session_id);
+        // The connect's session list also answers permissions that waited.
+        let listed =
+            if self.pending_permissions.is_empty() { Vec::new() } else { sessions.clone() };
         for session in sessions {
             self.session_status.insert(session.session_id.clone(), session.status);
             self.session_info.insert(session.session_id.clone(), session);
@@ -704,10 +769,22 @@ impl Core {
         }
         self.reset_replay = false;
         self.acpmux_up = true;
-        // Prompts acpmux may have dropped with an old connection, in id order.
-        let outstanding: Vec<String> = self.state.prompts.keys().cloned().collect();
-        for prompt_id in outstanding {
+        // Prompts acpmux may have dropped with an old connection, in
+        // recorded order (absent = 0), then id.
+        let mut outstanding: Vec<(u64, String)> = self
+            .state
+            .prompts
+            .iter()
+            .map(|(id, prompt)| (prompt.order.unwrap_or(0), id.clone()))
+            .collect();
+        outstanding.sort();
+        for (_, prompt_id) in outstanding {
             self.send_prompt(&prompt_id);
+        }
+        // Permissions that waited for a session list (a failed fetch, or the
+        // last connection's loss).
+        if !self.pending_permissions.is_empty() {
+            self.sessions(&listed);
         }
         self.reconcile_children();
         if self.daemon_up {
@@ -810,6 +887,11 @@ impl Core {
         let Some(prompt_id) = prompt_id.filter(|id| !id.is_empty()) else {
             return if self.reset_replay { None } else { self.default_conversation() };
         };
+        // An answered prompt's turn was posted already (a reset replay meets
+        // it again).
+        if self.state.is_answered(prompt_id) {
+            return None;
+        }
         let entry = self.state.prompts.get(prompt_id)?;
         Some(entry.conversation.clone())
             .filter(|c| !c.is_empty())
@@ -1071,9 +1153,7 @@ impl Core {
             session.turn_count.unwrap_or(session.state_seq)
         );
         let text = child_finished_prompt(session, reply);
-        self.state
-            .prompts
-            .insert(prompt_id.clone(), OutstandingPrompt { conversation, text, seq: None });
+        self.record_prompt(prompt_id.clone(), conversation, text, None);
         self.dirty = true;
         self.log(format!("child {} finished; telling the mux", session.name));
         self.send_prompt(&prompt_id);
@@ -1139,9 +1219,7 @@ impl Core {
         let prompt_id = format!("perm:{session_id}:{permission_id}");
         let conversation = self.child_conversation(session_id);
         let text = child_permission_prompt(&session, request);
-        self.state
-            .prompts
-            .insert(prompt_id.clone(), OutstandingPrompt { conversation, text, seq: None });
+        self.record_prompt(prompt_id.clone(), conversation, text, None);
         self.dirty = true;
         self.flush_outbox();
         self.send_prompt(&prompt_id);
