@@ -107,7 +107,8 @@
           inventories.set(id, inv);
           return inv;
         },
-        // Downloads assets of a list() inventory into a directory:
+        // Downloads assets of a list() inventory into a directory (cookies
+        // only for assets on the page's own origin, none cross-origin):
         // { directoryPath, manifestPath, assets: [{ id, kind, name, url, path, contentType }], failures, summary }.
         // { kinds } or { assetIds } narrow it (default: images, fonts, stylesheets, video); inline SVGs are written with images.
         async bundle(inv, options = {}) {
@@ -129,6 +130,22 @@
           };
           const assets = [];
           const failures = [];
+          // An inventory's URLs come from the page, so a cross-origin asset is
+          // fetched with no cookies. An asset on the page's own origin uses
+          // "same-origin": cookies go to that origin (while the current tab is
+          // on it) and to no redirect hop elsewhere. The native fetch checks
+          // the domain policy on the URL and every redirect hop.
+          let pageOrigin = null;
+          try {
+            pageOrigin = new URL(inventory_.pageUrl).origin;
+          } catch (e) {}
+          const credentialsFor = (url) => {
+            try {
+              return pageOrigin && pageOrigin !== "null" && new URL(url).origin === pageOrigin ? "same-origin" : "omit";
+            } catch (e) {
+              return "omit";
+            }
+          };
           const one = async (a) => {
             try {
               let bytes;
@@ -139,7 +156,7 @@
                 type = m[1] || null;
                 bytes = m[2] ? t.Buffer.from(m[3], "base64") : t.Buffer.from(decodeURIComponent(m[3]), "utf8");
               } else {
-                const r = await t.fetch(a.url);
+                const r = await t.fetch(a.url, { credentials: credentialsFor(a.url) });
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 type = (r.headers.get("content-type") || "").split(";")[0] || null;
                 bytes = t.Buffer.from(await r.arrayBuffer());

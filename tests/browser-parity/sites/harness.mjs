@@ -57,15 +57,19 @@ export async function createSitesEnv({ signedIn = true, authResponder } = {}) {
   const workDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cmux-sites-")));
   const sessions = new Map();
 
-  // The REPL's native fetch: mock hosts only, redirects followed, cookies as sent by the runtime.
+  // The REPL's native fetch: mock hosts only, redirects followed, the
+  // profile's cookies per hop as BrowserReplFetcher sends them (`credentials`
+  // include: every URL, same-origin: URLs on `origin`, omit: none).
   async function mockFetch(url, init = {}) {
+    const credentials = init.credentials || "include";
+    const sendsCookies = (href) => credentials === "include" || (credentials === "same-origin" && init.origin === new URL(href).origin);
     let href = url;
     let method = init.method || "GET";
     let body = init.body === undefined ? "" : Buffer.from(init.body, "base64").toString("utf8");
     const headers = Object.fromEntries(Object.entries(init.headers || {}).map(([k, v]) => [k.toLowerCase(), v]));
     for (let hop = 0; hop < 10; hop++) {
       if (!isMock(href)) throw new Error(`test fetch refused a non-mock URL: ${href}`);
-      const cookies = await context.cookies([href]);
+      const cookies = sendsCookies(href) ? await context.cookies([href]) : [];
       const h = { ...headers, cookie: cookies.map((c) => `${c.name}=${c.value}`).join("; ") };
       const r = answer(state, { method, url: href, headers: h, body });
       if ([301, 302, 303, 307, 308].includes(r.status) && r.headers.location) {
