@@ -28,7 +28,14 @@ impl ShmSeg {
             return Err(std::io::Error::last_os_error().into());
         }
         let ptr = unsafe {
-            libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, fd, 0)
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
         };
         if ptr == libc::MAP_FAILED {
             return Err(std::io::Error::last_os_error().into());

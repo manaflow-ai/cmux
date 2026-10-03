@@ -6,7 +6,10 @@ pub fn hid_to_evdev(usage: u32) -> Option<u16> {
         return None;
     }
     let id = usage & 0xffff;
-    const LETTERS: [u16; 26] = [30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17, 45, 21, 44];
+    const LETTERS: [u16; 26] = [
+        30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50, 49, 24, 25, 16, 19, 31, 20, 22, 47, 17,
+        45, 21, 44,
+    ];
     Some(match id {
         0x04..=0x1d => LETTERS[(id - 0x04) as usize],
         0x1e..=0x26 => (id - 0x1e + 2) as u16,

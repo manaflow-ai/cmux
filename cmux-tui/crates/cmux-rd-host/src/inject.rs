@@ -7,7 +7,8 @@ use cmux_rd_proto::InputEvent;
 use std::collections::BTreeSet;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Window, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT, KEY_RELEASE_EVENT, MOTION_NOTIFY_EVENT,
+    Window, BUTTON_PRESS_EVENT, BUTTON_RELEASE_EVENT, KEY_PRESS_EVENT, KEY_RELEASE_EVENT,
+    MOTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
@@ -30,7 +31,8 @@ impl Injector {
     }
 
     fn fake(&self, ty: u8, detail: u8, x: i32, y: i32) -> Res<()> {
-        let (x, y) = (x.clamp(0, i32::from(i16::MAX)) as i16, y.clamp(0, i32::from(i16::MAX)) as i16);
+        let (x, y) =
+            (x.clamp(0, i32::from(i16::MAX)) as i16, y.clamp(0, i32::from(i16::MAX)) as i16);
         self.conn.xtest_fake_input(ty, detail, x11rb::CURRENT_TIME, self.root, x, y, 0)?;
         Ok(())
     }

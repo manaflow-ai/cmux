@@ -48,9 +48,12 @@ impl Capturer {
         let (conn, screen_num) = x11rb::connect(Some(display))?;
         let screen = conn.setup().roots[screen_num].clone();
         if screen.root_depth != 24 {
-            return Err(format!("root depth {} unsupported (need 24, 32 bpp)", screen.root_depth).into());
+            return Err(
+                format!("root depth {} unsupported (need 24, 32 bpp)", screen.root_depth).into()
+            );
         }
-        let (width, height) = (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
+        let (width, height) =
+            (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
         let shm = ShmSeg::new(&conn, (width * height * 4) as usize)?;
         if damage {
             conn.damage_query_version(1, 1)?.reply()?;
@@ -69,7 +72,12 @@ impl Capturer {
         while let Some(ev) = self.conn.poll_for_event()? {
             if let Event::DamageNotify(d) = ev {
                 let a = d.area;
-                let rect = Rect { x: a.x.max(0) as u32, y: a.y.max(0) as u32, w: u32::from(a.width), h: u32::from(a.height) };
+                let rect = Rect {
+                    x: a.x.max(0) as u32,
+                    y: a.y.max(0) as u32,
+                    w: u32::from(a.width),
+                    h: u32::from(a.height),
+                };
                 out.push(DamageEvent { rect });
             }
         }
@@ -80,7 +88,17 @@ impl Capturer {
     pub fn grab(&mut self, r: Rect) -> Res<&[u8]> {
         let fmt = u8::from(ImageFormat::Z_PIXMAP);
         self.conn
-            .shm_get_image(self.root, r.x as i16, r.y as i16, r.w as u16, r.h as u16, !0, fmt, self.shm.seg, 0)?
+            .shm_get_image(
+                self.root,
+                r.x as i16,
+                r.y as i16,
+                r.w as u16,
+                r.h as u16,
+                !0,
+                fmt,
+                self.shm.seg,
+                0,
+            )?
             .reply()?;
         Ok(&self.shm.as_slice()[..(r.w * r.h * 4) as usize])
     }

@@ -5,7 +5,8 @@ use std::os::fd::RawFd;
 
 /// Blocks until one of `fds` is readable or `timeout_ns` elapses (`None` = forever).
 pub fn wait_readable(fds: &[RawFd], timeout_ns: Option<u64>) -> io::Result<()> {
-    let mut pfds: Vec<libc::pollfd> = fds.iter().map(|&fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
+    let mut pfds: Vec<libc::pollfd> =
+        fds.iter().map(|&fd| libc::pollfd { fd, events: libc::POLLIN, revents: 0 }).collect();
     let timeout_ms = match timeout_ns {
         None => -1,
         // Round up so we never wake before the deadline and spin.

@@ -16,7 +16,8 @@ use std::time::Duration;
 pub fn run(opts: &Opts) -> Res<()> {
     let bind: IpAddr = opts.str_or("bind", "0.0.0.0").parse()?;
     let port: u16 = opts.num_or("port", OVERLAY_PORT)?;
-    let owner = opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
+    let owner =
+        opts.get("owner").ok_or("--owner <user> is required (the host's owner)")?.to_string();
     let cfg = SessionCfg {
         display: opts.str_or("display", ":99"),
         max_fps: opts.num_or("max-fps", 60)?,
@@ -80,26 +81,47 @@ fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control
         if now_ns() > deadline {
             return Err("no control message within 5 s".into());
         }
-        crate::fdwait::wait_readable(&[std::os::fd::AsRawFd::as_raw_fd(stream)], Some(200_000_000))?;
+        crate::fdwait::wait_readable(
+            &[std::os::fd::AsRawFd::as_raw_fd(stream)],
+            Some(200_000_000),
+        )?;
         reader.fill(stream)?;
     }
 }
 
-fn serve_viewer(mut stream: TcpStream, udp: &UdpSocket, table: &mut SessionTable, cfg: &SessionCfg) -> Res<String> {
+fn serve_viewer(
+    mut stream: TcpStream,
+    udp: &UdpSocket,
+    table: &mut SessionTable,
+    cfg: &SessionCfg,
+) -> Res<String> {
     stream.set_nodelay(true)?;
     stream.set_nonblocking(true)?;
     let mut reader = FrameReader::default();
-    let Control::Hello { user, install, class, interactive, udp_port, max_datagram } = read_control(&mut stream, &mut reader)? else {
+    let Control::Hello { user, install, class, interactive, udp_port, max_datagram } =
+        read_control(&mut stream, &mut reader)?
+    else {
         return Err("first message must be hello".into());
     };
     let principal = Principal { user, install, class: parse_class(&class), interactive };
-    let max_datagram = if max_datagram <= MAX_DATAGRAM_VPC { MAX_DATAGRAM_VPC } else { MAX_DATAGRAM_DEFAULT.min(max_datagram) };
+    let max_datagram = if max_datagram <= MAX_DATAGRAM_VPC {
+        MAX_DATAGRAM_VPC
+    } else {
+        MAX_DATAGRAM_DEFAULT.min(max_datagram)
+    };
     let Control::Start { key, mode } = read_control(&mut stream, &mut reader)? else {
         return Err("second message must be start".into());
     };
     let mode = if mode == "control" { Mode::Control } else { Mode::View };
     let now_ms = now_ns() / 1_000_000;
-    let start = StartRequest { key: &key, caller: Some(&principal), for_client: None, mode, console_user: None, now_ms };
+    let start = StartRequest {
+        key: &key,
+        caller: Some(&principal),
+        for_client: None,
+        mode,
+        console_user: None,
+        now_ms,
+    };
     let session = match table.start(start) {
         Ok(id) => id,
         Err(reason) => {
@@ -115,7 +137,16 @@ fn serve_viewer(mut stream: TcpStream, udp: &UdpSocket, table: &mut SessionTable
     let carrier = if udp_port.is_some() { "udp" } else { "stream" };
     let mut media = MediaSession::open(cfg, max_datagram, out, peer_ip)?;
     let (width, height) = media.size();
-    write_control(&mut stream, &Control::Welcome { encoder: media.encoder_name(), width, height, max_datagram, carrier: carrier.into() })?;
+    write_control(
+        &mut stream,
+        &Control::Welcome {
+            encoder: media.encoder_name(),
+            width,
+            height,
+            max_datagram,
+            carrier: carrier.into(),
+        },
+    )?;
     write_control(&mut stream, &Control::Started { session })?;
     let reason = media.run(&mut stream, &mut reader, udp, table, session, &principal);
     let _ = table.stop(session, &Actor::Remote(Some(principal.clone())));

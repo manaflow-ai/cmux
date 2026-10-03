@@ -31,7 +31,19 @@ pub fn run(opts: &Opts) -> Res<()> {
         .override_redirect(1)
         .background_pixel(crate::workload::GRAY)
         .event_mask(EventMask::KEY_PRESS | EventMask::EXPOSURE);
-    conn.create_window(screen.root_depth, win, screen.root, 0, 0, w, h, 0, WindowClass::INPUT_OUTPUT, screen.root_visual, &aux)?;
+    conn.create_window(
+        screen.root_depth,
+        win,
+        screen.root,
+        0,
+        0,
+        w,
+        h,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        screen.root_visual,
+        &aux,
+    )?;
     conn.map_window(win)?;
     conn.set_input_focus(InputFocus::POINTER_ROOT, win, CURRENT_TIME)?;
 

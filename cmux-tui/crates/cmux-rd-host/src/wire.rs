@@ -16,14 +16,43 @@ const MAX_FRAME: usize = 1 << 20;
 pub enum Control {
     /// Client to host, first message. Phase 1: the claims are trusted because the host
     /// listens only on the private VPC or overlay address; the link `hello` token replaces them.
-    Hello { user: String, install: String, class: String, interactive: bool, udp_port: Option<u16>, max_datagram: usize },
-    Start { key: String, mode: String },
+    Hello {
+        user: String,
+        install: String,
+        class: String,
+        interactive: bool,
+        udp_port: Option<u16>,
+        max_datagram: usize,
+    },
+    Start {
+        key: String,
+        mode: String,
+    },
     Stop,
-    Welcome { encoder: String, width: u32, height: u32, max_datagram: usize, carrier: String },
-    Started { session: u64 },
-    Refused { reason: String },
-    Ended { reason: String },
-    Stats { kbps: u32, frames: u64, keyframes: u64, cpu_pct: f64, encode_ms_p50: f64, loss_pct: f64 },
+    Welcome {
+        encoder: String,
+        width: u32,
+        height: u32,
+        max_datagram: usize,
+        carrier: String,
+    },
+    Started {
+        session: u64,
+    },
+    Refused {
+        reason: String,
+    },
+    Ended {
+        reason: String,
+    },
+    Stats {
+        kbps: u32,
+        frames: u64,
+        keyframes: u64,
+        cpu_pct: f64,
+        encode_ms_p50: f64,
+        loss_pct: f64,
+    },
 }
 
 /// Accumulates bytes from a non-blocking stream and yields complete frames.
@@ -86,7 +115,11 @@ fn write_all_nb(s: &mut TcpStream, mut bytes: &[u8]) -> io::Result<()> {
             Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "closed")),
             Ok(n) => bytes = &bytes[n..],
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                let mut pfd = libc::pollfd { fd: std::os::fd::AsRawFd::as_raw_fd(s), events: libc::POLLOUT, revents: 0 };
+                let mut pfd = libc::pollfd {
+                    fd: std::os::fd::AsRawFd::as_raw_fd(s),
+                    events: libc::POLLOUT,
+                    revents: 0,
+                };
                 // SAFETY: one valid pollfd; bounded 1 s wait.
                 let rc = unsafe { libc::poll(&mut pfd, 1, 1000) };
                 if rc == 0 {

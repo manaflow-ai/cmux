@@ -6,7 +6,9 @@ use crate::shm::ShmSeg;
 use crate::Res;
 use x11rb::connection::Connection;
 use x11rb::protocol::shm::ConnectionExt as _;
-use x11rb::protocol::xproto::{ConnectionExt as _, CreateGCAux, Gcontext, ImageFormat, Rectangle, Screen, Window};
+use x11rb::protocol::xproto::{
+    ConnectionExt as _, CreateGCAux, Gcontext, ImageFormat, Rectangle, Screen, Window,
+};
 
 pub const GRAY: u32 = 0x80_80_80;
 const WHITE: u32 = 0xff_ff_ff;
@@ -86,7 +88,11 @@ impl<'c, C: Connection> Painter<'c, C> {
             conn.open_font(font, b"fixed")?;
             let q = conn.query_font(font)?.reply()?;
             let gc = conn.generate_id()?;
-            let aux = CreateGCAux::new().foreground(BLACK).background(WHITE).font(font).graphics_exposures(0);
+            let aux = CreateGCAux::new()
+                .foreground(BLACK)
+                .background(WHITE)
+                .font(font)
+                .graphics_exposures(0);
             conn.create_gc(gc, win, &aux)?;
             let char_w = q.max_bounds.character_width.max(1) as usize;
             Some(TextState {
@@ -156,8 +162,17 @@ impl<'c, C: Connection> Painter<'c, C> {
     pub fn marker(&self, counter: u32) -> Res<()> {
         let (mut white, mut black) = (Vec::new(), Vec::new());
         for (i, on) in marker::cells(counter).iter().enumerate() {
-            let r = Rectangle { x: (i as u32 * marker::CELL) as i16, y: 0, width: marker::CELL as u16, height: marker::CELL as u16 };
-            if *on { white.push(r) } else { black.push(r) }
+            let r = Rectangle {
+                x: (i as u32 * marker::CELL) as i16,
+                y: 0,
+                width: marker::CELL as u16,
+                height: marker::CELL as u16,
+            };
+            if *on {
+                white.push(r)
+            } else {
+                black.push(r)
+            }
         }
         self.conn.poly_fill_rectangle(self.win, self.white, &white)?;
         self.conn.poly_fill_rectangle(self.win, self.black, &black)?;
@@ -170,7 +185,17 @@ impl<'c, C: Connection> Painter<'c, C> {
                 let line_h = self.text.as_ref().map_or(13, |t| t.line_h);
                 let rows = self.h / line_h;
                 // Scroll up one line, as a terminal does, then draw the new bottom line.
-                self.conn.copy_area(self.win, self.win, self.white, 0, line_h as i16, 0, 0, self.w, (rows - 1) * line_h)?;
+                self.conn.copy_area(
+                    self.win,
+                    self.win,
+                    self.white,
+                    0,
+                    line_h as i16,
+                    0,
+                    0,
+                    self.w,
+                    (rows - 1) * line_h,
+                )?;
                 self.text_line(rows - 1)?;
                 self.marker(counter)
             }
@@ -191,9 +216,19 @@ impl<'c, C: Connection> Painter<'c, C> {
         }
         line.truncate(t.cols);
         let y = row as i16 * t.line_h as i16;
-        self.conn.poly_fill_rectangle(self.win, self.white, &[Rectangle { x: 0, y, width: self.w, height: t.line_h }])?;
+        self.conn.poly_fill_rectangle(
+            self.win,
+            self.white,
+            &[Rectangle { x: 0, y, width: self.w, height: t.line_h }],
+        )?;
         for (i, chunk) in line.chunks(255).enumerate() {
-            self.conn.image_text8(self.win, t.gc, (i * 255 * t.char_w) as i16, y + t.ascent, chunk)?;
+            self.conn.image_text8(
+                self.win,
+                t.gc,
+                (i * 255 * t.char_w) as i16,
+                y + t.ascent,
+                chunk,
+            )?;
         }
         Ok(())
     }
@@ -226,7 +261,10 @@ impl<'c, C: Connection> Painter<'c, C> {
             marker::paint_bgrx(buf, stride, counter);
         }
         let fmt = u8::from(ImageFormat::Z_PIXMAP);
-        self.conn.shm_put_image(self.win, self.gray, self.w, self.h, 0, 0, self.w, self.h, 0, 0, self.depth, fmt, false, m.shm.seg, 0)?;
+        self.conn.shm_put_image(
+            self.win, self.gray, self.w, self.h, 0, 0, self.w, self.h, 0, 0, self.depth, fmt,
+            false, m.shm.seg, 0,
+        )?;
         // Round trip so the server has read the segment before we overwrite it next tick.
         self.conn.get_input_focus()?.reply()?;
         Ok(())

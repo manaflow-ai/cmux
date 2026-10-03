@@ -8,7 +8,9 @@ use crate::clock::now_ns;
 use crate::convert::{bgrx_rect_to_i420, I420};
 use crate::fdwait::wait_readable;
 use crate::inject::Injector;
-use crate::wire::{write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
+use crate::wire::{
+    write_control, Control, DatagramOut, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
+};
 use crate::x264::X264;
 use crate::Res;
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};
@@ -17,7 +19,9 @@ use cmux_rd_core::input::InputApplier;
 use cmux_rd_core::packetize::{parity_for, Packetizer};
 use cmux_rd_core::policy::Principal;
 use cmux_rd_core::session::{SessionId, SessionTable};
-use cmux_rd_proto::{flags, DatagramHeader, DatagramKind, Feedback, FrameBody, InputPacket, HEADER_LEN, REF_NONE};
+use cmux_rd_proto::{
+    flags, DatagramHeader, DatagramKind, Feedback, FrameBody, InputPacket, HEADER_LEN, REF_NONE,
+};
 use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::net::{IpAddr, TcpStream, UdpSocket};
@@ -73,7 +77,12 @@ fn process_cpu_s() -> f64 {
 }
 
 impl MediaSession {
-    pub fn open(cfg: &SessionCfg, max_datagram: usize, out: DatagramOut, peer_ip: IpAddr) -> Res<Self> {
+    pub fn open(
+        cfg: &SessionCfg,
+        max_datagram: usize,
+        out: DatagramOut,
+        peer_ip: IpAddr,
+    ) -> Res<Self> {
         let cap = Capturer::new(&cfg.display, true)?;
         let (w, h) = (cap.width, cap.height);
         let enc = X264::new(w, h, cfg.max_fps, cfg.start_kbps, cfg.threads, &cfg.preset)?;
@@ -146,7 +155,9 @@ impl MediaSession {
             let timeout = self.gate.next_deadline_us().map(|t| t.saturating_sub(now_us()) * 1000);
             let stats_in = self.next_stats_ns.saturating_sub(now_ns());
             let timeout = Some(timeout.map_or(stats_in, |t| t.min(stats_in)).max(1_000_000));
-            if let Err(e) = wait_readable(&[self.cap.fd(), stream.as_raw_fd(), udp.as_raw_fd()], timeout) {
+            if let Err(e) =
+                wait_readable(&[self.cap.fd(), stream.as_raw_fd(), udp.as_raw_fd()], timeout)
+            {
                 return format!("wait failed: {e}");
             }
             // Control and stream-carried datagrams.
@@ -156,11 +167,14 @@ impl MediaSession {
             loop {
                 match reader.next() {
                     Ok(Some((FRAME_CONTROL, payload))) => {
-                        if matches!(serde_json::from_slice::<Control>(&payload), Ok(Control::Stop)) {
+                        if matches!(serde_json::from_slice::<Control>(&payload), Ok(Control::Stop))
+                        {
                             return "stopped by viewer".into();
                         }
                     }
-                    Ok(Some((FRAME_DATAGRAM, payload))) => self.on_datagram(stream, &payload, table, session, viewer),
+                    Ok(Some((FRAME_DATAGRAM, payload))) => {
+                        self.on_datagram(stream, &payload, table, session, viewer)
+                    }
                     Ok(Some(_)) => {}
                     Ok(None) => break,
                     Err(e) => return format!("bad frame: {e}"),
@@ -205,7 +219,15 @@ impl MediaSession {
         let r = CapRect { x: d.x, y: d.y, w: d.width, h: d.height }.align_even(w, h);
         if r.w > 0 && r.h > 0 {
             let px = self.cap.grab(r)?;
-            bgrx_rect_to_i420(px, &mut self.pic, r.x as usize, r.y as usize, r.w as usize, r.h as usize, 2);
+            bgrx_rect_to_i420(
+                px,
+                &mut self.pic,
+                r.x as usize,
+                r.y as usize,
+                r.w as usize,
+                r.h as usize,
+                2,
+            );
         }
         let t_capture_us = now_us();
         self.enc.set_bitrate((self.cc.target_bps() / 1000) as u32);
@@ -229,7 +251,10 @@ impl MediaSession {
         let shard_len = self.packetizer.shard_len();
         let data_shards = (body.access_unit.len() + 16).div_ceil(shard_len);
         let parity = parity_for(data_shards, self.loss, idr);
-        let packets = self.packetizer.packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity).map_err(|e| format!("{e:?}"))?;
+        let packets = self
+            .packetizer
+            .packetize(frame, if idr { flags::KEYFRAME } else { 0 }, &body, parity)
+            .map_err(|e| format!("{e:?}"))?;
         for (i, datagram) in packets.datagrams.iter().enumerate() {
             self.out.send(stream, datagram)?;
             self.cc.on_sent(packets.first_transport_seq.wrapping_add(i as u16), now_us());
@@ -246,7 +271,14 @@ impl MediaSession {
         Ok(())
     }
 
-    fn on_datagram(&mut self, stream: &mut TcpStream, datagram: &[u8], table: &SessionTable, session: SessionId, viewer: &Principal) {
+    fn on_datagram(
+        &mut self,
+        stream: &mut TcpStream,
+        datagram: &[u8],
+        table: &SessionTable,
+        session: SessionId,
+        viewer: &Principal,
+    ) {
         let Ok((header, payload)) = DatagramHeader::decode(datagram) else { return };
         match header.kind {
             DatagramKind::Input => {
@@ -282,7 +314,9 @@ impl MediaSession {
                     let full = Rect { x: 0, y: 0, width: self.cap.width, height: self.cap.height };
                     let _ = self.gate.damage(full, now_us());
                 }
-                if let FlowAction::Encode { damage, frame } = self.gate.ack(fb.acked_frame, now_us()) {
+                if let FlowAction::Encode { damage, frame } =
+                    self.gate.ack(fb.acked_frame, now_us())
+                {
                     let _ = self.encode(stream, damage, frame);
                 }
             }
@@ -290,7 +324,13 @@ impl MediaSession {
         }
     }
 
-    fn inject(&mut self, event: &cmux_rd_proto::InputEvent, table: &SessionTable, session: SessionId, viewer: &Principal) {
+    fn inject(
+        &mut self,
+        event: &cmux_rd_proto::InputEvent,
+        table: &SessionTable,
+        session: SessionId,
+        viewer: &Principal,
+    ) {
         if !table.may_inject_input(session, viewer) {
             let _ = self.injector.release_all();
             self.applier.reset();
@@ -324,12 +364,20 @@ impl MediaSession {
     fn send_stats(&mut self, stream: &mut TcpStream) {
         let now = now_ns();
         let cpu = process_cpu_s();
-        let cpu_pct = (cpu - self.cpu_last.0) / ((now - self.cpu_last.1) as f64 / 1e9).max(1e-3) * 100.0;
+        let cpu_pct =
+            (cpu - self.cpu_last.0) / ((now - self.cpu_last.1) as f64 / 1e9).max(1e-3) * 100.0;
         self.cpu_last = (cpu, now);
         let mut sorted: Vec<f64> = self.encode_ms.iter().copied().collect();
         sorted.sort_by(f64::total_cmp);
         let encode_ms_p50 = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
-        let stats = Control::Stats { kbps: self.enc.kbps(), frames: self.frames, keyframes: self.keyframes, cpu_pct, encode_ms_p50, loss_pct: self.loss * 100.0 };
+        let stats = Control::Stats {
+            kbps: self.enc.kbps(),
+            frames: self.frames,
+            keyframes: self.keyframes,
+            cpu_pct,
+            encode_ms_p50,
+            loss_pct: self.loss * 100.0,
+        };
         let _ = write_control(stream, &stats);
         self.next_stats_ns = now + self.stats_every_ns.max(100_000_000);
     }

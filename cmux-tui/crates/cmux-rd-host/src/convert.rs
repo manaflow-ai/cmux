@@ -28,7 +28,15 @@ struct Band<'a> {
 
 /// Converts a BGRX rectangle (rows of `w * 4` bytes, `h` rows) into `dst` at (`x`, `y`).
 /// `x`, `y`, `w`, `h` must be even and inside `dst`.
-pub fn bgrx_rect_to_i420(src: &[u8], dst: &mut I420, x: usize, y: usize, w: usize, h: usize, threads: usize) {
+pub fn bgrx_rect_to_i420(
+    src: &[u8],
+    dst: &mut I420,
+    x: usize,
+    y: usize,
+    w: usize,
+    h: usize,
+    threads: usize,
+) {
     let (dw, cw) = (dst.width, dst.width / 2);
     let y_rows = dst.y[y * dw..(y + h) * dw].chunks_exact_mut(2 * dw);
     let u_rows = dst.u[(y / 2) * cw..((y + h) / 2) * cw].chunks_exact_mut(cw);
@@ -69,7 +77,10 @@ fn luma(r: i32, g: i32, b: i32) -> u8 {
 fn convert_band(b: &mut Band, w: usize) {
     let (s0, s1) = b.src.split_at(w * 4);
     let pairs = s0.chunks_exact(8).zip(s1.chunks_exact(8));
-    let outs = b.y0.chunks_exact_mut(2).zip(b.y1.chunks_exact_mut(2)).zip(b.u.iter_mut().zip(b.v.iter_mut()));
+    let outs =
+        b.y0.chunks_exact_mut(2)
+            .zip(b.y1.chunks_exact_mut(2))
+            .zip(b.u.iter_mut().zip(b.v.iter_mut()));
     for ((p0, p1), ((ya, yb), (u, v))) in pairs.zip(outs) {
         let px = |p: &[u8], o: usize| (i32::from(p[o + 2]), i32::from(p[o + 1]), i32::from(p[o]));
         let (r00, g00, b00) = px(p0, 0);

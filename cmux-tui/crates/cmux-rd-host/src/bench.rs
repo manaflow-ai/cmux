@@ -7,12 +7,15 @@ use crate::args::Opts;
 use crate::clock::{now_ns, Rng};
 use crate::fdwait::wait_readable;
 use crate::marker;
-use crate::wire::{write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM};
+use crate::wire::{
+    write_control, write_frame, Control, FrameReader, FRAME_CONTROL, FRAME_DATAGRAM,
+};
 use crate::Res;
 use cmux_rd_core::input::InputSender;
 use cmux_rd_core::reassembly::Reassembler;
 use cmux_rd_proto::{
-    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, Nack, HEADER_LEN, MAX_ARRIVALS, MAX_DATAGRAM_VPC,
+    Arrival, DatagramHeader, DatagramKind, Feedback, InputEvent, Nack, HEADER_LEN, MAX_ARRIVALS,
+    MAX_DATAGRAM_VPC,
 };
 use openh264::decoder::Decoder;
 use openh264::formats::YUVSource;
@@ -68,7 +71,10 @@ impl Viewer {
             DatagramKind::Video | DatagramKind::Fec => {
                 self.bytes += d.len() as u64;
                 if self.arrivals.len() < MAX_ARRIVALS {
-                    self.arrivals.push(Arrival { transport_seq: h.transport_seq, arrival_us: (now / 1000) as u32 });
+                    self.arrivals.push(Arrival {
+                        transport_seq: h.transport_seq,
+                        arrival_us: (now / 1000) as u32,
+                    });
                 }
                 for frame in self.reassembler.push(&h, payload, now / 1000) {
                     self.released_since_feedback = true;
@@ -92,7 +98,8 @@ impl Viewer {
                 }
             }
             DatagramKind::InputAck if payload.len() >= 4 => {
-                self.sender.ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
+                self.sender
+                    .ack(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]));
             }
             _ => {}
         }
@@ -112,7 +119,9 @@ impl Viewer {
                 FRAME_DATAGRAM => self.on_datagram(&payload),
                 FRAME_CONTROL => match serde_json::from_slice::<Control>(&payload)? {
                     Control::Stats { .. } => self.stats.push(serde_json::from_slice(&payload)?),
-                    Control::Welcome { .. } => self.welcome = Some(serde_json::from_slice(&payload)?),
+                    Control::Welcome { .. } => {
+                        self.welcome = Some(serde_json::from_slice(&payload)?)
+                    }
                     Control::Refused { reason } | Control::Ended { reason } => {
                         self.ended.get_or_insert(reason);
                     }
@@ -139,8 +148,17 @@ impl Viewer {
         self.maybe_feedback()?;
         if let Some(packet) = self.sender.packet() {
             let mut d = Vec::new();
-            DatagramHeader { flags: 0, kind: DatagramKind::Input, stream: 0, frame: 0, index: 0, count: 0, fec_count: 0, transport_seq: 0 }
-                .encode_into(&mut d);
+            DatagramHeader {
+                flags: 0,
+                kind: DatagramKind::Input,
+                stream: 0,
+                frame: 0,
+                index: 0,
+                count: 0,
+                fec_count: 0,
+                transport_seq: 0,
+            }
+            .encode_into(&mut d);
             d.extend_from_slice(&packet.encode());
             self.send_datagram(&d)?;
         }
@@ -150,7 +168,9 @@ impl Viewer {
     fn maybe_feedback(&mut self) -> Res<()> {
         let now = now_ns();
         let due = now.saturating_sub(self.last_feedback_ns) >= 50_000_000;
-        if !(self.released_since_feedback || (due && (!self.arrivals.is_empty() || self.reassembler.need_recovery()))) {
+        if !(self.released_since_feedback
+            || (due && (!self.arrivals.is_empty() || self.reassembler.need_recovery())))
+        {
             return Ok(());
         }
         let nacks = self
@@ -170,8 +190,17 @@ impl Viewer {
             nacks,
         };
         let mut d = Vec::with_capacity(HEADER_LEN + 64);
-        DatagramHeader { flags: 0, kind: DatagramKind::Feedback, stream: 0, frame: 0, index: 0, count: 0, fec_count: 0, transport_seq: 0 }
-            .encode_into(&mut d);
+        DatagramHeader {
+            flags: 0,
+            kind: DatagramKind::Feedback,
+            stream: 0,
+            frame: 0,
+            index: 0,
+            count: 0,
+            fec_count: 0,
+            transport_seq: 0,
+        }
+        .encode_into(&mut d);
         d.extend_from_slice(&fb.encode());
         self.send_datagram(&d)?;
         self.last_feedback_ns = now;
@@ -185,7 +214,10 @@ fn cpu_s() -> f64 {
     let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
     // SAFETY: getrusage fills the struct we own.
     unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru) };
-    ru.ru_utime.tv_sec as f64 + ru.ru_utime.tv_usec as f64 / 1e6 + ru.ru_stime.tv_sec as f64 + ru.ru_stime.tv_usec as f64 / 1e6
+    ru.ru_utime.tv_sec as f64
+        + ru.ru_utime.tv_usec as f64 / 1e6
+        + ru.ru_stime.tv_sec as f64
+        + ru.ru_stime.tv_usec as f64 / 1e6
 }
 
 pub fn run(opts: &Opts) -> Res<()> {
@@ -226,8 +258,21 @@ pub fn run(opts: &Opts) -> Res<()> {
     v.udp = udp;
     let pid = std::process::id();
     let user = opts.str_or("user", "owner");
-    write_control(&mut v.tcp, &Control::Hello { user, install: format!("bench-{pid}"), class: "user".into(), interactive: true, udp_port, max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)? })?;
-    write_control(&mut v.tcp, &Control::Start { key: format!("bench-{pid}-{}", now_ns()), mode: "control".into() })?;
+    write_control(
+        &mut v.tcp,
+        &Control::Hello {
+            user,
+            install: format!("bench-{pid}"),
+            class: "user".into(),
+            interactive: true,
+            udp_port,
+            max_datagram: opts.num_or("max-datagram", MAX_DATAGRAM_VPC)?,
+        },
+    )?;
+    write_control(
+        &mut v.tcp,
+        &Control::Start { key: format!("bench-{pid}-{}", now_ns()), mode: "control".into() },
+    )?;
     // Wait for the first decoded marker (the first frame is an IDR).
     let start = now_ns();
     while v.marker.is_none() {
