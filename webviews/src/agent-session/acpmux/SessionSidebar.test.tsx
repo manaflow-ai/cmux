@@ -308,3 +308,25 @@ test("as a history layer, rows already open in a tab say so", async () => {
   expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Already open in a tab");
   await act(async () => root.unmount());
 });
+
+test("with preview features on, the rail offers Pull requests; turned off it falls back and stays on Sessions", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const render = (preview: boolean) =>
+    act(async () => root.render(createElement(SessionSidebar, { sessions, onSelect: () => undefined, preview })));
+  const pulls = () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button")].find(
+      (button) => button.getAttribute("aria-label") === "Pull requests",
+    );
+  await render(true);
+  await act(async () => pulls()!.click());
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No pull requests yet");
+  await render(false);
+  expect(pulls()).toBeUndefined();
+  expect(container.querySelector(".acpmux-sidebar-title")).toBeNull();
+  // Turning it back on keeps the session list rather than reopening a view the user left.
+  await render(true);
+  expect(container.querySelector(".acpmux-sidebar-title")).toBeNull();
+  expect(pulls()!.getAttribute("aria-current")).not.toBe("page");
+  await act(async () => root.unmount());
+});
