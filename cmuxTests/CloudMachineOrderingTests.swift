@@ -123,7 +123,9 @@ struct CloudMachineOrderingTests {
         let drag = try fixture.begin("c")
         let press = outline.rect(ofRow: outline.row(forItem: source)).midY
         coordinator.beginMachineLift(drag.session, node: source, in: outline, pressY: press)
-        #expect(!outline.isItemExpanded(try fixture.root("a")) && !outline.isItemExpanded(try fixture.root("b")))
+        let rootA = try fixture.root("a")
+        let rootB = try fixture.root("b")
+        #expect(!outline.isItemExpanded(rootA) && !outline.isItemExpanded(rootB))
         // A small nudge from the press point: c's row moved up as a and b
         // closed, but only the pointer's travel counts.
         drag.info.draggingLocation = outline.convert(NSPoint(x: 10, y: press + 3), to: nil)
