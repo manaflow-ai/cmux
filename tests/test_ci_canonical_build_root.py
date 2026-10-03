@@ -115,7 +115,11 @@ class CanonicalFingerprintTests(unittest.TestCase):
         new = self._fp(f"{root}/src", f"{root}/derived-data-compile-admission", xcode="Xcode 27.0", root=root)
         self.assertNotEqual(old, new)
 
-    def test_self_hosted_runners_get_distinct_roots(self):
+    def test_an_unplaced_self_hosted_job_keeps_the_shared_seeded_root(self):
+        # Main's DerivedData seeds and owned build state are keyed to the shared
+        # root. A per-runner root never matched them, so each new runner
+        # compiled cold past the admission limit (cmux#17207). Isolation between
+        # runners on one Mac comes from glaeda holding and exporting root N.
         roots = []
         for name in ("aws-m4pro-9-glaeda", "aws-m4pro-9-glaeda-1"):
             result = subprocess.run(
@@ -126,10 +130,7 @@ class CanonicalFingerprintTests(unittest.TestCase):
                 check=True,
             )
             roots.append(result.stdout.strip())
-        self.assertEqual(roots, [
-            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda",
-            "/private/tmp/cmux-ci-aws-m4pro-9-glaeda-1",
-        ])
+        self.assertEqual(roots, ["/private/tmp/cmux-ci", "/private/tmp/cmux-ci"])
 
     def test_a_root_the_glaeda_hook_exported_wins(self):
         # The hook holds root 1 (the default path) or root N for a compile job
