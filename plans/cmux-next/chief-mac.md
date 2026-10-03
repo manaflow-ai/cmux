@@ -65,17 +65,22 @@ Both brains get the same sans-I/O core: `step(state, input, now) -> effects`. Ho
 - Rust: crate `cmux-tui/crates/cmux-chief` (core, memory, prompts; serde only, no I/O), plus the
   daemon shell `cmux-tui-core/src/server/chief/` (ports, timers, persistence).
 
-Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {summaries}`,
-`snapshot {summary, messages}`, `history {conversation, messages}`, `conversation_changed {event}`,
-`op_result {idempotency_key, ok | reject}`, `acpmux_connected {session_id, sessions, events}`,
-`acpmux_event {event}`, `session_changed {session}`, `permission_pending {session_id,
-permission_id, request}`, `child_events {session_id, events}`, `prompt_accepted {prompt_id}`,
-`timer {key}`, `disconnected {port}`.
+Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {conversations}`,
+`snapshot {conversation, messages}`, `history {conversation, messages}`, `conversation_changed
+{conversation, change}`, `op_result {idempotency_key, reason?, change?}` (`reason` set on a reject),
+`acpmux_connected {session_id, sessions, events, cursor_reset?}`, `acpmux_event {event}`,
+`session_changed {session}`, `permission_pending {session_id, permission_id, request}`,
+`sessions {sessions}`, `child_events {session_id, events}`, `prompt_settled {prompt_id}`,
+`timer {key}`, `disconnected {port}`. Every input carries `now` in milliseconds since the epoch. A
+failed daemon read (list, snapshot, history) is reported as `disconnected {port: daemon}`; the
+reconnect catches up again.
 
-Effects (tagged `kind`, in order): `conversation_op {conversation, idempotency_key, op}`,
-`typing {conversation, on}`, `prompt {prompt_id, text}`, `fetch_snapshot {conversation, tail}`,
-`fetch_history {conversation, before_seq, limit}`, `fetch_child_events {session_id, after}`,
-`reconnect {port}`, `arm_timer {key, at}`, `persist {state}`, `log {line}`.
+Effects (tagged `kind`, in order): `persist {state}` (first, when the step changed the durable
+state; the shell writes it before it runs the rest), `conversation_op {conversation,
+idempotency_key, op}`, `typing {conversation, on}`, `prompt {prompt_id, text}`, `list_conversations`,
+`fetch_snapshot {conversation, tail}`, `fetch_history {conversation, before_seq, limit}`,
+`fetch_sessions`, `fetch_child_events {session_id, after}`, `reconnect {port}`, `arm_timer {key,
+at}`, `ready`, `log {line}`.
 
 Durable state keeps the `host.json` shape of `mux/host/src/state.ts` (field names unchanged), so
 the Rust host takes over a TypeScript host's state and memory with no migration step.
@@ -101,13 +106,13 @@ the TypeScript core must agree, and the generator records the full effects).
 
 ```
 {"format": "cmux-chief-corpus/1",
- "cases": [{"name", "state": <durable state before>, "volatile": <summaries, cursors, sessions>,
-            "steps": [{"now": RFC 3339 ms, "input": <Input>, "effects": [<Effect>]}],
+ "cases": [{"name", "state": <durable state before>,
+            "steps": [{"now": <ms since the epoch>, "input": <Input>, "effects": [<Effect>]}],
             "state_after": <durable state>}],
- "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"render_wake", "args", "result"}]}
+ "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"wake"|"zoom", "args", "result"}]}
 ```
 
-Rules: effects compare as JSON values in order; `persist` compares the whole state; times come only
+Rules: effects compare as exact JSON values in order (`log` effects are not compared); `persist` compares the whole state; times come only
 from `now`. Case groups: wake rule (1:1, group, DM, mention, reply to the Chief, retracted, own
 message), catch-up from the read cursor with paging, turn folding (steer, queue, error, replay at or
 below the cursor), reply keys, typing, outbox (`agent_rate` once, `agent_budget` drop,
