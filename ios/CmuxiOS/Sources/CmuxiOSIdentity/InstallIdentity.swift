@@ -10,7 +10,6 @@ import Security
 /// sign-out cleanup can mint a token without a Stack session.
 public actor InstallIdentity {
     private let baseURL: URL
-    private let environment: String
     private let signer: SecureEnclaveInstallSigner
     private let records: InstallRecordStore
     private let deviceName: String
@@ -20,7 +19,6 @@ public actor InstallIdentity {
     public init(baseURL: URL, bundleID: String, deviceName: String) {
         self.baseURL = baseURL
         let host = baseURL.host ?? "unknown"
-        environment = host == "cloud-api.cmux.dev" ? "production" : "staging"
         signer = SecureEnclaveInstallSigner(bundleID: bundleID, environment: host)
         records = InstallRecordStore(service: "\(bundleID).install-record.\(host)")
         self.deviceName = deviceName
@@ -75,7 +73,9 @@ public actor InstallIdentity {
         guard let user = current else { throw InstallAuthError.noSession }
         let client = client(for: user)
         let token = try await client.installToken()
-        guard let record = await client.currentRecord else { throw InstallAuthError.noSession }
+        guard let record = await client.currentRecord, let environment = await client.environment else {
+            throw InstallAuthError.noSession
+        }
         return (record.user, record.install, environment, baseURL.host ?? "unknown", token)
     }
 
@@ -106,7 +106,7 @@ public actor InstallIdentity {
     private func makeClient(_ user: String, session: InstallAuthClient.SessionToken?) -> InstallAuthClient {
         let records = self.records
         return InstallAuthClient(transport: CredentialedTransport(baseURL: baseURL), signer: signer,
-                                 sessionToken: session, stackUser: user, environment: environment,
+                                 sessionToken: session, stackUser: user,
                                  deviceName: deviceName, record: records.record(for: user),
                                  onRecord: { records.setRecord($0, for: user) })
     }
