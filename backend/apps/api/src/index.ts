@@ -72,6 +72,8 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const auth = request.headers.get("authorization") ?? ""
   const principal = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!principal?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
+  const refused = principal.team ? ssoRefusal(principal, await signInRules(env, principal.team, principal.user)) : undefined
+  if (refused) return Response.json({ ok: false, error: refused }, { status: 403 })
   const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
   if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
   const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }

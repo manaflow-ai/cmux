@@ -492,6 +492,7 @@ export type Install = {
   readonly created_at: number
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
+  readonly sso_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */

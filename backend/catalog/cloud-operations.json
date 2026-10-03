@@ -2879,6 +2879,13 @@
             "kind": "ref",
             "name": "TeamId"
           }
+        },
+        "sso_team": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
         }
       }
     },
@@ -27473,6 +27480,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -27946,6 +27956,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -28199,6 +28212,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -28436,6 +28452,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -28651,6 +28670,9 @@
                 ]
               },
               "bound_team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
                 "$ref": "#/$defs/TeamId"
               }
             },

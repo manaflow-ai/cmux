@@ -180,8 +180,8 @@ const AuthLive = HttpApiBuilder.group(CloudApi, "auth", (handlers) =>
         // Team policy (P17-4): updates.minimumVersion against x-cmux-client-version.
         const request = yield* HttpServerRequest.HttpServerRequest
         const rules = yield* Effect.promise(() => signInRules(env, r.team, r.user))
-        const tooOld = versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
-        if (tooOld) return yield* new PolicyRefused(tooOld)
+        const refusedMint = ssoRefusal({ identity: r.install, kind: "install", user: r.user, team: r.team, ...(r.sso_team ? { sso_team: r.sso_team } : {}) }, rules) ?? versionRefusal(request.headers["x-cmux-client-version"] ?? null, rules)
+        if (refusedMint) return yield* new PolicyRefused(refusedMint)
         const { token, expires_at } = yield* Effect.promise(() => mintAccessToken(env, r))
         return { access_token: token, token_type: "Bearer" as const, expires_at, user: r.user, team: r.team, install: r.install, grant: r.grant }
       })
@@ -413,8 +413,8 @@ const AuthorizationLive = Layer.succeed(Authorization)(
       Effect.gen(function* () {
         const p = yield* Effect.promise(() => authenticate(env, Redacted.value(credential)))
         if (!p || !p.user || !p.team) return yield* new Unauthenticated({ code: "auth.unauthenticated", message: "missing or invalid bearer token" })
-        // Team policy (P17-4): a team that enforces SSO refuses a Stack session without its SSO claim.
-        if (p.kind === "session") {
+        // Team policy (P17-4): a team that enforces SSO refuses sessions and installs not from its SSO.
+        {
           const rules = yield* Effect.promise(() => signInRules(env, p.team!, p.user!))
           const refused = ssoRefusal(p, rules)
           if (refused) return yield* new PolicyRefused(refused)

@@ -46,9 +46,14 @@ export const versionAtLeast = (client: string | null, minimum: string): boolean 
 
 export type GateRefusal = { readonly code: "auth.sso_required" | "client.too_old"; readonly message: string; readonly minimum_version?: string }
 
-/** A session must carry the team's SSO claim when the team enforces SSO. */
-export const ssoRefusal = (principal: Principal & { sso_team?: string }, rules: SignInRules): GateRefusal | undefined =>
-  principal.kind === "session" && rules.sso_required && principal.sso_team !== principal.team ? { code: "auth.sso_required", message: "this team requires sign-in with its SSO" } : undefined
+/**
+ * When the team enforces SSO, a session needs the team's SSO claim and an install token needs an
+ * install registered from such a session (its token carries sso_team); others are refused.
+ */
+export const ssoRefusal = (principal: Principal, rules: SignInRules): GateRefusal | undefined =>
+  (principal.kind === "session" || principal.kind === "install") && rules.sso_required && principal.sso_team !== principal.team
+    ? { code: "auth.sso_required", message: "this team requires sign-in with its SSO" }
+    : undefined
 
 /** The client version gate for token mint and wire connects. */
 export const versionRefusal = (header: string | null, rules: SignInRules): GateRefusal | undefined =>

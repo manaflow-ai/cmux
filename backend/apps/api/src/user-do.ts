@@ -59,6 +59,13 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override routeFrame(ws: WebSocket, a: Attachment, frame: { readonly t?: string; readonly stream?: unknown; readonly op?: unknown } & Record<string, unknown>): boolean {
+    // Ops the Worker gates on team policy (agents.allowedClasses, P17-4) never run from the socket.
+    if (frame.t === "op" && frame.op === "chief.create") {
+      try {
+        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "chief.create goes through POST /v1/ops", retryable: false, replayed: false }))
+      } catch {}
+      return true
+    }
     if (!this.inbox.handles(frame)) return false
     const engine = this.existing()
     if (!engine) return false
@@ -283,6 +290,6 @@ export class UserDO extends OwnerDO<UserState> {
     const now = engine.currentState
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
-    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id }
+    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 }

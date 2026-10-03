@@ -145,6 +145,7 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
           name: v.name,
           device_name: v.device_name,
           platform: v.platform,
+          ...(p.kind === "session" && p.sso_team ? { sso_team: p.sso_team } : {}),
           public_jwk: v.public_jwk,
           thumbprint,
           grant,
