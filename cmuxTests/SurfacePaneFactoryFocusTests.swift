@@ -83,6 +83,31 @@ import SwiftUI
         #expect(workspace.panelIdFromSurfaceId(selectedSurface) == created.panelID)
     }
 
+    /// Opening a sidebar resource splits the focused pane. When split admission
+    /// has no room left, the resource opens as a tab in that pane instead of
+    /// failing with "Could not create the pane: noSpace".
+    @Test func splitWithNoRoomOpensAsTabInTheTargetPane() throws {
+        let harness = try Harness()
+        defer { harness.tearDown() }
+        let workspace = harness.workspace
+        workspace.bonsplitController.setContainerFrame(CGRect(x: 0, y: 0, width: 400, height: 700))
+        let first = try #require(workspace.focusedPanelId)
+        #expect(workspace.newTerminalSplitOutcome(from: first, orientation: .horizontal).panel != nil)
+        let paneID = try #require(workspace.bonsplitController.focusedPaneId)
+        let paneCount = workspace.bonsplitController.allPaneIds.count
+
+        let created = try SurfacePaneFactory.makeTerminalPane(
+            initialCommand: nil,
+            workingDirectory: nil,
+            at: .split(workspaceID: workspace.id, paneID: paneID.id.uuidString, direction: .right),
+            focus: true
+        )
+
+        #expect(created.workspaceID == workspace.id)
+        #expect(workspace.bonsplitController.allPaneIds.count == paneCount)
+        #expect(workspace.paneId(forPanelId: created.panelID) == paneID)
+    }
+
     @Test("Cloud terminal input reasserts the active pane")
     func cloudTerminalInputReassertsActivePane() throws {
         let harness = try Harness()
