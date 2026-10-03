@@ -42,7 +42,7 @@ on:
   # branches that publish an unmerged branch's tree, publish
   # cmux-tui/tree/<key>/ after the build and the cmux_next_ daemon tests pass.
   push:
-    branches: [main, feat-cmux-next, feat-cmux-next-acpmux, "cmux-tui-pin-*"]
+    branches: [main, feat-cmux-next, "cmux-tui-pin-*"]
     paths:
       - "cmux-tui/**"
       - "ghostty"
@@ -154,6 +154,23 @@ jobs:
           fi
           cargo test --workspace --locked cmux_next_
 
+  publish-ref-notice:
+    # A branch outside main / feat-cmux-next / cmux-tui-pin-* cannot use the
+    # artifacts environment, so its publish jobs are skipped, not failed.
+    name: publish skipped (branch not allowed)
+    if: github.event_name != 'pull_request' && !(github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
+    needs: build
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: Explain how to publish this commit
+        env:
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          short="${SHA:0:12}"
+          echo "::notice title=publish skipped::${REF_NAME} is build-only. Use a cmux-tui-pin-* branch to publish: git push origin ${SHA}:refs/heads/cmux-tui-pin-${short}"
+
   publish:
     # R2 upload credentials only. A commit-addressed cmux-tui build is not a
     # production release: cmux-next pins daemon builds from helper branches.
@@ -162,9 +179,10 @@ jobs:
     # secrets stay in the release environment.
     environment: artifacts
     name: publish to R2
-    # PR runs of this workflow only validate the build; publishing is
-    # main-push or manual dispatch.
-    if: github.event_name != 'pull_request'
+    # PR runs of this workflow only validate the build. Only the refs the
+    # artifacts environment admits publish; a dispatch from any other branch
+    # is a green build-only run (publish-ref-notice says how to publish).
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
     needs: build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -697,7 +715,7 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-'))
     needs: [build, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
