@@ -40,6 +40,11 @@ public struct DaemonCapabilities: Sendable {
     public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
     public let notificationAck = "notification-ack-v1"
+    /// The daemon's local feed owner (plans/cmux-next/feed.md 9.1): every
+    /// notification is also a local feed item, selection never clears unread,
+    /// `ack-tab-notifications` reports `refused` items, and the
+    /// `feed-local-*` commands let the app hand items to the cloud owner.
+    public let feedLocalOwner = "feed-local-owner-v1"
     public let tabGroups = "tab-groups-v1"
     public let savedTabGroups = "saved-tab-groups-v1"
     /// The sidebar workspace pin: `pinned` on `set-workspace-metadata` and workspaces.
@@ -161,7 +166,8 @@ public struct DaemonCapabilities: Sendable {
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
                                             terminalCommandJournal, stickyColumns, edgeDocks, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
-                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
+                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
+                                            feedLocalOwner] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

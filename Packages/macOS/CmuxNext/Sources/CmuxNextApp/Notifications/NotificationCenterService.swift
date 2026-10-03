@@ -28,6 +28,9 @@ final class NotificationCenterService {
     @ObservationIgnored var dockBadgeLabel: String?
     /// Mirrors arrivals into the feed (feed.md section 9, step 1); nil without a feed.
     @ObservationIgnored var feedBridge: FeedNotificationBridge?
+    /// Hands the daemon's local feed items to the cloud owner (feed.md 9.1);
+    /// while it is active the bridge is off.
+    @ObservationIgnored var feedDriver: FeedHandoffDriver?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -44,6 +47,13 @@ final class NotificationCenterService {
     func start(services: AppServices) {
         self.services = services
         feedBridge = Self.makeFeedBridge(services.feed)
+        feedDriver = makeFeedDriver(services)
+        if let driver = feedDriver {
+            // At activation (launch, sign-in, a daemon that starts serving the capability) one pass rebuilds the queue (B3).
+            tasks.append(Task {
+                for await active in Observations({ driver.isActive }) where active { driver.run() }
+            })
+        }
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -144,9 +154,14 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
-        feedBridge?.read(tab: tab.id)
+        if Self.feedPath(driver: feedDriver) == .bridge { feedBridge?.read(tab: tab.id) }
         let surface = tab.surface
-        services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+        let driver = feedDriver
+        services?.daemon.send("ack-tab-notifications") { connection in
+            let reply = try await connection.acknowledgeNotifications(of: surface)
+            // Items that already moved are read in the cloud (B5).
+            if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
+        }
     }
 
     // MARK: Arrival
@@ -173,6 +188,7 @@ final class NotificationCenterService {
         let decision = NotificationPolicy.decide(arrival, prefs: preferences)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
         guard let located else {
+            if Self.feedPath(driver: feedDriver) == .handoff { feedDriver?.run() }
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             return
         }
@@ -181,8 +197,13 @@ final class NotificationCenterService {
             return
         }
         // The feed (and the iPhone push) gets only what would alert on this Mac: muted
-        // workspaces, quiet hours and banners turned off are not mirrored.
-        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
+        // workspaces, quiet hours and banners turned off are not mirrored. With the
+        // local feed owner the driver's pass applies the same rules to the daemon's items.
+        if Self.feedPath(driver: feedDriver) == .handoff {
+            feedDriver?.run()
+        } else if decision.desktop {
+            mirrorToFeed(notification, source: source, located: located)
+        }
         if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }

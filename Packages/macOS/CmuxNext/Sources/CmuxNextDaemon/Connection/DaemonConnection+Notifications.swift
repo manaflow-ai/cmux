@@ -23,3 +23,20 @@ extension DaemonConnection {
         return result.value.cleared
     }
 }
+
+/// The daemon's local feed owner (`feed-local-owner-v1`,
+/// plans/cmux-next/feed.md 9.1): the app drives the handoff of local items
+/// to the cloud owner (section 5 rule 3).
+extension DaemonConnection {
+    public func feedLocalList(state: FeedLocalItem.State? = nil, unread: Bool = false) async throws -> [FeedLocalItem] {
+        try await requestNew(FeedLocalListRequest(state: state, unread: unread ? true : nil)).items
+    }
+
+    public func feedLocalHandoffBegin(_ item: String) async throws -> FeedLocalItem {
+        try await requestNew(FeedLocalHandoffBeginRequest(item: item)).item
+    }
+
+    public func feedLocalHandoffDone(_ item: String, home: String) async throws -> FeedLocalItem {
+        try await requestNew(FeedLocalHandoffDoneRequest(item: item, home: home)).item
+    }
+}

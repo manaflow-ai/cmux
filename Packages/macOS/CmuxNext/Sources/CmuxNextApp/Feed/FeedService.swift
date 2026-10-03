@@ -102,6 +102,12 @@ final class FeedService {
 
     var isSignedIn: Bool { auth.isSignedIn }
 
+    /// This Mac's install id for install-only owner ops (`feed.adopt`). Nil
+    /// today: the app holds only the Stack session, and FeedDO accepts
+    /// `feed.adopt` from install principals only. While nil the handoff
+    /// driver stays off and the step-1 bridge mirrors (feed.md 9.1 rule 4).
+    var installID: String? { nil }
+
     func stop() {
         accountWatch?.cancel()
         model.stop()

@@ -30,6 +30,27 @@ public struct AckTabNotificationsRequest: DaemonRequest {
         public var surface: SurfaceID
         public var cleared: Bool
         public var acknowledged: [String]
+        /// Local feed items of the tab owned elsewhere (`feed-local-owner-v1`):
+        /// `feed.moving` while handing off, `owner.unreachable` once moved.
+        /// Nil on older daemons.
+        public var refused: [Refused]?
+        public init(surface: SurfaceID, cleared: Bool, acknowledged: [String], refused: [Refused]? = nil) {
+            self.surface = surface
+            self.cleared = cleared
+            self.acknowledged = acknowledged
+            self.refused = refused
+        }
+    }
+    /// One local feed item the ack could not read.
+    public struct Refused: Decodable, Sendable, Hashable {
+        public var item: String
+        public var code: String
+        public var retryable: Bool
+        public init(item: String, code: String, retryable: Bool = true) {
+            self.item = item
+            self.code = code
+            self.retryable = retryable
+        }
     }
     public static let command = "ack-tab-notifications"
     public var surface: SurfaceID

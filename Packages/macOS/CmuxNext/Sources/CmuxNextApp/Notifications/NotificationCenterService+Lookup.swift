@@ -87,6 +87,49 @@ extension NotificationCenterService {
         )
     }
 
+    /// Which path copies notifications into the feed (B1): the handoff
+    /// driver when the local daemon serves `feed-local-owner-v1` (and the
+    /// app can adopt), else the step-1 bridge (older and remote daemons).
+    enum FeedPath: Equatable { case bridge, handoff }
+
+    static func feedPath(driver: FeedHandoffDriver?) -> FeedPath {
+        driver?.isActive == true ? .handoff : .bridge
+    }
+
+    /// The handoff driver over the local daemon and `feed`'s owner calls
+    /// (nil without a feed service).
+    func makeFeedDriver(_ services: AppServices) -> FeedHandoffDriver? {
+        guard let feed = services.feed else { return nil }
+        let daemon = services.daemon
+        func connection() throws -> DaemonConnection {
+            guard let connection = daemon.connection else { throw DaemonError.notConnected }
+            return connection
+        }
+        return FeedHandoffDriver(
+            daemon: .init(
+                serves: { daemon.isLocal && daemon.identity?.supports(DaemonCapabilities.shared.feedLocalOwner) == true },
+                list: { state, unread in try await connection().feedLocalList(state: state, unread: unread) },
+                begin: { try await connection().feedLocalHandoffBegin($0) },
+                done: { try await connection().feedLocalHandoffDone($0, home: $1) }),
+            owner: { [weak feed] path, body in
+                guard let feed else { throw FeedServiceError.signedOut }
+                return try await feed.call(path, body)
+            },
+            isSignedIn: { [weak feed] in feed?.isSignedIn ?? false },
+            installID: { [weak feed] in feed?.installID },
+            policy: { [weak self] in self?.feedHandoffPolicy() ?? FeedHandoffPolicy(preferences: .init(), mutedWorkspaces: []) })
+    }
+
+    /// The handoff rules under the current settings. Muted workspaces are
+    /// matched by durable key and by public id (`ws_…`, an item's context).
+    func feedHandoffPolicy() -> FeedHandoffPolicy {
+        var muted = preferences.mutedWorkspaces
+        for workspace in services?.daemon.store.workspaces ?? [] where muted.contains(workspace.id) {
+            if let resource = workspace.resourceID { muted.insert(resource.rawValue) }
+        }
+        return FeedHandoffPolicy(preferences: preferences, mutedWorkspaces: muted)
+    }
+
     /// Posts `notification` to the feed as a notice (local daemon only), as
     /// far as `feed.mirrorNotifications` allows for its source.
     func mirrorToFeed(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab) {
