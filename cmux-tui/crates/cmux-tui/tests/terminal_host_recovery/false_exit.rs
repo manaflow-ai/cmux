@@ -5,7 +5,12 @@
 
 use super::*;
 
-fn tab_with_surface(socket: &Path, surface: u64, request_id: u64) -> serde_json::Value {
+fn find_tab(
+    socket: &Path,
+    request_id: u64,
+    what: &str,
+    matches: impl Fn(&serde_json::Value) -> bool,
+) -> serde_json::Value {
     let tree = request(socket, serde_json::json!({"id": request_id, "cmd": "list-workspaces"}));
     tree["workspaces"]
         .as_array()
@@ -14,9 +19,22 @@ fn tab_with_surface(socket: &Path, surface: u64, request_id: u64) -> serde_json:
         .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
         .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
         .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
-        .find(|tab| tab["surface"].as_u64() == Some(surface))
+        .find(|tab| matches(tab))
         .cloned()
-        .unwrap_or_else(|| panic!("tab with surface {surface} missing from tree: {tree}"))
+        .unwrap_or_else(|| panic!("tab {what} missing from tree: {tree}"))
+}
+
+/// The durable tab id of the tab showing `surface` (stable across restarts;
+/// the runtime surface id is not).
+fn tab_resource_id_of(socket: &Path, surface: u64, request_id: u64) -> String {
+    let tab = find_tab(socket, request_id, &format!("with surface {surface}"), |tab| {
+        tab["surface"].as_u64() == Some(surface)
+    });
+    tab["tab_resource_id"].as_str().expect("tab resource id").to_string()
+}
+
+fn tab_with_resource_id(socket: &Path, tab_id: &str, request_id: u64) -> serde_json::Value {
+    find_tab(socket, request_id, tab_id, |tab| tab["tab_resource_id"].as_str() == Some(tab_id))
 }
 
 fn subscribe(socket: &Path) -> BufReader<Box<dyn transport::Stream>> {
@@ -51,6 +69,7 @@ fn pending_adoption_tab_is_not_dead_and_completion_pushes_tree_changed() {
     );
     let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
+    let tab_id = tab_resource_id_of(&harness.socket, surface, 50);
     let records = wait_for_host_records(&harness.host_root(), 1);
     let endpoint = PathBuf::from(&records[0].1.endpoint);
     let held_endpoint = endpoint.with_extension("held-for-false-exit-test");
@@ -64,7 +83,7 @@ fn pending_adoption_tab_is_not_dead_and_completion_pushes_tree_changed() {
         serde_json::json!({"id": 2, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
     );
     assert_eq!(pending["lifecycle"], "adopting");
-    let tab = tab_with_surface(&harness.socket, surface, 3);
+    let tab = tab_with_resource_id(&harness.socket, &tab_id, 3);
     assert_eq!(tab["dead"], false, "a pending adoption was reported dead: {tab}");
     assert_eq!(tab["terminal_state"], "adopting", "{tab}");
 
@@ -90,7 +109,7 @@ fn pending_adoption_tab_is_not_dead_and_completion_pushes_tree_changed() {
             .recv_timeout(remaining)
             .expect("adoption completion pushed no tree-changed that shows the tab running");
         request_id += 1;
-        let tab = tab_with_surface(&harness.socket, surface, request_id);
+        let tab = tab_with_resource_id(&harness.socket, &tab_id, request_id);
         assert_eq!(tab["dead"], false, "{tab}");
         if tab["terminal_state"] == "running" {
             break;
@@ -119,6 +138,7 @@ fn unreadable_host_record_keeps_terminal_unadoptable_not_ended() {
     let surface = created["surface"].as_u64().unwrap();
     let terminal_id = created["terminal_id"].as_str().unwrap().to_string();
     let incarnation = created["terminal_incarnation"].as_str().unwrap().to_string();
+    let tab_id = tab_resource_id_of(&harness.socket, surface, 50);
     let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
     let host_pid = record.host_pid as libc::pid_t;
     // The harness's own cleanup cannot read the rewritten record; never leak
@@ -144,7 +164,7 @@ fn unreadable_host_record_keeps_terminal_unadoptable_not_ended() {
     );
     assert_ne!(resolved["lifecycle"], "exited", "unreadable record ended the terminal: {resolved}");
     assert!(process_exists(host_pid), "the host must keep running");
-    let tab = tab_with_surface(&harness.socket, surface, 3);
+    let tab = tab_with_resource_id(&harness.socket, &tab_id, 3);
     assert_eq!(tab["dead"], false, "{tab}");
     assert_eq!(tab["terminal_state"], "unadoptable", "{tab}");
     assert_eq!(tab["host_record_version"], 99, "{tab}");
