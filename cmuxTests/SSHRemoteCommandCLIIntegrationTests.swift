@@ -16,6 +16,27 @@ struct SSHRemoteCommandCLIIntegrationTests {
 
     private struct RemoteCommandMockedSSHRun {
         let requests: [[String: Any]]
+        let stderr: String
+    }
+
+    @Test
+    func testMoshWithoutLocalClientUsesSSHStartupBeforeWorkspaceCreation() throws {
+        let run = try Self.runRemoteCommandMockedSSH(
+            arguments: ["--transport", "mosh"],
+            forceMoshMissing: true,
+            allowStderr: true
+        )
+        _ = try #require(Self.params(for: "workspace.ssh.open", in: run.requests))
+        #expect(Self.params(for: "workspace.create", in: run.requests) == nil)
+        #expect(Self.params(for: "workspace.remote.configure", in: run.requests) == nil)
+        let requestText = run.requests
+            .map { String(describing: $0) }
+            .joined(separator: "\n")
+        #expect(
+            !requestText.contains("cmux_mosh"),
+            "Mosh fallback must use the SSH startup path: \(requestText)"
+        )
+        #expect(run.stderr.contains("Mosh is not installed locally"), Comment(rawValue: run.stderr))
     }
 
     @Test
@@ -177,7 +198,9 @@ struct SSHRemoteCommandCLIIntegrationTests {
     }
 
     private static func runRemoteCommandMockedSSH(
-        arguments sshArguments: [String]
+        arguments sshArguments: [String],
+        forceMoshMissing: Bool = false,
+        allowStderr: Bool = false
     ) throws -> RemoteCommandMockedSSHRun {
         let fileManager = FileManager.default
         let cliPath = try BundledCLITestSupport.bundledCLIPath(
@@ -278,6 +301,11 @@ struct SSHRemoteCommandCLIIntegrationTests {
         environment["XDG_CONFIG_HOME"] = homeURL.appendingPathComponent("config").path
         environment["XDG_DATA_HOME"] = homeURL.appendingPathComponent("data").path
         environment["XDG_STATE_HOME"] = homeURL.appendingPathComponent("state").path
+        if forceMoshMissing {
+            let isolatedBinURL = homeURL.appendingPathComponent("bin", isDirectory: true)
+            try fileManager.createDirectory(at: isolatedBinURL, withIntermediateDirectories: true)
+            environment["PATH"] = isolatedBinURL.path + ":/usr/bin:/bin"
+        }
 
         let result = Harness.runProcess(
             executablePath: cliPath,
@@ -297,10 +325,13 @@ struct SSHRemoteCommandCLIIntegrationTests {
         )
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr))
-        #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        if !allowStderr {
+            #expect(result.stderr.isEmpty, Comment(rawValue: result.stderr))
+        }
 
         return RemoteCommandMockedSSHRun(
-            requests: state.snapshot().compactMap(Harness.jsonObject)
+            requests: state.snapshot().compactMap(Harness.jsonObject),
+            stderr: result.stderr
         )
     }
 
