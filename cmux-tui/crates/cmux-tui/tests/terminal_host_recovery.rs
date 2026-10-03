@@ -194,6 +194,11 @@ impl RecoveryHarness {
         }
         if !self.shell_integration {
             command.env("CMUX_TUI_SHELL_INTEGRATION", "none");
+            // The host user's own shell startup files can report a cwd too
+            // (zsh precmd hooks on the macOS build hosts add an OSC 7 commit
+            // that these exact revision counts do not expect): run a plain
+            // POSIX sh that reads no startup file.
+            command.env("SHELL", "/bin/sh").env_remove("ENV").env_remove("BASH_ENV");
         }
         if self.adopt_template_terminal {
             command.env("CMUX_TUI_ADOPT_TEMPLATE_TERMINAL", "1");
