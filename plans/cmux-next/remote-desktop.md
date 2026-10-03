@@ -289,6 +289,10 @@ The CLI verbs go through a request file (lane rule: the Swift CLI is frozen): `.
 - Audit: session start and end, consent decisions, control grants and releases, clipboard and file transfers, policy changes; stored by the engine and appended to the `TeamDO` audit chain; visible in Settings and `cmux rd audit`.
 - Secure content: the capture excludes password manager and authentication windows on macOS (content filter list shared with computer use); on Linux and Windows nothing comparable exists, which the consent panel states.
 
+### 11.0 Phase-1 trust gap (binding until lane 12's link token)
+
+The landed host engine (`cmux-tui/crates/cmux-rd-host`) trusts the principal claims in its `hello` because the overlay link token does not exist yet. So, by coordinator decision (2026-10-03): the host binds loopback and refuses every non-loopback peer by default; only the explicit `--single-tenant-overlay 1` serves a private single-tenant overlay; the Mac `remote_view` pane is not exposed in Release builds and says "development only" where a connection is made. Lift these limits only when the link `hello` carries a verified token and the host checks it.
+
 ### 11.1 Remote relay analysis (required by the repo's remote relay rules)
 
 - Local command or content execution: control-mode input is code execution on the host by design (a viewer can type into a terminal). It is therefore `execute` risk, allowed only for the host's owner user from their own interactive clients or a principal the owner granted at the host with re-authentication, never for agent principals, and always visible on the host indicator. View mode executes nothing. No `rd.*` op carries a command, path or URL parameter; `target` is a display or window id from the host's own list, validated by the host.
