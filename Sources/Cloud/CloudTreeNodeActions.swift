@@ -526,11 +526,17 @@ struct CloudTreeNodeActions {
         actions.showHint = onFailure
         actions.showDisplayOpenHint = { resource in
             guard let workspaceID = selectedWorkspaceID(),
-                  let workspace = Workspace.liveWorkspace(id: workspaceID),
-                  let rejection = workspace.surfaceOwnershipPolicy.rejection(
-                      for: resource.machine,
-                      kind: resource.kind
-                  ) else { return false }
+                  let workspace = Workspace.liveWorkspace(id: workspaceID) else {
+                // A display must never open until the selected destination's
+                // ownership is known. This also covers a stale selection while
+                // the Cloud workspace list is switching machines.
+                onFailure(SurfaceTransferRejection.cloudMachineMismatch.message)
+                return true
+            }
+            guard let rejection = workspace.surfaceOwnershipPolicy.rejection(
+                for: resource.machine,
+                kind: resource.kind
+            ) else { return false }
             onFailure(rejection.message)
             return true
         }
