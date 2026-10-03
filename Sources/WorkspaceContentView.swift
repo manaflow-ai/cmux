@@ -326,7 +326,10 @@ struct WorkspaceContentView: View {
                                 panelId: panel.id,
                                 in: NSApp.keyWindow ?? NSApp.mainWindow
                             )
-                            workspace.focusPanel(panel.id)
+                            workspace.focusPanel(
+                                panel.id,
+                                expectedFocusRestoreTransactionId: focusRestoreTransactionId
+                            )
                         },
                         onResumeAgentHibernation: {
                             guard isWorkspaceInputActive else { return }
