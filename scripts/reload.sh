@@ -49,6 +49,7 @@ _cmux_account_home="$(perl -e 'print((getpwuid($<))[7])' 2>/dev/null || true)"
 LAST_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/.local/state/cmux"
 LEGACY_SOCKET_PATH_DIR="${_cmux_account_home:-$HOME}/Library/Application Support/cmux"
 SWIFT_FRONTEND_WORKAROUND=0
+COMPILATION_CACHE=0
 XCODEBUILD_STARTED=0
 XCODEBUILD_OUTPUT_VALID=0
 XCODEBUILD_CLEANED_OUTPUTS=0
@@ -937,6 +938,15 @@ Options:
                          CMUX_SWIFT_FRONTEND_WORKAROUND=1.
   --swift-disable-global-isel
                          Alias for --swift-frontend-workaround.
+  --compilation-cache    Share compile results between tags and worktrees through
+                         Xcode's compilation cache, so a new tag's first build
+                         replays them instead of compiling everything again.
+                         Also enabled by CMUX_COMPILATION_CACHE=1. The cache
+                         lives in CMUX_COMPILATION_CACHE_DIR (default
+                         ~/Library/Caches/cmux/compilation-cache) and is capped
+                         by CMUX_COMPILATION_CACHE_LIMIT_SIZE bytes (default 8 GiB).
+                         CMUX_COMPILATION_CACHE_DIAGNOSTICS=1 logs a hit/miss
+                         remark per compile.
   -h, --help             Show this help.
 EOF
 }
@@ -1303,6 +1313,10 @@ while [[ $# -gt 0 ]]; do
       SWIFT_FRONTEND_WORKAROUND=1
       shift
       ;;
+    --compilation-cache)
+      COMPILATION_CACHE=1
+      shift
+      ;;
     -h|--help)
       usage
       exit 0
@@ -1613,6 +1627,39 @@ if should_skip_ghostty_cli_helper_zig_build; then
   export CMUX_SKIP_ZIG_BUILD=1
 fi
 
+# Xcode's compilation cache keys every compile on its inputs. Absolute paths are
+# inputs too, so without prefix mapping a second tag (another DerivedData path)
+# or another worktree would miss on everything. Project prefix mapping covers
+# the source root and SDK; the explicit mapping covers the tag's DerivedData.
+append_compilation_cache_args() {
+  local derived_data="$1"
+  local cache_dir="${CMUX_COMPILATION_CACHE_DIR:-${_cmux_account_home:-$HOME}/Library/Caches/cmux/compilation-cache}"
+  local limit_size="${CMUX_COMPILATION_CACHE_LIMIT_SIZE:-8589934592}"
+  if [[ -n "$derived_data" && "$derived_data" != /* ]]; then
+    derived_data="$PWD/$derived_data"
+  fi
+  mkdir -p "$cache_dir"
+  XCODEBUILD_ARGS+=(
+    COMPILATION_CACHE_ENABLE_CACHING=YES
+    COMPILATION_CACHE_CAS_PATH="$cache_dir"
+    COMPILATION_CACHE_LIMIT_SIZE="$limit_size"
+    SWIFT_ENABLE_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PREFIX_MAPPING=YES
+    SWIFT_ENABLE_PROJECT_PREFIX_MAPPING=YES
+    CLANG_ENABLE_PROJECT_PREFIX_MAPPING=YES
+  )
+  if [[ "${CMUX_COMPILATION_CACHE_DIAGNOSTICS:-}" == "1" ]]; then
+    # Logs a cache hit/miss remark per compile, to check the hit rate of a build.
+    XCODEBUILD_ARGS+=(COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS=YES)
+  fi
+  if [[ -n "$derived_data" ]]; then
+    XCODEBUILD_ARGS+=(
+      SWIFT_OTHER_PREFIX_MAPPINGS="${derived_data}=/^derived"
+      CLANG_OTHER_PREFIX_MAPPINGS="${derived_data}=/^derived"
+    )
+  fi
+}
+
 XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
@@ -1663,6 +1710,9 @@ if [[ "$SWIFT_FRONTEND_WORKAROUND" -eq 1 || "${CMUX_SWIFT_FRONTEND_WORKAROUND:-}
   SWIFT_OTHER_FLAGS+=" -Xllvm -aarch64-enable-global-isel-at-O=-1"
 else
   SWIFT_FRONTEND_WORKAROUND_EFFECTIVE=0
+fi
+if [[ "$COMPILATION_CACHE" -eq 1 || "${CMUX_COMPILATION_CACHE:-}" == "1" ]]; then
+  append_compilation_cache_args "$DERIVED_DATA"
 fi
 if [[ "${CMUX_SWIFT_INCREMENTAL_DIAGNOSTICS:-0}" == "1" ]]; then
   SWIFT_INCREMENTAL_DIAGNOSTICS_EFFECTIVE=1
