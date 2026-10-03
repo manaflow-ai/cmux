@@ -41,7 +41,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
-        service.router.register(PaletteScopeControl.methods(services: services))
+        service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register([

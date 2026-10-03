@@ -67,7 +67,7 @@ public final class RegistryPaletteProvider: PaletteProvider {
             let isEnabled = override != nil || registry.canPerform(descriptor.id)
             let effect = override ?? defaultEffect(for: descriptor)
             let actionID = descriptor.id
-            items.append(PaletteItem(
+            var item = PaletteItem(
                 id: "action:\(actionID.rawValue)",
                 title: descriptor.title,
                 // A disabled row says why (Chromium without a CEF runtime).
@@ -96,7 +96,9 @@ public final class RegistryPaletteProvider: PaletteProvider {
                 ],
                 frecencyKey: "action:\(actionID.rawValue)",
                 actionID: actionID
-            ))
+            )
+            item.actionRefs = [PaletteActionRef(actionID, isDestructive: descriptor.isDestructive)]
+            items.append(item)
         }
         return items
     }

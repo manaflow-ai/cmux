@@ -328,7 +328,7 @@ Platform v2 (V1 to V12) changes how apps declare things; palette scopes follow i
 | V8 Rust supervisor | scope sources run in the per-app QuickJS host; the supervisor caches the last snapshot per scope (offline first paint) and streams batches to the client with the generation; the Mac app keeps only the palette rendering |
 | V11 gesture tokens | palette Return or click mints the gesture for a row's own-command ActionRef; the host enforces mint, spend and revoke (PR 16844 ABI.md) |
 
-### 6.10 `palette.run` (shape, before the build)
+### 6.10 `palette.run` (built)
 
 A row can be acted on without the UI only through typed actions, never through the closures some built-in rows still carry (a closure has no origin check and no schema).
 
@@ -337,6 +337,7 @@ A row can be acted on without the UI only through typed actions, never through t
 - **`palette.query` rows** gain `actions: [{action, title, target?, arguments, destructive}]` (empty for untyped rows) and `typed: bool`.
 - **`palette.run {scope, item, action?, arguments?, focus?}`** (control socket, `.async`): builds the scope's page headless (like `palette.query`), finds the row by id among all its items (not only the top N), picks the ref whose `action` matches (else the first), merges `arguments` over the ref's arguments, and runs `ActionRegistry.perform` with the caller's origin and `focus` flag. The registry's execution context decides focus and selection changes (OWNERSHIP-PRINCIPLES), so a CLI or MCP run never moves focus unless the caller passes `focus: true` or the action's purpose is focus. A destructive action asks for confirmation exactly as `action.run` does.
 - **Errors:** unknown scope `palette.scope_unknown` (exit 4); no such row `palette.item_unknown` (exit 4); untyped row `palette.row_untyped` (exit 3, with the row's title); unknown action on the row `palette.action_unknown` (exit 4); the action's own refusal is passed through (`unavailable: …`).
+- **As built.** `PaletteActionRef {action, target?, arguments, title?, isDestructive}` on `PaletteItem.actionRefs`. Registry rows: `{action: <id>}`. Tabs and Search Tabs open rows: `tab.focus` (tab target), then `closeTab`. Search Tabs closed rows: `history.reopen {id}` (`history.reopen` gained an optional `id` argument; none reopens the last closed item). Workspace rows: `goToWorkspace {workspace: workspace:<id>}` (its handler now switches to the named workspace; without one it opens the workspace page). Settings rows: `palette.toggleSetting {setting, on}`. `palette.run` forwards to `action.run` in process with the row's action, target and arguments (the caller's `args` merge over them; a caller's `target` never replaces the row's) and the caller's `origin`, `focus`, `wait` and `idempotency_key`, so focus, confirmation and idempotency follow `action.run` exactly. `palette.query` rows carry `actions` and `typed`.
 - **Surfaces:** the CLI verb `cmux palette run <scope> <item> [--action <id>] [--arg k=v] [--focus]` and MCP tool `palette_run` follow `action.run`'s MCP decision per action (a ref to an MCP-exempt action is refused). Tests: a headless run of each built-in ref kind, origin and focus rules, the untyped refusal, and an argument merge.
 
 ### 6.11 Proposal: `cmux.palette.scope/1` (for the app platform lead; not built until agreed)

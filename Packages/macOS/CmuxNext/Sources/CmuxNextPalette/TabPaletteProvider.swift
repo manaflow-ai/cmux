@@ -1,4 +1,4 @@
-
+import CmuxNextActions
 
 public final class TabPaletteProvider: PaletteProvider {
     public let id = "tabs"
@@ -26,7 +26,7 @@ public final class TabPaletteProvider: PaletteProvider {
             case .browser: "globe"
             case .other(let symbol): symbol
             }
-            return PaletteItem(
+            var item = PaletteItem(
                 id: "tab:\(id)",
                 title: tab.title,
                 subtitle: tab.workspaceTitle,
@@ -53,6 +53,10 @@ public final class TabPaletteProvider: PaletteProvider {
                 ],
                 frecencyKey: "tab:\(id)"
             )
+            let target = ActionTargetRef(kind: .tab, id: id)
+            item.actionRefs = [PaletteActionRef("tab.focus", target: target, title: PaletteStrings.switchToTab),
+                               PaletteActionRef("closeTab", target: target, title: PaletteStrings.closeTab, isDestructive: true)]
+            return item
         }
     }
 }

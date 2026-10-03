@@ -89,7 +89,15 @@ public final class PaletteController {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
         if sources.workspaces != nil {
-            registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
+            // With a workspace (a palette row's typed ref, `palette.run`,
+            // the CLI) it switches to it; without one it opens the page.
+            registry.bind("goToWorkspace", invoke: { [weak self] invocation in
+                if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
+                    self?.sources.workspaces?.selectWorkspace(id: workspace)
+                } else {
+                    self?.show(.workspaces)
+                }
+            })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
