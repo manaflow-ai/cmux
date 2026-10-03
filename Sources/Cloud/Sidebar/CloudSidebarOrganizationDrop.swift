@@ -16,16 +16,28 @@ struct CloudSidebarOrganizationDrop {
         state: CloudSidebarOrganizationState,
         proposedItem: CloudTreeNode?,
         proposedChildIndex: Int,
-        dropAfterItem: Bool
+        dropAfterItem: Bool,
+        machineSlot: Int? = nil
     ) {
-        if nodes.contains(where: { $0.id == sourceID && $0.canReorderMachine }) {
-            guard let drop = CloudMachineReorderDrop(
-                sourceID: sourceID, nodes: nodes, proposedItem: proposedItem,
-                proposedChildIndex: proposedChildIndex, dropAfterItem: dropAfterItem
-            ) else { return nil }
+        if let scope = CloudMachineReorderScope(machineNodeID: sourceID, roots: nodes) {
+            let drop: CloudMachineReorderDrop?
+            if let machineSlot {
+                // A lifted drag drops where it shows the machine, not where
+                // AppKit's row proposal happens to point.
+                drop = CloudMachineReorderDrop(sourceID: sourceID, nodes: scope.siblings, slot: machineSlot)
+            } else {
+                // Between two machines in the section, AppKit proposes the
+                // section itself with a child index.
+                let item = proposedItem === scope.parent ? nil : proposedItem
+                drop = CloudMachineReorderDrop(
+                    sourceID: sourceID, nodes: scope.siblings, proposedItem: item,
+                    proposedChildIndex: proposedChildIndex, dropAfterItem: dropAfterItem
+                )
+            }
+            guard let drop else { return nil }
             self.sourceID = sourceID
-            parent = nil
-            children = nodes
+            parent = scope.parent
+            children = scope.siblings
             childIndex = drop.childIndex
             operation = .machine(drop.machineID, drop.move)
             return

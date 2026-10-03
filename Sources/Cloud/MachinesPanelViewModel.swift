@@ -71,6 +71,10 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func noteTreeFailure(_ description: String) {
+        // A tree failure is an event, not a persistent state banner. Clear a
+        // prior dismissal so repeating the same ownership hint remains
+        // visible on the next invalid attempt.
+        AppDelegate.shared?.cloudBannerDismissalStore.clear(id: "machines.tree-error")
         treeErrorDescription = description
     }
 
