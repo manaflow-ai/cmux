@@ -47,6 +47,9 @@ final class PaneHostView: NSView {
 
     override var isFlipped: Bool { true }
 
+    /// Height of the content's header (tab strip, toolbar); 0 without one.
+    var headerHeight: CGFloat { reporter?.paneHeaderHeight ?? 0 }
+
     /// The padded rect the content view fills, in this view's coordinates.
     var contentRect: CGRect { clipView.frame }
 

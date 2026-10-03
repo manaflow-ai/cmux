@@ -87,7 +87,8 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
         if touched !== layout { touched?.cancelTabDrag() }
         touched = layout
         guard let target = layout.updateTabDrag(LayoutTabID(payload.dragID), locationInWindow: windowPoint) else { return nil }
-        let point = CGRect(origin: screenPoint, size: .zero).insetBy(dx: -1, dy: -1)
+        // The ghost lands on the rect the layout's preview shows (R47).
+        let preview = layout.tabDragHighlightOnScreen ?? CGRect(origin: screenPoint, size: .zero).insetBy(dx: -1, dy: -1)
         switch target {
         case .pane(let pane, .center):
             guard let controller = content.panes[pane] else { return nil }
@@ -97,15 +98,14 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
                 controller.stripModel.orderedTabs.first { $0.id.rawValue == id }?.groupID?.rawValue
             } else { nil }
             return TabDropProposal(kind: .strip(stripID: controller.stripModel.stripID, index: controller.pane.tabs.count, groupID: ownGroup),
-                                   highlightFrame: screenFrame(of: pane, in: layout) ?? point)
+                                   highlightFrame: preview)
         case .pane(let pane, let zone):
             guard let edge = zone.edge else { return nil }
-            return TabDropProposal(kind: .newSplit(paneID: pane.rawValue, edge: edge),
-                                   highlightFrame: screenFrame(of: pane, in: layout).map { Self.half($0, edge: edge) } ?? point)
+            return TabDropProposal(kind: .newSplit(paneID: pane.rawValue, edge: edge), highlightFrame: preview)
         case .newColumn(let screen, let after):
-            return TabDropProposal(kind: .newColumn(screenID: screen.rawValue, afterColumnID: after?.rawValue), highlightFrame: point)
+            return TabDropProposal(kind: .newColumn(screenID: screen.rawValue, afterColumnID: after?.rawValue), highlightFrame: preview)
         case .newDock(let screen, let edge):
-            return TabDropProposal(kind: .newDock(screenID: screen.rawValue, edge: edge.rawValue), highlightFrame: point)
+            return TabDropProposal(kind: .newDock(screenID: screen.rawValue, edge: edge.rawValue), highlightFrame: preview)
         }
     }
 
@@ -116,21 +116,6 @@ final class LayoutTabDropTarget: TabDropTargetProviding {
 
     func dropEnded(committed: TabDropProposal?) {
         dropExited()
-    }
-
-    private func screenFrame(of pane: LayoutPaneID, in layout: LayoutRootView) -> CGRect? {
-        guard let rect = layout.frame(of: pane), let window = layout.window else { return nil }
-        return window.convertToScreen(layout.convert(rect, to: nil))
-    }
-
-    /// The half of `rect` (screen space, y up) a split on `edge` would take.
-    static func half(_ rect: CGRect, edge: TabDropEdge) -> CGRect {
-        switch edge {
-        case .left: CGRect(x: rect.minX, y: rect.minY, width: rect.width / 2, height: rect.height)
-        case .right: CGRect(x: rect.midX, y: rect.minY, width: rect.width / 2, height: rect.height)
-        case .top: CGRect(x: rect.minX, y: rect.midY, width: rect.width, height: rect.height / 2)
-        case .bottom: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height / 2)
-        }
     }
 }
 

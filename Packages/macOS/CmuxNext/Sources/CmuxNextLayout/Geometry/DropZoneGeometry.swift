@@ -2,25 +2,34 @@ public import CoreGraphics
 
 /// Hit testing and highlight rects for tab drops.
 public nonisolated enum DropZoneGeometry {
-    /// The zone of `rect` under `point`: an edge when the point sits inside
-    /// that edge's band, else center. Corners go to the relatively nearer edge.
+    /// The zone of pane cell `rect` under `point`. The zones divide the
+    /// pane body, below its `header`-point tab bar (flipped, y grows down):
+    /// the tab bar joins the pane (center), an edge wins when the point is
+    /// inside that edge's band of the body, else center. Corners go to the
+    /// relatively nearer edge. The preview (`highlightRect`) and the commit
+    /// both take the target from here (R47).
     public static func zone(at point: CGPoint, in rect: CGRect, header: CGFloat = 0, style: LayoutStyle) -> PaneDropZone {
-        let bandX = band(for: rect.width, style: style)
-        let bandY = band(for: rect.height, style: style)
+        let top = rect.minY + min(max(0, header), rect.height)
+        guard point.y >= top else { return .center }
+        let body = CGRect(x: rect.minX, y: top, width: rect.width, height: rect.maxY - top)
+        let bandX = band(for: body.width, style: style)
+        let bandY = band(for: body.height, style: style)
         let candidates: [(PaneDropZone, CGFloat)] = [
-            (.left, (point.x - rect.minX) / bandX),
-            (.right, (rect.maxX - point.x) / bandX),
-            (.top, (point.y - rect.minY) / bandY),
-            (.bottom, (rect.maxY - point.y) / bandY),
+            (.left, (point.x - body.minX) / bandX),
+            (.right, (body.maxX - point.x) / bandX),
+            (.top, (point.y - body.minY) / bandY),
+            (.bottom, (body.maxY - point.y) / bandY),
         ]
         guard let nearest = candidates.min(by: { $0.1 < $1.1 }), nearest.1 < 1 else { return .center }
         return nearest.0
     }
 
+    /// An edge band: a fraction of the extent within the style's range, and
+    /// at most a third of it, so the middle third always joins the pane.
     static func band(for extent: CGFloat, style: LayoutStyle) -> CGFloat {
         let raw = extent * style.dropEdgeFraction
         let clamped = min(max(raw, style.dropEdgeRange.lowerBound), style.dropEdgeRange.upperBound)
-        return max(1, min(clamped, extent / 2))
+        return max(1, min(clamped, extent / 3))
     }
 
     /// Drop target under `point` (content space). Column gap zones win over
@@ -31,9 +40,16 @@ public nonisolated enum DropZoneGeometry {
             return .newColumn(screen: screen, after: zone.after)
         }
         for (pane, rect) in geometry.panes.sorted(by: { $0.key < $1.key }) where rect.contains(point) {
-            return .pane(pane, zone(at: point, in: rect, style: style))
+            return .pane(pane, zone(at: point, in: rect, header: header(of: pane, in: rect, headers, style), style: style))
         }
         return nil
+    }
+
+    /// The tab bar height of `pane` measured from its cell top: the cell's
+    /// padding plus the header the pane reports (`headers`).
+    static func header(of pane: PaneID, in cell: CGRect, _ headers: [PaneID: CGFloat], _ style: LayoutStyle) -> CGFloat {
+        guard let header = headers[pane], header > 0 else { return 0 }
+        return PaneChromeGeometry.contentRect(forCell: cell, style: style).minY - cell.minY + header
     }
 
     /// Drop target under `point` in view coordinates, with the strip
@@ -46,14 +62,15 @@ public nonisolated enum DropZoneGeometry {
         if let cover = geometry.sticky.first(where: { $0.cover.contains(point) }) {
             let pane = geometry.panes.filter { geometry.fixedPanes.contains($0.key) && cover.frame.contains($0.value) }
                 .sorted { $0.key < $1.key }.first { $0.value.contains(point) }
-            return pane.map { .pane($0.key, zone(at: point, in: $0.value, style: style)) }
+            return pane.map { .pane($0.key, zone(at: point, in: $0.value, header: header(of: $0.key, in: $0.value, headers, style),
+                                                 style: style)) }
         }
         let content = CGPoint(x: point.x - geometry.viewShift(offset: offset), y: point.y)
         for zone in geometry.gapZones where zone.frame.contains(content) {
             return .newColumn(screen: screen, after: zone.after)
         }
         for (pane, rect) in geometry.panes.sorted(by: { $0.key < $1.key }) where geometry.scrolls(pane: pane) && rect.contains(content) {
-            return .pane(pane, zone(at: content, in: rect, style: style))
+            return .pane(pane, zone(at: content, in: rect, header: header(of: pane, in: rect, headers, style), style: style))
         }
         return nil
     }

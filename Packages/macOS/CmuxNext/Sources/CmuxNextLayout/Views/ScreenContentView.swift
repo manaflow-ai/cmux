@@ -318,8 +318,9 @@ final class ScreenContentView: NSView {
            let rect = DropZoneGeometry.highlightRectInView(for: dock, offset: scroll.value, geometry: geometry, style: context.style) {
             return (dock, rect, rect)
         }
+        let headers = geometry.panes.keys.reduce(into: [PaneID: CGFloat]()) { $0[$1] = context.hosts[$1]?.headerHeight }
         guard let hit = DropZoneGeometry.target(atView: localPoint, offset: scroll.value, screen: screenID, geometry: geometry,
-                                                style: context.style) else { return nil }
+                                                headers: headers, style: context.style) else { return nil }
         let target = roomAdjusted(hit)
         guard var rect = DropZoneGeometry.highlightRectInView(for: target, offset: scroll.value, geometry: geometry,
                                                               style: context.style) else { return nil }
