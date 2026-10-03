@@ -17276,9 +17276,8 @@
        "kind": "scalar",
        "name": "uint64"
       },
-      "presence": "optional",
-      "nullable": true,
-      "default": null
+      "presence": "required",
+      "nullable": false
      },
      "max_bytes": {
       "type": {
@@ -17299,7 +17298,8 @@
    "stream": null,
    "constraints": [
     "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
-    "A before marker of another marker_epoch or one that left scrollback is range_evicted."
+    "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
+    "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
    ]
   },
   "terminal-read-range": {
@@ -17347,9 +17347,8 @@
        "kind": "scalar",
        "name": "uint64"
       },
-      "presence": "optional",
-      "nullable": true,
-      "default": null
+      "presence": "required",
+      "nullable": false
      },
      "max_bytes": {
       "type": {
@@ -17371,7 +17370,8 @@
    "constraints": [
     "format is text (default; unwrapped lines joined with newline) or vt.",
     "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
-    "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true."
+    "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true.",
+    "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
    ]
   }
  },

@@ -5610,6 +5610,49 @@ Errors:
 | `unsupported_version` | `have.snapshot_version` differs from the host's |
 | `unknown surface <id>` | Surface id does not exist |
 
+### terminal-history
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-history` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Returns GHOSTSNP HISTORY pages of a PTY surface's primary screen, newest
+first, that start above the row marker `before` (absent: the top of the
+active area). Row markers stay on their row while output scrolls; rows
+that left scrollback, or markers of another `marker_epoch`, answer
+`range_evicted`. A reflow starts a new epoch. Each call encodes the whole
+scrollback once under the terminal lock.
+
+Params: `surface` (Id, required), `marker_epoch` (uint64, required),
+`before` (uint64, optional), `max_bytes` (default 1048576, 1..=8388608;
+at least one page is returned when any exists).
+
+Result: `{surface, marker_epoch, snapshot_version, pages: [{marker, rows,
+data}], next_before, done}`. `data` is one base64 GHOSTSNP PAGE record;
+`marker` is the page's first row. Pass `next_before` as `before` until
+`done`.
+
+### terminal-read-range
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-read-range` |
+| status | implemented |
+| since | protocol 12, capability `terminal-snapshot-v1` |
+
+Reads the primary screen range `from..=to`, each `{row_marker, col}`, as
+`text` (default; unwrapped lines joined with a newline) or `vt`.
+
+Params: `surface` (Id, required), `marker_epoch` (uint64, required),
+`from`, `to` (required), `format` (`text` or `vt`), `max_bytes` (default
+1048576, 1..=8388608).
+
+Result: `{surface, text, truncated}`; a longer range is cut at a
+character boundary and answers `truncated: true`. Errors: `range_evicted`,
+`invalid: ...`, `unknown surface <id>`.
+
 ### scroll-surface
 
 | Field | Value |

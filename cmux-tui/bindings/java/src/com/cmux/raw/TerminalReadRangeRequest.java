@@ -14,7 +14,7 @@ import java.util.Objects;
 public final class TerminalReadRangeRequest implements WireValue {
     private final Field<String> format;
     private final RowMarkerPoint from;
-    private final Field<UInt64> markerEpoch;
+    private final UInt64 markerEpoch;
     private final Field<UInt64> maxBytes;
     private final UInt64 surface;
     private final RowMarkerPoint to_;
@@ -23,7 +23,8 @@ public final class TerminalReadRangeRequest implements WireValue {
         this.format = builder.format;
         if (!builder.fromSet) throw new IllegalArgumentException("from is required");
         this.from = Wire.nonNull(builder.from, "from");
-        this.markerEpoch = builder.markerEpoch;
+        if (!builder.markerEpochSet) throw new IllegalArgumentException("marker_epoch is required");
+        this.markerEpoch = Wire.nonNull(builder.markerEpoch, "marker_epoch");
         this.maxBytes = builder.maxBytes;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
@@ -35,7 +36,7 @@ public final class TerminalReadRangeRequest implements WireValue {
 
     public Field<String> format() { return format; }
     public RowMarkerPoint from() { return from; }
-    public Field<UInt64> markerEpoch() { return markerEpoch; }
+    public UInt64 markerEpoch() { return markerEpoch; }
     public Field<UInt64> maxBytes() { return maxBytes; }
     public UInt64 surface() { return surface; }
     public RowMarkerPoint to_() { return to_; }
@@ -49,10 +50,8 @@ public final class TerminalReadRangeRequest implements WireValue {
         }
         Object rawFrom = Wire.required(object, "from");
         builder.from(RowMarkerPoint.fromWire(rawFrom));
-        Object rawMarkerEpoch = Wire.optional(object, "marker_epoch");
-        if (!Wire.isMissing(rawMarkerEpoch)) {
-            builder.markerEpoch(rawMarkerEpoch == null ? null : Wire.uint64(rawMarkerEpoch, "TerminalReadRangeRequest.marker_epoch"));
-        }
+        Object rawMarkerEpoch = Wire.required(object, "marker_epoch");
+        builder.markerEpoch(Wire.uint64(rawMarkerEpoch, "TerminalReadRangeRequest.marker_epoch"));
         Object rawMaxBytes = Wire.optional(object, "max_bytes");
         if (!Wire.isMissing(rawMaxBytes)) {
             builder.maxBytes(rawMaxBytes == null ? null : Wire.uint64(rawMaxBytes, "TerminalReadRangeRequest.max_bytes"));
@@ -92,7 +91,8 @@ public final class TerminalReadRangeRequest implements WireValue {
         private Field<String> format = Field.omitted();
         private RowMarkerPoint from;
         private boolean fromSet;
-        private Field<UInt64> markerEpoch = Field.omitted();
+        private UInt64 markerEpoch;
+        private boolean markerEpochSet;
         private Field<UInt64> maxBytes = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
@@ -109,7 +109,8 @@ public final class TerminalReadRangeRequest implements WireValue {
             return this;
         }
         public Builder markerEpoch(UInt64 value) {
-            this.markerEpoch = Field.ofNullable(value);
+            this.markerEpoch = value;
+            this.markerEpochSet = true;
             return this;
         }
         public Builder maxBytes(UInt64 value) {

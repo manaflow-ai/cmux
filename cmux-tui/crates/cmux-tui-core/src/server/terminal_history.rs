@@ -27,8 +27,9 @@ pub(crate) struct TerminalHistoryParams {
     /// the active area.
     #[serde(default)]
     before: Option<u64>,
-    #[serde(default)]
-    marker_epoch: Option<u64>,
+    /// The marker epoch the caller's markers belong to (from the snapshot
+    /// event or an earlier reply). Another epoch answers `range_evicted`.
+    marker_epoch: u64,
     #[serde(default)]
     max_bytes: Option<usize>,
 }
@@ -48,8 +49,9 @@ pub(crate) struct TerminalReadRangeParams {
     /// `text` (default) or `vt`.
     #[serde(default)]
     format: Option<String>,
-    #[serde(default)]
-    marker_epoch: Option<u64>,
+    /// The marker epoch the caller's markers belong to (from the snapshot
+    /// event or an earlier reply). Another epoch answers `range_evicted`.
+    marker_epoch: u64,
     /// Largest `text` in bytes (default 1 MiB, at most 8 MiB); a longer
     /// range is cut at a character boundary and answers `truncated: true`.
     #[serde(default)]
@@ -86,7 +88,7 @@ pub(crate) fn history(mux: &Arc<Mux>, params: TerminalHistoryParams) -> anyhow::
         "invalid: max_bytes must be 1..={TERMINAL_HISTORY_MAX_BYTES}"
     );
     let pages = surface
-        .history_pages(params.marker_epoch, params.before, max_bytes)
+        .history_pages(Some(params.marker_epoch), params.before, max_bytes)
         .map_err(marker_error)?;
     let engine = &base64::engine::general_purpose::STANDARD;
     Ok(json!({
@@ -118,7 +120,7 @@ pub(crate) fn read_range(mux: &Arc<Mux>, params: TerminalReadRangeParams) -> any
     };
     let text = surface
         .read_marker_range(
-            params.marker_epoch,
+            Some(params.marker_epoch),
             (params.from.row_marker, params.from.col),
             (params.to.row_marker, params.to.col),
             vt,

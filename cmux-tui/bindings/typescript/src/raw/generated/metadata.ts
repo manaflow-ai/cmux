@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca. */
+/* cmux-tui mux protocol 12, IR fba46fc05045716c2f34622fb04d88322c58f60de248ffc357187923c3618a07. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca" as const;
+export const SDK_IR_SHA256 = "fba46fc05045716c2f34622fb04d88322c58f60de248ffc357187923c3618a07" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2348,7 +2348,8 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "max_bytes defaults to 1048576 and must be 1..=8388608; at least one page is returned when any exists.",
-      "A before marker of another marker_epoch or one that left scrollback is range_evicted."
+      "A before marker of another marker_epoch or one that left scrollback is range_evicted.",
+      "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
     ]
   },
   "terminal-read-range": {
@@ -2360,7 +2361,8 @@ export const COMMAND_METADATA = {
     "constraints": [
       "format is text (default; unwrapped lines joined with newline) or vt.",
       "Rows that left scrollback, or markers of another marker_epoch, answer range_evicted.",
-      "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true."
+      "max_bytes defaults to 1048576 and must be 1..=8388608; a longer range is cut at a character boundary and answers truncated: true.",
+      "marker_epoch is required: the epoch of the caller's markers (from the snapshot event's marker_epoch or an earlier reply)."
     ]
   },
   "terminal-resources": {
@@ -17944,9 +17946,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "marker_epoch": {
-          "default": null,
-          "nullable": true,
-          "presence": "optional",
+          "nullable": false,
+          "presence": "required",
           "type": {
             "kind": "scalar",
             "name": "uint64"
@@ -17999,9 +18000,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "marker_epoch": {
-          "default": null,
-          "nullable": true,
-          "presence": "optional",
+          "nullable": false,
+          "presence": "required",
           "type": {
             "kind": "scalar",
             "name": "uint64"
