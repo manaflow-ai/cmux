@@ -30,7 +30,16 @@ struct CloudSidebarPolishTests {
         }
     }
 
-    @Test("The right sidebar never gets narrower than its mode tabs' full names")
+    @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")
+    func oneLabelWidth() {
+        // Full and icon-only widths for three tabs; Cloud's label is the widest.
+        let natural: [CGFloat] = [59, 66, 58]
+        let floors: [CGFloat] = [30, 30, 30]
+        #expect(RightSidebarModeBarTabWidths.oneLabelWidth(natural: natural, floors: floors) == 30 * 3 + 36)
+        #expect(RightSidebarModeBarTabWidths.oneLabelWidth(natural: [], floors: []) == 0)
+    }
+
+    @Test("The right sidebar never gets narrower than its mode bar needs")
     func rightSidebarClampHonorsContentMinimum() {
         let builtIn = CGFloat(RightSidebarWidthSettings.minimumWidth)
         #expect(ContentView.clampedRightSidebarWidth(200, availableWidth: 1600, contentMinimumWidth: 381) == 381)

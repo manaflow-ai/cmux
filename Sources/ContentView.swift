@@ -1227,7 +1227,7 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
-    /// `contentMinimumWidth`: what the content needs (every mode tab's full name), never below the built-in minimum.
+    /// `contentMinimumWidth`: what the content needs (the selected mode tab's name), never below the built-in minimum.
     static func clampedRightSidebarWidth(
         _ candidate: CGFloat,
         availableWidth: CGFloat,

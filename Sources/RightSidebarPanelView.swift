@@ -195,7 +195,7 @@ struct RightSidebarPanelView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
-            // The sidebar never gets narrower than every tab's full name.
+            // The sidebar always fits the selected tab's name with the others as icons.
             modeBarWidthReport.onChange = { [fileExplorerState] in fileExplorerState.modeBarMinimumWidth = $0 }
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }

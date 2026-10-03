@@ -1,8 +1,9 @@
 import CoreGraphics
 import Foundation
 
-/// Carries the mode bar's full-label width out of its layout, so the right
-/// sidebar's minimum width fits every tab's name plus the trailing controls.
+/// Carries the mode bar's needed width out of its layout, so the right
+/// sidebar's minimum width fits the selected tab's name, the other tabs as
+/// icons, and the trailing controls.
 /// The layout writes it while measuring; the change is delivered on the next
 /// main-queue turn, never during a view update.
 @MainActor
@@ -20,7 +21,7 @@ final class RightSidebarModeBarWidthReport {
             + 2 * RightSidebarChromeMetrics.headerControlSize
     }
 
-    /// Notes the tabs' width with every label in full, gaps included.
+    /// Notes the tabs' width (one full label, the rest icons), gaps included.
     func note(tabsWidth: CGFloat) {
         let width = (tabsWidth + Self.trailingReserve).rounded(.up)
         guard abs(width - reported) > 0.5 else { return }

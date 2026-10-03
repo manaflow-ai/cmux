@@ -69,7 +69,7 @@ final class CloudPortsStatusContent: NSView {
     override func layout() {
         super.layout()
         let width = max(1, bounds.width)
-        let inset = Self.contentInset
+        let inset: CGFloat = 2
         let titleHeight = Self.textHeight(titleLabel.stringValue, font: titleLabel.font ?? .systemFont(ofSize: 11), width: width - inset * 2)
         titleLabel.frame = NSRect(x: inset, y: 2, width: width - inset * 2, height: titleHeight)
         let messageY = titleLabel.frame.maxY + 2
@@ -85,8 +85,6 @@ final class CloudPortsStatusContent: NSView {
     }
 
     private static let actionHorizontalPadding: CGFloat = 8
-    /// The text's and the button's inset from this view's leading edge.
-    static let contentInset: CGFloat = 2
 
     override var intrinsicContentSize: NSSize {
         guard let presentation else { return NSSize(width: NSView.noIntrinsicMetric, height: 0) }
