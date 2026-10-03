@@ -522,7 +522,8 @@ export class Core {
    * seq 1 event (`log_id`, else a replayed seq 1 event). A reset is a log whose
    * turn seqs may repeat keys already used:
    * - same session: `cursor_reset` (acpmux refused the saved cursor) or a known
-   *   identity that differs from host.json's `acpmuxLog`; the epoch becomes
+   *   identity that differs from host.json's `acpmuxLog` (a host.json without
+   *   one, from before it existed, adopts the identity with no reset); the epoch becomes
    *   max(identity, else now; previous epoch + 1), so a repeated import of the
    *   same bundle still gets a new epoch;
    * - a session host.json does not know (a lost or replaced host.json) with a
@@ -556,7 +557,11 @@ export class Core {
         this.state.acpmuxEpoch = this.now;
       }
       this.dirty = true;
-    } else if (cursorReset || (identity !== undefined && identity !== this.state.acpmuxLog)) {
+    } else if (
+      cursorReset ||
+      // A legacy host.json (no acpmuxLog) adopts the identity below without a reset.
+      (identity !== undefined && this.state.acpmuxLog !== undefined && identity !== this.state.acpmuxLog)
+    ) {
       reset = true;
       this.state.acpmuxSeq = 0;
       const candidate = identity ?? this.now;

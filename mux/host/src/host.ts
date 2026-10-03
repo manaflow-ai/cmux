@@ -434,7 +434,10 @@ export class MuxHost {
       const [firstEvent] = await acpmux.events(sessionId, 0, 1).catch(() => [] as AcpmuxEvent[]);
       const logId = typeof firstEvent?.at === "number" ? firstEvent.at : undefined;
       const state = this.core.state;
-      const known = state.muxSessionId === sessionId && (logId === undefined || logId === state.acpmuxLog);
+      // A host.json without acpmuxLog (from before it existed) adopts this identity: no replay from 0.
+      const known =
+        state.muxSessionId === sessionId &&
+        (logId === undefined || state.acpmuxLog === undefined || logId === state.acpmuxLog);
       const { events, cursorReset } = await this.attach(acpmux, sessionId, known ? state.acpmuxSeq : 0);
       this.acpmux = acpmux;
       this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
