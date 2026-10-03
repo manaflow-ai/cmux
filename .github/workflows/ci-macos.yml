@@ -893,8 +893,7 @@ jobs:
               "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
               "$PWD/.ci-source-packages" \
               "$CMUX_COMPILE_ADMISSION_CAS" \
-              "$compile_log" 2>&1 | tee -a "$compile_log"
-            return "${PIPESTATUS[0]}"
+              "$compile_log"
           }
           compile_once
           status=$?

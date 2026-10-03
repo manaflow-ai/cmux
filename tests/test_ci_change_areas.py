@@ -5691,6 +5691,7 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert 'grep -Fq "unable to open dependencies file"' in admission
     assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"' in admission
     assert "retrying compile from a clean tree" in admission
+    assert 'tee -a "$compile_log"' not in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
     import product_input_identity as identity
