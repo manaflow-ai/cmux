@@ -129,7 +129,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     item.title = live.title ?? Strings.untitledBrowser
                     item.subtitle = live.url
-                    item.location = TabLocation(address: live.url)
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
@@ -143,7 +142,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
                                     icon: .symbol("globe"))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
-            item.location = TabLocation(page: page?.url)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }

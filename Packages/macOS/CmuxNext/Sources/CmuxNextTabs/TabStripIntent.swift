@@ -41,10 +41,6 @@ public enum TabStripIntent: Equatable, Sendable {
     case moveToNewColumn(TabID)
     /// A trailing group button (`TabStripModel.trailingButtons`) was clicked.
     case trailingButton(String)
-    /// The location field (the selected browser tab's address,
-    /// `TabItem.location`) was clicked or pressed with VoiceOver: the App
-    /// focuses that page's address bar through the same action as Cmd-L.
-    case focusLocation
     /// A tab was dragged out of the strip. The App's drag session takes over
     /// pointer tracking; the strip keeps the slot collapsed until the model
     /// drops the tab or the App calls `TabStripView.restoreDetachedTab`.
