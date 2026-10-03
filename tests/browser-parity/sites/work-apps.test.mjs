@@ -159,6 +159,14 @@ test("jira: issue with ADF description and comments as Markdown, JQL search, cur
   assert.match(await s.error('sites.jira.issue("ABC-2", { site: "acme" })'), /not found/);
 });
 
+test("jira: only the signed-in account's Jira sites are called", async () => {
+  const before = env.state.requests.length;
+  assert.match(await s.error('sites.jira.me({ site: "evil" })'), /https:\/\/evil\.atlassian\.net is not a Jira site of the signed-in Atlassian account; its sites: https:\/\/acme\.atlassian\.net/);
+  // wiki is the account's Confluence site, not a Jira site.
+  assert.match(await s.error('sites.jira.issue("https://wiki.atlassian.net/browse/ABC-1")'), /https:\/\/wiki\.atlassian\.net is not a Jira site/);
+  assert.ok(!env.state.requests.slice(before).some((r) => /\/\/(evil|wiki)\.atlassian\.net\//.test(r.url)), "no request reached an unlisted site");
+});
+
 test("signed out: each API reports not_signed_in", async () => {
   const out = await createSitesEnv({ signedIn: false });
   try {
