@@ -1,8 +1,9 @@
 // A turn's changes as its before/after checkpoint pair records them, when the host has one, or
 // else as the turn's tool calls report them. The checkpoint diff is the truth on disk: it holds
 // a file once with its net change, and it holds changes no tool call made (a shell command, a
-// formatter). Those are shown read-only; Keep and Undo stay on the files the tool calls changed.
-import type { TurnFile } from "../diff";
+// formatter). Those are shown read-only; hunks that still match a tool edit carry its review key
+// so Keep and Undo stay connected to the tool call that produced them.
+import { hunkKey, type DiffHunk, type TurnFile } from "../diff";
 import { t } from "../i18n";
 import { changeSetFiles, readChangeSet, type ChangeSet } from "./model";
 
@@ -41,6 +42,56 @@ export type TurnDisplay = {
   note?: string;
 };
 
+type ReviewCandidate = { key: string; changed: Set<string> };
+
+function changedTokens(hunk: DiffHunk): Set<string> {
+  return new Set(hunk.lines.filter((line) => line.type !== "context").map((line) => `${line.type}\u0000${line.text}`));
+}
+
+function checkpointReviewKeys(file: TurnFile, hunk: DiffHunk, toolFile: TurnFile | undefined): string[] {
+  if (!toolFile || file.patchTruncated) return [];
+  const wanted = changedTokens(hunk);
+  if (wanted.size === 0) return [];
+  const candidates: ReviewCandidate[] = toolFile.edits.flatMap((edit, editIndex) =>
+    edit.hunks.map((toolHunk, hunkIndex) => ({
+      key: hunkKey(toolFile, editIndex, hunkIndex),
+      changed: changedTokens(toolHunk),
+    })),
+  );
+  const chosen = new Set<string>();
+  for (const token of wanted) {
+    const matches = candidates.filter((candidate) => candidate.changed.has(token));
+    // A checkpoint hunk can combine several tool hunks, but a repeated line is not enough to
+    // choose between two tool hunks safely. Keep only candidates identified by a unique change.
+    if (matches.length === 1) chosen.add(matches[0]!.key);
+  }
+  if (chosen.size > 0) {
+    const covered = new Set(
+      candidates.filter((candidate) => chosen.has(candidate.key)).flatMap((candidate) => [...candidate.changed]),
+    );
+    return [...wanted].every((token) => covered.has(token))
+      ? candidates.filter((candidate) => chosen.has(candidate.key)).map((candidate) => candidate.key)
+      : [];
+  }
+  return candidates.length === 1 && [...wanted].every((token) => candidates[0]!.changed.has(token))
+    ? [candidates[0]!.key]
+    : [];
+}
+
+function checkpointReviewFile(file: TurnFile, toolFiles: readonly TurnFile[]): TurnFile {
+  const toolFile = toolFiles.find((candidate) => changedByTools(file, [candidate]));
+  return {
+    ...file,
+    edits: file.edits.map((edit) => ({
+      ...edit,
+      hunks: edit.hunks.map((hunk) => ({
+        ...hunk,
+        reviewKeys: checkpointReviewKeys(file, hunk, toolFile),
+      })),
+    })),
+  };
+}
+
 /// A checkpoint file is one a tool call changed when a tool call's path is it, or ends with its
 /// path under the repository: tool calls report paths as the agent wrote them (`~/code/x/a.ts`).
 export function changedByTools(file: TurnFile, toolFiles: readonly TurnFile[]) {
@@ -64,11 +115,14 @@ export function turnDisplay(toolFiles: TurnFile[], load: TurnCheckpointLoad, pen
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
-      const files = changeSetFiles(load.changeSet).map((file) => ({
-        ...file,
-        edits: file.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-        ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
-      }));
+      const files = changeSetFiles(load.changeSet).map((file) => {
+        const reviewFile = checkpointReviewFile(file, toolFiles);
+        return {
+          ...reviewFile,
+          edits: reviewFile.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
+          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+        };
+      });
       return { files, source: "checkpoint" };
     }
   }

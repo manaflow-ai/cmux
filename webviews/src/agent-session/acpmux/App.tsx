@@ -1670,6 +1670,7 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    reviewFiles={diffFiles}
                   />
                 )}
               </div>
