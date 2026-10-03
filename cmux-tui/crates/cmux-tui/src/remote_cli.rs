@@ -1057,8 +1057,8 @@ fn run_forward(args: &[String]) -> anyhow::Result<()> {
 mod remote_browser_proxy;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
-use remote_wg_hub::run_wg;
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
+use remote_wg_hub::run_wg;
 
 #[derive(Debug, PartialEq, Eq)]
 enum RpcInputEvent {
@@ -2912,7 +2912,6 @@ mod tests {
         assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
     }
 
-
     #[cfg(unix)]
     #[test]
     fn parent_lifecycle_fence_tracks_the_direct_parent() {
@@ -3197,7 +3196,6 @@ mod tests {
             assert!(!error.to_string().contains(secret));
         }
     }
-
 
     #[cfg(unix)]
     #[test]
