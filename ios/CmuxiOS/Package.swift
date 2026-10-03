@@ -80,12 +80,12 @@ let package = Package(
             linkerSettings: [.linkedLibrary("c++")]
         ),
         // ghostty-next (plans/cmux-next/ghostty-next.md): the iOS remote-terminal
-        // build of libghostty, pinned to one release. Never pin the ios-v1 builds
-        // (old module name GhosttyKit collides with the desktop app's).
+        // build of libghostty, pinned to one release. Never pin ios-v1 (old module
+        // name GhosttyKit) or ios-v2 (draws black: its surface layer is never sized).
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip",
-            checksum: "7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e71a12e5ab0d1e86751ec021efec3ab5a837f344-ios-v3/GhosttyNextKit.xcframework.zip",
+            checksum: "506fa02ba8d56ac65810d8466b661f889b6338f54b6b77cd10fae1d1358963d8"
         ),
         .target(
             name: "CmuxiOSPush",

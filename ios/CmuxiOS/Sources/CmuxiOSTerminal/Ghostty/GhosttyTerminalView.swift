@@ -1,9 +1,10 @@
 import Foundation
 import GhosttyNextKit
-import QuartzCore
 import UIKit
 
-/// One visible terminal drawn by ghostty-next in mirror mode: the phone owns
+/// One visible terminal drawn by ghostty-next in mirror mode (a plain
+/// UIView: Ghostty adds and sizes its own surface layer; there is no display
+/// link on iOS, the renderer draws on change): the phone owns
 /// no PTY; the host's bytes arrive through `feed`, and everything the user
 /// types leaves through `onInput` (encoded by Ghostty with the mirrored modes).
 @MainActor
@@ -17,8 +18,6 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
     private let outputQueue = DispatchQueue(label: "cmux.ios.terminal.output", qos: .userInteractive)
     private var inputBox: InputBox?
     private var draws = 0
-
-    public override class var layerClass: AnyClass { CAMetalLayer.self }
 
     public override init(frame: CGRect) {
         super.init(frame: frame)
