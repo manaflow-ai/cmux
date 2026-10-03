@@ -1533,7 +1533,6 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn explicit_xdg_ghostty_config_does_not_add_application_support_candidates() {
-        let _ = macos_ci_compile_break_probe;
         let xdg = PathBuf::from("/tmp/cmux-test-xdg");
         let home = PathBuf::from("/tmp/cmux-test-home");
         let paths = ghostty_config_paths_from(Some(xdg.clone()), Some(home));
