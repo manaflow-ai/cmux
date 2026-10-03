@@ -670,3 +670,29 @@ final class SidebarRowLinkButton: NSButton {
         onClick?()
     }
 }
+
+/// Non-interactive port text. Ports remain discoverable in the row while URL
+/// opening is available from the workspace's existing row actions/menu.
+@MainActor
+final class SidebarRowPortLabel: NSTextField {
+    init() {
+        super.init(frame: .zero)
+        isBordered = false
+        isEditable = false
+        isSelectable = false
+        drawsBackground = false
+        lineBreakMode = .byClipping
+        setAccessibilityRole(.staticText)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(title: String, font: NSFont, color: NSColor) {
+        stringValue = title
+        self.font = font
+        textColor = color
+        setAccessibilityLabel(title)
+    }
+}
