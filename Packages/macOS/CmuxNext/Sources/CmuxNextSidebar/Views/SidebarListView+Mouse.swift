@@ -65,6 +65,10 @@ extension SidebarListView {
                 inlineRename.begin(row.key)
                 return
             }
+        case let .tab(workspace, tab):
+            self.press = nil
+            model.send(.selectTab(workspace: workspace, tab: tab))
+            return
         case .section, .emptySection:
             break
         }
@@ -95,6 +99,8 @@ extension SidebarListView {
         switch press.key {
         case .workspace:
             if let id = press.deferredClick { model.click(id) }
+        case .tab:
+            break
         case let .group(group):
             // An empty saved group reopens; any other group toggles.
             if let g = model.group(group), g.isPinned, g.workspaces.isEmpty {

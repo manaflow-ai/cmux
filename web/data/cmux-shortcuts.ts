@@ -182,6 +182,24 @@ export const shortcutCategories: ShortcutCategory[] = [
           ja: "デフォルトでは未割り当て。グループのアンカーを除いて循環し、グループに属していない場合はウインドウ全体を循環",
         },
       },
+      {
+        id: "nextWorkspaceGroup",
+        combos: [["⌃", "⇧", "⌘", "]"]],
+        description: { en: "Next workspace group", ja: "次のワークスペースグループ" },
+        note: {
+          en: "cycles to the first workspace in the next non-empty group",
+          ja: "次の空でないグループの最初のワークスペースに移動",
+        },
+      },
+      {
+        id: "prevWorkspaceGroup",
+        combos: [["⌃", "⇧", "⌘", "["]],
+        description: { en: "Previous workspace group", ja: "前のワークスペースグループ" },
+        note: {
+          en: "cycles to the first workspace in the previous non-empty group",
+          ja: "前の空でないグループの最初のワークスペースに移動",
+        },
+      },
       { id: "moveWorkspaceUp", combos: [["⌃", "⌥", "⌘", "["]], description: { en: "Move workspace up", ja: "ワークスペースを上へ移動" } },
       { id: "moveWorkspaceDown", combos: [["⌃", "⌥", "⌘", "]"]], description: { en: "Move workspace down", ja: "ワークスペースを下へ移動" } },
       {

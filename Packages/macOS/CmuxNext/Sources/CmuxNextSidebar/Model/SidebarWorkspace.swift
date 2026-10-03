@@ -16,6 +16,40 @@ public nonisolated enum UnreadState: Hashable, Sendable {
     }
 }
 
+/// The kind icon used by an optional sidebar tab row.
+public nonisolated enum SidebarTabKind: Hashable, Sendable, Codable {
+    case terminal
+    case browser
+    case remoteTerminal
+    case conversation
+    case other(String)
+
+    public var symbolName: String {
+        switch self {
+        case .terminal: "terminal"
+        case .browser: "globe"
+        case .remoteTerminal: "network"
+        case .conversation: "bubble.left.and.bubble.right"
+        case .other: "square"
+        }
+    }
+}
+
+/// A tab that can optionally be listed below its workspace.
+public nonisolated struct SidebarTab: Identifiable, Hashable, Sendable {
+    public var id: TabID
+    public var title: String
+    public var kind: SidebarTabKind
+    public var isUnread: Bool
+
+    public init(id: TabID, title: String, kind: SidebarTabKind = .terminal, isUnread: Bool = false) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.isUnread = isUnread
+    }
+}
+
 /// One workspace row.
 public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     public var id: WorkspaceID
@@ -43,6 +77,8 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// Determinate or indeterminate bar under the row: the workspace's
     /// reported progress, else a terminal's OSC 9;4 progress.
     public var progress: SidebarProgress?
+    /// Tabs in pane order, shown only when the sidebar tab setting is enabled.
+    public var tabs: [SidebarTab]
     /// Live daemon data, a saved row drawn before the daemon answered, or a
     /// placeholder (`SidebarRowState`).
     public var rowState: SidebarRowState
@@ -58,6 +94,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         activity: StatusIndicatorState = .idle,
         activityStyle: StatusIndicatorStyle? = nil,
         progress: SidebarProgress? = nil,
+        tabs: [SidebarTab] = [],
         rowState: SidebarRowState = .live
     ) {
         self.id = id
@@ -70,6 +107,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
         self.activity = activity
         self.activityStyle = activityStyle
         self.progress = progress
+        self.tabs = tabs
         self.rowState = rowState
     }
 }

@@ -15,23 +15,35 @@ final class GroupHeaderRowView: SidebarRowView {
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
     private let pin = NSImageView()
+    private let pill = CALayer()
+    let addButton = SidebarIconButton(symbol: "plus", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.newWorkspace)
+    let editButton = SidebarIconButton(symbol: "pencil", pointSize: { Metrics.smallIconSize - Metrics.space1 }, weight: .semibold, label: Strings.rename)
     private var pinned = false
     private var color: GroupColor = .grey
     private var collapsed = false
     private var chevronFrame: CGRect = .zero
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
+    var onAdd: (() -> Void)?
+    var onEdit: (() -> Void)?
+
+    override var interactiveSubviews: [NSView] { [addButton, editButton] }
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
+        layer?.addSublayer(pill)
         layer?.addSublayer(dot)
         count.alignment = .right
-        [name, pin, count, chevron, activity, badge].forEach(addSubview)
+        [name, pin, count, chevron, activity, badge, addButton, editButton].forEach(addSubview)
+        addButton.onPress = { [weak self] in self?.onAdd?() }
+        editButton.onPress = { [weak self] in self?.onEdit?() }
     }
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isDropTarget = false
         collapsed = false
+        onAdd = nil
+        onEdit = nil
     }
 
     private struct Content: Hashable {
@@ -85,6 +97,9 @@ final class GroupHeaderRowView: SidebarRowView {
             pin.contentTintColor = Palette.textTertiary
             chevron.contentTintColor = Palette.textTertiary
             let tint = SidebarStyle.color(color)
+            pill.backgroundColor = color == .grey
+                ? Palette.sidebarStep.withAlphaComponent(0.7).cgColor
+                : tint.withAlphaComponent(0.20).cgColor
             // Fills only: a drop onto the group tints the row in its color.
             if isDropTarget {
                 paintFill(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
@@ -117,6 +132,24 @@ final class GroupHeaderRowView: SidebarRowView {
         name.isHidden = renaming
 
         var trailing = b.width - Metrics.space3
+        pill.frame = NSRect(x: Metrics.space1, y: Metrics.space1,
+                            width: max(0, b.width - Metrics.space2),
+                            height: max(0, b.height - Metrics.space2))
+        pill.cornerRadius = SidebarStyle.rowCornerRadius
+        pill.isHidden = false
+        let control = SidebarStyle.controlSize
+        addButton.isHidden = !isHovered
+        editButton.isHidden = !isHovered
+        if !editButton.isHidden {
+            editButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2,
+                                      width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
+        if !addButton.isHidden {
+            addButton.frame = NSRect(x: trailing - control, y: (b.height - control) / 2,
+                                     width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         chevronFrame = CGRect(x: trailing - chevronSide, y: (b.height - chevronSide) / 2, width: chevronSide, height: chevronSide)
         chevron.frame = chevronFrame
         chevron.isHidden = !(isHovered || collapsed)
@@ -142,7 +175,7 @@ final class GroupHeaderRowView: SidebarRowView {
             count.frame = NSRect(x: trailing - cw, y: (b.height - ch) / 2, width: cw, height: ch)
             trailing -= cw + Metrics.space2
         }
-        let nx = SidebarStyle.horizontalInset
+        let nx = SidebarStyle.horizontalInset + Metrics.space1
         let nh = ceil(name.intrinsicContentSize.height)
         let dotSide = SidebarStyle.dotSize
         let dotRoom = color == .grey ? 0 : dotSide + Metrics.space3

@@ -80,7 +80,8 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .focusMove: [
             "showHideAllWindows", "goToWorkspace", "showMainWindow", "tab.focus", "nextSidebarTab", "prevSidebarTab",
-            "nextSidebarTabInGroup", "prevSidebarTabInGroup", "selectWorkspaceByNumber", "workspace.selectFirst",
+            "nextSidebarTabInGroup", "prevSidebarTabInGroup", "nextWorkspaceGroup", "prevWorkspaceGroup",
+            "selectWorkspaceByNumber", "workspace.selectFirst",
             "workspace.selectLast", "workspace.selectLastUsed", "space.next", "space.previous", "space.selectByNumber",
             "space.switch", "focusLeft", "focusRight", "focusUp", "focusDown", "focusPreviousPane", "focusNextPane",
             "canvasRevealFocusedPane", "nextSurface", "prevSurface", "selectSurfaceByNumber",

@@ -7,6 +7,10 @@ import Foundation
 public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Activate a workspace (the selection's primary item).
     case select(WorkspaceID)
+    /// Activate a tab listed beneath a workspace.
+    case selectTab(workspace: WorkspaceID, tab: TabID)
+    /// Move a listed tab into another workspace.
+    case moveTab(TabID, from: WorkspaceID, to: WorkspaceID)
     /// Move workspaces, in tree order, to a position. Covers reorder, moving
     /// into or out of groups, pinning, and unpinning.
     case reorder([WorkspaceID], to: DropPosition)

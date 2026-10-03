@@ -15,6 +15,10 @@ enum WorkspaceGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         bindEdits(registry, context)
         bindMembers(registry, context)
+        registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
+                      run: { _ in selectGroup(context, offset: 1) })
+        registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
+                      run: { _ in selectGroup(context, offset: -1) })
     }
 
     private static func bindMembers(_ registry: ActionRegistry, _ context: AppActionContext) {
@@ -128,6 +132,30 @@ enum WorkspaceGroupHandlers {
         let group = try context.group(invocation)
         guard collapsed == nil || collapsed != group.collapsed else { return }
         try context.sidebar().handle(.toggleCollapse(.group(sidebarID(group))))
+    }
+
+    private static func selectGroup(_ context: AppActionContext, offset: Int) {
+        guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
+              !context.roomGroups.isEmpty else { return }
+        let groups = context.roomGroups
+        let activeGroupIndex = sidebar.model.activeWorkspaceID.flatMap { active in
+            sidebar.model.sections.flatMap(\.nodes).firstIndex { node in
+                guard case let .group(group) = node else { return false }
+                return group.workspaces.contains { $0.id == active }
+            }
+        }.flatMap { nodeIndex in
+            guard case let .group(group) = sidebar.model.sections.flatMap(\.nodes)[nodeIndex] else { return nil }
+            return groups.firstIndex { $0.id.rawValue == group.id.rawValue }
+        }
+        let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
+        for step in 1...groups.count {
+            let index = (start + offset * step + groups.count * 2) % groups.count
+            let target = groups[index]
+            if let workspace = sidebar.model.group(CmuxNextSidebar.GroupID(target.id.rawValue))?.workspaces.first(where: { $0.rowState != .placeholder }) {
+                context.services.windows.show(workspaceID: workspace.id.rawValue, in: window.state)
+                return
+            }
+        }
     }
 
     private static func move(_ invocation: ActionInvocation, by offset: Int, _ context: AppActionContext) throws {

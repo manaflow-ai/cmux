@@ -18,15 +18,15 @@ import Testing
     }
 
     @Test func readsEveryKey() throws {
-        let snapshot = try parse(#"{"sidebar": {"sectionLook": "lines", "topBandMaxShare": 0.5, "bottomBandMaxShare": 0.2, "stickyBandsScroll": false}}"#)
+        let snapshot = try parse(#"{"sidebar": {"sectionLook": "lines", "topBandMaxShare": 0.5, "bottomBandMaxShare": 0.2, "stickyBandsScroll": false, "showWorkspaceTabs": true}}"#)
         #expect(snapshot.sidebarSections == SidebarSectionsPreferences(look: "lines", topBandMaxShare: 0.5, bottomBandMaxShare: 0.2,
-                                                                         stickyBandsScroll: false))
+                                                                         stickyBandsScroll: false, showWorkspaceTabs: true))
     }
 
     @Test func badValuesKeepDefaultsWithDiagnostics() throws {
-        let snapshot = try parse(#"{"sidebar": {"sectionLook": "fancy", "topBandMaxShare": 2, "stickyBandsScroll": "no"}}"#)
+        let snapshot = try parse(#"{"sidebar": {"sectionLook": "fancy", "topBandMaxShare": 2, "stickyBandsScroll": "no", "showWorkspaceTabs": "yes"}}"#)
         #expect(snapshot.sidebarSections == .defaults)
-        #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.stickyBandsScroll"])
+        #expect(Set(snapshot.diagnostics.map(\.path)) == ["sidebar.sectionLook", "sidebar.topBandMaxShare", "sidebar.stickyBandsScroll", "sidebar.showWorkspaceTabs"])
     }
 
     @MainActor @Test func appliesToDesignSettings() throws {

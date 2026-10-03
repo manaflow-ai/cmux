@@ -60,7 +60,7 @@ extension SidebarListView {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
-        case .section, .emptySection:
+        case .tab, .section, .emptySection:
             return
         }
 

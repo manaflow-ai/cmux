@@ -2713,6 +2713,66 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "workspace-group next",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "]",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "nextWorkspaceGroup",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Next Workspace Group",
+      "title_key" : "action.nextWorkspaceGroup",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "focusMove",
+      "cli_name" : "workspace-group previous",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "[",
+        "modifiers" : [
+          "ctrl",
+          "shift",
+          "cmd"
+        ]
+      },
+      "id" : "prevWorkspaceGroup",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "title" : "Previous Workspace Group",
+      "title_key" : "action.prevWorkspaceGroup",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "workspace-group add-workspace",
       "context_menu" : "offered",
