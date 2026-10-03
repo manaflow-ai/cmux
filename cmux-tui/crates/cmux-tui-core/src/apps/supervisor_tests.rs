@@ -903,7 +903,18 @@ fn provider_calls_carry_the_stamped_actor_and_answer_the_app() {
             request["origin"].clone(),
             request["op"].clone()
         ),
-        (json!("cmux/demo"), json!("app:cmux/demo"), json!("user"), json!("action.run"))
+        (
+            json!("cmux/demo"),
+            json!({
+                "kind": "app",
+                "id": "cmux/demo",
+                "host": crate::machine_name::machine_name(),
+                "version": "1.0.0",
+                "on_behalf_of": { "kind": "user", "id": "user_local" }
+            }),
+            json!("user"),
+            json!("action.run")
+        )
     );
     assert!(request["idempotency_key"].as_str().is_some_and(|k| k.starts_with("app:cmux/demo:")));
     let id = request["request_id"].as_u64().unwrap();
