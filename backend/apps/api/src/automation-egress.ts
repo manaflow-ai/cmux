@@ -13,7 +13,7 @@ export interface AutomationEgressProps {
 }
 
 /** Test seam (ENVIRONMENT=test only): answers allowed requests instead of the network. */
-export const egressTest: { upstream?: (url: string, init: RequestInit) => Promise<Response> } = {}
+export const egressTest: { upstream?: (url: string, init: RequestInit) => Promise<Response>; connects: number } = { connects: 0 }
 
 const refuse = (status: number, code: string, message: string) =>
   new Response(JSON.stringify({ error: { code, message } }), { status, headers: { "content-type": "application/json", "x-cmux-egress": "refused" } })
@@ -35,6 +35,7 @@ const dropped = (k: string) => DROPPED.has(k) || k.startsWith("cf-") || k.starts
 export class AutomationEgress extends WorkerEntrypoint<Env, AutomationEgressProps> {
   /** Raw TCP (`cloudflare:sockets` connect) is never allowed: only HTTPS through `fetch`. */
   override connect(socket: Socket): void {
+    if (this.env.ENVIRONMENT === "test") egressTest.connects++
     void socket.close()
     throw new Error("egress.denied: automation code may not open raw sockets")
   }
@@ -63,8 +64,13 @@ export class AutomationEgress extends WorkerEntrypoint<Env, AutomationEgressProp
     const hasBody = request.method !== "GET" && request.method !== "HEAD"
     const init: RequestInit = { method: request.method, headers, body: hasBody ? request.body : null, redirect: "manual" }
     const res = this.env.ENVIRONMENT === "test" && egressTest.upstream ? await egressTest.upstream(url.toString(), init) : await fetch(url.toString(), init)
-    // Counted only once the upstream answered (never over-bill a request that failed).
-    await meter.egressDone(p.team)
+    // Counted only once the upstream answered (never over-bill a request that failed). A meter
+    // outage loses the count (an under-count), never the response the upstream already acted on.
+    try {
+      await meter.egressDone(p.team)
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "egress count lost", team: p.team, error: String(e) }))
+    }
     return res
   }
 }

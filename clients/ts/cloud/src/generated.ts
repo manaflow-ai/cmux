@@ -593,6 +593,7 @@ export type Run = {
     readonly scheduled_at?: number
     readonly delivery_id?: string
     readonly parent_run?: RunId
+    readonly root_run?: RunId
     readonly depth?: number
   }
   readonly state: RunState

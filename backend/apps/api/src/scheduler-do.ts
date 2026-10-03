@@ -58,7 +58,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       ...(p.user ? { user: p.user } : {}),
       ...(p.team ? { team: p.team } : {}),
       ...(p.install ? { install: p.install } : {}),
-      ...(p.display_name ? { display_name: p.display_name } : {})
+      ...(p.display_name ? { display_name: p.display_name } : {}),
+      // Automation principals: mirrors replay automation.run with the same chain rules (review P2).
+      ...(p.kind === "agent" && p.identity.startsWith("automation:") ? { agent: p.agent, run: p.run } : {})
     }))
     // Trigger payloads wait here between the delivery and the Workflow start. They are
     // inputs, not entity state: never in events, snapshots or the ledger.

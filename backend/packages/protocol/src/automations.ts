@@ -182,6 +182,8 @@ export const Run = Schema.Struct({
     delivery_id: Schema.optionalKey(Schema.String),
     /** type `automation`: the run whose code or op step started this run, and the chain depth (1 = started by a run another trigger started). */
     parent_run: Schema.optionalKey(RunId),
+    /** type `automation`: the first run of the chain (its tree shares one run budget). */
+    root_run: Schema.optionalKey(RunId),
     depth: Schema.optionalKey(Schema.Int)
   }),
   state: RunState,
