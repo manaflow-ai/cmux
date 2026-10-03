@@ -1763,6 +1763,57 @@ describe("acpmux turn diff", () => {
     }
   });
 
+  test("once the turn's checkpoint loads, the card counts it and marks changes outside tool calls", async () => {
+    const { TurnCountsContext } = await import("./changes/TurnCountsContext");
+    const { readTurnCheckpoint, turnCounts } = await import("./changes/turnCheckpoint");
+    const checkpoint = readTurnCheckpoint({
+      checkpoint_id: "cp-1",
+      complete: true,
+      diff: {
+        scope: "lastTurn",
+        root: "/repo",
+        files: [
+          { path: "src/a.ts", status: "modified", additions: 2, deletions: 1, patch: "@@ -1 +1,2 @@\n-1\n+2\n+3\n" },
+          { path: "gen.ts", status: "added", additions: 5, deletions: 0, patch: "@@ -0,0 +1 @@\n+x\n" },
+        ],
+      },
+    });
+    const asked: string[] = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const document = dom.window.document;
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            TurnCountsContext.Provider,
+            {
+              value: (rowId, toolFiles) => {
+                asked.push(rowId);
+                return turnCounts(toolFiles, checkpoint);
+              },
+            },
+            createElement(VirtualTranscript, {
+              rows: [editRow(["/repo/src/a.ts"])],
+              onToggleActivity: () => {},
+              onOpenDiff: () => {},
+              expanded: new Set<string>(),
+            }),
+          ),
+        ),
+      );
+      expect(document.querySelector(".acpmux-edited-title")?.textContent).toBe(
+        "Edited 2 files+7-1Includes changes outside tool calls",
+      );
+      expect([...document.querySelectorAll(".acpmux-edited-file")].map((file) => file.textContent)).toEqual([
+        "src/a.ts+2-1",
+        "gen.ts+5-0",
+      ]);
+      expect(asked.length).toBeGreaterThan(0);
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
   test("one edited file is named in the card, and many show the first three", async () => {
     const opened: [string, string | undefined][] = [];
     const document = dom.window.document;
@@ -2942,6 +2993,80 @@ describe("acpmux hunk review", () => {
       expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
       expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
       expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  });
+
+  test("a turn's checkpoint shows read-only, marking files outside tool calls; a fallback says why", async () => {
+    const { DiffPanel } = await import("./DiffPanel");
+    const { turnFiles } = await import("./diff");
+    const { readTurnCheckpoint, turnDisplay } = await import("./changes/turnCheckpoint");
+    const toolFiles = turnFiles([
+      {
+        id: "activity-1",
+        version: 1,
+        at: 1,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t1",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "/repo/a.ts", oldText: "one\ntwo\n", newText: "one\n2\n", line: 4 }],
+            },
+          },
+        ],
+      },
+    ]);
+    const checkpoint = readTurnCheckpoint({
+      checkpoint_id: "cp-1",
+      complete: true,
+      diff: {
+        scope: "lastTurn",
+        root: "/repo",
+        files: [
+          { path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -4,2 +4,2 @@\n one\n-two\n+2\n" },
+          { path: "b.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-x\n+y\n" },
+        ],
+      },
+    });
+    const review = { decisions: new Map(), decide: () => {}, requestRevert: () => {} };
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const document = dom.window.document;
+    const show = async (display: ReturnType<typeof turnDisplay>) => {
+      await act(async () =>
+        root.render(createElement(DiffPanel, { files: display.files, turn: display, onClose: () => {}, review })),
+      );
+      for (let tries = 0; tries < 50 && !document.querySelector("[data-path] .acpmux-file-header"); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      // Hunk actions mount after Pierre paints.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    };
+    try {
+      await show(turnDisplay(toolFiles, { state: "missing" }, false));
+      expect(document.querySelector(".acpmux-turn-note")?.textContent).toBe(
+        "No checkpoint for this turn. Showing the agent's edits.",
+      );
+      for (let tries = 0; tries < 50 && !document.querySelector(".acpmux-hunk-reject"); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(document.querySelector(".acpmux-hunk-reject")).not.toBeNull();
+
+      await show(turnDisplay(toolFiles, checkpoint, false));
+      const badges = [...document.querySelectorAll(".acpmux-diff-file")].map((node) => [
+        node.getAttribute("data-path"),
+        node.querySelector(".acpmux-fh-outside")?.textContent ?? "",
+      ]);
+      expect(badges).toEqual([
+        ["/repo/a.ts", ""],
+        ["/repo/b.ts", "Outside tool calls"],
+      ]);
+      expect(document.querySelector(".acpmux-hunk-reject")).toBeNull();
+      expect(document.querySelector(".acpmux-turn-note")).toBeNull();
     } finally {
       await act(async () => root.unmount());
     }

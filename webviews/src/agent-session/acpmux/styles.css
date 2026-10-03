@@ -266,6 +266,7 @@
 .acpmux-edited-title{flex:1;min-width:0;line-height:20px}
 .acpmux-edited-title>div:first-child{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acpmux-edited-title .acpmux-diff-counts{font-size:12px}
+.acpmux-edited-outside{margin-left:8px;color:var(--agent-muted);font-size:12px}
 .acpmux-review-changes{flex:none;height:28px;padding:0 10px;border:0;border-radius:8px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text);font:inherit;cursor:pointer}
 .acpmux-review-changes:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent))}
 .acpmux-edited-file{display:flex;align-items:center;gap:12px;width:100%;height:34px;box-sizing:border-box;padding:0 12px;border:0;background:none;color:var(--agent-text);font:inherit;text-align:left}

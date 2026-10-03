@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { applyAgentTheme } from "../shared/theme";
@@ -41,6 +41,9 @@ import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { DiffPanel } from "./DiffPanel";
 import { SummaryButton } from "./summary/SummaryButton";
+import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
+import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
+import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import type { HunkDecision, HunkReview } from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
@@ -276,16 +279,22 @@ const EditedFilesRow = memo(
   function EditedFilesRow({ row, onOpenDiff }: RowProps) {
     const [showAll, setShowAll] = useState(false);
     const edits = (row.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange");
-    const files = useMemo(() => turnFiles([row]), [row]);
+    const toolFiles = useMemo(() => turnFiles([row]), [row]);
+    // Once the turn's checkpoint has loaded, its files and counts replace the tool calls'.
+    const countsFor = useContext(TurnCountsContext);
+    const counts = useMemo(
+      () => (countsFor ? countsFor(row.id, toolFiles) : turnCounts(toolFiles, undefined)),
+      [countsFor, row.id, toolFiles],
+    );
+    const files = counts.files;
     // An edit whose tool call carried no diff still lists, without counts.
-    const plain = plainEditLabels(edits);
+    const plain = counts.files === toolFiles ? plainEditLabels(edits) : [];
     const entries: { key: string; file?: TurnFile; text?: string }[] = [
       ...files.map((file) => ({ key: file.path, file })),
       ...plain.map((text, index) => ({ key: `plain-${index}`, text })),
     ];
     const total = entries.length;
-    const additions = files.reduce((sum, file) => sum + file.additions, 0);
-    const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
+    const { additions, deletions } = counts;
     const single = total === 1 && files.length === 1 ? files[0] : undefined;
     const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
     const more = single ? 0 : total - shown.length;
@@ -301,6 +310,7 @@ const EditedFilesRow = memo(
               {single ? `Edited ${single.path.split("/").pop()}` : `Edited ${total} ${total === 1 ? "file" : "files"}`}
             </div>
             {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
+            {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
           {reviewable && (
             <button
@@ -896,6 +906,43 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
+  // Each turn's checkpoint pair, named by the row that starts the turn. The host reads none yet
+  // (changesSource has no `turn`), so Last turn shows the tool calls' edits as before.
+  const turnCheckpoints = useTurnCheckpoints(changesSource.turn, snapshot.sessionId);
+  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
+  const turnRowsRef = useRef(snapshot.rows);
+  turnRowsRef.current = snapshot.rows;
+  const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
+  const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  useEffect(() => {
+    if (diffTurn) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, requestTurnCheckpoint]);
+  const diffDisplay = useMemo(() => {
+    if (!diffFiles || !diffTurn) return undefined;
+    // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.
+    const toolIds = new Set(diffFiles.flatMap((file) => file.edits.map((edit) => edit.toolId)));
+    const pending = [...hunkDecisions].some(
+      ([key, decision]) => decision === "rejected" && toolIds.has(key.split("\u0000")[0]!),
+    );
+    return turnDisplay(diffFiles, turnCheckpoint(diffTurn) ?? { state: "loading" }, pending);
+  }, [diffFiles, diffTurn, hunkDecisions, turnCheckpoint]);
+  // The latest edited-files card shows its turn's checkpoint counts once the turn has ended.
+  const endedEditTurn = useMemo(() => {
+    let ended = false;
+    for (let index = snapshot.rows.length - 1; index >= 0; index--) {
+      const row = snapshot.rows[index]!;
+      if (row.kind === "turnSummary") ended = true;
+      else if (row.kind === "editedFiles") return ended ? row.id : undefined;
+    }
+    return undefined;
+  }, [snapshot.rows]);
+  useEffect(() => {
+    if (endedEditTurn) requestTurnCheckpoint(turnKey(endedEditTurn));
+  }, [endedEditTurn, requestTurnCheckpoint, turnKey]);
+  const turnCountsFor = useCallback<TurnCountsFor>(
+    (rowId, toolFiles) => turnCounts(toolFiles, turnCheckpoint(turnKey(rowId))),
+    [turnCheckpoint, turnKey],
+  );
   const [registry, setRegistry] = useState<NativeRegistry>(defaultRegistry);
   /// Who is signed in, when the host says: the sidebar's account row.
   const [account, setAccount] = useState<SidebarAccount>();
@@ -1390,22 +1437,24 @@ function AcpmuxPane() {
   };
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
-      <VirtualTranscript
-        rows={transcriptRows}
-        canLoadOlder={snapshot.canLoadOlder}
-        expanded={expanded}
-        registry={registry}
-        // The Quick Composer has no room for the changes view; its file rows stay plain.
-        onOpenDiff={quick ? undefined : openDiff}
-        onToggleActivity={(id) =>
-          setExpanded((current) => {
-            const next = new Set(current);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-          })
-        }
-      />
+      <TurnCountsContext.Provider value={turnCountsFor}>
+        <VirtualTranscript
+          rows={transcriptRows}
+          canLoadOlder={snapshot.canLoadOlder}
+          expanded={expanded}
+          registry={registry}
+          // The Quick Composer has no room for the changes view; its file rows stay plain.
+          onOpenDiff={quick ? undefined : openDiff}
+          onToggleActivity={(id) =>
+            setExpanded((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            })
+          }
+        />
+      </TurnCountsContext.Provider>
     </TurnActionsContext.Provider>
   );
   const asks = (
@@ -1607,7 +1656,8 @@ function AcpmuxPane() {
                 )}
                 {diffView && diffFiles && (
                   <DiffPanel
-                    files={diffFiles}
+                    files={diffDisplay?.files ?? diffFiles}
+                    turn={diffDisplay}
                     initialPath={diffView.path}
                     onClose={closeDiff}
                     source={changesSource}
