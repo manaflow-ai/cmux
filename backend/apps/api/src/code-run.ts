@@ -78,21 +78,43 @@ const loadBundle = async (env: Env, team: string, ref: CodeRef): Promise<string>
 }
 
 /**
- * The harness module: it imports the tenant bundle, logs the run marker first,
- * then runs the tenant's WorkflowEntrypoint class with the wrapped step.
+ * The marker module: the harness imports it before the tenant bundle, so it holds the
+ * runtime's own console.log before any tenant module code runs. Tenant code can still
+ * log lines that look like a marker, but not before the harness's first line of an
+ * invocation, and the tail reads only that first line (automation-tail.ts).
+ */
+const MARKER_MODULE = `const log = console.log.bind(console);
+export const mark = (...a) => log(...a);
+`
+
+/**
+ * The harness module: it imports the marker and then the tenant bundle, logs the run
+ * marker first, then runs the tenant's WorkflowEntrypoint class with the wrapped step.
  */
 const harnessModule = (exportName: string) => `
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { mark } from "./cmux-marker.js";
 import * as tenant from "./tenant.js";
 const Tenant = tenant[${JSON.stringify(exportName)}];
 export class CmuxHarness extends WorkerEntrypoint {
   async run(meta, event, step) {
-    console.log(${JSON.stringify(RUN_MARKER)}, meta.run, meta.automation);
+    mark(${JSON.stringify(RUN_MARKER)}, meta.run, meta.automation, meta.invocation);
     if (typeof Tenant !== "function") throw new Error("the export is not a WorkflowEntrypoint class");
     return new Tenant(this.ctx, this.env).run(event, step);
   }
 }
 `
+
+/**
+ * The identity of one tenant invocation, chosen by the API Worker when it calls the harness
+ * (one call is one invocation, so one id). The tail keys usage on it, so a redelivered tail
+ * carries the same marker and counts once. Runtime ids are not used for billing until a
+ * staging redelivery proves them stable (automations-plan.md 2a).
+ */
+export const newInvocationId = (): string => {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+  return `inv_${Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => alphabet[b % 36]).join("")}`
+}
 
 /** Validates tenant step config: plain object, bounded retries, delay and timeout. */
 const stepConfig = (given: unknown): WorkflowStepConfig => {
@@ -218,7 +240,7 @@ export class WrappedStep extends RpcTarget {
 }
 
 interface HarnessEntrypoint {
-  run(meta: { run: string; automation: string }, event: { payload: unknown; timestamp: Date; instanceId: string }, step: WrappedStep): Promise<unknown>
+  run(meta: { run: string; automation: string; invocation: string }, event: { payload: unknown; timestamp: Date; instanceId: string }, step: WrappedStep): Promise<unknown>
 }
 
 /**
@@ -249,7 +271,7 @@ export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, s
   const worker = env.LOADER.get(id, async () => ({
     compatibilityDate: TENANT_COMPATIBILITY_DATE,
     mainModule: "harness.js",
-    modules: { "harness.js": harnessModule(run.ref.export ?? "default"), "tenant.js": fetched ?? (await loadBundle(env, run.team, run.ref)) },
+    modules: { "harness.js": harnessModule(run.ref.export ?? "default"), "cmux-marker.js": MARKER_MODULE, "tenant.js": fetched ?? (await loadBundle(env, run.team, run.ref)) },
     env: {},
     globalOutbound: null,
     limits: CODE_LIMITS,
@@ -259,7 +281,7 @@ export const runCode = async (env: Env, step: WorkflowStep, run: CodeRunInput, s
   const entry = worker.getEntrypoint("CmuxHarness") as unknown as HarnessEntrypoint
   let result: unknown
   try {
-    result = await entry.run({ run: run.run, automation: run.automation }, { payload: run.input ?? null, timestamp: startedAt, instanceId: run.run }, wrapped)
+    result = await entry.run({ run: run.run, automation: run.automation, invocation: newInvocationId() }, { payload: run.input ?? null, timestamp: startedAt, instanceId: run.run }, wrapped)
   } catch (e) {
     throw wrapped.stopReason() ?? e
   }
