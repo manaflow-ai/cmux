@@ -76,7 +76,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { _ in
+        services.windows.onFirstWindow = { [weak services] _ in
+            #if DEBUG
+            if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
+            #endif
             CATransaction.setCompletionBlock {
                 MainActor.assumeIsolated { DebugTimings.markLaunch("first_window_frame_committed") }
             }

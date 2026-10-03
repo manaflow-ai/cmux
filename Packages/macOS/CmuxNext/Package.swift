@@ -574,6 +574,7 @@ let package = Package(
             name: "CmuxNextActions",
             resources: [
                 .process("AccountsActions.xcstrings"),
+                .process("ActionCatalog.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),

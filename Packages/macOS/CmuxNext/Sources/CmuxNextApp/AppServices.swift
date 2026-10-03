@@ -41,6 +41,7 @@ final class AppServices {
     private(set) var feed: FeedService!
     /// The wide Inbox page, backed by `feed.model`.
     private(set) lazy var feedPage = FeedPageService(services: self)
+    var showcase = ShowcaseState()
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -145,7 +146,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit, settings: settings)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, environment: ProcessInfo.processInfo.environment, showcase: environment.showcase, linkScheme: linkScheme, git: agentGit, settings: settings)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).
@@ -271,7 +272,7 @@ final class AppServices {
         tabBarButtons = TabBarButtonsController(context: AppActionContext(services: self))
         let updateSheet = UpdateSheetController(source: UpdateSheetModel(service: updater))
         self.updateSheet = updateSheet
-        updater.presentUpdateUI = { [weak self] in updateSheet.present(in: self?.windows.active?.window) }
+        updater.attach(sheet: updateSheet, services: self)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
                 for pane in controller.content?.panes.values.map({ $0 }) ?? [] where pane.currentTabKey == key { pane.showSelected() }

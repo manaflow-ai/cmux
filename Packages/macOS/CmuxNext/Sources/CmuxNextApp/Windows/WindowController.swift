@@ -14,6 +14,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     let state: WindowState
     let sidebar: SidebarBridge
     let root: WindowRootView
+    /// The rail's update circle.
+    let updateIndicator: WindowUpdateIndicator
     /// This window's focus state machine (plans/cmux-next/focus.md); it
     /// lives in the window's `WindowState`.
     var focus: FocusCoordinator { state.focus }
@@ -45,6 +47,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let rail = WindowRailView(model: sidebar.model, registry: services.registry)
         // The rail's items take the sidebar's menus (pin, remove, reorder).
         rail.column.contextMenuProvider = { [weak sidebar] target in sidebar?.contextMenu(for: target) }
+        updateIndicator = WindowUpdateIndicator(updater: services.updater, registry: services.registry, column: rail.column)
         root = WindowRootView(sidebar: sidebar.container, rail: rail)
         let window = ShellWindow(
             contentRect: frame ?? NSRect(x: 0, y: 0, width: 1100, height: 720),
