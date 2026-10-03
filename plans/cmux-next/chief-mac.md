@@ -80,6 +80,19 @@ Effects (tagged `kind`, in order): `conversation_op {conversation, idempotency_k
 Durable state keeps the `host.json` shape of `mux/host/src/state.ts` (field names unchanged), so
 the Rust host takes over a TypeScript host's state and memory with no migration step.
 
+Conditions (Home lead, 2026-10-03, binding for P1):
+
+1. The TypeScript step core is the single behavior source. The corpus is generated from it; the
+   Rust core follows it, never the other way.
+2. `mux/host` keeps working until `cmux-chief` passes the corpus; then the Rust Chief replaces it in
+   one switch. The Mac never has two live brains (the shared pid lock also enforces this).
+3. The Rust Chief acts as `agent_mux` with the agent principal, never `user_local` or the install
+   principal. In-process (section 2) the owner stamps the agent principal directly; any socket
+   client path binds with the minted agent token.
+4. Approval cards show the real op and params; the action key is derived from the confirm id,
+   inside the core (a later core feature, built in TypeScript first).
+5. No new raw daemon command lands without a coordination line in the lane file.
+
 ## 4. Shared behavior corpus
 
 Format `cmux-chief-corpus/1`, file `mux/packages/brain/conformance/chief-cases.json`, written by
