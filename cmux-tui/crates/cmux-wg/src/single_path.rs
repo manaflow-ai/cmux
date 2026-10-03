@@ -44,7 +44,10 @@ pub(crate) async fn new_socket_path(
 /// A small one keeps the kernel's queue short, so a backlog forms in the
 /// driver's priority queues, where media still overtakes bulk: a full buffer
 /// answers `WouldBlock`, the underlay keeps the datagram, and the driver
-/// sends nothing more until the socket is writable again.
+/// sends nothing more until the socket is writable again. This is how Linux
+/// queues UDP (measured, fs round 6). macOS keeps no UDP datagrams in the
+/// socket buffer (there it only caps the datagram size, and a full interface
+/// answers ENOBUFS), so a small buffer changes little there.
 #[cfg(unix)]
 fn set_send_buffer(socket: &UdpSocket, bytes: usize) -> std::io::Result<()> {
     use std::os::fd::AsRawFd;
@@ -138,8 +141,8 @@ mod tests {
     use super::*;
 
     /// The hub's `--send-buffer` reaches the kernel: the socket reports the
-    /// small buffer (Linux doubles it), well under the default, and a
-    /// request below the floor gets the floor.
+    /// small buffer (Linux doubles it), and a request below the floor gets
+    /// the floor.
     #[tokio::test]
     async fn a_requested_send_buffer_reaches_the_socket() {
         let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();

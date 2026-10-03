@@ -51,7 +51,8 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
             "--probes" => probes = true,
             "--send-buffer" => {
                 let raw = value("--send-buffer")?;
-                let Some(bytes) = raw.to_str().and_then(|text| text.parse::<usize>().ok()) else {
+                let bytes = raw.to_str().and_then(|text| text.parse::<usize>().ok());
+                let Some(bytes) = bytes.filter(|bytes| *bytes <= MAX_SEND_BUFFER) else {
                     let message =
                         catalog().remote_client.invalid_option_value("--send-buffer", "BYTES");
                     return Err(anyhow!(message));
@@ -160,6 +161,10 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The largest `--send-buffer`: above the kernel's limit macOS refuses the
+/// option, and a bigger buffer only moves the queue back into the kernel.
+const MAX_SEND_BUFFER: usize = 4 * 1024 * 1024;
+
 /// How the hub's tunnel is started.
 #[derive(Clone, Copy, Default)]
 struct HubTunnel {
@@ -234,6 +239,9 @@ mod tests {
         assert_eq!(parse_wg_hub_flags(&sized).unwrap().send_buffer, Some(32 * 1024));
         let bad = ["--config", "c", "--socket", "s", "--send-buffer", "lots"].map(str::to_string);
         assert!(parse_wg_hub_flags(&bad).is_err());
+        let huge =
+            ["--config", "c", "--socket", "s", "--send-buffer", "8388608"].map(str::to_string);
+        assert!(parse_wg_hub_flags(&huge).is_err(), "above 4 MiB is refused");
         assert_eq!(measured.control, Some(PathBuf::from("k")));
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());

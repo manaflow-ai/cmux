@@ -12,8 +12,8 @@ shares this hub instead of handshaking on its own.
                   UDP port on a Unix datagram socket in PATH.d/, with a priority
                   class: interactive, media or bulk) and `datagram.stats`
   --probes        measure the path with probes; only for a peer that answers them
-  --send-buffer BYTES  UDP send buffer (default and minimum 16384); a small one keeps
-                       queues in the hub, where media overtakes bulk
+  --send-buffer BYTES  UDP send buffer, 16384 (the default) to 4194304; a small one
+                       keeps queues in the hub, where media overtakes bulk
 
 Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
 listening (it also names `"control"` with --control). Only literal IP targets
