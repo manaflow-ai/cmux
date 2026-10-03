@@ -13,6 +13,10 @@ pub use crate::client::{
 pub use crate::convenience::{AttachBuilder, SubscriptionBuilder};
 pub use crate::generated::*;
 pub use crate::presence::{Nullable, Optional};
+pub use crate::raw_frontend_browser::{
+    FRONTEND_BROWSER_TAB_KEYS_CAPABILITY, FrontendBrowserEngine, FrontendBrowserTabCreate,
+    FrontendBrowserTabCreated, FrontendBrowserTabUpdate, FrontendBrowserTabUpdated,
+};
 pub use crate::raw_support::{
     CommandMetadata, EventMetadata, ProfileMetadata, RequiredNullable, StreamMetadata,
 };
