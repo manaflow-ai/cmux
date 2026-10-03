@@ -124,3 +124,39 @@ async fn a_page_request_with_large_localhost_cookies_is_served() {
     let request = format!("GET /?token={TOKEN} HTTP/1.1\r\nHost: {host}\r\n{cookie}\r\n");
     assert_eq!(status(port, request).await, 200);
 }
+
+#[test]
+fn dev_origins_are_loopback_http_with_a_port_only() {
+    use acpmux::server::dev_origin;
+    assert_eq!(dev_origin("http://127.0.0.1:4176/").unwrap(), "http://127.0.0.1:4176");
+    assert_eq!(dev_origin("http://LOCALHOST:5173").unwrap(), "http://localhost:5173");
+    for bad in [
+        "https://127.0.0.1:4176",
+        "http://evil.example:4176",
+        "http://127.0.0.1",
+        "http://localhost:80",
+        "null",
+        "cmux-agent://pane",
+        "http://user@localhost:5173",
+    ] {
+        assert!(dev_origin(bad).is_err(), "{bad}");
+    }
+}
+
+#[tokio::test]
+async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
+    let mut config = Config::default();
+    config.store.mode = StoreMode::Memory;
+    config.dev_origins = vec!["http://127.0.0.1:4176".into()];
+    let store = acpmux::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub: Arc<Hub> = Hub::new(config, store);
+    let listener = bind_ws("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(serve_ws(hub, listener, TOKEN.into()));
+    let host = format!("127.0.0.1:{port}");
+    let query = format!("?token={TOKEN}");
+    assert_eq!(status(port, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 101);
+    let plain = listener().await;
+    let host = format!("127.0.0.1:{plain}");
+    assert_eq!(status(plain, upgrade(&query, &host, Some("http://127.0.0.1:4176"))).await, 403);
+}

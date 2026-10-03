@@ -183,16 +183,37 @@ pub fn listener_policy(
     policy
 }
 
+/// Validate a `--allow-dev-origin` value: only a loopback `http` origin with
+/// an explicit port (a page dev server on this machine). Anything else is an
+/// error, so the flag can never admit a web site.
+pub fn dev_origin(value: &str) -> Result<String> {
+    let origin = cmux_local_auth::parse_origin(value)
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} is not scheme://host:port"))?;
+    let rest = origin
+        .strip_prefix("http://")
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} must be http"))?;
+    let (host, port) = rest
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow::anyhow!("--allow-dev-origin {value:?} needs a port"))?;
+    anyhow::ensure!(
+        matches!(host, "127.0.0.1" | "localhost" | "[::1]") && port.parse::<u16>().is_ok(),
+        "--allow-dev-origin {value:?} must be a loopback host with a port"
+    );
+    Ok(origin)
+}
+
 pub async fn serve_ws(hub: Arc<Hub>, listener: TcpListener, token: String) -> Result<()> {
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
-    let (extra_origins, extra_hosts) = hub
-        .config
-        .read()
-        .await
-        .websocket
-        .as_ref()
-        .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
-        .unwrap_or_default();
+    let (extra_origins, extra_hosts) = {
+        let config = hub.config.read().await;
+        let (mut origins, hosts) = config
+            .websocket
+            .as_ref()
+            .map(|w| (w.allowed_origins.clone(), w.allowed_hosts.clone()))
+            .unwrap_or_default();
+        origins.extend(config.dev_origins.iter().cloned());
+        (origins, hosts)
+    };
     let policy = Arc::new(listener_policy(listener.local_addr()?, &extra_origins, &extra_hosts));
     let token = Arc::new(token);
     loop {

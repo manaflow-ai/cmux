@@ -447,6 +447,10 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run
+    /// only, never saved).
+    #[serde(skip)]
+    pub dev_origins: Vec<String>,
     /// Profiles whose launcher failed its start-up check, with the reason.
     /// They stay configured (sessions on them keep their history) but no
     /// family preference or fallback routes new work to them.
