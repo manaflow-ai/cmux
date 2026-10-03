@@ -104,6 +104,19 @@ struct CloudDirectoryLifecycleTests {
         #expect(presentation.directoryCandidates == ["cwd-machine · Directory unavailable"])
     }
 
+    @Test("A stale Cloud terminal without an accepted cwd does not render a placeholder")
+    func staleMissingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["running", "running"])
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
     @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
     func unconfirmedCloudDirectoryIsWithheld() throws {
         let fixture = try CloudDirectoryTestFixture()

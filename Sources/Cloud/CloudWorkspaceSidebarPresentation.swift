@@ -94,6 +94,7 @@ struct CloudWorkspaceSidebarPresentation {
         var entries: [(identity: String, directory: String?)] = []
         var seen = Set<String>()
         var sawTerminal = false
+        let catalogSnapshot = SurfaceCatalog.shared.snapshot
         for panelID in orderedPanelIDs {
             let projectedMachine = state.projectedResources[panelID]?.machine
             guard let machineID = projectedMachine.flatMap({ $0.isDevice ? $0.rawValue : $0.cloudMachineID })
@@ -115,6 +116,12 @@ struct CloudWorkspaceSidebarPresentation {
                 sawTerminal = true
             }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
+            // A stale Cloud graph is retained for restoration, but it is not
+            // evidence that a terminal is ready to report its cwd. Do not
+            // render the transient unavailable placeholder during reconnect.
+            if directory == nil, catalogSnapshot.staleMachineIDs.contains(resourceID?.machine ?? .cloud(machineID)) {
+                continue
+            }
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
             entries.append((machineID, directory))
         }
