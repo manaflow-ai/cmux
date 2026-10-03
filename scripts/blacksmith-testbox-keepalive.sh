@@ -98,6 +98,7 @@ if (( idle_timeout_minutes > max_idle_timeout_minutes )); then
 fi
 (( idle_timeout_minutes >= 1 )) || idle_timeout_minutes=1
 printf 'idle timeout: %s min\n' "$idle_timeout_minutes"
+busy_check="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/blacksmith-testbox-busy.sh"
 last_activity="$(date +%s)"
 idle_timeout_seconds=$((idle_timeout_minutes * 60))
 
@@ -105,6 +106,10 @@ while :; do
   sleep 30
   now="$(date +%s)"
   if ss -tnp 2>/dev/null | grep -Eq ":${runner_ssh_port}([^0-9]|$)"; then
+    last_activity="$now"
+  elif "$busy_check" "$working_directory" "$$"; then
+    # A command still runs in the checkout after its SSH session ended (a
+    # detached cargo test): run 37105812136 released such a box mid-test.
     last_activity="$now"
   elif [[ -f "$HOME/.testbox-last-activity" ]]; then
     marker_mtime="$(stat -c %Y "$HOME/.testbox-last-activity" 2>/dev/null || stat -f %m "$HOME/.testbox-last-activity")"
