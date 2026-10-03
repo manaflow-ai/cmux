@@ -118,12 +118,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         case unavailable
     }
 
-    /// Guarded by `lock`; read by the hook on any thread.
-    private var target: NSPasteboard?
+    /// The pasteboard WebKit's lookups of each name get instead of the
+    /// system's: the general pasteboard's during a command, the drag
+    /// pasteboard's during an automated drag's window. Guarded by `lock`;
+    /// read by the hook on any thread.
+    private var targets: [String: NSPasteboard] = [:]
     private let lock = NSLock()
     @MainActor private var installed = false
     /// The command WebKit has not reported done, within or past its timeout.
     @MainActor private var unfinished: Command?
+    /// The automated drag whose window is open.
+    @MainActor private var dragWindow: DragWindow?
 
     /// Installs the process-wide `+[NSPasteboard pasteboardWithName:]` hook
     /// once. Returns `false` when the method is missing.
@@ -301,17 +306,17 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
     /// a lookup of the general pasteboard by WebKit while a command is in
     /// flight.
     public func redirectTarget(forLookupOf name: String, fromWebKit: Bool) -> NSPasteboard? {
-        guard fromWebKit, name == NSPasteboard.Name.general.rawValue else { return nil }
+        guard fromWebKit else { return nil }
         lock.lock()
         defer { lock.unlock() }
-        return target
+        return targets[name]
     }
 
     private func redirectedLookup(of name: String) -> NSPasteboard? {
         lock.lock()
-        let inFlight = target != nil
+        let inFlight = targets[name] != nil
         lock.unlock()
-        guard inFlight, name == NSPasteboard.Name.general.rawValue else { return nil }
+        guard inFlight else { return nil }
         return redirectTarget(forLookupOf: name, fromWebKit: Self.lookupComesFromWebKit())
     }
 
@@ -350,16 +355,74 @@ public final class BrowserReplPasteboardRedirect: @unchecked Sendable {
         command.whenFinished()
     }
 
-    private func setTarget(_ pasteboard: NSPasteboard?) {
+    private func setTarget(_ pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
         lock.lock()
-        target = pasteboard
+        targets[name.rawValue] = pasteboard
         lock.unlock()
     }
 
-    private func endRedirect(to pasteboard: NSPasteboard) {
+    private func endRedirect(to pasteboard: NSPasteboard, for name: NSPasteboard.Name = .general) {
         lock.lock()
-        if target === pasteboard { target = nil }
+        if targets[name.rawValue] === pasteboard { targets[name.rawValue] = nil }
         lock.unlock()
+    }
+
+    // MARK: - Automated drags
+
+    /// Opens `pasteboard`'s drag window: until ``closeDragWindow(_:)`` or
+    /// `timeout`, WebKit's lookups of the drag pasteboard by name (the
+    /// pasteboard an HTML5 drag's data is written to when the drag starts)
+    /// get `pasteboard`, never the system's named drag pasteboard, which
+    /// every process of the user can read and overwrite. Lookups by other
+    /// code keep the system's.
+    ///
+    /// One window is open at a time in the whole app, since WebKit's
+    /// lookups do not say which web view a drag starts in: an open window of
+    /// another drag is waited for, up to `timeout`, and `false` means it was
+    /// still open then and this one did not open. Opening the window that is
+    /// already open returns `true`.
+    @MainActor
+    public func openDragWindow<C: Clock>(
+        _ pasteboard: NSPasteboard,
+        timeout: Duration = .seconds(5),
+        clock: C = ContinuousClock()
+    ) async -> Bool where C.Duration == Duration {
+        guard install() else { return false }
+        let deadline = clock.now.advanced(by: timeout)
+        while let open = dragWindow {
+            if open.pasteboard === pasteboard { return true }
+            guard await open.closed.wait(until: deadline, clock: clock, honoringCancellation: false) else { return false }
+        }
+        let window = DragWindow(pasteboard: pasteboard)
+        dragWindow = window
+        setTarget(pasteboard, for: .drag)
+        // Bounded: a drag the page never starts does not keep every other
+        // web view's drag data on this pasteboard.
+        let bound = clock.now.advanced(by: timeout)
+        Task { @MainActor in
+            if await window.closed.wait(until: bound, clock: clock, honoringCancellation: false) { return }
+            self.closeDragWindow(pasteboard)
+        }
+        return true
+    }
+
+    /// Closes `pasteboard`'s drag window, if it is the open one.
+    @MainActor
+    public func closeDragWindow(_ pasteboard: NSPasteboard) {
+        guard let window = dragWindow, window.pasteboard === pasteboard else { return }
+        endRedirect(to: pasteboard, for: .drag)
+        dragWindow = nil
+        window.closed.signal()
+    }
+
+    @MainActor
+    private final class DragWindow {
+        let pasteboard: NSPasteboard
+        let closed = BrowserReplLatch()
+
+        init(pasteboard: NSPasteboard) {
+            self.pasteboard = pasteboard
+        }
     }
 
     @MainActor

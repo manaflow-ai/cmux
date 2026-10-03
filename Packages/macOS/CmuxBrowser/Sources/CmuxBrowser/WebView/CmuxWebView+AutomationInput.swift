@@ -83,10 +83,16 @@ extension CmuxWebView {
 
     /// Captures the drag WebKit starts after an automated `mouseDragged`
     /// instead of handing it to AppKit, whose drag loop follows the physical
-    /// cursor. The driver then plays the destination side itself.
+    /// cursor. The driver then plays the destination side itself. Replacing
+    /// or clearing it finishes the previous capture (its private pasteboard
+    /// is emptied and released).
     public var automationDragCapture: BrowserAutomationDragCapture? {
         get { objc_getAssociatedObject(self, Self.dragCaptureKey) as? BrowserAutomationDragCapture }
-        set { objc_setAssociatedObject(self, Self.dragCaptureKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+        set {
+            let previous = automationDragCapture
+            objc_setAssociatedObject(self, Self.dragCaptureKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            if let previous, previous !== newValue { previous.finish() }
+        }
     }
 
     private static let dragCaptureKey: UnsafeRawPointer = {
@@ -114,21 +120,65 @@ private final class DragCaptureKey: NSObject, @unchecked Sendable {
 }
 
 /// A drag WebKit started while automation was driving the mouse.
+///
+/// The drag's data never touches the system's named drag pasteboard, which
+/// every process of the user can read and overwrite while the driver waits
+/// for WebKit: each capture has its own uniquely named pasteboard, and while
+/// its window is open (``openPasteboardWindow()``, around the automated
+/// `mouseDragged` events that may start the drag) WebKit's lookups of the
+/// drag pasteboard get it (``BrowserReplPasteboardRedirect``). The window
+/// closes when WebKit starts the drag, which it does after writing the
+/// data, or at ``closePasteboardWindow()``. A drag WebKit starts after its
+/// window closed carries no data to the drop.
 @MainActor
 public final class BrowserAutomationDragCapture: NSObject {
     /// Called once WebKit asks AppKit to begin the drag session.
     public var onBegin: (() -> Void)?
     /// Whether WebKit has started the drag.
     public private(set) var didBegin = false
-    /// Pasteboard WebKit wrote the drag data to.
-    public let pasteboard = NSPasteboard(name: .drag)
+    /// This drag's private pasteboard, which WebKit writes the drag data to
+    /// and the automated drop reads.
+    public let pasteboard = NSPasteboard.withUniqueName()
+    private var finished = false
 
     public override init() {
         super.init()
     }
 
+    /// Opens this drag's pasteboard window, waiting up to 5 s for another
+    /// automated drag's window to close. Returns `false` when it did not
+    /// open (another drag's window stayed open, or this capture finished);
+    /// the caller must not deliver the event that may start the drag then,
+    /// or WebKit could write this drag's data to the other one's pasteboard.
+    public func openPasteboardWindow() async -> Bool {
+        guard !finished else { return false }
+        let opened = await BrowserReplPasteboardRedirect.shared.openDragWindow(pasteboard)
+        if opened, finished {
+            BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+            return false
+        }
+        return opened
+    }
+
+    /// Closes this drag's pasteboard window, if it is open.
+    public func closePasteboardWindow() {
+        BrowserReplPasteboardRedirect.shared.closeDragWindow(pasteboard)
+    }
+
+    /// Ends the capture: closes its window and empties and releases its
+    /// pasteboard. Called when the web view's capture is replaced or cleared.
+    public func finish() {
+        guard !finished else { return }
+        finished = true
+        closePasteboardWindow()
+        pasteboard.clearContents()
+        pasteboard.releaseGlobally()
+    }
+
     func begin() {
         didBegin = true
+        // WebKit wrote the drag data before asking AppKit for the session.
+        closePasteboardWindow()
         let callback = onBegin
         onBegin = nil
         callback?()

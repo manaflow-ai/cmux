@@ -1416,6 +1416,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
                 await BrowserReplNativeInput.roundTrip(webView)
                 return
             }
+            // The drag WebKit may start on this event writes its data to the
+            // capture's private pasteboard, never the system's named drag
+            // pasteboard; one automated drag's window is open at a time.
+            let capture = attachment.drag?.capture
+            if let capture {
+                guard await capture.openPasteboardWindow() else {
+                    throw Self.error("timeout", "Another tab's automated drag did not release the drag pasteboard within 5 s; the drag did not move")
+                }
+            }
+            defer { capture?.closePasteboardWindow() }
             try send()
             await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
             await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
