@@ -99,6 +99,38 @@ describe("cmux-tui daemon source", () => {
 });
 
 describe("cmux-tui install and daemon commands", () => {
+  test("the in-place upgrade targets the daemon process, not its supervisor wrapper", async () => {
+    const script = readFileSync(join(import.meta.dirname, "../scripts/cloud-vm/cmux-tui-upgrade.sh"), "utf8");
+    const functionStart = script.indexOf("\ndaemon_pid()");
+    const functionEnd = script.indexOf("\nhost_pids()");
+    const functionSource = script.slice(functionStart, functionEnd);
+    const root = mkdtempSync(join(tmpdir(), "cmux-tui-upgrade-pid-"));
+    const fakeBin = join(root, "bin");
+    mkdirSync(fakeBin, { recursive: true });
+    try {
+      writeFileSync(join(fakeBin, "pgrep"), "#!/bin/sh\nprintf '%s\\n' 101 202\n");
+      writeFileSync(join(fakeBin, "cat"), [
+        "#!/bin/sh",
+        "case \"$1\" in",
+        "  /proc/101/comm) printf '%s' runuser ;;",
+        "  /proc/202/comm) printf '%s' cmux-tui ;;",
+        "  *) /bin/cat \"$@\" ;;",
+        "esac",
+        "",
+      ].join("\n"));
+      chmodSync(join(fakeBin, "pgrep"), 0o755);
+      chmodSync(join(fakeBin, "cat"), 0o755);
+      const result = await runChild("/bin/sh", ["-c", `${functionSource}\nprintf '%s' \"$(daemon_pid)\"`, "sh", "sha", "commit", root], {
+        env: { ...process.env, PATH: [fakeBin, "/usr/bin", "/bin"].join(":") },
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("202");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("installs into the daemon's own home, verifies the pin before and after download, and probes the binary", () => {
     const command = cmuxTuiInstallCommand({ url: URL, sha256: SHA, commit: COMMIT, builtAt: null, hookUrl: "https://files.cmux.com/cmux-tui/test/cmux-tui-hook-x86_64-unknown-linux-musl", hookSha256: "1".repeat(64) });
     // One runtime selection, shared with the daemon launch, so install and
