@@ -14,8 +14,9 @@ import Testing
 
         CmuxPlainTextInput.installAppDefaults(defaults)
 
+        let registrationDomain = defaults.volatileDomain(forName: UserDefaults.registrationDomain)
         for key in CmuxPlainTextInput.substitutionDefaultsKeys {
-            #expect(defaults.object(forKey: key) as? Bool == false, "\(key)")
+            #expect(registrationDomain[key] as? Bool == false, "\(key)")
         }
 
         defaults.set(true, forKey: CmuxPlainTextInput.substitutionDefaultsKeys[0])
