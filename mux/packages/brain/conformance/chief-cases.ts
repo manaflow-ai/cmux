@@ -326,6 +326,23 @@ function catchUpCases(): CorpusCase[] {
   }
 
   {
+    const conv = (cursor: number) => summary("conv_g", [ME, ANA, MUX], cursor);
+    const c = new CaseBuilder("catch-up: the paging task keeps its own summary copy; a read-cursor change during paging does not change it");
+    c.feed({ kind: "daemon_connected", conversation: conv(1) });
+    c.feed({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [] });
+    c.feed({ kind: "conversations_listed", conversations: [conv(1)] });
+    const all = [1, 2, 3, 4, 5, 6].map((seq) => msg("conv_g", seq, "user_ana", `note ${seq}`));
+    c.step({ kind: "snapshot", conversation: conv(1), messages: all.slice(4) }, ["fetch_history"]);
+    c.step({ kind: "conversation_changed", conversation: "conv_g", change: { kind: "read-cursor", participant: AGENT_MUX, seq: 4 } }, []);
+    c.step(
+      { kind: "history", conversation: "conv_g", messages: all.slice(1, 4) },
+      ["conversation_op", "conversation_op", "conversation_op", "conversation_op", "conversation_op", "ready"],
+      (e) => c.check(opKey(c, e, 0) === "cursor:agent_mux:2", "cursor ops from the copy's cursor (1), not the changed one (4)"),
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("catch-up: an empty history page ends paging");
     c.feed({ kind: "daemon_connected", conversation: summary("conv_g", [ME, ANA, MUX]) });
     c.feed({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [] });
