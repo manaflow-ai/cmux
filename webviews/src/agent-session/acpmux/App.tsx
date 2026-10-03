@@ -32,7 +32,7 @@ import { ComposerPickers } from "./ComposerPickers";
 import { EmptyState, isNewChat, projectName } from "./EmptyState";
 import { HomeLists } from "./HomeLists";
 import { SessionSidebar, type SidebarAccount } from "./SessionSidebar";
-import { turnFiles, turnRows, type TurnFile } from "./diff";
+import { turnFiles, turnRows, undoPrompt, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
 import { PermissionCard } from "./PermissionCard";
@@ -45,7 +45,13 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
-import type { HunkDecision, HunkReview } from "./changes/hunkReview";
+import {
+  restoredDecisions,
+  turnHunkKeys,
+  undoableHunks,
+  type HunkDecision,
+  type HunkReview,
+} from "./changes/hunkReview";
 import { configureDictation, deliverDictation, useDictation } from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationButton } from "./DictationButton";
@@ -57,6 +63,7 @@ import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { TurnActionsContext, type TurnActions } from "./conversation/turnActions";
+import { Undo } from "./conversation/icons";
 import { DATE, THINKING, WORKED, WORKING, isFoldedCopy, turnView } from "./conversation/turns";
 import { DateLine } from "./conversation/DateLine";
 import { SearchChats } from "./SearchChats";
@@ -300,6 +307,11 @@ const EditedFilesRow = memo(
     const shown = single ? [] : showAll ? entries : entries.slice(0, EDITED_FILES_SHOWN);
     const more = single ? 0 : total - shown.length;
     const reviewable = onOpenDiff && files.length > 0;
+    const { review } = useContext(TurnActionsContext);
+    const unasked =
+      review && row.ended && toolFiles.length > 0
+        ? turnHunkKeys(toolFiles).filter((key) => review.decisions.get(key) !== "requested").length
+        : undefined;
     return (
       <div className="acpmux-edited">
         <div className="acpmux-edited-head">
@@ -313,6 +325,24 @@ const EditedFilesRow = memo(
             {files.length > 0 && <Counts additions={additions} deletions={deletions} />}
             {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
           </div>
+          {review && unasked !== undefined && (
+            <button
+              type="button"
+              className="acpmux-edited-undo"
+              disabled={unasked === 0}
+              title={unasked ? t("edited.undoLabel") : undefined}
+              onClick={() => {
+                const hunks = undoableHunks(toolFiles, review.decisions);
+                review.requestRevert(
+                  hunks.map((hunk) => hunk.key),
+                  undoPrompt(hunks.map((hunk) => hunk.patch)),
+                );
+              }}
+            >
+              {unasked ? t("edited.undo") : t("edited.undoRequested")}
+              {unasked > 0 && <Undo size={14} />}
+            </button>
+          )}
           {reviewable && (
             <button
               type="button"
@@ -758,17 +788,10 @@ function AcpmuxPane() {
   const [reviewReload, setReviewReload] = useState(0);
   useEffect(() => setContinuing(false), [snapshot.sessionId]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  // The footer's fork shows only when acpmux serves forks and is reachable. The client reports a
-  // failed fork in the transcript; a bridge that cannot route it has nothing to add.
-  const forkable =
-    Boolean(snapshot.canFork) &&
-    snapshot.connection !== "disconnected" &&
-    !snapshot.connection.startsWith("connecting");
-  const turnActions = useMemo<TurnActions>(
-    () =>
-      forkable ? { fork: (throughSeq) => void callNative("chat.fork", { throughSeq }).catch(() => undefined) } : {},
-    [forkable],
-  );
+  // Footer actions show only while acpmux is reachable. The client reports failures in the
+  // transcript; a bridge that cannot route an action has nothing to add.
+  const connected = snapshot.connection !== "disconnected" && !snapshot.connection.startsWith("connecting");
+  const forkable = Boolean(snapshot.canFork) && connected;
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
   const reviewing =
@@ -888,14 +911,29 @@ function AcpmuxPane() {
           return next;
         }),
       requestRevert: (keys, prompt) => {
+        const previous = keys.map((key) => [key, hunkDecisions.get(key)] as const);
         mark(keys, "requested");
-        // A failed send leaves the hunks rejected, so the reader can send them again.
-        callNative("chat.send", { text: prompt }).catch(() => mark(keys, "rejected", "requested"));
+        callNative("chat.send", { text: prompt }).catch(() =>
+          setHunkDecisions((current) => restoredDecisions(current, previous)),
+        );
       },
     };
   }, [hunkDecisions]);
   // Tool call ids belong to one session.
   useEffect(() => setHunkDecisions((current) => (current.size ? new Map() : current)), [snapshot.sessionId]);
+  // Retry sends the turn's prompt as the composer would; a failed send shows in the transcript.
+  const turnActions = useMemo<TurnActions>(
+    () => ({
+      ...(forkable && {
+        fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
+      }),
+      ...(connected && {
+        retry: (prompt: string) => void callNative("chat.send", { text: prompt }).catch(() => undefined),
+      }),
+      review: hunkReview,
+    }),
+    [forkable, connected, hunkReview],
+  );
   // Streaming text changes rows on every chunk; only the turn's tool calls change its files.
   const diffActivity = useRef<{ key: string; files: ReturnType<typeof turnFiles> }>(undefined);
   const diffFiles = useMemo(() => {

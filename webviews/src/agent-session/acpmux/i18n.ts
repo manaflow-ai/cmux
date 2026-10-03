@@ -166,6 +166,20 @@ const en = {
   "revert.noteLabel": "Note for the agent",
   "revert.notePlaceholder": "Add a note (optional)",
   "revert.send": "Ask agent to revert",
+  "edited.one": "Edited 1 file",
+  "edited.view": "View changes",
+  "edited.more.one": "Show 1 more file",
+  "edited.more.other": "Show {n} more files",
+  "edited.fewer": "Show fewer files",
+  "edited.undo": "Undo",
+  "edited.undoLabel": "Ask the agent to undo this turn's changes",
+  "edited.undoRequested": "Undo requested",
+  "turn.copy": "Copy",
+  "turn.copied": "Copied",
+  "turn.fork": "Fork from here",
+  "turn.retry": "Retry",
+  "turn.retryLabel": "Send this prompt again",
+  "turn.failed": "The turn failed",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -336,6 +350,20 @@ const ja: Record<StringKey, string> = {
   "revert.noteLabel": "エージェントへのメモ",
   "revert.notePlaceholder": "メモを追加（任意）",
   "revert.send": "エージェントに取り消しを依頼",
+  "edited.one": "1 件のファイルを編集しました",
+  "edited.view": "変更を表示",
+  "edited.more.one": "さらに 1 件のファイルを表示",
+  "edited.more.other": "さらに {n} 件のファイルを表示",
+  "edited.fewer": "表示するファイルを減らす",
+  "edited.undo": "元に戻す",
+  "edited.undoLabel": "このターンの変更を元に戻すようエージェントに依頼",
+  "edited.undoRequested": "取り消しを依頼済み",
+  "turn.copy": "コピー",
+  "turn.copied": "コピーしました",
+  "turn.fork": "ここから分岐",
+  "turn.retry": "再試行",
+  "turn.retryLabel": "このプロンプトをもう一度送信",
+  "turn.failed": "ターンが失敗しました",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
