@@ -50,6 +50,7 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type EgressHost = string
   type EmailAddress = string
   type EmailDomain = string
   type EmptyResult = Record<string, never>

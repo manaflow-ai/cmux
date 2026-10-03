@@ -9,6 +9,14 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
 /** Records per `record` call (one tail invocation or one step boundary sends a handful). */
 export const MAX_RECORDS_PER_CALL = 500
+/** Egress requests per team per minute (abuse limit A18, automations-billing.md 5.5). */
+export const EGRESS_PER_MINUTE = 600
+
+/** The egress gateway's admission: `limited` = over the minute's limit (nothing recorded), `allowed` = under the hard cap. */
+export interface EgressAdmission {
+  readonly limited: boolean
+  readonly allowed: boolean
+}
 
 export interface RecordResult {
   readonly recorded: number
@@ -38,6 +46,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,
       run TEXT, automation TEXT, step TEXT, attempt INTEGER, commit_sha TEXT, observed_at INTEGER NOT NULL, recorded_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_recorded ON usage_ledger (recorded_at)`)
+    // One row per team: the current egress minute and its count (a fixed window).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS egress_minute (id INTEGER PRIMARY KEY CHECK (id = 1), minute INTEGER NOT NULL, n INTEGER NOT NULL)`)
     // usd_micros: integer micro-dollars, the only money column (summed exactly).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_month (month TEXT NOT NULL, meter TEXT NOT NULL, quantity REAL NOT NULL, usd_micros INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (month, meter))`)
     const cols = ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_month)`).toArray()
@@ -126,6 +136,28 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     const summary = this.summaryFor(entity, now)
     this.scheduleAlarm()
     return { recorded, duplicates, invalid, allowed: summary.stopped === null, summary }
+  }
+
+  /**
+   * The egress gateway's call per outbound request: the minute's limit first (a refused
+   * request records nothing), then one `egress.requests` record under the caller's unique
+   * key, then the cap. The gateway calls this once per request, so the key never repeats.
+   */
+  async egress(entity: string, key: string, observedAt: number): Promise<EgressAdmission> {
+    this.bind(entity)
+    const now = Date.now()
+    const minute = Math.floor(now / 60_000)
+    const sql = this.ctx.storage.sql
+    const limited = this.ctx.storage.transactionSync(() => {
+      const row = sql.exec<{ minute: number; n: number }>(`SELECT minute, n FROM egress_minute WHERE id = 1`).toArray()[0]
+      const n = row && Number(row.minute) === minute ? Number(row.n) : 0
+      if (n >= EGRESS_PER_MINUTE) return true
+      sql.exec(`INSERT INTO egress_minute (id, minute, n) VALUES (1, ?, ?) ON CONFLICT (id) DO UPDATE SET minute = excluded.minute, n = excluded.n`, minute, n + 1)
+      return false
+    })
+    if (limited) return { limited: true, allowed: true }
+    const r = await this.record(entity, [{ key, meter: "egress.requests", quantity: 1, source: "egress", observed_at: observedAt }])
+    return { limited: false, allowed: r.allowed && r.invalid === 0 }
   }
 
   /** The cap check alone (a step boundary with nothing to record). */

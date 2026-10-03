@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
+import { callCapability } from "./automation-caps.ts"
 import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
@@ -37,7 +38,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       if (p.body.type === "code") {
         // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
         try {
-          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, input: p.input }, event.timestamp)
+          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input }, event.timestamp)
         } catch (e) {
           // Only harness refusals carry a code; a tenant error name never chooses the run's error code.
           const code = e instanceof CodeRunError ? e.code : "run.failed"
@@ -57,6 +58,20 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
             break
           case "note":
             break
+          case "op": {
+            // One capability op as the automation; the key makes a replayed or retried step happen once.
+            const r = await step.do(`cmux:op-${i}`, { retries: { limit: 3, delay: 1000, backoff: "exponential" } }, async () => {
+              const out = await callCapability(this.env, { team: p.owner, run: p.run, automation: p.automation }, s.op, s.params, `step:${p.run}:${i}`)
+              // A retryable refusal (owner unreachable, rate limit) throws so the engine retries; others end the run.
+              if (!out.ok && (out.code === "owner.unreachable" || out.code === "rate.limited")) throw new Error(`${out.code}: ${out.message}`)
+              return out.ok ? { ok: true as const } : { ok: false as const, code: out.code, message: out.message }
+            })
+            if (!r.ok) {
+              await report(`cmux:op-failed-${i}`, { state: "failed", step: i - 1, error: { code: r.code, message: r.message.slice(0, 500) } })
+              return
+            }
+            break
+          }
         }
         await report(`cmux:done-${i}`, { state: "running", step: i })
       }

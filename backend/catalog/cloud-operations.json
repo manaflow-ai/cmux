@@ -300,6 +300,16 @@
                 "kind": "ref",
                 "name": "CodeRef"
               }
+            },
+            "egress": {
+              "required": false,
+              "type": {
+                "kind": "array",
+                "items": {
+                  "kind": "ref",
+                  "name": "EgressHost"
+                }
+              }
             }
           }
         }
@@ -693,6 +703,12 @@
           }
         }
       }
+    },
+    "EgressHost": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 253,
+      "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$"
     },
     "EmailAddress": {
       "kind": "primitive",
@@ -3749,6 +3765,40 @@
               }
             }
           }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "op"
+                ]
+              }
+            },
+            "op": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "automation.list",
+                  "automation.get",
+                  "automation.runs.list",
+                  "automation.run",
+                  "usage.summary"
+                ]
+              }
+            },
+            "params": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          }
         }
       ]
     },
@@ -5971,6 +6021,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -5998,6 +6076,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -6106,6 +6189,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -6542,6 +6632,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -6569,6 +6687,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -6677,6 +6800,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -7432,6 +7562,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -7459,6 +7617,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -7567,6 +7730,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -8163,6 +8333,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -8190,6 +8388,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -8298,6 +8501,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -8927,6 +9137,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -8954,6 +9192,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -9062,6 +9305,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -10486,6 +10736,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -10513,6 +10791,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -10621,6 +10904,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
@@ -11057,6 +11347,34 @@
                   "text"
                 ],
                 "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "op"
+                    ]
+                  },
+                  "op": {
+                    "type": "string",
+                    "enum": [
+                      "automation.list",
+                      "automation.get",
+                      "automation.runs.list",
+                      "automation.run",
+                      "usage.summary"
+                    ]
+                  },
+                  "params": {}
+                },
+                "required": [
+                  "type",
+                  "op",
+                  "params"
+                ],
+                "additionalProperties": true
               }
             ]
           },
@@ -11084,6 +11402,11 @@
               "path"
             ],
             "additionalProperties": true
+          },
+          "EgressHost": {
+            "type": "string",
+            "pattern": "^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z][a-z0-9-]{0,61}[a-z0-9]$",
+            "maxLength": 253
           },
           "Body": {
             "anyOf": [
@@ -11192,6 +11515,13 @@
                   },
                   "ref": {
                     "$ref": "#/$defs/CodeRef"
+                  },
+                  "egress": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/EgressHost"
+                    },
+                    "maxItems": 20
                   }
                 },
                 "required": [
