@@ -235781,6 +235781,381 @@
         }
       }
     },
+  "machines.new.plan.loading": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Loading your Cloud machine plan…"
+        }
+      }
+    }
+  },
+  "machines.new.plan.retry": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Retry"
+        }
+      }
+    }
+  },
+  "machines.new.plan.error": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Cloud plan details are still loading. Retry in a moment."
+        }
+      }
+    }
+  },
     "machines.new": {
       "extractionState": "manual",
       "localizations": {
