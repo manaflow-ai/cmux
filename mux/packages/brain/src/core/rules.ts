@@ -116,9 +116,9 @@ export function workStatus(status: SessionStatus): WorkStatus {
   }
 }
 
-/** A child turn ended: it left `running` for `ready` or `idle`. */
+/** A child turn ended: it left `running` or `waiting` (a permission, answered or denied) for `ready` or `idle`. */
 export function turnEnded(before: SessionStatus | undefined, after: SessionStatus): boolean {
-  return before === "running" && (after === "ready" || after === "idle");
+  return (before === "running" || before === "waiting") && (after === "ready" || after === "idle");
 }
 
 /** The work part of a child's card. */
