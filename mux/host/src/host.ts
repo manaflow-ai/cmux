@@ -84,6 +84,8 @@ export class MuxHost {
   private readonly log: (line: string) => void;
   private releaseLock?: () => void;
   private stopped = false;
+  /** Aborted by stop(): in-flight connects listen to it. */
+  private readonly stopping = new AbortController();
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
   private readonly timers = new Map<string, unknown>();
@@ -143,6 +145,7 @@ export class MuxHost {
     if (this.stopped) return;
     this.stopped = true;
     this.signalStop();
+    this.stopping.abort();
     for (const timer of this.timers.values()) this.clock.clearTimeout(timer);
     this.timers.clear();
     this.daemon?.close();
@@ -327,8 +330,9 @@ export class MuxHost {
 
   /**
    * A connect (socket plus handshake) bounded by the request timeout. The
-   * deadline aborts the connect, which closes its socket, so a stuck handshake
-   * leaves no socket open; a client that still arrives late is closed.
+   * deadline, or stop(), aborts the connect, which closes its socket, so a
+   * stuck handshake leaves no socket open; a client that still arrives late
+   * (or after stop) is closed.
    */
   private connectWithin<T extends { close(): void }>(what: string, start: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const ms = this.requestTimeoutMs;
@@ -342,13 +346,31 @@ export class MuxHost {
         controller.abort();
         reject(new RequestTimeoutError(`${what} connect timed out`));
       }, ms);
+      // stop() aborts the connect too: its socket closes and nothing runs after it.
+      const onStop = () => {
+        if (late) return;
+        late = true;
+        this.clock.clearTimeout(timer);
+        controller.abort();
+        reject(new Error(`${what} connect stopped`));
+      };
+      if (this.stopping.signal.aborted) onStop();
+      else this.stopping.signal.addEventListener("abort", onStop, { once: true });
       connect.then(
         (client) => {
+          this.stopping.signal.removeEventListener("abort", onStop);
           this.clock.clearTimeout(timer);
-          if (late) client.close();
-          else resolve(client);
+          if (late || this.stopped) client.close();
+          if (late) return;
+          if (this.stopped) {
+            late = true;
+            reject(new Error(`${what} connect stopped`));
+            return;
+          }
+          resolve(client);
         },
         (error) => {
+          this.stopping.signal.removeEventListener("abort", onStop);
           this.clock.clearTimeout(timer);
           reject(error);
         },
