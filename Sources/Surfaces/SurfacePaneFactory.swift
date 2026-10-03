@@ -17,12 +17,15 @@ enum SurfacePaneFactory {
         case workspaceNotFound(UUID)
         case paneNotFound(String)
         case creationFailed(String)
+        /// Split admission had no room to divide the target pane.
+        case noSpace
 
         var errorDescription: String? {
             switch self {
             case .workspaceNotFound(let id): return "Workspace \(id.uuidString) was not found."
             case .paneNotFound(let id): return "Pane \(id) was not found."
             case .creationFailed(let detail): return "Could not create the pane: \(detail)"
+            case .noSpace: return String(localized: "surface.split.noSpace", defaultValue: "There is no room to split this pane.")
             }
         }
     }
@@ -216,9 +219,9 @@ enum SurfacePaneFactory {
                 return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, fallbackPane: UUID(uuidString: paneID), focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, fallbackPane: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
             }
         }
     }
@@ -270,7 +273,6 @@ enum SurfacePaneFactory {
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
-        fallbackPane: UUID?,
         focus: Bool
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceSplit(
@@ -295,13 +297,9 @@ enum SurfacePaneFactory {
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
         }
-        // Split admission refuses a pane too small to divide. The resource was
-        // asked to open in this workspace, so it opens as a tab in the pane that
-        // would have been split (the focused pane when none was named) instead
-        // of failing the whole open.
-        if case .noSpace = resolution {
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: fallbackPane, focus: focus)
-        }
+        // Typed so a user gesture can choose another placement; layout replay
+        // and socket callers still see the split refused.
+        if case .noSpace = resolution { throw FactoryError.noSpace }
         throw FactoryError.creationFailed("\(resolution)")
     }
 }
@@ -385,5 +383,35 @@ enum SurfaceBrowserPlaceholder {
         </style></head>
         <body><main>\(spinnerHTML)<h1>\(escape(title))</h1>\(detailHTML)</main></body></html>
         """
+    }
+}
+
+extension SurfaceDestination {
+    /// Where a sidebar gesture lands when its split is refused for lack of room:
+    /// a tab in the pane that would have been split (the focused pane for a
+    /// workspace-level split). Nil for destinations that are already tabs.
+    var tabFallbackForRefusedSplit: SurfaceDestination? {
+        switch self {
+        case .workspace(let id, .split): return .workspace(id: id, placement: .tab)
+        case .split(let workspaceID, let paneID, _): return .tab(workspaceID: workspaceID, paneID: paneID, index: nil)
+        default: return nil
+        }
+    }
+}
+
+extension SurfacePaneFactory {
+    /// Opens with a split when it fits, otherwise as a tab. Only user gestures
+    /// (sidebar opens and display creation) use this; layout replay and socket
+    /// callers keep the refused split so their realized layout stays truthful.
+    static func openPreferringSplit<Result>(
+        at destination: SurfaceDestination,
+        _ open: (SurfaceDestination) async throws -> Result
+    ) async throws -> Result {
+        do {
+            return try await open(destination)
+        } catch FactoryError.noSpace {
+            guard let fallback = destination.tabFallbackForRefusedSplit else { throw FactoryError.noSpace }
+            return try await open(fallback)
+        }
     }
 }

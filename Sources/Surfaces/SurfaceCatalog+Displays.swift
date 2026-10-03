@@ -37,7 +37,9 @@ extension SurfaceCatalog {
         let resource = try await createDisplay(on: machine)
         try validateOwnership(of: [resource.id], at: destination)
         guard self.provider(for: machine) === provider else { throw CancellationError() }
-        _ = try await project(resource.id, into: destination, focus: true, reuseExisting: false)
+        _ = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+            try await project(resource.id, into: target, focus: true, reuseExisting: false)
+        }
     }
 
     /// Creates a display even when the selected workspace is unavailable. If
@@ -52,7 +54,9 @@ extension SurfaceCatalog {
         guard Workspace.liveWorkspace(id: destination.workspaceID) != nil else { return }
         do {
             try validateOwnership(of: [resource.id], at: destination)
-            _ = try await project(resource.id, into: destination, focus: true, reuseExisting: false)
+            _ = try await SurfacePaneFactory.openPreferringSplit(at: destination) { target in
+                try await project(resource.id, into: target, focus: true, reuseExisting: false)
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {

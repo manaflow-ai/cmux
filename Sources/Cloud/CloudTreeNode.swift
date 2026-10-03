@@ -875,7 +875,7 @@ enum CloudTreeNodeBuilder {
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
                     children: (displays.isEmpty
-                        ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
+                        ? (snapshot.pendingDisplayCreations?.contains(machine) == true ? [] : [CloudMachineSurfacePresentation.emptyDisplays(info: info)])
                         : displays.map {
                             CloudTreeNode(
                                 id: nodeID(resource: $0.id),
