@@ -97,7 +97,7 @@ final class WindowManager {
     }
 
     var active: WindowController? {
-        if let key = NSApp.keyWindow, let controller = owner(of: key) { return controller }
+        if let key = services.keyWindowSource(), let controller = owner(of: key) { return controller }
         return lastActive ?? controllers.first
     }
 
