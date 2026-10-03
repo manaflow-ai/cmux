@@ -4307,5 +4307,45 @@
     "identityLocales": {
       "de": "The macOS Downloads folder is named \"Downloads\" in German."
     }
+  },
+  "argument.value.editor": {
+    "source": "Editor",
+    "identityLocales": {
+      "de": "\"Editor\" is the standard German word for a text editor.",
+      "es": "\"Editor\" is the standard Spanish word for a text editor."
+    }
+  },
+  "argument.value.tab": {
+    "source": "Tab",
+    "identityLocales": {
+      "de": "\"Tab\" is the standard German word for a browser or app tab."
+    }
+  },
+  "settings.choice.newTabAgent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "\"Agent\" is spelled the same in German and is the term used for AI agents.",
+      "fr": "\"Agent\" is spelled the same in French and is the term used for AI agents."
+    }
+  },
+  "settings.choice.newTabBrowser": {
+    "source": "Browser",
+    "identityLocales": {
+      "de": "\"Browser\" is the standard German word for a web browser."
+    }
+  },
+  "settings.choice.newTabTerminal": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "\"Terminal\" is spelled the same in German and is the standard term for a terminal app.",
+      "es": "\"Terminal\" is spelled the same in Spanish and is the standard term for a terminal app.",
+      "fr": "\"Terminal\" is spelled the same in French and is the standard term for a terminal app."
+    }
+  },
+  "settings.group.tabs": {
+    "source": "Tabs",
+    "identityLocales": {
+      "de": "\"Tabs\" is the standard German plural for browser or app tabs."
+    }
   }
 }

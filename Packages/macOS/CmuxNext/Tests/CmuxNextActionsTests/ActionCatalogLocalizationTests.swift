@@ -14,5 +14,12 @@ import Testing
         #expect(titles["screen.new"] == "New Screen")
         #expect(titles["browser.pageInfo"] == "View Site Information")
         #expect(titles["newTab"] == "New Workspace")
+        #expect(titles["agentPane.permission.allowOnce"] == "Allow once")
+        #expect(titles["agentPane.permission.allowChat"] == "Allow for this chat")
+        #expect(titles["agentPane.permission.deny"] == "Deny")
+        #expect(titles["agentPane.permission.expand"] == "Expand permission details")
+        #expect(titles["agentPane.permission.retry"] == "Check and retry permission")
+        #expect(titles["agentPane.permission.revoke"] == "Revoke chat permission")
+        #expect(titles["agentPane.permission.refresh"] == "Refresh permissions")
     }
 }

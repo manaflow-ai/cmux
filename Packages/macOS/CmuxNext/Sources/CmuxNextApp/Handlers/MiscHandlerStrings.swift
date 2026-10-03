@@ -32,11 +32,26 @@ enum MiscHandlerStrings {
     static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Quick Agent Chat opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Quick Agent Chat needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
     static func invalidURL(_ text: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module), text)
     }
+    static func fileNotFound(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.fileNotFound", defaultValue: "%@ is not a file cmux can open.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func fileNotInTab(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.fileNotInTab", defaultValue: "%@ opens in the editor, not in a tab.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func pathNotAbsolute(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.pathNotAbsolute", defaultValue: "%@ is a relative path. Give the file's absolute path.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func invalidPlace(_ place: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
+    }
+    static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
     }

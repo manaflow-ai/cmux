@@ -68,6 +68,8 @@ public final class ActionRegistry {
     /// Every known value of a suggested argument (`ActionSuggestions.source`),
     /// supplied by the App.
     @ObservationIgnored public var argumentSuggestions: (@MainActor (String) -> [ActionEnumCase])?
+    /// Shortcut recorders open now (`ShortcutRecorder`); any open one sets `.recordingShortcut`.
+    @ObservationIgnored var openShortcutRecorders: Set<ObjectIdentifier> = []
     /// Whether free text is a valid value of a suggested argument (a theme
     /// Ghostty accepts); nil accepts any non-empty text.
     @ObservationIgnored public var argumentValidation: (@MainActor (String, String) -> Bool)?

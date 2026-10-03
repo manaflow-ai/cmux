@@ -113,6 +113,37 @@ import Testing
         #expect(h.registry.effectiveShortcut(for: "t.plain") == Shortcut("u"))
     }
 
+    @Test func theOpenRecorderSuspendsSystemWideHotKeysAndCancelResumesThem() async {
+        let h = await harness()
+        h.model.handle(.toggleActions)
+        #expect(h.registry.globalHotKeysSuspended)
+        h.recorder.cancel()
+        #expect(h.model.shortcutRecorder == nil)
+        #expect(!h.registry.globalHotKeysSuspended)
+        #expect(h.editor.saves.isEmpty)
+    }
+
+    @Test func aPageChangeWithTheRecorderOpenResumesSystemWideHotKeys() async {
+        let h = await harness()
+        h.model.handle(.toggleActions)
+        #expect(h.registry.globalHotKeysSuspended)
+        h.controller.show(.commands)
+        #expect(h.model.shortcutRecorder == nil)
+        #expect(!h.registry.globalHotKeysSuspended)
+    }
+
+    @Test func closingOneOfTwoOpenRecordersKeepsHotKeysSuspended() async {
+        let h = await harness()
+        let other = ShortcutRecorder(registry: h.registry, state: { nil }, setState: { _ in }, didFinish: { _, _ in })
+        other.editor = h.editor
+        #expect(other.begin("a.plain"))
+        h.model.handle(.toggleActions)
+        h.recorder.cancel()
+        #expect(h.registry.globalHotKeysSuspended)
+        other.abandon()
+        #expect(!h.registry.globalHotKeysSuspended)
+    }
+
     @Test func pressingTheCurrentShortcutChangesNothing() async {
         let h = await harness()
         h.model.handle(.toggleActions)

@@ -17,6 +17,8 @@ describe("direct acpmux event helpers", () => {
       {
         sessionId: "selected",
         permissionId: "permission-1",
+        groupId: "group-1",
+        turnId: "turn-1",
         request: {
           sessionId: "agent-request-id",
           toolCall: { title: "Run command", kind: "execute" },
@@ -26,6 +28,8 @@ describe("direct acpmux event helpers", () => {
       "selected",
     );
     expect(permission?.permissionId).toBe("permission-1");
+    expect(permission?.groupId).toBe("group-1");
+    expect(permission?.turnId).toBe("turn-1");
     expect(permission?.options[0]?.id).toBe("yes");
   });
 
@@ -125,11 +129,11 @@ class ScriptedSocket {
     this.reply(request!, result);
   }
   /// Answers a held request with a JSON-RPC error.
-  fail(method: string) {
+  fail(method: string, error: { code?: number; message?: string; data?: unknown } = { message: `${method} failed` }) {
     const index = this.waiting.findIndex((request) => request.method === method);
     if (index < 0) throw new Error(`no ${method} request is waiting`);
     const [request] = this.waiting.splice(index, 1);
-    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error: { message: `${method} failed` } }) });
+    this.onmessage?.({ data: JSON.stringify({ id: request!.id, error }) });
   }
   notify(method: string, params: unknown) {
     this.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
@@ -199,6 +203,156 @@ describe("direct client session state", () => {
 
   const connect = () => AcpmuxDirectClient.connect(host, (snapshot) => snapshots.push(snapshot));
 
+  test("grouped permissions reconcile on attach, suppress duplicate requests and keep interactive asks", async () => {
+    const operations = [
+      "_acpmux/permission_groups",
+      "_acpmux/permission_group_respond",
+      "_acpmux/permission_chat_revoke",
+    ];
+    const group = {
+      groupId: "g",
+      sessionId: "a",
+      turnId: "t",
+      revision: 3,
+      state: "pending",
+      decision: null,
+      decisions: ["allow_once", "allow_chat", "deny"],
+      items: [
+        {
+          permissionId: "grouped",
+          state: "pending",
+          request: {
+            toolCall: { kind: "edit", title: "Write app" },
+            options: [
+              { optionId: "yes", kind: "allow_once" },
+              { optionId: "no", kind: "reject_once" },
+            ],
+          },
+        },
+      ],
+    };
+    let reads = 0;
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "initialize") return { _meta: { acpmux: { operations } } };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach")
+        return {
+          ...attachReply(params.sessionId),
+          session: {
+            sessionId: params.sessionId,
+            pending: [
+              { permissionId: "grouped", request: { toolCall: { title: "Write app" }, options: [] } },
+              { permissionId: "question", request: { toolCall: { title: "Choose a target" }, options: [] } },
+            ],
+          },
+        };
+      if (method === "_acpmux/permission_groups") {
+        reads++;
+        return {
+          groups: params.sessionId === "a" ? [group] : [],
+          chatAllowance: { active: false, expires: "session_stop_or_daemon_restart" },
+          coverage: { label: "acp_requests_only", isolation: "unverified", detail: "ACP only" },
+          batching: { windowMs: 100, maxItems: 32, maxPendingGroups: 64, maxReceipts: 64 },
+        };
+      }
+      return {};
+    };
+    const client = await connect();
+    expect(latest().permissionGroups?.groups[0]?.groupId).toBe("g");
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/permission_pending", {
+      sessionId: "a",
+      permissionId: "grouped",
+      groupId: "g",
+      turnId: "t",
+      request: { options: [] },
+    });
+    expect(latest().permission?.permissionId).toBe("question");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 9,
+      at: 9,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    expect(reads).toBeGreaterThan(1);
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 10,
+      at: 10,
+      dir: "mux",
+      kind: "permission_decision",
+      msg: { permissionId: "question" },
+    });
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.current.notify("_acpmux/event", {
+      sessionId: "a",
+      seq: 11,
+      at: 11,
+      dir: "mux",
+      kind: "permission_group",
+      msg: { group },
+    });
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", {
+      code: -32601,
+      message: "Unsupported",
+      data: { reason: "operation.unsupported" },
+    });
+    await settle();
+    expect(latest().permissionGroups?.supported).toBe(false);
+    expect(latest().permission?.permissionId).toBe("grouped");
+    ScriptedSocket.held.delete("_acpmux/permission_groups");
+    await client.select("b");
+    expect(latest().permissionGroups?.groups).toEqual([]);
+    client.close();
+  });
+
+  test("an unavailable group read retains an individual interactive ask from the attach snapshot", async () => {
+    ScriptedSocket.held.add("_acpmux/permission_groups");
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "initialize")
+        return {
+          _meta: {
+            acpmux: {
+              operations: [
+                "_acpmux/permission_groups",
+                "_acpmux/permission_group_respond",
+                "_acpmux/permission_chat_revoke",
+              ],
+            },
+          },
+        };
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a" }] };
+      if (method === "_acpmux/attach")
+        return {
+          events: [],
+          session: {
+            sessionId: "a",
+            pending: [
+              { permissionId: "grouped", groupId: "g", turnId: "t", request: { options: [] } },
+              {
+                permissionId: "question",
+                groupId: null,
+                turnId: null,
+                request: { toolCall: { title: "Choose a target" }, options: [] },
+              },
+            ],
+          },
+        };
+      return {};
+    };
+    const connecting = connect();
+    await settle();
+    ScriptedSocket.current.fail("_acpmux/permission_groups", { code: -32000, message: "The owner is unavailable." });
+    const client = await connecting;
+    expect(latest().permission?.permissionId).toBe("question");
+    expect(latest().permissionGroups?.ready).toBe(false);
+    client.close();
+  });
+
   test("a fresh session whose first kept record is its command list is a new chat with its folder", async () => {
     const commands: EventRecord = {
       sessionId: "a",
@@ -233,6 +387,39 @@ describe("direct client session state", () => {
     expect(latest().canLoadOlder).toBe(true);
     expect(latest().summary?.cwd).toBe("/Users/me/harness-research");
     expect(isNewChat(latest())).toBe(true);
+    client.close();
+  });
+
+  test("a linked session the daemon lacks is refused, not replaced by the latest chat, and marks nothing seen", async () => {
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [{ sessionId: "a", unread: true }, { sessionId: "b" }] };
+      if (method === "_acpmux/attach") return attachReply(params.sessionId);
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: "bogus", sessionMustExist: true },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBeUndefined();
+    expect(latest().missingSession).toBe("bogus");
+    expect(latest().rows).toEqual([]);
+    expect(ScriptedSocket.current.sent.map((request) => request.method)).not.toContain("_acpmux/attach");
+    expect(latest().sessions.find((session) => session.sessionId === "a")?.unread).toBe(true);
+    // Choosing a chat afterwards clears the notice.
+    await client.select("b");
+    await settle();
+    expect(latest().missingSession).toBeUndefined();
+    client.close();
+  });
+
+  test("without the link's strictness a missing session still falls back to the latest chat", async () => {
+    const client = await AcpmuxDirectClient.connect({ ...host, sessionId: "bogus" }, (snapshot) =>
+      snapshots.push(snapshot),
+    );
+    await settle();
+    expect(latest().sessionId).toBe("a");
+    expect(latest().missingSession).toBeUndefined();
     client.close();
   });
 
@@ -276,6 +463,72 @@ describe("direct client session state", () => {
     await client.create("codex");
     const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
     expect(news.map((request) => request.params.cwd)).toEqual(["/work/app", undefined]);
+  });
+
+  test("a resumed chat is adopted on connect, once, without the inherited cwd", async () => {
+    const adopt = { harness: "claude", agentSessionId: "0a1b2c3d" };
+    ScriptedSocket.respond = ({ method, params }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new")
+        return {
+          sessionId: "adopted",
+          _meta: { acpmux: { agentSessionId: params._meta.acpmux.adopt?.agentSessionId } },
+        };
+      if (method === "_acpmux/attach") return { session: { sessionId: params.sessionId, status: "idle" }, events: [] };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, cwd: "/work/app", adopt },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    const news = ScriptedSocket.current.sent.filter((request) => request.method === "session/new");
+    expect(news.map((request) => request.params)).toEqual([
+      { mcpServers: [], _meta: { acpmux: { harness: "claude", adopt } } },
+    ]);
+    expect(snapshots.at(-1)?.summary?.sessionId).toBe("adopted");
+    expect(client.adopted).toBe("adopted");
+    expect(await client.ensureSession()).toBe("adopted");
+    expect(ScriptedSocket.current.sent.filter((request) => request.method === "session/new")).toHaveLength(1);
+  });
+
+  test("a daemon that can't adopt gets its fresh session removed and the pane says so", async () => {
+    ScriptedSocket.respond = ({ method }) => {
+      if (method === "_acpmux/watch") return { sessions: [] };
+      if (method === "session/new") return { sessionId: "fresh", _meta: { acpmux: { agentSessionId: "its-own" } } };
+      return {};
+    };
+    const client = await AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "codex", agentSessionId: "01999a2b" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    expect(client.adopted).toBeUndefined();
+    const kills = ScriptedSocket.current.sent.filter((request) => request.method === "_acpmux/kill");
+    expect(kills.map((request) => request.params)).toEqual([{ sessionId: "fresh", purge: true }]);
+    expect(ScriptedSocket.current.sent.some((request) => request.method === "_acpmux/attach")).toBe(false);
+    const last = snapshots.at(-1);
+    expect(last?.connection).toBe("connected");
+    expect(last?.rows.at(-1)).toMatchObject({
+      kind: "notice",
+      text: "Couldn't resume this chat: this acpmux can't resume chats",
+    });
+  });
+
+  test("a socket that drops while adopting fails the connect instead of claiming the chat can't resume", async () => {
+    ScriptedSocket.respond = ({ method }) => (method === "_acpmux/watch" ? { sessions: [] } : {});
+    ScriptedSocket.held = new Set(["session/new"]);
+    const connecting = AcpmuxDirectClient.connect(
+      { ...host, sessionId: undefined, newSession: true, adopt: { harness: "claude", agentSessionId: "0a1b2c3d" } },
+      (snapshot) => snapshots.push(snapshot),
+    );
+    for (let tries = 0; tries < 20 && ScriptedSocket.current?.waiting.length === 0; tries += 1) await settle();
+    ScriptedSocket.current.drop();
+    expect(
+      await connecting.then(
+        () => "connected",
+        () => "rejected",
+      ),
+    ).toBe("rejected");
+    expect(snapshots.flatMap((snapshot) => snapshot.rows).some((row) => row.kind === "notice")).toBe(false);
   });
 
   test("a chat started in a chosen project leaves the inherited cwd for the next default chat", async () => {
