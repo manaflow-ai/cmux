@@ -64,7 +64,8 @@ extension TranscriptWindow {
                 isRetracted: message.isRetracted,
                 editedAt: message.editedAt,
                 replyTo: message.replyTo,
-                threadRoot: message.threadRoot
+                threadRoot: message.threadRoot,
+                messageID: message.id
             )
         }
         let committedKeys = Set(items.map(\.key))
