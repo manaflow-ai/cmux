@@ -826,3 +826,33 @@ RECOMMEND only a minimum (built), because otherwise a team admin can turn protec
 the owner's device.
 node:crypto `createPublicKey` and `verify` inside workerd, and the App Attest attestation check,
 are UNVERIFIED until the backend lead runs them in the Worker.
+
+## 22. Promoting a Mac conversation: `conversation.import` (2026-10-03)
+
+For chief-mac.md P1 (`conversation.promote`); shape proposed by the backend lead, built in
+`home-core/src/conversation/import.ts`, corpus `conformance/conversation-import-cases.json`.
+- Owner: ConversationDO; caller: the promoting user (session or app install, never an agent).
+- Id: `importConversationId(user, source.host, source.local_id)` (`conv_` + sha256 base32), so an
+  import only creates its own object; the Worker computes it from the signed-in user and routes
+  the first call there (never from a client field) and adds `conversation.import` to the ops the
+  conversation socket refuses.
+- First call `{id, source {kind mac, host, local_id}, kind group|chief, title?, participants,
+  messages, read_cursors?}` creates state `importing`; `{id, after_seq, messages}` continues the
+  dense seq; `conversation.import.commit {id, last_seq}` opens normal ops. Before commit every
+  other op is refused (`importing`). Same source repeated: no-op returning `last_seq`; anything
+  else on an existing id: `conversation_exists`.
+- Participants: the importer as the only human, and agents the DO's reach policy says the
+  importer owns (owner and names stamped by the policy; the default policy refuses agents, so
+  ConversationDO must inject an owner-record policy before chief imports work). `chief` = the
+  owner and one owned `mux` agent. A local `user_local` must be mapped to the account's
+  `user_<id>` by the Mac before the call.
+- Messages: at most 500 and 1 MiB per batch; validated like `message.send`; ids, authors,
+  times, edits, retractions and reactions kept; times never go backwards or into the future;
+  replies point to earlier messages. Rows `msg` and `msgkey` (per author, so a later send with
+  the same author and client id is a conflict, as in the Rust owner's actor-keyed ledger).
+- The loop guard counters follow the imported history (retracted agent texts count); read
+  cursors are clamped to `last_seq` at commit. The engine ledger has no entries for imported
+  messages (the Mac's op ledger stays on the Mac).
+- Outbox: search rows per batch; one inbox bump per human at commit; no chief wakes for history.
+- The Rust owner is the source side only (the local conversation becomes read-only with a
+  pointer, home.md section 5); it never runs these cases.

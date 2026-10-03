@@ -95,7 +95,7 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number, previo
 /** Appends a batch: dense seq, unique ids, loop-guard counters updated as `apply` would. */
 const appendBatch = (head: ConversationHead, rawMessages: unknown, ctx: ReduceContext): { head: ConversationHead; messages: Array<Message>; writes: Array<RowWrite> } => {
   if (!Array.isArray(rawMessages) || rawMessages.length > MAX_IMPORT_BATCH) return bad()
-  if (Buffer.byteLength(JSON.stringify(rawMessages), "utf8") > MAX_IMPORT_BATCH_BYTES) return bad()
+  if (new TextEncoder().encode(JSON.stringify(rawMessages)).length > MAX_IMPORT_BATCH_BYTES) return bad()
   const rows = rowsOf(ctx)
   let previous: Message | null = head.last_seq > 0 ? (rows.range<Message>("msg", { limit: 1, desc: true })[0]?.row ?? null) : null
   let next = head
