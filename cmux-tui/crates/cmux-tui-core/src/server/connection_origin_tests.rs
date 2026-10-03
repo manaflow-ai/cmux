@@ -312,28 +312,23 @@ fn a_bridged_connection_cannot_open_urls_but_the_local_guest_opener_can() {
         json!({"id":1,"cmd":"url-open-subscribe","terminal_ids":[terminal]}).to_string();
     let reply = line(&mux, app, &app_writer, &app_outbound, &subscribe);
     assert_eq!(reply["ok"], true, "{reply}");
-    let open = json!({"id":2,"cmd":"url-open","terminal_id":terminal,"url":url}).to_string();
 
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let bridged = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let mark = String::from_utf8(remote_bridge_mark_line()).unwrap();
     let _ = line(&mux, bridged, &writer, &outbound, &mark);
-    let scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
-        mux.surface_operation_admission.clone(),
-        None,
-    ));
-    assert!(handle_connection_message(&mux, bridged, &open, &writer, &scheduler));
+    // `url-open` goes straight to `url_open::start` (handle_request).
+    assert!(url_open::start(&mux, bridged, Some(json!(2)), terminal.clone(), url.into(), &writer));
     assert_eq!(url_open_event(&app_outbound, Duration::from_millis(500)), None);
     let reply = next_reply(&outbound);
     assert_eq!(reply["data"]["opened"], false, "{reply}");
-    disconnect_client(&mux, bridged, false);
 
     // The guest opener: an unmarked local client on the same socket.
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let guest = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    assert!(handle_connection_message(&mux, guest, &open, &writer, &scheduler));
+    assert!(url_open::start(&mux, guest, Some(json!(2)), terminal.clone(), url.into(), &writer));
     let event = url_open_event(&app_outbound, Duration::from_secs(5)).expect("the app hears it");
     assert_eq!(event["url"], url);
     let request_id = event["request_id"].as_str().unwrap().to_owned();
@@ -346,6 +341,7 @@ fn a_bridged_connection_cannot_open_urls_but_the_local_guest_opener_can() {
     let reply = next_reply(&outbound);
     assert_eq!(reply["data"]["opened"], true, "{reply}");
     disconnect_client(&mux, guest, false);
+    disconnect_client(&mux, bridged, false);
     disconnect_client(&mux, app, false);
     mux.shutdown();
 }
