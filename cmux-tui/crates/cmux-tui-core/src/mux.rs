@@ -45,7 +45,8 @@ use agent_hook_errors::{
 pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_terminal_reaper};
 pub use layout_ratio_error::LayoutRatioError;
 pub use presentation::{
-    TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations, WorkspaceGroupChange,
+    PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
+    WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget};
@@ -2686,6 +2687,13 @@ pub struct Mux {
     resource_creation_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Terminals with a possibly live host and no runtime surface (R41),
+    /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
+    /// the host terminal id. A leaf lock: nothing else is locked under it.
+    pending_terminals: Mutex<HashMap<String, (String, PendingTerminal)>>,
+    /// Typed ends (`TerminalEnd::wire_json`) of ended terminals that have no
+    /// runtime surface, keyed by public terminal id. A leaf lock.
+    terminal_ends: Mutex<HashMap<String, Value>>,
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
@@ -3122,6 +3130,8 @@ impl Mux {
             resource_creation_execution: Mutex::new(()),
             resource_creation_active: AtomicBool::new(false),
             terminal_adoptions: Mutex::new(HashSet::new()),
+            pending_terminals: Mutex::new(HashMap::new()),
+            terminal_ends: Mutex::new(HashMap::new()),
             terminal_exit_detaches: Arc::new(TerminalExitDetachTracker::default()),
             terminal_adoption_insert_failures: AtomicU64::new(
                 std::env::var("CMUX_TUI_TEST_ADOPTION_INSERT_FAILURES")
@@ -3693,8 +3703,11 @@ impl Mux {
                     } else {
                         // Socket loss and descriptor pressure are not process
                         // death proof. Keep the capability and retry the same
-                        // host rather than spawning a replacement shell.
+                        // host rather than spawning a replacement shell. The
+                        // tab has no surface meanwhile; it is adopting, not
+                        // dead (R41).
                         handled_terminals.insert(terminal_id.clone());
+                        self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                         self.schedule_terminal_adoption(options.clone(), record, record_path);
                     }
                     continue;
@@ -3721,6 +3734,7 @@ impl Mux {
                         &record,
                     );
                 } else {
+                    self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
                     self.schedule_terminal_adoption(options.clone(), record, record_path);
                 }
                 continue;
@@ -3728,6 +3742,44 @@ impl Mux {
             self.ensure_template_adoption_completed(&terminal_id);
             handled_terminals.insert(terminal_id);
             self.reap_if_dead(&surface);
+        }
+
+        // A record this build cannot read belongs to a host that may still run
+        // its shell (a newer record version after a rollback). Never report
+        // that terminal ended; keep it visible as unadoptable (R41).
+        let unadoptable = match options.terminal_host_root.as_deref() {
+            Some(root) => {
+                crate::terminal_host_runtime::load_unadoptable_terminal_host_records(root)?
+            }
+            None => Vec::new(),
+        };
+        for record in unadoptable {
+            if handled_terminals.contains(&record.terminal_id) {
+                continue;
+            }
+            let lifecycle = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .terminal_record(&record.terminal_id)?
+                .map(|terminal| terminal.lifecycle);
+            if matches!(
+                lifecycle,
+                None | Some(TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned)
+            ) {
+                continue;
+            }
+            eprintln!(
+                "cmux-tui: terminal {} has a host record this build cannot adopt \
+                 (record_version {:?}): {}",
+                record.terminal_id, record.record_version, record.reason
+            );
+            self.set_pending_terminal(
+                &record.terminal_id,
+                PendingTerminal::Unadoptable { record_version: record.record_version },
+            );
+            handled_terminals.insert(record.terminal_id.clone());
+            self.watch_unadoptable_terminal_host(options.clone(), record);
         }
 
         // No launcher survives a daemon restart. A durable lifecycle row
@@ -3742,6 +3794,7 @@ impl Mux {
             }
             if terminal.lifecycle == TerminalLifecycle::Exited {
                 self.detach_exited_terminal_topology(&terminal.terminal_id)?;
+                self.record_terminal_end(&terminal.terminal_id);
                 continue;
             }
             self.mark_terminal_ended(
@@ -3915,6 +3968,7 @@ impl Mux {
         reason: &str,
         options: &SurfaceOptions,
     ) -> anyhow::Result<()> {
+        self.clear_pending_terminal(terminal_id);
         let terminal = self.workspace_registry.lock().unwrap().terminal_record(terminal_id)?;
         let Some(terminal) = terminal else { return Ok(()) };
         if terminal.lifecycle == TerminalLifecycle::Tombstoned {
@@ -3956,6 +4010,7 @@ impl Mux {
             )?;
         }
         self.detach_exited_terminal_topology(terminal_id)?;
+        self.record_terminal_end(terminal_id);
         Ok(())
     }
 
@@ -4045,6 +4100,11 @@ impl Mux {
         drop(state);
         self.emit_terminal_registry_changed(&registry, revision);
         drop(registry);
+        // Clients read tab liveness from the tree, not from registry events:
+        // a tab that was adopting is live now, so they must read it again.
+        if self.clear_pending_terminal(terminal_id) {
+            self.emit(MuxEvent::TreeChanged);
+        }
         // Adoption makes the terminal's resource surface available. Retry
         // only hooks scoped to this terminal, not the entire pending table.
         if let Ok(terminal_id) = TerminalPublicId::parse(terminal_id) {
@@ -4115,6 +4175,122 @@ impl Mux {
         self.terminal_adoption_insert_failures
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |remaining| remaining.checked_sub(1))
             .is_ok()
+    }
+
+    /// Terminals whose tabs must not read as dead while they have no runtime
+    /// surface ([`PendingTerminal`]), keyed by public terminal id.
+    pub(crate) fn pending_terminals_snapshot(&self) -> HashMap<String, PendingTerminal> {
+        self.pending_terminals
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(public_id, (_, pending))| (public_id.clone(), pending.clone()))
+            .collect()
+    }
+
+    /// Typed ends of surfaceless ended terminals, keyed by public terminal id.
+    pub(crate) fn terminal_ends_snapshot(&self) -> HashMap<String, Value> {
+        self.terminal_ends.lock().unwrap().clone()
+    }
+
+    /// Whether a terminal's host may run while it has no runtime here.
+    pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
+        self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)
+    }
+
+    /// Whether a pending terminal may be closed. An adopting host speaks this
+    /// build's protocol and is ended by the close. An unadoptable one is ended
+    /// only with proof that its recorded PID is its live host; without proof
+    /// the close still removes the tab (a tab the user cannot remove is
+    /// worse), keeps the host record, and logs that the host may still run.
+    pub(crate) fn pending_terminal_closable(&self, terminal_id: &str) -> bool {
+        self.terminal_is_pending(terminal_id)
+    }
+
+    /// Forget the recorded end of a terminal that is gone (closed).
+    pub(crate) fn forget_terminal_end(&self, public_id: &str) {
+        self.terminal_ends.lock().unwrap().remove(public_id);
+    }
+
+    /// Mark a terminal pending. Takes the registry lock briefly to resolve
+    /// its public id; the caller must not hold the registry or state lock.
+    #[cfg(unix)]
+    fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) {
+        let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
+        let Ok(Some(public_id)) = public_id else { return };
+        self.pending_terminals
+            .lock()
+            .unwrap()
+            .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
+    }
+
+    /// Forget a pending marker. Returns whether one was present.
+    #[cfg(unix)]
+    fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
+        let mut pending = self.pending_terminals.lock().unwrap();
+        let before = pending.len();
+        pending.retain(|_, (id, _)| id != terminal_id);
+        pending.len() != before
+    }
+
+    /// Remember the typed end of an ended terminal from its durable receipt,
+    /// for tabs that keep showing it without a runtime surface (R41).
+    #[cfg(unix)]
+    fn record_terminal_end(&self, terminal_id: &str) {
+        let (terminal, public_id) = {
+            let registry = self.workspace_registry.lock().unwrap();
+            (registry.terminal_record(terminal_id), registry.terminal_resource_id(terminal_id))
+        };
+        let (Ok(Some(terminal)), Ok(Some(public_id))) = (terminal, public_id) else { return };
+        if terminal.lifecycle != TerminalLifecycle::Exited {
+            return;
+        }
+        let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
+        self.terminal_ends.lock().unwrap().insert(public_id.as_str().to_string(), end);
+    }
+
+    /// Watch an unadoptable host: when its live marker frees (the host
+    /// exited, by itself or by a close), end the terminal with the host's
+    /// exit sidecar when it left one, and remove its artifacts.
+    #[cfg(unix)]
+    fn watch_unadoptable_terminal_host(
+        self: &Arc<Self>,
+        options: SurfaceOptions,
+        record: crate::terminal_host_runtime::UnadoptableTerminalHostRecord,
+    ) {
+        let mux = Arc::downgrade(self);
+        let name = format!("terminal-unadoptable-{}", record.terminal_id);
+        let spawned = std::thread::Builder::new().name(name).spawn(move || {
+            if let Err(error) =
+                crate::terminal_host_runtime::wait_for_unadoptable_terminal_host_exit(&record)
+            {
+                eprintln!(
+                    "cmux-tui: could not watch the unadoptable host of terminal {}: {error:#}",
+                    record.terminal_id
+                );
+                return;
+            }
+            let Some(mux) = mux.upgrade() else { return };
+            if mux.shutting_down.load(Ordering::Acquire) {
+                return;
+            }
+            if let Err(error) = mux.mark_terminal_ended(
+                &record.terminal_id,
+                "terminal-unadoptable-host-ended",
+                "unadoptable-host-ended",
+                &options,
+            ) {
+                eprintln!(
+                    "cmux-tui: could not end terminal {} after its unadoptable host exited: \
+                     {error:#}",
+                    record.terminal_id
+                );
+            }
+            mux.emit(MuxEvent::TreeChanged);
+        });
+        if spawned.is_err() {
+            eprintln!("cmux-tui: no thread to watch an unadoptable terminal host");
+        }
     }
 
     #[cfg(unix)]
@@ -4321,10 +4497,14 @@ impl Mux {
                     }
                     delay = (delay * 2).min(Duration::from_secs(5));
                 }
+                mux.pending_terminals.lock().unwrap().retain(|_, (id, pending)| {
+                    id != &terminal_id || *pending != PendingTerminal::Adopting
+                });
                 mux.terminal_adoptions.lock().unwrap().remove(&terminal_id);
             });
         if spawn_result.is_err() {
             self.terminal_adoptions.lock().unwrap().remove(&cleanup_id);
+            self.clear_pending_terminal(&cleanup_id);
         }
     }
 
@@ -10774,6 +10954,7 @@ impl Mux {
     ) {
         #[cfg(unix)]
         {
+            self.clear_pending_terminal(terminal_id);
             let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
             let Some(root) = root else { return };
             terminate_discovered_terminal_host_in(&root, terminal_id, incarnation);
@@ -18712,6 +18893,22 @@ fn terminate_discovered_terminal_host_in(
             && !terminate_host_record(record.clone(), path.clone())
         {
             schedule_terminal_host_record_cleanup(record, path);
+        }
+    }
+    if let Ok(unadoptable) =
+        crate::terminal_host_runtime::load_unadoptable_terminal_host_records(root)
+    {
+        for record in unadoptable.iter().filter(|record| record.terminal_id == terminal_id) {
+            if !matches!(
+                crate::terminal_host_runtime::terminate_unadoptable_terminal_host(record),
+                Ok(true)
+            ) {
+                eprintln!(
+                    "cmux-tui: closed terminal {terminal_id} without proof its unadoptable \
+                     host ended; the host may still run; its record stays at {}",
+                    record.record_path.display()
+                );
+            }
         }
     }
     let record_path = root.join(format!("{terminal_id}.json"));
