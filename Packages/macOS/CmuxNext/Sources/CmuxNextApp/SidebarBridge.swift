@@ -32,6 +32,9 @@ final class SidebarBridge {
     /// What was last saved for this window, and the order of saves.
     private var lastRecorded: SidebarSnapshot?
     private var recordSequence: UInt64 = 0
+    /// Once incognito, never saved, even after the window leaves the
+    /// incognito set on its way out.
+    private var everIncognito = false
 
     init(services: AppServices, state: WindowState) {
         self.services = services
@@ -160,8 +163,9 @@ final class SidebarBridge {
     /// the incognito set before its sidebar goes away).
     private func recordSnapshot() {
         let registry = services.windows.registry
-        guard let state, !registry.isLaunching, registry.value.window(state.id)?.isOpen == true,
-              !registry.value.isIncognito(state.id) else { return }
+        guard let state else { return }
+        if registry.value.isIncognito(state.id) { everIncognito = true }
+        guard !everIncognito, !registry.isLaunching, registry.value.window(state.id)?.isOpen == true else { return }
         let snapshot = SidebarSnapshot(sections: model.sections, profiles: model.profiles, activeProfileID: model.activeProfileID)
         guard snapshot != lastRecorded else { return }
         lastRecorded = snapshot
