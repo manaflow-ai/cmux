@@ -482,7 +482,12 @@ export function parseFileManifest(tsv: string): Map<string, string> {
   return out;
 }
 
-export const REPRO_ALLOWED_DIFFS: readonly string[] = ["/etc/cmux/image-stamp"];
+/**
+ * Files that differ between two bakes by design: the stamp (bake time and name)
+ * and the builder's instance id, which cmux-devbox-boot reads to keep the daemon
+ * parked in the snapshot. The bind agent drops the second one.
+ */
+export const REPRO_ALLOWED_DIFFS: readonly string[] = ["/etc/cmux/image-stamp", "/etc/cmux/bake-instance-id"];
 
 export function diffFileManifests(a: Map<string, string>, b: Map<string, string>, allowed: readonly string[] = REPRO_ALLOWED_DIFFS): { diffs: string[]; allowed: string[] } {
   const diffs: string[] = [];
