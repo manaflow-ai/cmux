@@ -5738,7 +5738,8 @@ fi
 exit 65
 ''',
                 "scripts/ci/clear-dirs.sh": '#!/bin/bash\necho clear >> "$CALLS"\n',
-                "bin/pgrep": '#!/bin/bash\n[ "$SCENARIO" = busy-worker ]\n',
+                "bin/pgrep": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo 123; exit 0; fi\nexit 1\n',
+                "bin/ps": '#!/bin/bash\nif [ "$SCENARIO" = busy-worker ]; then echo swift-frontend; else echo ci-supervisor; fi\n',
                 "bin/sleep": '#!/bin/bash\nexit 0\n',
             }
             for relative, content in fixtures.items():
@@ -5777,7 +5778,8 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     assert 'tee -a "$compile_log"' not in admission
     assert "if compile_once; then" in admission
     assert 'compile_workers_running()' in admission
-    assert 'pgrep -f "(^|/)(xcodebuild|swift-frontend|swiftc|clang|ld)' in admission
+    assert 'while read -r pid; do' in admission
+    assert 'ps -p "$pid" -o comm=' in admission
     assert "scripts/ci/compile-app-host-test-product.sh canonical-resolve" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script

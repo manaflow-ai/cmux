@@ -909,7 +909,16 @@ jobs:
             # real compiler errors still fail without a retry.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             compile_workers_running() {
-              pgrep -f "(^|/)(xcodebuild|swift-frontend|swiftc|clang|ld)([[:space:]]|$).*${CMUX_COMPILE_ADMISSION_DERIVED_DATA}" >/dev/null 2>&1
+              local pid command
+              while read -r pid; do
+                command="$(ps -p "$pid" -o comm= 2>/dev/null || true)"
+                case "$command" in
+                  xcodebuild|*/xcodebuild|swift-frontend|*/swift-frontend|swiftc|*/swiftc|clang|*/clang|ld|*/ld)
+                    return 0
+                    ;;
+                esac
+              done < <(pgrep -f "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" 2>/dev/null || true)
+              return 1
             }
             wait_seconds=0
             while [ "$wait_seconds" -lt 60 ] && compile_workers_running; do
