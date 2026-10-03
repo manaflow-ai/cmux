@@ -26,6 +26,8 @@ export { DEFAULT_CONVERSATION_KEY, MUX_SESSION_NAME };
 export interface Clock {
   setTimeout(fn: () => void, ms: number): unknown;
   clearTimeout(handle: unknown): void;
+  /** Milliseconds on this clock (only differences are used). */
+  now(): number;
 }
 
 /** Real timers. They keep the process alive (the reconnect backoff is one of them; the host is a daemon). */
@@ -36,6 +38,7 @@ const realClock: Clock = {
   clearTimeout(handle) {
     clearTimeout(handle as ReturnType<typeof setTimeout>);
   },
+  now: () => Date.now(),
 };
 
 /** A daemon request that got no answer within the request timeout. */
@@ -84,6 +87,8 @@ export class MuxHost {
   private readonly stoppedSignal: Promise<void>;
   private signalStop!: () => void;
   private readonly timers = new Map<string, unknown>();
+  /** Per connection loop: the clock time its connection came up, if it did. */
+  private readonly upAt = new Map<string, number>();
   private readonly clock: Clock;
   private readonly queue: { effect: Effect; daemon?: DaemonClient; acpmux?: AcpmuxClient }[] = [];
   private draining = false;
@@ -150,10 +155,9 @@ export class MuxHost {
     const { initialMs, maxMs } = this.options.backoff ?? { initialMs: 500, maxMs: 30_000 };
     let delay = initialMs;
     while (!this.stopped) {
+      this.upAt.delete(name);
       try {
         await run();
-        // run() returns only after its connection came up and then closed: start the backoff over.
-        delay = initialMs;
         this.log(`${name} connection closed`);
       } catch (error) {
         if (error instanceof MissingCapabilityError) {
@@ -165,6 +169,10 @@ export class MuxHost {
         this.log(`${name}: ${String(error)}`);
       }
       if (this.stopped) return;
+      // A connection that lived longer than maxMs starts the backoff over; one
+      // that came up and closed at once keeps growing it.
+      const up = this.upAt.get(name);
+      if (up !== undefined && this.clock.now() - up > maxMs) delay = initialMs;
       // The wait runs on the injected clock; stop() ends it at once.
       let timer: unknown;
       await Promise.race([new Promise((resolve) => (timer = this.clock.setTimeout(() => resolve(undefined), delay))), this.stoppedSignal]);
@@ -420,6 +428,7 @@ export class MuxHost {
       if (token) await this.timed(daemon, "bind", daemon.bind(AGENT_MUX, token));
       this.daemon = daemon;
       this.log(`daemon connected (${daemon.identity.app ?? "?"} ${daemon.identity.version ?? ""}); conversation ${conversation.id}`);
+      this.upAt.set("daemon", this.clock.now());
       this.feed({ kind: "daemon_connected", conversation });
       const queued = held;
       held = undefined;
@@ -497,6 +506,7 @@ export class MuxHost {
       this.clock.clearTimeout(deadline);
       this.acpmux = acpmux;
       this.log(`acpmux connected; mux session ${sessionId} (${events.length} events replayed)`);
+      this.upAt.set("acpmux", this.clock.now());
       this.feed({
         kind: "acpmux_connected",
         session_id: sessionId,
