@@ -342,8 +342,7 @@ impl VideoToolbox {
         };
         // SAFETY: setting properties on our live session with CF values we release.
         unsafe {
-            // SAFETY: as above.
-            let set = |k: CFStringRef, v: CFTypeRef| unsafe { VTSessionSetProperty(session, k, v) };
+            let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
             set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue);
             set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
             let profile = if baseline {
