@@ -63,19 +63,24 @@ extension CloudTreeOutlineView.Coordinator {
     /// adopted creation node IDs, child objects, and the outline's selection
     /// and expansion restoration; it never projects or reconnects a machine.
     func applyMachineOrder(_ machines: [MachineSnapshot]) {
-        let current = organizationNodes
-        let roots = Dictionary(current.compactMap { node -> (String, CloudTreeNode)? in
-            guard let id = node.machineOrderID else { return nil }
-            return (id, node)
-        }, uniquingKeysWith: { first, _ in first })
-        var updated = machines.compactMap { machine -> CloudTreeNode? in
-            guard let node = roots[machine.id], case .machine(_, let info) = node.kind else { return nil }
-            return CloudTreeNode(
-                id: node.id, kind: .machine(machine, info), children: node.children, isPinned: machine.isPinned
-            )
-        }.makeIterator()
-        applyOrganization(nodes: current.compactMap { node in
-            node.canReorderMachine ? updated.next() : node
+        applyOrganization(nodes: CloudMachineReorderScope.replacingMachines(in: organizationNodes) { siblings in
+            let rows = Dictionary(siblings.compactMap { node -> (String, CloudTreeNode)? in
+                guard let id = node.machineOrderID else { return nil }
+                return (id, node)
+            }, uniquingKeysWith: { first, _ in first })
+            var updated = machines.compactMap { machine -> CloudTreeNode? in
+                guard let node = rows[machine.id], case .machine(_, let info) = node.kind else { return nil }
+                let moved = CloudTreeNode(
+                    id: node.id, kind: .machine(machine, info), children: node.children, isPinned: machine.isPinned
+                )
+                // The tab row rebuilds from these pools when another tab opens.
+                moved.detailPools = node.detailPools
+                moved.resourceSection = node.resourceSection
+                return moved
+            }.makeIterator()
+            return siblings.compactMap { node in
+                node.canReorderMachine ? updated.next() : node
+            }
         })
     }
 }

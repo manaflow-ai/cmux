@@ -263,7 +263,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
 
         XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
-        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertEqual(browserPanel.reactGrabPasteback.armedReturnPanelId, terminalId)
     }
 
     func testShortcutClearsSplitZoomBeforeRoutingToBrowserPane() {
@@ -285,7 +285,7 @@ final class ReactGrabPastebackTargetTests: XCTestCase {
         XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
         XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
         XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
-        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertEqual(browserPanel.reactGrabPasteback.armedReturnPanelId, terminalId)
     }
 }
 

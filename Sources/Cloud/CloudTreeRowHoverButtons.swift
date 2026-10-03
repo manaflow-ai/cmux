@@ -82,7 +82,9 @@ struct CloudTreeRowHoverButtons: View {
             }
         case .displaysPool(let machine, _, let canCreate):
             plus(String(localized: "cloudTree.menu.newDisplay", defaultValue: "New Display")) {
-                Self.performDisplayCreationIfAvailable(canCreate) {
+                Self.performDisplayCreationIfAvailable(canCreate, unavailable: {
+                    nodeActions.showHint(CloudGuestDisplaySnapshot.unavailableMessage)
+                }) {
                     nodeActions.newDisplay(machine)
                 }
             }
@@ -171,8 +173,15 @@ struct CloudTreeRowHoverButtons: View {
     /// so its unavailable state can explain itself on hover. Keep that visual
     /// affordance from dispatching a create operation until the snapshot says
     /// the machine can accept one.
-    static func performDisplayCreationIfAvailable(_ canCreate: Bool, action: () -> Void) {
-        guard canCreate else { return }
+    static func performDisplayCreationIfAvailable(
+        _ canCreate: Bool,
+        unavailable: () -> Void = {},
+        action: () -> Void
+    ) {
+        guard canCreate else {
+            unavailable()
+            return
+        }
         action()
     }
 

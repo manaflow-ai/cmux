@@ -243,14 +243,17 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let wasReady = dataCache?.readyData != nil
 #endif
         // The cache is warmed at sign-in, so this returns at once; only a
-        // cold cache waits, for at most a second.
-        let data = await dataCache?.data()
+        // cold cache joins the same in-flight preload.
+        guard let cachedData = await dataCache?.data(), cachedData.hasPlan else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
         guard !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)
             return nil
         }
-        let plan = data?.plan
-        let limits = data?.limits
+        let limits = cachedData.limits
+        let plan = cachedData.plan
         guard !Self.shouldPresentUpgrade(for: plan) else {
             finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)

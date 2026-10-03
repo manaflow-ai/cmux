@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCloud
 
 extension CloudTreeOutlineView.Coordinator {
     /// Shows a row's context menu under its trailing "⋯" button, the same
@@ -11,5 +12,13 @@ extension CloudTreeOutlineView.Coordinator {
         let bounds = cell.bounds
         let anchor = NSPoint(x: bounds.maxX - 24, y: cell.isFlipped ? bounds.maxY : bounds.minY)
         menu.popUp(positioning: nil, at: anchor, in: cell)
+    }
+}
+
+extension CloudTreeOutlineView.Coordinator {
+    func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
+        let item = CloudTreeMenuItem(title: title, action: action)
+        item.target = item
+        return item
     }
 }

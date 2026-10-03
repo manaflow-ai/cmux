@@ -195972,16 +195972,16 @@
             "value": "إلغاء"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
+            "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "de": {
@@ -195993,7 +195993,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
+            "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "es": {
@@ -196011,7 +196011,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
+            "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "ja": {
@@ -196023,7 +196023,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
+            "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "ko": {
@@ -196035,37 +196035,37 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
+            "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
+            "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
+            "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
+            "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
+            "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
+            "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "uk": {
@@ -609984,70 +609984,70 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-    "bs": {
-      "stringUnit": {
-        "state": "translated",
-        "value": "Cloud Machines zahtijevaju cmux Pro"
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud Machines zahtijevaju cmux Pro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines kræver cmux Pro"
+            "value": "Cloud Machines kræver cmux Pro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines richiedono cmux Pro"
+            "value": "Cloud Machines richiedono cmux Pro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ត្រូវការ cmux Pro"
+            "value": "Cloud Machines ត្រូវការ cmux Pro"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines krever cmux Pro"
+            "value": "Cloud Machines krever cmux Pro"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines wymagają cmux Pro"
+            "value": "Cloud Machines wymagają cmux Pro"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-        "value": "O Cloud Machines requer cmux Pro"
+            "value": "O Cloud Machines requer cmux Pro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines требуется cmux Pro"
+            "value": "Для Cloud Machines требуется cmux Pro"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines ต้องใช้ cmux Pro"
+            "value": "Cloud Machines ต้องใช้ cmux Pro"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-        "value": "Cloud Machines için cmux Pro gerekir"
+            "value": "Cloud Machines için cmux Pro gerekir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-        "value": "Для Cloud Machines потрібен cmux Pro"
+            "value": "Для Cloud Machines потрібен cmux Pro"
           }
         }
       }
@@ -618357,6 +618357,183 @@
           "stringUnit": {
             "state": "translated",
             "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.shortTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t open SSH terminal"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH-Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le terminal SSH"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر فتح طرفية SSH"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el terminal SSH"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟 SSH 終端機"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开 SSH 终端"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 터미널을 열 수 없습니다"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH ターミナルを開けませんでした"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check the SSH connection, then retry this request."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prüfe die SSH-Verbindung und versuche die Anfrage erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifiez la connexion SSH, puis réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقّق من اتصال SSH ثم أعد محاولة هذا الطلب."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprueba la conexión SSH y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請檢查 SSH 連線後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请检查 SSH 连接，然后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 확인한 후 다시 시도하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確認してから、もう一度お試しください。"
+          }
+        }
+      }
+    },
+    "sshPane.newTerminalFailed.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The SSH connection could not be established."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die SSH-Verbindung konnte nicht hergestellt werden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion SSH n’a pas pu être établie."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إنشاء اتصال SSH."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo establecer la conexión SSH."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法建立 SSH 連線。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法建立 SSH 连接。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 연결을 설정할 수 없습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH 接続を確立できませんでした."
           }
         }
       }
