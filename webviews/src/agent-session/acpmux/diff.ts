@@ -3,11 +3,19 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type DiffLine = { type: "context" | "add" | "del"; text: string; oldLine?: number; newLine?: number };
+export type DiffRange = {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+};
 export type DiffHunk = {
   lines: DiffLine[];
-  /// Checkpoint hunks can point back to the tool hunks that produced them. The tool view leaves
-  /// this unset and uses its own hunkKey as the review identity.
+  /// A checkpoint hunk can carry the tool hunk identities that produced its net change. An empty
+  /// array means the checkpoint hunk is read-only because no tool change can safely own it.
   reviewKeys?: string[];
+  /// The checkpoint identity remains available for diagnostics and file-level actions.
+  checkpoint?: { id: string; path: string; range: DiffRange; key: string };
 };
 /// One tool call's change to a file. Line numbers are known for a new file, a file the agent
 /// sent whole, or an edit whose tool call located its first line; a bare fragment has none.
@@ -24,8 +32,6 @@ export type TurnFile = {
   binary?: boolean;
   /// A turn checkpoint's file that none of the turn's tool calls changed: read-only.
   outside?: boolean;
-  /// The host returned only part of this file's patch, so hunk review is unsafe.
-  patchTruncated?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
@@ -152,6 +158,27 @@ export function diffHunks(ops: Op[], firstLine = 1, context = CONTEXT_LINES): Di
   return hunks;
 }
 
+/// The unified range represented by a rendered hunk, including its context lines.
+export function hunkRange(hunk: DiffHunk): DiffRange {
+  const oldLines = hunk.lines.filter((line) => line.oldLine !== undefined);
+  const newLines = hunk.lines.filter((line) => line.newLine !== undefined);
+  const oldStart = oldLines[0]?.oldLine ?? newLines[0]?.newLine ?? 0;
+  const newStart = newLines[0]?.newLine ?? oldLines[0]?.oldLine ?? 0;
+  return {
+    oldStart,
+    oldCount: oldLines.length,
+    newStart,
+    newCount: newLines.length,
+  };
+}
+
+/// A stable identity for a checkpoint hunk. It is deliberately file-level addressable even when
+/// the checkpoint's net hunk cannot be attributed to one tool call.
+export function checkpointHunkKey(id: string, path: string, hunk: DiffHunk): string {
+  const range = hunkRange(hunk);
+  return `checkpoint:${id}\u0000${path}\u0000-${range.oldStart},${range.oldCount}+${range.newStart},${range.newCount}`;
+}
+
 /// The rows of the turn `rowId` belongs to: from its user message up to the next one.
 export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
   const index = rows.findIndex((row) => row.id === rowId);
@@ -263,11 +290,25 @@ export function rejectionPrompt(patches: string[], note?: string): string {
     patches.length === 1
       ? "I reviewed your changes and rejected this one. Please revert it and keep your other changes:"
       : `I reviewed your changes and rejected these ${patches.length}. Please revert them and keep your other changes:`;
-  // A fence longer than any backtick run in the patches, so code containing one cannot close it.
+  return [intro, "", ...fencedPatches(patches), ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+}
+
+/// The prompt behind a turn's Undo: revert everything the turn changed.
+export function undoPrompt(patches: string[]): string {
+  return [
+    "Please undo the changes you made in that turn, so these files read as they did before it:",
+    "",
+    ...fencedPatches(patches),
+  ].join("\n");
+}
+
+/// The patches in one diff fence, longer than any backtick run in them so code containing one
+/// cannot close it.
+function fencedPatches(patches: string[]): string[] {
   const longest = Math.max(
     0,
     ...patches.map((patch) => Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length))),
   );
   const fence = "`".repeat(Math.max(3, longest + 1));
-  return [intro, "", `${fence}diff`, patches.join("\n"), fence, ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
+  return [`${fence}diff`, patches.join("\n"), fence];
 }

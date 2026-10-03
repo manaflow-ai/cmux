@@ -2999,7 +2999,7 @@ describe("acpmux hunk review", () => {
     }
   });
 
-  test("a turn's checkpoint maps reviewable hunks and marks other files outside tool calls", async () => {
+  test("a turn's checkpoint maps tool hunks and keeps outside files read-only", async () => {
     const { DiffPanel } = await import("./DiffPanel");
     const { turnFiles } = await import("./diff");
     const { readTurnCheckpoint, turnDisplay } = await import("./changes/turnCheckpoint");
@@ -3041,7 +3041,15 @@ describe("acpmux hunk review", () => {
     const document = dom.window.document;
     const show = async (display: ReturnType<typeof turnDisplay>) => {
       await act(async () =>
-        root.render(createElement(DiffPanel, { files: display.files, turn: display, onClose: () => {}, review })),
+        root.render(
+          createElement(DiffPanel, {
+            files: display.files,
+            turn: display,
+            onClose: () => {},
+            review,
+            reviewFiles: toolFiles,
+          }),
+        ),
       );
       for (let tries = 0; tries < 50 && !document.querySelector("[data-path] .acpmux-file-header"); tries += 1)
         await act(() => new Promise((resolve) => setTimeout(resolve, 10)));

@@ -97,8 +97,8 @@ export function DiffPanel({
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
-  // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry the matching keys when
-  // the net diff still contains a tool change, while formatter-only hunks remain read-only.
+  // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry matching keys when the
+  // net diff still contains a tool change; formatter-only and outside files remain read-only.
   const hunkReview = scope === "lastTurn" ? review : undefined;
   const turnNote = scope === "lastTurn" ? turn?.note : undefined;
   const totals = useMemo(
