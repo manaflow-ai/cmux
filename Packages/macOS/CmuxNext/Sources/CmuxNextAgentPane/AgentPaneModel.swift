@@ -64,10 +64,12 @@ public final class AgentPaneModel {
                     handshake.prompt = seed.prompt
                 }
                 // A new tab page is a new chat on every host, the mock included: the page
-                // never falls back to the most recent session behind it.
+                // never falls back to the most recent session behind it. Its chat starts in
+                // the page's folder unless a seed named one.
                 if sessionId == nil, let newTab {
                     handshake.newTab = newTab
                     handshake.newSession = true
+                    if handshake.cwd == nil { handshake.cwd = newTab.cwd }
                 }
                 lastError = nil
                 return AgentPaneReply.handshake(handshake)
