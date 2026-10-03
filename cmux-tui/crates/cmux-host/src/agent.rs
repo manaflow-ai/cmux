@@ -24,7 +24,7 @@ use crate::status::Status;
 pub enum Wake {
     /// The realtime clock was set (`TFD_TIMER_CANCEL_ON_SET`).
     ClockSet,
-    /// rtnetlink link or address event.
+    /// The set of global addresses changed (rtnetlink, filtered).
     Address,
     /// The driver wrote `/run/cmux/instance-id`.
     DriverFile,
@@ -32,6 +32,10 @@ pub enum Wake {
     BakeFile,
     /// `server.json` was written.
     ConfigFile,
+    /// The observation retry timer.
+    Retry,
+    /// The periodic announce timer.
+    AnnounceTimer,
     /// SIGTERM or SIGINT.
     Terminate,
     /// SIGCHLD or the session host's pidfd: reap.
@@ -99,10 +103,10 @@ impl ActionLog {
 
 fn describe(action: &Action) -> String {
     match action {
-        Action::Reseed(id) | Action::WriteBound(id) | Action::Rekey(id) => {
+        Action::Reseed(id) | Action::WriteBound(id) | Action::Rekey(id) | Action::CommitBind(id) => {
             format!("{} id={id}", action.name())
         }
-        Action::ArmBackoff(ms) => format!("{} ms={ms}", action.name()),
+        Action::ArmBackoff(ms) | Action::ArmRetry(ms) => format!("{} ms={ms}", action.name()),
         Action::Notify(event) => format!("{} event={}", action.name(), event_name(event)),
         Action::StartRoles(id) => format!("{} id={}", action.name(), id.as_deref().unwrap_or("-")),
         other => other.name().to_owned(),
@@ -163,8 +167,12 @@ impl<P: Platform> Agent<P> {
         }
     }
 
+    /// Inputs in a safe order: the retry flag first, then the observation
+    /// (so nothing restarts on stale state, P2-2), then everything else,
+    /// shutdown last.
     fn translate(&mut self, wakes: &[Wake]) -> Vec<Input> {
-        let mut inputs = Vec::new();
+        let mut first = Vec::new();
+        let mut rest = Vec::new();
         let mut observe = false;
         let mut resumed = false;
         let mut terminate = false;
@@ -174,89 +182,122 @@ impl<P: Platform> Agent<P> {
                     resumed = true;
                     observe = true;
                 }
-                Wake::Address => {
-                    resumed = true;
-                    observe = true;
-                    inputs.push(Input::AddressesChanged);
-                }
-                Wake::ConfigFile => inputs.push(Input::ConfigChanged),
+                // A change of the global address set: roles rebind. Not a
+                // resume and no metadata read.
+                Wake::Address => rest.push(Input::AddressesChanged),
+                Wake::ConfigFile => rest.push(Input::ConfigChanged),
                 Wake::DriverFile | Wake::BakeFile => observe = true,
+                Wake::Retry => {
+                    first.push(Input::RetryElapsed);
+                    observe = true;
+                }
+                Wake::AnnounceTimer => rest.push(Input::AnnounceTick),
                 Wake::Terminate => terminate = true,
                 Wake::ProcessExit => {
-                    inputs.extend(self.platform.reap().into_iter().map(|exit| match exit {
+                    rest.extend(self.platform.reap().into_iter().map(|exit| match exit {
                         Exit::Daemon { lived_ms } => Input::DaemonExited { lived_ms },
                         Exit::Announce => Input::AnnounceDone,
                     }));
                 }
-                Wake::Rearm => inputs.push(Input::RearmElapsed),
-                Wake::Backoff => inputs.push(Input::BackoffElapsed),
-                Wake::StopDeadline => inputs.push(Input::StopDeadline),
+                Wake::Rearm => rest.push(Input::RearmElapsed),
+                Wake::Backoff => rest.push(Input::BackoffElapsed),
+                Wake::StopDeadline => rest.push(Input::StopDeadline),
             }
         }
-        if let Some(first) = wakes.first() {
-            self.last_wake = wake_name(*first);
-        }
-        if resumed {
-            inputs.push(Input::ResumeSignal);
+        if let Some(wake) = wakes.first() {
+            self.last_wake = wake_name(*wake);
         }
         if observe {
-            inputs.push(Input::Observed(self.platform.observe()));
+            first.push(Input::Observed(self.platform.observe()));
         }
+        if resumed {
+            first.push(Input::ResumeSignal);
+        }
+        first.extend(rest);
         if terminate {
-            inputs.push(Input::Shutdown);
+            first.push(Input::Shutdown);
         }
-        inputs
+        first
     }
 
     /// Runs inputs and their follow-ups; `true` when the loop must exit.
+    /// A step's follow-ups run before the next queued input.
     fn dispatch(&mut self, inputs: impl IntoIterator<Item = Input>) -> bool {
         let mut queue: VecDeque<Input> = inputs.into_iter().collect();
         let mut exit = false;
         while let Some(input) = queue.pop_front() {
-            for action in self.machine.step(input) {
-                self.log.line(&describe(&action));
-                match &action {
-                    Action::Exit => exit = true,
-                    Action::StartRoles(id) => {
-                        let errors = self.roles.start(id.clone());
-                        self.log_all(errors);
-                    }
-                    Action::Notify(event) => {
-                        let errors = self.roles.notify(event);
-                        self.log_all(errors);
-                    }
-                    Action::ParkRoles => {
-                        let ok = match self.roles.park() {
-                            Ok(()) => true,
-                            Err(errors) => {
-                                self.log_all(errors);
-                                self.log.line("park refused by a role");
-                                false
-                            }
-                        };
-                        queue.push_back(Input::RolesParked { ok });
-                    }
-                    Action::ShutdownRoles => {
-                        let errors = self.roles.shutdown();
-                        self.log_all(errors);
-                    }
-                    _ => match self.platform.run(&action) {
-                        Ok(Some(follow)) => queue.push_back(follow),
-                        Ok(None) => {}
-                        Err(err) => {
-                            self.log.line(&format!("{} failed: {err}", action.name()));
-                            if action == Action::SpawnDaemon {
-                                queue.push_back(Input::DaemonExited { lived_ms: 0 });
-                            }
-                        }
-                    },
-                }
+            let actions = self.machine.step(input);
+            let follow = self.run_step(&actions, &mut exit);
+            for input in follow.into_iter().rev() {
+                queue.push_front(input);
             }
         }
         if !exit {
             self.publish();
         }
         exit
+    }
+
+    /// Runs one step's actions. The identity group (reseed, drop, write)
+    /// is guarded: its first failure discards the rest of the step and
+    /// answers `BindFailed`, so nothing spawns on inherited identity.
+    fn run_step(&mut self, actions: &[Action], exit: &mut bool) -> Vec<Input> {
+        let mut follow = Vec::new();
+        let binding = actions.iter().find_map(|a| match a {
+            Action::CommitBind(id) => Some(id.clone()),
+            _ => None,
+        });
+        for action in actions {
+            self.log.line(&describe(action));
+            match action {
+                Action::Exit => *exit = true,
+                Action::CommitBind(id) => follow.push(Input::BindCommitted(id.clone())),
+                Action::Recheck => follow.push(Input::Observed(self.platform.observe())),
+                Action::StartRoles(id) => {
+                    let errors = self.roles.start(id.clone());
+                    self.log_all(errors);
+                }
+                Action::Notify(event) => {
+                    let errors = self.roles.notify(event);
+                    self.log_all(errors);
+                }
+                Action::ParkRoles => {
+                    let ok = match self.roles.park() {
+                        Ok(()) => true,
+                        Err(errors) => {
+                            self.log_all(errors);
+                            self.log.line("park refused by a role");
+                            false
+                        }
+                    };
+                    follow.push(Input::RolesParked { ok });
+                }
+                Action::ShutdownRoles => {
+                    let errors = self.roles.shutdown();
+                    self.log_all(errors);
+                }
+                _ => match self.platform.run(action) {
+                    Ok(Some(input)) => follow.push(input),
+                    Ok(None) => {}
+                    Err(err) => {
+                        self.log.line(&format!("{} failed: {err}", action.name()));
+                        let guarded = matches!(
+                            action,
+                            Action::Reseed(_) | Action::DropRemoteIdentity | Action::WriteBound(_)
+                        );
+                        if guarded && let Some(id) = binding.clone() {
+                            self.log.line(&format!("bind-failed id={id}"));
+                            follow.push(Input::BindFailed(id));
+                            return follow;
+                        }
+                        if *action == Action::SpawnDaemon {
+                            follow.push(Input::DaemonExited { lived_ms: 0 });
+                        }
+                    }
+                },
+            }
+        }
+        follow
     }
 
     fn log_all(&mut self, lines: Vec<String>) {
@@ -291,6 +332,8 @@ fn wake_name(wake: Wake) -> &'static str {
         Wake::DriverFile => "driver-file",
         Wake::BakeFile => "bake-file",
         Wake::ConfigFile => "config-file",
+        Wake::Retry => "retry",
+        Wake::AnnounceTimer => "announce-timer",
         Wake::Terminate => "terminate",
         Wake::ProcessExit => "exit",
         Wake::Rearm => "rearm",

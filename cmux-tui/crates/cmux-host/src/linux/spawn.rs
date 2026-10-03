@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 use crate::config::{Config, Paths};
-use crate::daemon_spec::{
+use crate::daemon_spec::{inherited_env, 
     DaemonLayout, DaemonSpec, LayoutKind, ROOT_HOME, WORK_HOME, WORK_USER, binary_path,
 };
 
@@ -177,9 +177,8 @@ unsafe fn reset_signal_mask() -> io::Result<()> {
 pub fn spawn_daemon(spec: &DaemonSpec) -> io::Result<Child> {
     let mut command = Command::new(&spec.program);
     command.args(&spec.args).current_dir(&spec.cwd).stdin(Stdio::null());
-    for name in &spec.remove_env {
-        command.env_remove(name);
-    }
+    command.env_clear();
+    command.envs(inherited_env(std::env::vars()));
     command.envs(spec.set_env.iter().map(|(k, v)| (k, v)));
     // SAFETY: geteuid has no preconditions.
     let drop_to =

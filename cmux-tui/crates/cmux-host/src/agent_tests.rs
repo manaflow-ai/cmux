@@ -145,7 +145,7 @@ fn binds_once_across_repeated_resume_signals() {
     assert_eq!(order, ["reseed", "drop-remote-identity", "write-bound", "spawn-daemon"]);
     assert_eq!(
         events.all(),
-        ["start:vm-1", "bound", "resumed", "addresses", "resumed", "shutdown", "stop"]
+        ["start:vm-1", "bound", "resumed", "resumed", "addresses", "shutdown", "stop"]
     );
 }
 
@@ -234,4 +234,50 @@ fn role_that_cannot_park_refuses_the_park_and_reports_its_error() {
     let status = agent.platform().last_status.clone().unwrap();
     assert_eq!(status.roles[0].name, "stubborn");
     assert_eq!(status.roles[0].last_error.as_deref(), Some("still flushing"));
+}
+
+/// Review P1 at the agent level: a failing drop discards write-bound and
+/// the spawn of the same bind.
+#[test]
+fn failed_identity_drop_discards_the_rest_of_the_bind() {
+    struct Failing(Fake);
+    impl Platform for Failing {
+        fn wait(&mut self) -> io::Result<Vec<Wake>> {
+            self.0.wait()
+        }
+        fn reap(&mut self) -> Vec<Exit> {
+            self.0.reap()
+        }
+        fn observe(&mut self) -> Observation {
+            self.0.observe()
+        }
+        fn adopt_daemon(&mut self) -> Option<u32> {
+            None
+        }
+        fn run(&mut self, action: &Action) -> io::Result<Option<Input>> {
+            if *action == Action::DropRemoteIdentity {
+                self.0.ran.push("drop-failed".to_owned());
+                return Err(io::Error::other("symlinked parent"));
+            }
+            self.0.run(action)
+        }
+        fn daemon_pid(&self) -> Option<u32> {
+            None
+        }
+        fn write_status(&mut self, status: &Status) -> io::Result<()> {
+            self.0.write_status(status)
+        }
+    }
+    let fake = Fake::new(vec![vec![Wake::Retry]], vec![Some("vm-1"), Some("vm-1")]);
+    let mut agent = Agent::new(
+        Failing(fake),
+        Vec::new(),
+        Err("no layout".to_owned()),
+        ActionLog::new(None).unwrap(),
+    );
+    agent.run().unwrap();
+    let ran = &agent.platform().0.ran;
+    assert!(!ran.iter().any(|a| a == "write-bound" || a == "spawn-daemon"), "{ran:?}");
+    assert_eq!(ran.iter().filter(|a| *a == "drop-failed").count(), 2, "retried once: {ran:?}");
+    assert!(ran.contains(&"arm-retry".to_owned()));
 }

@@ -53,6 +53,8 @@ pub const HOUSEKEEPING_TIMERS: [&str; 9] = [
     "systemd-tmpfiles-clean.timer",
 ];
 pub const HOUSEKEEPING_DELAY: Duration = Duration::from_secs(600);
+/// See [`Config::announce_interval`].
+pub const DEFAULT_ANNOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 /// SIGTERM to SIGKILL grace for the session host.
 pub const STOP_GRACE: Duration = Duration::from_secs(5);
 
@@ -103,6 +105,11 @@ pub struct Config {
     pub remote_ws_bind: String,
     /// Send the gratuitous ARP announce (off only in tests).
     pub announce: bool,
+    /// `announce_interval_seconds`: repeat the announce this often while
+    /// bound and not parked (one-shot timer re-armed after each announce);
+    /// zero disables it. Default 30 s until the 2-hour idle reachability
+    /// smoke passes; then the default becomes 0 (vm-image.md 6.4).
+    pub announce_interval: Duration,
     pub rearm_delay: Duration,
     /// Append one line per executed action (tests and diagnostics).
     pub action_log: Option<PathBuf>,
@@ -123,6 +130,7 @@ impl Config {
             daemon: DaemonOverride::default(),
             remote_ws_bind: crate::daemon_spec::DEFAULT_REMOTE_WS_BIND.to_owned(),
             announce: true,
+            announce_interval: DEFAULT_ANNOUNCE_INTERVAL,
             rearm_delay: HOUSEKEEPING_DELAY,
             action_log: None,
             self_argv: Vec::new(),

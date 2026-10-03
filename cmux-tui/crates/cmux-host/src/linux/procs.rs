@@ -38,16 +38,25 @@ fn open_verified(pid: u32, bin: &Path, uid: u32) -> Option<PidFd> {
     is_session_host(pid, bin, uid).then_some(pidfd)
 }
 
-/// Finds a running session host: the pid file first, then one pass over
-/// `/proc` (once, at agent start; never repeated).
+/// Finds a running session host by the agent's own pid file. The file is
+/// trusted only when it is a regular file owned by the agent's effective
+/// user and not writable by group or others (`/run/cmux-host`, root-only);
+/// there is no `/proc` scan, so no other process can steer adoption.
 pub fn find_session_host(pid_file: &Path, bin: &Path, uid: u32) -> Option<(u32, PidFd)> {
-    let recorded = fs::read_to_string(pid_file).ok().and_then(|s| s.trim().parse::<u32>().ok());
-    if let Some(pid) = recorded
-        && let Some(pidfd) = open_verified(pid, bin, uid)
-    {
-        return Some((pid, pidfd));
+    if !trusted_pid_file(pid_file) {
+        return None;
     }
-    pids().into_iter().find_map(|pid| open_verified(pid, bin, uid).map(|fd| (pid, fd)))
+    let pid = fs::read_to_string(pid_file).ok()?.trim().parse::<u32>().ok()?;
+    open_verified(pid, bin, uid).map(|pidfd| (pid, pidfd))
+}
+
+fn trusted_pid_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    // SAFETY: geteuid has no preconditions.
+    let euid = unsafe { libc::geteuid() };
+    fs::symlink_metadata(path).is_ok_and(|meta| {
+        meta.file_type().is_file() && meta.uid() == euid && meta.permissions().mode() & 0o022 == 0
+    })
 }
 
 /// `host_pid` of every terminal host record under the session host's
@@ -120,6 +129,22 @@ mod tests {
         let other = home.path().join(".local/state/cmux-tui/sessions/x");
         fs::write(other.join("registry.json"), r#"{"host_pid":99}"#).unwrap();
         assert_eq!(template_host_pids(home.path()), [4321]);
+    }
+
+    #[test]
+    fn untrusted_pid_files_are_ignored() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("daemon.pid");
+        fs::write(&file, format!("{}\n", std::process::id())).unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(trusted_pid_file(&file));
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o666)).unwrap();
+        assert!(!trusted_pid_file(&file), "group/other writable");
+        let link = dir.path().join("link.pid");
+        std::os::unix::fs::symlink(&file, &link).unwrap();
+        assert!(!trusted_pid_file(&link), "symlink");
+        assert!(find_session_host(&dir.path().join("none"), Path::new("/x"), 0).is_none());
     }
 
     #[test]

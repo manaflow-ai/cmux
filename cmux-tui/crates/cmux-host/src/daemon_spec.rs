@@ -66,10 +66,9 @@ pub struct DaemonSpec {
     pub program: PathBuf,
     pub args: Vec<String>,
     pub cwd: PathBuf,
-    /// Set on top of the agent's own environment, in this order.
+    /// Set on top of [`inherited_env`] (the rest of the agent's
+    /// environment is cleared), in this order.
     pub set_env: Vec<(String, String)>,
-    /// Removed from the inherited environment.
-    pub remove_env: Vec<&'static str>,
     pub uid: u32,
     pub gid: u32,
     pub groups: Vec<u32>,
@@ -118,11 +117,32 @@ pub fn daemon_spec(
         args,
         cwd: layout.home.clone(),
         set_env,
-        remove_env: vec!["NOTIFY_SOCKET", "LISTEN_FDS", "LISTEN_PID", "LISTEN_FDNAMES"],
         uid: layout.uid,
         gid: layout.gid,
         groups: layout.groups.clone(),
     }
+}
+
+/// The default `PATH` when the agent has none.
+pub const DEFAULT_PATH: &str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+
+/// The agent environment the session host (and so every pane) may see:
+/// `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TZ` and `CMUX_TUI_*` settings.
+/// Service-manager variables (`INVOCATION_ID`, `JOURNAL_STREAM`,
+/// `NOTIFY_SOCKET`, `LISTEN_*`) and `CMUX_SERVER_MODE` never pass.
+pub fn inherited_env(vars: impl IntoIterator<Item = (String, String)>) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = vars
+        .into_iter()
+        .filter(|(k, _)| {
+            matches!(k.as_str(), "PATH" | "LANG" | "LANGUAGE" | "TZ")
+                || k.starts_with("LC_")
+                || k.starts_with("CMUX_TUI_")
+        })
+        .collect();
+    if !out.iter().any(|(k, _)| k == "PATH") {
+        out.push(("PATH".to_owned(), DEFAULT_PATH.to_owned()));
+    }
+    out
 }
 
 /// `argv` is a session host started from `bin`: an element equal to `bin`
@@ -223,7 +243,6 @@ mod tests {
                 "TERM_PROGRAM_VERSION=1.2.3",
             ]
         );
-        assert!(spec.remove_env.contains(&"NOTIFY_SOCKET"));
     }
 
     #[test]
@@ -269,6 +288,27 @@ mod tests {
         )));
         assert!(!is_terminal_host_argv(&argv("grep __terminal-host")));
         assert!(!is_terminal_host_argv(&argv("/tmp/cmux-tui-evil server")));
+    }
+
+    #[test]
+    fn env_allowlist_drops_service_manager_variables() {
+        let vars = [
+            ("PATH", "/bin"),
+            ("LANG", "C.UTF-8"),
+            ("LC_ALL", "C"),
+            ("TZ", "UTC"),
+            ("CMUX_TUI_REMOTE_WS_BIND", "[::]:1337"),
+            ("INVOCATION_ID", "x"),
+            ("JOURNAL_STREAM", "1:2"),
+            ("NOTIFY_SOCKET", "/run/systemd/notify"),
+            ("CMUX_SERVER_MODE", "system"),
+            ("AWS_SECRET_ACCESS_KEY", "s"),
+        ]
+        .map(|(k, v)| (k.to_owned(), v.to_owned()));
+        let kept: Vec<String> = inherited_env(vars).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kept, ["PATH", "LANG", "LC_ALL", "TZ", "CMUX_TUI_REMOTE_WS_BIND"]);
+        let no_path = inherited_env(Vec::new());
+        assert_eq!(no_path, [("PATH".to_owned(), DEFAULT_PATH.to_owned())]);
     }
 
     #[test]

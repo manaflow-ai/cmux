@@ -68,7 +68,7 @@ impl Harness {
         let daemon_log = dir.path().join("daemon.log");
         fs::write(
             &bin,
-            "#!/bin/sh\necho \"$$ $*\" >> \"$FAKE_DAEMON_LOG\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n",
+            "#!/bin/sh\nd=$(dirname \"$0\")/..\necho \"$$ $*\" >> \"$d/daemon.log\"\nenv > \"$d/daemon.env\"\ntrap 'kill $! 2>/dev/null; exit 0' TERM\nsleep 600 &\nwait\n",
         )
         .unwrap();
         fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
@@ -103,7 +103,8 @@ impl Harness {
             .arg("--no-announce")
             .arg("--action-log")
             .arg(log)
-            .env("FAKE_DAEMON_LOG", &self.daemon_log)
+            // Service-manager variables must not reach the session host.
+            .env("INVOCATION_ID", "test-invocation")
             .env_remove("CMUX_TUI_REMOTE_WS_BIND")
             // System layout: server.json is /etc/cmux/server.json (under the root).
             .env("CMUX_SERVER_MODE", "system")
@@ -223,6 +224,18 @@ fn agent_binds_parks_adopts_and_restarts() {
     );
     wait_until("status", || h.status().is_some_and(|s| s.daemon_pid.is_some()));
     let first_pid = h.status().unwrap().daemon_pid.unwrap();
+    let env = fs::read_to_string(h.daemon_log.with_file_name("daemon.env")).unwrap();
+    assert!(env.lines().any(|l| l == "TERM_PROGRAM=ghostty"), "{env}");
+    assert!(!env.contains("INVOCATION_ID"), "{env}");
+    assert!(!env.contains("CMUX_SERVER_MODE"), "{env}");
+    // /run/cmux belongs to the session host's user (it writes `bound`).
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::metadata(h.at("/run/cmux")).unwrap();
+        // SAFETY: geteuid has no preconditions.
+        assert_eq!(meta.uid(), unsafe { libc::geteuid() });
+        assert_eq!(meta.mode() & 0o777, 0o755);
+    }
 
     // server.json written: roles hear ConfigChanged.
     fs::write(h.at("/etc/cmux/server.json"), "{}").unwrap();
@@ -232,10 +245,11 @@ fn agent_binds_parks_adopts_and_restarts() {
     h.clone_to("vm-b");
     wait_until("second bind", || lines(&log).iter().any(|l| l == "write-bound id=vm-b"));
     let l = lines(&log);
-    let reseed_b = index(&l, 0, "reseed id=vm-b");
-    let term = index(&l, reseed_b, "terminate-daemon");
-    let drop_b = index(&l, term, "drop-remote-identity");
-    index(&l, drop_b, "spawn-daemon");
+    let term = index(&l, write, "terminate-daemon");
+    let reseed_b = index(&l, term, "reseed id=vm-b");
+    let drop_b = index(&l, reseed_b, "drop-remote-identity");
+    let commit_b = index(&l, drop_b, "commit-bind id=vm-b");
+    index(&l, commit_b, "spawn-daemon");
     assert_eq!(l.iter().filter(|x| x.starts_with("reseed id=")).count(), 2, "{l:#?}");
     wait_until("old host gone", || !alive(first_pid));
 

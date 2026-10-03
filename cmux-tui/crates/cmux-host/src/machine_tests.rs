@@ -1,24 +1,46 @@
 use super::*;
 
-fn obs(id: Option<&str>, bake: Option<&str>, bound: Option<&str>) -> Input {
-    Input::Observed(Observation {
+fn ob(id: Option<&str>, bake: Option<&str>, bound: Option<&str>) -> Observation {
+    Observation {
         instance_id: id.map(str::to_owned),
         bake_id: bake.map(str::to_owned),
         bound_id: bound.map(str::to_owned),
-    })
+    }
+}
+
+fn obs(id: Option<&str>, bake: Option<&str>, bound: Option<&str>) -> Input {
+    Input::Observed(ob(id, bake, bound))
 }
 
 fn names(actions: &[Action]) -> Vec<&'static str> {
     actions.iter().map(Action::name).collect()
 }
 
+/// Steps like the agent: answers CommitBind (success), ParkRoles (ok) and
+/// Recheck (with `world`), and returns every action in order.
+fn run(m: &mut Machine, input: Input, world: &Observation) -> Vec<Action> {
+    let mut all = Vec::new();
+    let mut queue = vec![input];
+    while let Some(input) = queue.pop() {
+        let actions = m.step(input);
+        for action in &actions {
+            match action {
+                Action::CommitBind(id) => queue.push(Input::BindCommitted(id.clone())),
+                Action::ParkRoles => queue.push(Input::RolesParked { ok: true }),
+                Action::Recheck => queue.push(Input::Observed(world.clone())),
+                _ => {}
+            }
+        }
+        all.extend(actions);
+    }
+    all
+}
+
 fn parked_builder() -> Machine {
     let mut m = Machine::new();
     m.step(Input::Boot { adopted_daemon: false });
-    m.step(obs(Some("b"), None, None));
-    m.step(Input::DaemonExited { lived_ms: 0 }); // nothing: Running -> immediate respawn
-    assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
-    m.step(Input::RolesParked { ok: true });
+    run(&mut m, obs(Some("b"), None, None), &ob(Some("b"), None, Some("b")));
+    run(&mut m, obs(Some("b"), Some("b"), Some("b")), &ob(Some("b"), Some("b"), Some("b")));
     m.step(Input::DaemonExited { lived_ms: 60_000 });
     m.step(Input::AnnounceDone);
     assert!(m.is_parked());
@@ -29,86 +51,139 @@ fn parked_builder() -> Machine {
 #[test]
 fn clone_of_parked_snapshot_binds_in_order() {
     let mut m = parked_builder();
-    let actions = m.step(obs(Some("c1"), Some("b"), None));
+    let group = m.step(obs(Some("c1"), Some("b"), None));
     assert_eq!(
-        names(&actions),
+        names(&group),
+        ["reseed", "mark-clone-started", "drop-remote-identity", "write-bound", "commit-bind"]
+    );
+    assert!(m.is_parked(), "nothing changes before the commit");
+    let rest = m.step(Input::BindCommitted("c1".to_owned()));
+    assert_eq!(
+        names(&rest),
         [
-            "reseed",
-            "mark-clone-started",
-            "drop-remote-identity",
-            "write-bound",
             "spawn-daemon",
             "announce",
             "rekey",
             "restart-prompt-sync",
             "arm-rearm",
             "start-roles",
-            "notify",
+            "notify"
         ]
     );
-    assert_eq!(actions[0], Action::Reseed("c1".to_owned()));
     assert!(!m.is_parked());
     // The same id again (any number of wakes) never rebinds.
     let again = m.step(obs(Some("c1"), Some("b"), Some("c1")));
     assert!(again.is_empty(), "{again:?}");
 }
 
+/// Review P1: a failed reseed, drop or write discards the rest of the
+/// bind; nothing spawns and a bounded retry is armed.
 #[test]
-fn fork_of_running_machine_stops_old_host_before_dropping_identity() {
+fn failed_identity_group_never_spawns_and_retries() {
+    let mut m = parked_builder();
+    m.step(obs(Some("c1"), Some("b"), None));
+    let failed = m.step(Input::BindFailed("c1".to_owned()));
+    assert_eq!(failed, [Action::ArmRetry(RETRY_FIRST_MS)]);
+    assert_eq!(m.daemon(), &DaemonState::Down);
+    assert!(m.step(Input::BindCommitted("c1".to_owned())).is_empty(), "stale commit");
+    m.step(Input::RetryElapsed);
+    let again = m.step(obs(Some("c1"), Some("b"), None));
+    assert_eq!(again[0], Action::Reseed("c1".to_owned()));
+}
+
+#[test]
+fn fork_of_running_machine_stops_old_host_before_identity_work() {
     let mut m = Machine::new();
     m.step(Input::Boot { adopted_daemon: true });
     let first = m.step(obs(Some("parent"), None, Some("parent")));
     assert_eq!(names(&first), ["start-roles", "ready"]);
     let actions = m.step(obs(Some("child"), None, Some("parent")));
-    assert_eq!(names(&actions), ["reseed", "mark-clone-started", "terminate-daemon"]);
+    assert_eq!(names(&actions), ["terminate-daemon"]);
     // A wake during the stop is deferred, not a second bind.
     assert!(m.step(obs(Some("child"), None, Some("parent"))).is_empty());
     assert_eq!(names(&m.step(Input::StopDeadline)), ["kill-daemon"]);
     let rest = m.step(Input::DaemonExited { lived_ms: 1 });
-    let rest_names = names(&rest);
     assert_eq!(
-        &rest_names[..5],
-        ["disarm-stop-deadline", "drop-remote-identity", "write-bound", "spawn-daemon", "announce"]
+        names(&rest),
+        [
+            "disarm-stop-deadline",
+            "reseed",
+            "mark-clone-started",
+            "drop-remote-identity",
+            "write-bound",
+            "commit-bind"
+        ]
     );
-    // The deferred observation read bound=parent before the bind wrote
-    // the file; it must not start a second bind.
-    assert!(!rest.iter().any(|a| matches!(a, Action::Reseed(_))), "{rest:?}");
 }
 
 #[test]
 fn bake_id_parks_and_stops_terminal_hosts_after_the_host_exits() {
     let mut m = Machine::new();
-    m.step(Input::Boot { adopted_daemon: false });
-    m.step(obs(Some("b"), None, Some("b")));
+    let world = ob(Some("b"), None, Some("b"));
+    run(&mut m, obs(Some("b"), None, Some("b")), &world);
     assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
     let park = m.step(Input::RolesParked { ok: true });
     assert_eq!(
         names(&park),
-        ["park-housekeeping", "disarm-rearm", "remove-driver-file", "terminate-daemon"]
+        [
+            "park-housekeeping",
+            "disarm-rearm",
+            "disarm-announce",
+            "remove-driver-file",
+            "terminate-daemon"
+        ]
     );
     let exited = m.step(Input::DaemonExited { lived_ms: 1 });
     assert_eq!(names(&exited), ["disarm-stop-deadline", "stop-terminal-hosts"]);
-    // Parked: wakes, exits, backoff and resume never spawn.
     for input in [
         obs(Some("b"), Some("b"), None),
         obs(None, Some("b"), None),
         Input::ResumeSignal,
         Input::BackoffElapsed,
         Input::RearmElapsed,
+        Input::AnnounceTick,
+        Input::AnnounceDone,
     ] {
         let actions = m.step(input);
         assert!(!actions.contains(&Action::SpawnDaemon), "{actions:?}");
+        assert!(!actions.contains(&Action::Announce), "{actions:?}");
     }
 }
 
 #[test]
-fn empty_metadata_never_binds_and_runs_unbound_daemon() {
+fn container_without_metadata_runs_unbound() {
     let mut m = Machine::new();
-    m.step(Input::Boot { adopted_daemon: false });
     let actions = m.step(obs(None, None, None));
     assert_eq!(names(&actions), ["spawn-daemon", "start-roles", "ready"]);
     let actions = m.step(obs(Some(""), None, None));
     assert!(actions.is_empty(), "{actions:?}");
+}
+
+/// Review P2-2 and P2-3: on a metadata machine a failed read never spawns
+/// and arms a bounded retry (50 ms doubling, at most RETRY_ATTEMPTS).
+#[test]
+fn failed_read_on_metadata_machine_retries_bounded_and_never_spawns() {
+    let mut m = parked_builder();
+    let mut delays = Vec::new();
+    for _ in 0..20 {
+        let actions = m.step(obs(None, Some("b"), None));
+        assert!(!actions.contains(&Action::SpawnDaemon));
+        for action in actions {
+            if let Action::ArmRetry(ms) = action {
+                delays.push(ms);
+            }
+        }
+        m.step(Input::RetryElapsed);
+    }
+    assert_eq!(delays.len(), RETRY_ATTEMPTS as usize);
+    assert_eq!(delays[0], RETRY_FIRST_MS);
+    assert_eq!(delays[1], 2 * RETRY_FIRST_MS);
+    // An unparked machine whose host died also never spawns on None.
+    let mut m = Machine::new();
+    run(&mut m, obs(Some("x"), None, None), &ob(Some("x"), None, Some("x")));
+    assert_eq!(m.step(Input::DaemonExited { lived_ms: 60_000 }), [Action::Recheck]);
+    let none = m.step(obs(None, None, Some("x")));
+    assert!(!none.contains(&Action::SpawnDaemon), "{none:?}");
 }
 
 #[test]
@@ -119,41 +194,78 @@ fn adopted_daemon_is_not_respawned() {
     assert!(!actions.contains(&Action::SpawnDaemon));
 }
 
+/// Review P2-2: restarts go through a fresh observation, so a backoff from
+/// before a snapshot binds the clone instead of spawning the old identity.
 #[test]
-fn crash_loop_backs_off_and_healthy_run_resets() {
+fn restarts_go_through_a_fresh_observation() {
     let mut m = Machine::new();
-    m.step(obs(None, None, None));
-    assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::SpawnDaemon]);
+    let world = ob(Some("x"), None, Some("x"));
+    run(&mut m, obs(Some("x"), None, None), &world);
+    assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::Recheck]);
+    run(&mut m, Input::Observed(world.clone()), &world);
     assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::ArmBackoff(500)]);
-    assert!(
-        m.step(Input::DaemonExited { lived_ms: 5 }).is_empty(),
-        "no host is running in backoff"
-    );
-    assert_eq!(m.step(Input::BackoffElapsed), [Action::SpawnDaemon]);
-    assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::ArmBackoff(1_000)]);
-    m.step(Input::BackoffElapsed);
-    assert_eq!(m.step(Input::DaemonExited { lived_ms: HEALTHY_RUN_MS }), [Action::SpawnDaemon]);
+    assert!(m.step(Input::DaemonExited { lived_ms: 5 }).is_empty(), "no host in backoff");
+    assert_eq!(m.step(Input::BackoffElapsed), [Action::Recheck]);
+    // The machine was cloned while the timer ran.
+    let clone = run(&mut m, Input::BackoffElapsed, &world);
+    assert!(clone.is_empty());
+    let after = m.step(obs(Some("y"), None, Some("x")));
+    assert_eq!(after[0], Action::Reseed("y".to_owned()), "{after:?}");
+}
+
+#[test]
+fn healthy_run_resets_the_backoff() {
+    let mut m = Machine::new();
+    let world = ob(None, None, None);
+    run(&mut m, obs(None, None, None), &world);
+    run(&mut m, Input::DaemonExited { lived_ms: 5 }, &world);
+    assert_eq!(m.step(Input::DaemonExited { lived_ms: 5 }), [Action::ArmBackoff(500)]);
+    run(&mut m, Input::BackoffElapsed, &world);
+    let healthy = run(&mut m, Input::DaemonExited { lived_ms: HEALTHY_RUN_MS }, &world);
+    assert_eq!(names(&healthy), ["recheck", "spawn-daemon"]);
     assert_eq!(m.fast_exits(), 1);
 }
 
 #[test]
 fn resume_announces_once_until_done() {
     let mut m = Machine::new();
-    m.step(obs(Some("x"), None, None));
-    m.step(Input::AnnounceDone);
+    run(&mut m, obs(Some("x"), None, None), &ob(Some("x"), None, Some("x")));
+    assert_eq!(names(&m.step(Input::AnnounceDone)), ["arm-announce"]);
     assert_eq!(names(&m.step(Input::ResumeSignal)), ["notify", "announce"]);
     assert_eq!(names(&m.step(Input::ResumeSignal)), ["notify"]);
     m.step(Input::AnnounceDone);
     assert_eq!(names(&m.step(Input::ResumeSignal)), ["notify", "announce"]);
 }
 
+/// Review P2-6: the periodic announce re-arms after each announce and
+/// stops while parked.
+#[test]
+fn periodic_announce_rearms_and_stops_while_parked() {
+    let mut m = Machine::new();
+    run(&mut m, obs(Some("x"), None, Some("x")), &ob(Some("x"), None, Some("x")));
+    assert_eq!(names(&m.step(Input::AnnounceTick)), ["announce"]);
+    assert_eq!(names(&m.step(Input::AnnounceDone)), ["arm-announce"]);
+    let park = run(&mut m, obs(Some("x"), Some("x"), Some("x")), &ob(Some("x"), Some("x"), None));
+    assert!(park.contains(&Action::DisarmAnnounce));
+    assert!(m.step(Input::AnnounceTick).is_empty());
+}
+
+#[test]
+fn address_changes_are_not_resumes() {
+    let mut m = Machine::new();
+    assert!(m.step(Input::AddressesChanged).is_empty());
+    run(&mut m, obs(Some("x"), None, Some("x")), &ob(Some("x"), None, Some("x")));
+    assert_eq!(m.step(Input::AddressesChanged), [Action::Notify(Lifecycle::AddressesChanged)]);
+    assert_eq!(m.step(Input::ConfigChanged), [Action::Notify(Lifecycle::ConfigChanged)]);
+    assert_eq!(m.step(Input::ChannelChanged), [Action::Notify(Lifecycle::ChannelChanged)]);
+}
+
 #[test]
 fn shutdown_leaves_the_daemon_running() {
     let mut m = Machine::new();
-    m.step(obs(Some("x"), None, Some("x")));
+    run(&mut m, obs(Some("x"), None, Some("x")), &ob(Some("x"), None, Some("x")));
     let actions = m.step(Input::Shutdown);
     assert_eq!(names(&actions), ["shutdown-roles", "exit"]);
-    assert!(!actions.contains(&Action::TerminateDaemon));
     assert!(m.step(obs(Some("y"), None, Some("x"))).is_empty());
 }
 
@@ -168,12 +280,11 @@ fn removed_bake_file_unparks_and_rearms() {
 #[test]
 fn bake_during_a_bind_stop_parks_without_spawning() {
     let mut m = Machine::new();
-    m.step(obs(None, None, None));
-    m.step(obs(Some("x"), None, None));
-    assert!(m.step(obs(Some("x"), Some("x"), None)).is_empty(), "deferred while stopping");
-    let mut actions = m.step(Input::DaemonExited { lived_ms: 1 });
-    assert_eq!(actions.last(), Some(&Action::ParkRoles));
-    actions.extend(m.step(Input::RolesParked { ok: true }));
+    run(&mut m, obs(Some("p"), None, Some("p")), &ob(Some("p"), None, Some("p")));
+    m.step(obs(Some("x"), None, Some("p")));
+    assert!(m.step(obs(Some("x"), Some("x"), Some("p"))).is_empty(), "deferred");
+    let world = ob(Some("x"), Some("x"), Some("p"));
+    let actions = run(&mut m, Input::DaemonExited { lived_ms: 1 }, &world);
     assert!(!actions.contains(&Action::SpawnDaemon), "{actions:?}");
     assert!(!actions.iter().any(|a| matches!(a, Action::WriteBound(_))), "{actions:?}");
     assert!(m.is_parked());
@@ -182,22 +293,11 @@ fn bake_during_a_bind_stop_parks_without_spawning() {
 #[test]
 fn a_role_refusing_the_park_keeps_the_machine_running() {
     let mut m = Machine::new();
-    m.step(obs(Some("b"), None, Some("b")));
+    run(&mut m, obs(Some("b"), None, Some("b")), &ob(Some("b"), None, Some("b")));
     assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
     let refused = m.step(Input::RolesParked { ok: false });
     assert_eq!(names(&refused), ["start-roles"]);
     assert!(!m.is_parked());
     assert_eq!(m.daemon(), &DaemonState::Running);
-    // The next wake tries the park again.
     assert_eq!(names(&m.step(obs(Some("b"), Some("b"), Some("b")))), ["park-roles"]);
-}
-
-#[test]
-fn address_and_config_events_reach_running_roles_only() {
-    let mut m = Machine::new();
-    assert!(m.step(Input::AddressesChanged).is_empty());
-    m.step(obs(Some("x"), None, Some("x")));
-    assert_eq!(m.step(Input::AddressesChanged), [Action::Notify(Lifecycle::AddressesChanged)]);
-    assert_eq!(m.step(Input::ConfigChanged), [Action::Notify(Lifecycle::ConfigChanged)]);
-    assert_eq!(m.step(Input::ChannelChanged), [Action::Notify(Lifecycle::ChannelChanged)]);
 }

@@ -52,6 +52,11 @@ fn parse_run(args: &[String], self_argv: Vec<String>) -> Result<Config, String> 
                 cfg.rearm_delay = Duration::from_millis(ms);
             }
             "--no-announce" => cfg.announce = false,
+            "--announce-interval-seconds" => {
+                let secs: u64 =
+                    value()?.parse().map_err(|e| format!("--announce-interval-seconds: {e}"))?;
+                cfg.announce_interval = Duration::from_secs(secs);
+            }
             other => return Err(format!("unknown argument {other}")),
         }
     }

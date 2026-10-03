@@ -57,7 +57,16 @@ pub fn reseed(instance_id: &str) -> io::Result<()> {
     urandom.write_all(mix.as_bytes())?;
     // SAFETY: RNDRESEEDCRNG takes no argument.
     if unsafe { libc::ioctl(urandom.as_raw_fd(), RNDRESEEDCRNG as _, 0) } < 0 {
-        return Err(io::Error::last_os_error());
+        let err = io::Error::last_os_error();
+        // An unprivileged agent (a user-mode server, never a clone's
+        // root agent) cannot force a reseed; the mixed-in bytes still
+        // count. As root, EPERM is a real failure and stops the bind.
+        // SAFETY: geteuid has no preconditions.
+        if err.raw_os_error() == Some(libc::EPERM) && unsafe { libc::geteuid() } != 0 {
+            eprintln!("cmux-host: reseed ioctl needs root; input pool mixed only");
+            return Ok(());
+        }
+        return Err(err);
     }
     Ok(())
 }
@@ -92,13 +101,17 @@ pub fn write_bound(paths: &Paths, instance_id: &str) -> io::Result<()> {
 /// never truncated.
 pub fn mark_clone_started(paths: &Paths) -> io::Result<()> {
     fs::create_dir_all(paths.at(RUN_DIR))?;
-    OpenOptions::new()
+    // O_NONBLOCK: a FIFO planted under this name must not block the agent.
+    let file = OpenOptions::new()
         .write(true)
         .create(true)
         .mode(0o644)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(paths.at(CLONE_STARTED_FILE))
-        .map(drop)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(paths.at(CLONE_STARTED_FILE))?;
+    if !file.metadata()?.file_type().is_file() {
+        return Err(io::Error::other("clone-started is not a regular file"));
+    }
+    Ok(())
 }
 
 pub fn remove_driver_file(paths: &Paths) -> io::Result<()> {
@@ -135,19 +148,40 @@ pub fn drop_remote_identity(home: &Path) -> io::Result<()> {
         return Ok(());
     }
     let sessions = remote.join("sessions");
-    if no_symlink_below(home, &sessions)? {
+    if remove_link(&sessions)? {
+        return remove_entry(&remote.join("connections"));
+    }
+    if sessions.is_dir() {
         for entry in fs::read_dir(&sessions)? {
-            let auth = entry?.path().join("auth");
-            if no_symlink_below(home, &auth)? {
-                fs::remove_dir_all(&auth)?;
+            let session = entry?.path();
+            // A symlinked session is unlinked, never followed.
+            if !remove_link(&session)? && session.is_dir() {
+                remove_entry(&session.join("auth"))?;
             }
         }
     }
-    let connections = remote.join("connections");
-    if no_symlink_below(home, &connections)? {
-        fs::remove_dir_all(&connections)?;
+    remove_entry(&remote.join("connections"))
+}
+
+/// Unlinks `path` when it is a symlink (without following it); `true`
+/// when it was one.
+fn remove_link(path: &Path) -> io::Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => fs::remove_file(path).map(|()| true),
+        Ok(_) => Ok(false),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err),
     }
-    Ok(())
+}
+
+/// Removes a directory tree, a file, or a symlink (the link only).
+fn remove_entry(path: &Path) -> io::Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => fs::remove_dir_all(path),
+        Ok(_) => fs::remove_file(path),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
 }
 
 fn systemctl(paths: &Paths, args: &[&str]) {
@@ -160,18 +194,39 @@ fn systemctl(paths: &Paths, args: &[&str]) {
 /// restart, a new systemd random seed, and a new ed25519 SSH host key
 /// staged then renamed into place. Inherited RSA and ECDSA host keys are
 /// removed: they are the snapshot builder's and shared by every clone.
+///
+/// Each step runs even when an earlier one failed; the first error is
+/// returned at the end.
 pub fn rekey(paths: &Paths, instance_id: &str) -> io::Result<()> {
-    let machine_id = hex(&random_bytes::<16>()?);
-    write_atomic(&paths.at(MACHINE_ID_FILE), format!("{machine_id}\n").as_bytes(), 0o444)?;
-    relink(&paths.at(DBUS_MACHINE_ID_FILE), Path::new(MACHINE_ID_FILE))?;
+    let mut first_error = None;
+    let mut step = |name: &str, result: io::Result<()>| {
+        if let Err(err) = result {
+            eprintln!("cmux-host: rekey {name}: {err}");
+            first_error.get_or_insert(err);
+        }
+    };
+    step("machine-id", rekey_machine_id(paths));
     // journald keeps writing under the old id's directory until restarted.
     systemctl(paths, &["restart", "systemd-journald.service"]);
     let seed_dir = paths.at("/var/lib/systemd");
     if seed_dir.is_dir() {
-        write_atomic(&paths.at(RANDOM_SEED_FILE), &random_bytes::<512>()?, 0o600)?;
+        step(
+            "random-seed",
+            random_bytes::<512>().and_then(|seed| write_atomic(&paths.at(RANDOM_SEED_FILE), &seed, 0o600)),
+        );
     }
-    rekey_ssh(paths, instance_id)?;
-    eprintln!("cmux-host: rekey done machine-id={machine_id}");
+    step("ssh", rekey_ssh(paths, instance_id));
+    match first_error {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+fn rekey_machine_id(paths: &Paths) -> io::Result<()> {
+    let machine_id = hex(&random_bytes::<16>()?);
+    write_atomic(&paths.at(MACHINE_ID_FILE), format!("{machine_id}\n").as_bytes(), 0o444)?;
+    relink(&paths.at(DBUS_MACHINE_ID_FILE), Path::new(MACHINE_ID_FILE))?;
+    eprintln!("cmux-host: new machine-id={machine_id}");
     Ok(())
 }
 
@@ -245,7 +300,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_remote_identity_refuses_symlinked_components() {
+    fn drop_remote_identity_refuses_a_symlinked_parent() {
         let home = tempfile::tempdir().unwrap();
         let target = tempfile::tempdir().unwrap();
         fs::create_dir_all(target.path().join("connections")).unwrap();
@@ -253,6 +308,48 @@ mod tests {
         symlink(target.path(), home.path().join(".local/state/cmux/remote")).unwrap();
         assert!(drop_remote_identity(home.path()).is_err());
         assert!(target.path().join("connections").exists());
+    }
+
+    /// Review P1: a symlinked `auth` or `connections` is unlinked (never
+    /// followed) and the drop succeeds, so the bind can continue.
+    #[test]
+    fn drop_remote_identity_unlinks_symlinked_auth_and_connections() {
+        let home = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(outside.path().join("keep")).unwrap();
+        let remote = home.path().join(".local/state/cmux/remote");
+        fs::create_dir_all(remote.join("sessions/cloud")).unwrap();
+        symlink(outside.path(), remote.join("sessions/cloud/auth")).unwrap();
+        symlink(outside.path(), remote.join("connections")).unwrap();
+        symlink(outside.path(), remote.join("sessions/linked")).unwrap();
+        drop_remote_identity(home.path()).unwrap();
+        assert!(fs::symlink_metadata(remote.join("sessions/cloud/auth")).is_err());
+        assert!(fs::symlink_metadata(remote.join("connections")).is_err());
+        assert!(fs::symlink_metadata(remote.join("sessions/linked")).is_err());
+        assert!(outside.path().join("keep").is_dir(), "the link target is untouched");
+    }
+
+    #[test]
+    fn clone_started_refuses_a_fifo_without_blocking() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::new(root.path());
+        fs::create_dir_all(paths.at(RUN_DIR)).unwrap();
+        let fifo = std::ffi::CString::new(paths.at(CLONE_STARTED_FILE).to_str().unwrap()).unwrap();
+        // SAFETY: mkfifo with a valid path.
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+        assert!(mark_clone_started(&paths).is_err());
+    }
+
+    #[test]
+    fn rekey_steps_are_independent() {
+        let root = tempfile::tempdir().unwrap();
+        let paths = Paths::new(root.path());
+        // The machine-id step fails (its parent is a file), the seed step
+        // still runs.
+        fs::create_dir_all(paths.at("/var/lib/systemd")).unwrap();
+        fs::write(paths.at("/etc"), "not a dir").unwrap();
+        assert!(rekey(&paths, "vm-1").is_err());
+        assert_eq!(fs::metadata(paths.at(RANDOM_SEED_FILE)).unwrap().len(), 512);
     }
 
     #[test]

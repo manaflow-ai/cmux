@@ -38,6 +38,8 @@ fn id(n: u8) -> String {
 struct World {
     bound: Option<String>,
     bake: Option<String>,
+    /// The metadata id the last observation returned.
+    metadata: Option<String>,
 }
 
 proptest! {
@@ -53,15 +55,19 @@ proptest! {
         // Completed binds (write-bound). A reseed whose bind was superseded
         // during the old host's stop may repeat; a bind never does.
         let mut binds: Vec<String> = Vec::new();
-        for (op, refuse_park) in ops {
+        for (op, refuse) in ops {
             let stopping_before = matches!(m.daemon(), DaemonState::Stopping(_));
+            let running_before = m.daemon() == &DaemonState::Running;
             let bound_before = w.bound.clone();
             let input = match &op {
-                Op::Observe(n) => Input::Observed(Observation {
-                    instance_id: n.map(id),
-                    bake_id: w.bake.clone(),
-                    bound_id: w.bound.clone(),
-                }),
+                Op::Observe(n) => {
+                    w.metadata = n.map(id);
+                    Input::Observed(Observation {
+                        instance_id: n.map(id),
+                        bake_id: w.bake.clone(),
+                        bound_id: w.bound.clone(),
+                    })
+                }
                 Op::SetBake(n) => {
                     w.bake = n.map(id);
                     continue;
@@ -79,15 +85,49 @@ proptest! {
                 Op::Resume => Input::ResumeSignal,
                 Op::AnnounceDone => Input::AnnounceDone,
             };
-            let mut actions = m.step(input);
-            // The agent answers a role park at once.
-            if actions.last() == Some(&Action::ParkRoles) {
-                let answer = m.step(Input::RolesParked { ok: !refuse_park });
-                if refuse_park {
-                    prop_assert!(!m.is_parked());
-                    prop_assert!(!answer.contains(&Action::TerminateDaemon), "{answer:?}");
+            let raw = m.step(input);
+            // P2-2: a timer or an exit never spawns by itself.
+            if matches!(op, Op::DaemonExit(_) | Op::BackoffElapsed | Op::StopDeadline) {
+                prop_assert!(!raw.contains(&Action::SpawnDaemon), "{raw:?}");
+            }
+            // Answer like the agent: commits (or a failure), role parks and
+            // rechecks, each before anything else.
+            let mut actions = Vec::new();
+            let mut pending = raw;
+            loop {
+                let mut next = None;
+                for action in &pending {
+                    match action {
+                        Action::CommitBind(id) => {
+                            next = Some(if refuse {
+                                Input::BindFailed(id.clone())
+                            } else {
+                                Input::BindCommitted(id.clone())
+                            });
+                        }
+                        Action::ParkRoles => next = Some(Input::RolesParked { ok: !refuse }),
+                        Action::Recheck => {
+                            next = Some(Input::Observed(Observation {
+                                instance_id: w.metadata.clone(),
+                                bake_id: w.bake.clone(),
+                                bound_id: w.bound.clone(),
+                            }));
+                        }
+                        _ => {}
+                    }
                 }
-                actions.extend(answer);
+                // The guarded group stops at a failure: drop the write.
+                if refuse && pending.iter().any(|a| matches!(a, Action::CommitBind(_))) {
+                    pending.retain(|a| !matches!(a, Action::WriteBound(_)));
+                }
+                actions.extend(pending);
+                let Some(input) = next else { break };
+                let answered = m.step(input.clone());
+                if let Input::BindFailed(_) = input {
+                    prop_assert!(!answered.contains(&Action::SpawnDaemon), "{answered:?}");
+                    prop_assert_ne!(m.daemon(), &DaemonState::Running);
+                }
+                pending = answered;
             }
             let step_reseeds: Vec<&String> = actions
                 .iter()
@@ -118,8 +158,13 @@ proptest! {
             // A new id is detected in the very step that observes it.
             if let Op::Observe(Some(n)) = op {
                 let x = id(n);
-                if !stopping_before && w.bake.as_deref() != Some(x.as_str()) && bound_before.as_deref() != Some(x.as_str()) {
-                    prop_assert_eq!(step_reseeds, vec![&x]);
+                let new_id = w.bake.as_deref() != Some(x.as_str()) && bound_before.as_deref() != Some(x.as_str());
+                if new_id && !stopping_before {
+                    if running_before {
+                        prop_assert!(actions.contains(&Action::TerminateDaemon), "{actions:?}");
+                    } else {
+                        prop_assert_eq!(step_reseeds, vec![&x]);
+                    }
                 }
             }
             // Parked never spawns.
@@ -150,13 +195,17 @@ proptest! {
         for lived_ms in lives {
             let actions = m.step(Input::DaemonExited { lived_ms });
             match actions.as_slice() {
-                [Action::SpawnDaemon] => {
+                [Action::Recheck] => {
                     immediate_in_a_row += 1;
                     prop_assert!(immediate_in_a_row <= 1, "only the first fast exit restarts at once");
+                    let spawn = m.step(Input::Observed(Observation::default()));
+                    prop_assert_eq!(spawn, vec![Action::SpawnDaemon]);
                 }
                 [Action::ArmBackoff(ms)] => {
                     delays.push(*ms);
-                    prop_assert_eq!(m.step(Input::BackoffElapsed), vec![Action::SpawnDaemon]);
+                    prop_assert_eq!(m.step(Input::BackoffElapsed), vec![Action::Recheck]);
+                    let spawn = m.step(Input::Observed(Observation::default()));
+                    prop_assert_eq!(spawn, vec![Action::SpawnDaemon]);
                 }
                 other => prop_assert!(false, "unexpected {:?}", other),
             }
