@@ -1092,7 +1092,10 @@ function childCases(): CorpusCase[] {
         "permission text: rawInput as canonical JSON (sorted keys)",
       );
       const state = c.persisted(e);
-      c.check(state.children.s_w.status === "waiting" && state.outbox.length === 2, "card sent, waiting edit queued");
+      c.check(
+        state.children.s_w.status === "waiting" && state.outbox.length === 1 && state.children.s_w.edits === 0,
+        "a first-seen waiting child: one waiting card, no duplicate waiting edit",
+      );
     });
     c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "perm-2", request: {} }, ["fetch_sessions"]);
     c.step({ kind: "sessions", sessions: [] }, []);
