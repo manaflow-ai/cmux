@@ -21,3 +21,18 @@ public struct AppAttestAssertions: AppAttester {
         return try await service.generateAssertion(keyID, clientDataHash: clientDataHash).textConfirmBase64URL
     }
 }
+
+/// App Attest key generation and attestation for presence-key registration.
+public struct DeviceAppAttestKeyAttester: AppAttestKeyAttester {
+    public init() {}
+
+    public func generateKey() async throws -> String {
+        let service = DCAppAttestService.shared
+        guard service.isSupported else { throw AppAttestAssertions.Failure.unsupported }
+        return try await service.generateKey()
+    }
+
+    public func attest(keyID: String, clientDataHash: Data) async throws -> Data {
+        try await DCAppAttestService.shared.attestKey(keyID, clientDataHash: clientDataHash)
+    }
+}

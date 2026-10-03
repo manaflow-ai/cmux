@@ -66,6 +66,27 @@ public actor InstallIdentity {
         return try await client(for: user).installToken()
     }
 
+    /// The current user's owner ids and backend environment, after a token
+    /// mint (which registers the install when needed). For requests the
+    /// install key signs, such as presence-key registration.
+    public func ownerInstall() async throws -> (user: String, install: String, environment: String) {
+        guard let user = current else { throw InstallAuthError.noSession }
+        let client = client(for: user)
+        _ = try await client.installToken()
+        guard let record = await client.currentRecord else { throw InstallAuthError.noSession }
+        return (record.user, record.install, environment)
+    }
+
+    /// ES256 with this device's install key (raw r||s or DER).
+    public func signWithInstallKey(_ message: Data) async throws -> Data {
+        try await signer.sign(message)
+    }
+
+    /// POSTs `json` to the API Worker with `bearer`.
+    public func post(_ path: String, json: Data, bearer: String) async throws -> (status: Int, body: Data) {
+        try await CredentialedTransport(baseURL: baseURL).post(path, json: json, bearer: bearer)
+    }
+
     /// The owner refused the token (401): mint again next time.
     public func invalidate(for stackUser: String? = nil) async {
         guard let user = stackUser ?? current else { return }
