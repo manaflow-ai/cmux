@@ -869,6 +869,18 @@
       "scope": "team_vm:write",
       "class": "mutation"
     },
+    "team_vm.ssh_ca": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.ssh_cert": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
+    "team_vm.ssh_cert.revoke": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
     "team_vm.status": {
       "scope": "team_vm:read",
       "class": "read"
@@ -1175,6 +1187,7 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.ssh_ca.rotate",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",

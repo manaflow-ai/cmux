@@ -13,6 +13,8 @@ import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-log
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import { mayEnrollServer } from "./domains/team-servers.ts"
+import { sshCaView } from "./domains/team-ssh.ts"
+import { sshExternal } from "./team-ssh-ca.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -72,6 +74,9 @@ export class TeamDO extends OwnerDO<TeamState> {
         const d = devicePolicyFor(state, principal.install)
         return { ok: true, value: { team: state.team?.id, team_name: state.team?.display_name ?? "", ...d }, revision: "" }
       }
+      case "team_vm.ssh_ca":
+        // Public material only: CA public keys and the revocation list, for the team VM's sshd.
+        return { ok: true, value: sshCaView(state.team?.id ?? "", state, Date.now()), revision: String(state.ssh_krl?.version ?? 0) }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     }
@@ -236,6 +241,24 @@ export class TeamDO extends OwnerDO<TeamState> {
         http: this.http,
         kek: this.env.INTEGRATIONS_KEK,
         sql: this.ctx.storage.sql,
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      principal,
+      frame
+    )
+  }
+
+  /** RPC from the Worker: team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
+  async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return sshExternal(
+      {
+        state: () => this.boundEngine?.currentState ?? engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        now: () => Date.now(),
         submitSystem: (op, params, key) => this.submitSystem(op, params, key)
       },
       principal,

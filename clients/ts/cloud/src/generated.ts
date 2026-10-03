@@ -611,6 +611,9 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+/** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
+export type SshCertClass = "human" | "agent"
+
 export type SsoConnection = {
   readonly id: SsoConnectionId
   readonly kind: "oidc"
@@ -2193,6 +2196,60 @@ export interface CloudOps {
       readonly released: boolean
     }
   }
+  /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
+  readonly "team_vm.ssh_ca": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly generation: number
+      readonly trusted_ca_keys: ReadonlyArray<string>
+      readonly krl: string
+      readonly krl_version: number
+    }
+  }
+  /** Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes). */
+  readonly "team_vm.ssh_ca.rotate": {
+    readonly params: {
+      readonly compromised?: boolean
+    }
+    readonly result: {
+      readonly generation: number
+      readonly ca_public_key: string
+      readonly previous_trusted_until: number | null
+    }
+  }
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands. Replaying the same idempotency key returns the same certificate. */
+  readonly "team_vm.ssh_cert": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly class?: SshCertClass
+    }
+    readonly result: {
+      readonly certificate: string
+      readonly serial: number
+      readonly key_id: string
+      readonly principals: ReadonlyArray<string>
+      readonly class: SshCertClass
+      readonly valid_after: number
+      readonly valid_before: number
+      readonly ca_generation: number
+      readonly ca_public_key: string
+    }
+  }
+  /** Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's. */
+  readonly "team_vm.ssh_cert.revoke": {
+    readonly params: {
+      readonly serial?: number
+      readonly user?: UserId
+      readonly install?: InstallId
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly revoked: ReadonlyArray<number>
+      readonly krl_version: number
+    }
+  }
   /** Show the team VM: its state, epoch and active wake leases. */
   readonly "team_vm.status": {
     readonly params: Readonly<Record<string, never>>
@@ -2556,6 +2613,10 @@ export const cloudOpMeta = {
   "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },

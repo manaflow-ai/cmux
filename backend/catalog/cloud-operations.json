@@ -3478,6 +3478,14 @@
         "dead"
       ]
     },
+    "SshCertClass": {
+      "kind": "enum",
+      "values": [
+        "human",
+        "agent"
+      ],
+      "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+    },
     "SsoConnection": {
       "kind": "object",
       "fields": {
@@ -37232,6 +37240,684 @@
             "maxLength": 64
           }
         }
+      }
+    },
+    "team_vm.ssh_ca": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "generation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "trusted_ca_keys": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "krl": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "krl_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ssh ca",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "trusted_ca_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "krl": {
+            "type": "string"
+          },
+          "krl_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team",
+          "generation",
+          "trusted_ca_keys",
+          "krl",
+          "krl_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      }
+    },
+    "team_vm.ssh_ca.rotate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "compromised": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "previous_trusted_until": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh rotate-ca",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "compromised": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "integer"
+          },
+          "ca_public_key": {
+            "type": "string"
+          },
+          "previous_trusted_until": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "generation",
+          "ca_public_key",
+          "previous_trusted_until"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.ssh_cert": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1000
+            }
+          },
+          "validity_minutes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "class": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "SshCertClass"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "certificate": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "serial": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "key_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "principals": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "class": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "SshCertClass"
+                }
+              },
+              "valid_after": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "valid_before": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_class_refused",
+        "team_vm.ssh_key_invalid",
+        "team_vm.ssh_rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "execute",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh cert",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands. Replaying the same idempotency key returns the same certificate.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "validity_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 60
+          },
+          "class": {
+            "$ref": "#/$defs/SshCertClass"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "certificate": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "integer"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "principals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "class": {
+            "$ref": "#/$defs/SshCertClass"
+          },
+          "valid_after": {
+            "type": "integer"
+          },
+          "valid_before": {
+            "type": "integer"
+          },
+          "ca_generation": {
+            "type": "integer"
+          },
+          "ca_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate",
+          "serial",
+          "key_id",
+          "principals",
+          "class",
+          "valid_after",
+          "valid_before",
+          "ca_generation",
+          "ca_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          }
+        }
+      }
+    },
+    "team_vm.ssh_cert.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "serial": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "user": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "install": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "revoked": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "krl_version": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_revocations_full",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "serial": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "krl_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked",
+          "krl_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
       }
     },
     "team_vm.status": {
