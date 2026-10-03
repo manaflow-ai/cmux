@@ -1103,6 +1103,19 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: on acpmux connect a pending permission whose session is no longer waiting is dropped (answered meanwhile)");
+    boot(c);
+    c.step({ kind: "permission_pending", session_id: "s_v", permission_id: "p1", request: {} }, ["fetch_sessions"]);
+    c.step({ kind: "disconnected", port: "acpmux" }, []);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [session("s_v", "viewer", "running")], events: [] },
+      ["list_conversations"],
+      (e) => c.check(!e.some((x) => x.kind === "prompt"), "no stale permission prompt"),
+    );
+    cases.push(c.end((s) => c.check(s.prompts["perm:s_v:p1"] === undefined && s.children.s_v === undefined, "nothing recorded")));
+  }
+
+  {
     const c = new CaseBuilder("children: a pending permission survives a failed sessions fetch and an acpmux reconnect, then is answered");
     boot(c);
     c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["fetch_sessions"]);
