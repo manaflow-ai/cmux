@@ -1,0 +1,58 @@
+name: Merge gate
+
+# This workflow reads GitHub metadata only. It checks out the default branch's
+# copy of the evaluator, never the pull request head, and never executes PR code.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  check_suite:
+    types: [completed]
+  issue_comment:
+    types: [created, edited]
+  pull_request_target:
+    types: [synchronize]
+
+env:
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+
+permissions: {}
+
+concurrency:
+  group: merge-gate-${{ github.event.pull_request.number || github.event.issue.number || github.event.workflow_run.id || github.event.check_suite.id }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Evaluate merge gate
+    if: >-
+      github.repository == 'manaflow-ai/cmux' &&
+      (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
+    # pull_request_target and issue-comment events carry a trusted token; keep
+    # this metadata-only job on GitHub-hosted capacity for fork safety.
+    runs-on: ubuntu-24.04 # github-hosted-required: merge-gate handles fork PR metadata
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: read
+      statuses: read
+    steps:
+      # Explicitly pin this to main. The evaluator is trusted workflow code;
+      # the PR head is never checked out or run.
+      - name: Checkout evaluator from main
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce3dd # v6.0.2
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts/ci/merge_gate.py
+
+      - name: Evaluate current pull-request head
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          MERGE_GATE_TRUSTED_LOGINS: ${{ vars.MERGE_GATE_TRUSTED_LOGINS }}
+        run: python3 scripts/ci/merge_gate.py
