@@ -16,7 +16,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
-    private let contentHost = NSView()
+    let contentHost = NSView()
     private(set) weak var content: NSView?
     private var tokenObservation: Task<Void, Never>?
     /// The pane's size changed (divider drag, window resize, animation).
@@ -25,7 +25,9 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var contentCornerRadius: CGFloat = 0
     private var reportedHeader: CGFloat = -1
 
-    init(stripModel: TabStripModel) {
+    /// - Parameter reveal: Holds the strip until the first tabs arrive and
+    ///   the content until the first terminal frame (launch load-in).
+    init(stripModel: TabStripModel, reveal: LaunchReveal = .shared) {
         stripView = TabStripView(model: stripModel)
         super.init(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         wantsLayer = true
@@ -35,6 +37,9 @@ final class PaneContentView: NSView, PaneContentChrome {
         addSubview(contentHost)
         addSubview(stripView)
         stripScope.root(stripView)
+        reveal.hold(stripView, until: .tabs)
+        reveal.hold(stripBackdrop, until: .tabs)
+        reveal.hold(contentHost, until: .pane)
         themeDidChange()
         tokenObservation = Task { [weak self] in
             for await _ in Observations({ (PaneChromeMetrics.current, DesignSettings.shared.effectiveTabBarBackground) }) {

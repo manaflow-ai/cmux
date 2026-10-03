@@ -116,6 +116,11 @@ final class KeyRouter: BrowserKeyRouting {
             chords.cancel()
             return true
         }
+        // Link hints are showing: their letters, Backspace and Escape.
+        if let hints = services?.linkHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            chords.cancel()
+            return true
+        }
         // Plain typing never looks up the window (typing-latency path).
         if chords.isPending || Self.isChord(event.modifierFlags), let consumed = routeChord(event, in: window) { return consumed }
         guard Self.isChord(event.modifierFlags) else {
@@ -215,7 +220,7 @@ final class KeyRouter: BrowserKeyRouting {
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if event === chordMismatch { return false }
         if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
-           Self.allows(.content, id: resolved.id, focus: focus) {
+           !isPageKey(event, id: resolved.id), Self.allows(.content, id: resolved.id, focus: focus) {
             return registry.runShortcut(resolved.id, argument: resolved.argument)
         }
         return runExtensionShortcut(event, focus: focus)
@@ -288,6 +293,29 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     // MARK: BrowserKeyRouting (CEF page window is key)
+
+    /// A letter the page did not handle outside any text field (Chromium
+    /// reports it after the page): runs the content action bound to that
+    /// single key, such as link hints (`f`, `F`), when that page has the
+    /// keyboard. Plain keys never reach ``interceptKeyDown(_:in:)``, so
+    /// typing in a terminal or a text field never gets here.
+    func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
+        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
+              case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
+              Self.allows(.content, focus: controller.focus.state),
+              let resolved = registry.resolve(Shortcut(key.character, modifiers: key.shift ? [.shift] : [])),
+              registry.descriptor(for: resolved.id)?.requires.contains(.browserFocused) == true else { return }
+        registry.runShortcut(resolved.id, argument: resolved.argument)
+    }
+
+    /// A key without Command, Control or Option bound to a browser action
+    /// (link hints): it runs only from ``routePageKey(_:from:)``, after the
+    /// page passed it on, never before a page (WebKit's included) whose
+    /// text field may want the letter.
+    func isPageKey(_ event: NSEvent, id: ActionID) -> Bool {
+        event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+            && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
+    }
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
