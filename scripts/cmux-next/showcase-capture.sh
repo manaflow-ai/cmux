@@ -92,7 +92,7 @@ record_id="cmux-next-showcase-$CAPTURE_DATE-$TAG"; cua record-start "$HOST" --id
 remote "open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"; sleep "$WAIT_SECONDS"
 cua state "$HOST" "$TARGET" --out "$REEL_ROOT/01-launch" --quiet; seed; seed_worked_turn; sleep 1; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/02-rail" --quiet
 seed; seed_worked_turn; cua state "$HOST" "$TARGET" --out "$REEL_ROOT/03-worked-turn" --quiet; socket_action feed.show
-cua state "$HOST" "$TARGET" --out "$REEL_ROOT/04-inbox" --quiet; cua record-end "$HOST" "$record_id" --out "$REEL_ROOT"; [[ -s "$REEL_ROOT/recording.mov" ]] || die "recording missing"
+cua state "$HOST" "$TARGET" --out "$REEL_ROOT/04-inbox" --quiet; cua record-end "$HOST" "$record_id" --out "$REEL_ROOT"; [[ -s "$REEL_ROOT/recording.mov" && -s "$REEL_ROOT/meta.json" && -s "$REEL_ROOT/events.jsonl" ]] || die "recording metadata missing"
 python3 - "$OUT_ROOT/captures/manifest.json" "$CAPTURE_DATE" "$ARCHIVE" "$TAG" "${REF:-}" <<'PY'
 import json,pathlib,sys
 p=pathlib.Path(sys.argv[1]); date,archive,tag,ref=sys.argv[2:]; d=json.loads(p.read_text()) if p.exists() else {}

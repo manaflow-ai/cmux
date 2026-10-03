@@ -34,7 +34,7 @@ if [[ "$sub" == state ]]; then
   out=""; while [[ $# -gt 0 ]]; do [[ $1 == --out ]] && out=$2 && shift 2 || shift; done
   mkdir -p "$out"; printf 'png' > "$out/screenshot.png"; printf '{"role":"window","showcase":true}\n' > "$out/state.json"
 elif [[ "$sub" == record-start ]]; then :
-elif [[ "$sub" == record-end ]]; then out=""; while [[ $# -gt 0 ]]; do [[ $1 == --out ]] && out=$2 && shift 2 || shift; done; mkdir -p "$out"; printf 'mov' > "$out/recording.mov"
+elif [[ "$sub" == record-end ]]; then out=""; while [[ $# -gt 0 ]]; do [[ $1 == --out ]] && out=$2 && shift 2 || shift; done; mkdir -p "$out"; printf 'mov' > "$out/recording.mov"; printf '{}' > "$out/meta.json"; printf '{}\n' > "$out/events.jsonl"
 fi
 SH
 chmod +x "$TMP/bin/ssh" "$TMP/bin/scp" "$TMP/bin/cua"
