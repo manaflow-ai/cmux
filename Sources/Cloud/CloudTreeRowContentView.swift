@@ -51,12 +51,23 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.cloudMachines", defaultValue: "Cloud Machines"))
         case .createAction(let action):
             CloudTreeCreateActionLabel(action: action, style: style)
-        case .devicesEmpty:
+        case .devicesEmpty, .machineEndSpacer:
             EmptyView()
+        case .machineDetailTabs(let tabs):
+            // Hosted by `CloudTreeCellView` as a clickable strip; this is the
+            // non-interactive fallback.
+            CloudTreeMachineDetailTabsView(tabs: tabs, style: style, select: { _ in })
         case .terminalsPool:
             groupRow(title: String(localized: "cloudTree.group.terminals", defaultValue: "Terminals"))
         case .displaysPool:
-            groupRow(title: String(localized: "cloudTree.group.displays", defaultValue: "Displays"))
+            // Displays sits among the machine's workspaces, so it reads like
+            // one of them: icon and title.
+            CloudTreeLeafRow(
+                style: style,
+                icon: "display",
+                tint: .secondary,
+                title: String(localized: "cloudTree.group.displays", defaultValue: "Displays")
+            )
         case .workspacesGroup:
             groupRow(title: String(localized: "cloudTree.group.workspaces", defaultValue: "Workspaces"))
         case .workspace(_, let workspace, _, _, _):
@@ -112,17 +123,20 @@ struct CloudTreeRowContentView: View {
             groupRow(title: String(localized: "cloudTree.group.resources", defaultValue: "Resources"))
         case .resource(_, let row):
             CloudTreeMachineResourceRowContent(row: row, style: style)
-        case .port(let resource, let url, _):
-            let presentation = CloudTreePortPresentation(resource: resource, url: url)
-            CloudTreeLeafRow(
+        case .port(let resource, _, _):
+            let presentation = CloudTreePortPresentation(resource: resource)
+            let row = CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
                 title: presentation.title,
-                titleIsLink: url != nil,
                 detail: presentation.detail
             )
-            .help(presentation.toolTip ?? presentation.title)
+            if let toolTip = presentation.toolTip {
+                row.help(toolTip)
+            } else {
+                row
+            }
         case .placeholder(_, let placeholder):
             CloudTreePlaceholderContent(placeholder: placeholder, style: style)
         }
@@ -190,8 +204,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
     let title: String
     var titleWeight: Font.Weight = .regular
     var titleDimmed: Bool = false
-    /// Underlined and tinted when the title opens content in cmux.
-    var titleIsLink: Bool = false
     var detail: String?
     @Environment(\.cmuxGlobalFontMagnificationPercent) private var magnification
     @ViewBuilder var accessories: () -> Accessories
@@ -204,7 +216,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
-        titleIsLink: Bool = false,
         detail: String? = nil,
         @ViewBuilder accessories: @escaping () -> Accessories
     ) {
@@ -215,7 +226,6 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         self.title = title
         self.titleWeight = titleWeight
         self.titleDimmed = titleDimmed
-        self.titleIsLink = titleIsLink
         self.detail = detail
         self.accessories = accessories
     }
@@ -267,7 +277,7 @@ struct CloudTreeLeafRow<Accessories: View>: View {
         Text(title)
             .cmuxFont(size: style.titleSize, weight: titleWeight, design: style.fontDesign)
             .foregroundStyle(titleColor)
-            .underline(titleIsLink)
+            .underline(false)
             .lineLimit(1)
             .truncationMode(.tail)
             .layoutPriority(1)
@@ -299,7 +309,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
         title: String,
         titleWeight: Font.Weight = .regular,
         titleDimmed: Bool = false,
-        titleIsLink: Bool = false,
         detail: String? = nil
     ) {
         self.init(
@@ -310,7 +319,6 @@ extension CloudTreeLeafRow where Accessories == EmptyView {
             title: title,
             titleWeight: titleWeight,
             titleDimmed: titleDimmed,
-            titleIsLink: titleIsLink,
             detail: detail,
             accessories: { EmptyView() }
         )
@@ -349,7 +357,8 @@ struct CloudTreeTerminalRowContent: View {
             tint: CloudTreeIconPalette.terminal,
             iconAsset: terminal.terminalAgentIconAssetName,
             title: resolvedTitle,
-            titleDimmed: terminal.lifecycle == .exited || showsDetachedState
+            titleDimmed: terminal.lifecycle == .exited || showsDetachedState,
+            detail: row.workspaceLabel
         )
         .help(toolTip)
         .accessibilityElement(children: .ignore)
@@ -357,7 +366,7 @@ struct CloudTreeTerminalRowContent: View {
     }
 
     var accessibilityLabel: String {
-        [resolvedTitle, toolTip].filter { !$0.isEmpty }.joined(separator: "\n")
+        [resolvedTitle, row.workspaceLabel ?? "", toolTip].filter { !$0.isEmpty }.joined(separator: "\n")
     }
 
     /// Keep secondary information on hover so the narrow row gives its width to the title.

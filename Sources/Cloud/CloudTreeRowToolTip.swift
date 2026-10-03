@@ -67,8 +67,8 @@ enum CloudTreeRowToolTip {
                 toolTip: joined([title, row.resource.url, CloudTreeBrowserDetail.text(for: row)], beyond: title),
                 accessibilityLabel: title
             )
-        case .port(let resource, let url, _):
-            let presentation = CloudTreePortPresentation(resource: resource, url: url)
+        case .port(let resource, _, _):
+            let presentation = CloudTreePortPresentation(resource: resource)
             return .init(
                 toolTip: presentation.toolTip,
                 accessibilityLabel: presentation.accessibilityLabel
@@ -93,6 +93,10 @@ enum CloudTreeRowToolTip {
             )
         case .createAction:
             return .init(toolTip: nil, accessibilityLabel: node.searchableTitle)
+        case .machineDetailTabs:
+            return .init(toolTip: nil, accessibilityLabel: String(localized: "cloudTree.machineDetails.label", defaultValue: "Machine Details"))
+        case .machineEndSpacer:
+            return .init(toolTip: nil, accessibilityLabel: "")
         case .terminalsPool, .displaysPool, .workspacesGroup, .browsersGroup, .portsGroup,
              .resourcesPool, .devicesSection, .cloudMachinesSection, .devicesEmpty:
             // Fixed section labels: they never truncate, so hover text would only

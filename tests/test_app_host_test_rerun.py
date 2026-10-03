@@ -792,7 +792,7 @@ class CanonicalRootTests(unittest.TestCase):
         self.assertIn("static func sourceURL", helper_text)
         self.assertIn("appendingPathComponent(fileID)", helper_text)
         self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", run_script)
-        self.assertIn("TEST_RUNNER_CMUX_CI_RUNTIME_SOURCE_ROOT", helper_text)
+        self.assertIn('"CMUX_CI_RUNTIME_SOURCE_ROOT"', helper_text)
         self.assertNotIn("URL(fileURLWithPath: #filePath)", source_text)
         self.assertIn("CMUX_CI_RUNTIME_SOURCE_ROOT=/private/tmp/cmux-test-source", restore_script)
         self.assertNotIn("glaeda-canonical-root", restore_script)

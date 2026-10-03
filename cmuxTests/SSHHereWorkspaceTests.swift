@@ -17,6 +17,37 @@ import Testing
 @MainActor
 @Suite("SSH here workspace lifecycle", .serialized)
 struct SSHHereWorkspaceTests {
+    @Test("SSH here applies focus while remote creation is still pending", .timeLimit(.minutes(1)), arguments: [true, false])
+    func pendingHereVisitHonorsFocus(focus: Bool) async throws {
+        try await SSHHereDaemonFixture.withFixture(mode: .holdCreate) { fixture in
+            let other = fixture.manager.addWorkspace(select: true, autoWelcomeIfNeeded: false)
+            let before = try OriginalPane(fixture: fixture)
+            #expect(fixture.manager.selectedTabId == other.id)
+            let opening = Task { _ = try await fixture.open(extra: ["focus": focus]) }
+            defer { opening.cancel(); try? fixture.releaseCreate() }
+            try await fixture.waitForCreate()
+            // Waiting for the daemon must already show the connecting pane
+            // for an interactive open. --no-focus keeps the user's selection.
+            let expectedSelection = focus ? fixture.workspace.id : other.id
+            #expect(fixture.manager.selectedTabId == expectedSelection)
+            #expect(fixture.manager.tabs.map(\.id) == before.workspaceIDs)
+            #expect(fixture.workspace.groupId == before.groupID)
+            #expect(fixture.workspace.bonsplitController.allPaneIds == before.paneIDs)
+            let remote = try #require(fixture.workspace.panels.values.compactMap { $0 as? TerminalPanel }.first)
+            #expect(remote.id != before.panel.id)
+            #expect(remote.surface.ioMode == .manualMirror)
+            #expect(fixture.workspace.paneId(forPanelId: remote.id) == before.paneID)
+            try fixture.releaseCreate()
+            try await opening.value
+            #expect(fixture.manager.selectedTabId == expectedSelection)
+            #expect(fixture.workspace.terminalPanel(for: remote.id) === remote,
+                    "Completing the attach must use the pane shown during connection")
+            fixture.workspace.disconnectRemoteConnection(clearConfiguration: true)
+            try before.expectRestored(fixture: fixture)
+            #expect(fixture.manager.selectedTabId == expectedSelection)
+        }
+    }
+
     @Test("SSH here and disconnect preserve the workspace, pane, group and original terminal", .timeLimit(.minutes(1)))
     func disconnectReturnsToOriginalTerminal() async throws {
         try await SSHHereDaemonFixture.withFixture { fixture in

@@ -17,10 +17,14 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     private var pendingSelectionID: UUID?
     private var pendingSelectionContinuation: CheckedContinuation<MachineCreateRequest?, Never>?
 
-    private var planRefreshTask: Task<Void, Never>?
-    private var planRefreshID: UUID?
+    /// Receives cache updates while a sheet is up, so a background refresh
+    /// lands in the open sheet in place.
+    private var cacheListenerID: UUID?
 
     private override init() { super.init() }
+
+    /// The app's plan and network catalog cache; nil only in tests.
+    private var dataCache: NewMachineSheetDataCache? { NewMachineSheetDataCache.shared }
 
     /// The shared paywall decision used by both sheet entrypoints.
     static func shouldPresentUpgrade(for plan: MachinePlanSnapshot?) -> Bool {
@@ -103,7 +107,22 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             (hostWindow ?? sheetWindow)?.makeKeyAndOrderFront(nil)
             return
         }
-        let controller = NSHostingController(rootView: NewMachineSheet(model: model))
+        // Fill the model before the first layout so the sheet opens at its
+        // final size and never grows during the open animation.
+#if DEBUG
+        let presentStartedAt = ProcessInfo.processInfo.systemUptime
+#endif
+        attachCachedData(to: model)
+        var allowlistExpanded = false
+#if DEBUG
+        // Dogfood screenshots of the Allowlist editor without GUI clicks.
+        if UserDefaults.standard.bool(forKey: "cloud.newMachine.debugAllowlistExpanded"),
+           model.networkAvailability == .available {
+            model.network.mode = .allowlist
+            allowlistExpanded = true
+        }
+#endif
+        let controller = NSHostingController(rootView: NewMachineSheet(model: model, allowlistInitiallyExpanded: allowlistExpanded))
         controller.sizingOptions = [.preferredContentSize]
         let window = NSWindow(contentViewController: controller)
         window.styleMask = [.titled]
@@ -129,6 +148,9 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             NSApp.activate(ignoringOtherApps: true)
         }
         let host = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow)
+#if DEBUG
+        let hostingBuiltAt = ProcessInfo.processInfo.systemUptime
+#endif
         if let host, host.attachedSheet == nil {
             hostWindow = host
             host.beginSheet(window) { _ in }
@@ -139,6 +161,14 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             window.center()
             window.makeKeyAndOrderFront(nil)
         }
+#if DEBUG
+        let now = ProcessInfo.processInfo.systemUptime
+        cmuxDebugLog(
+            "cloud.newMachine.timing build_ms=\(Int((hostingBuiltAt - presentStartedAt) * 1000)) " +
+            "begin_sheet_ms=\(Int((now - hostingBuiltAt) * 1000)) " +
+            "size=\(Int(window.frame.width))x\(Int(window.frame.height))"
+        )
+#endif
     }
 
     /// The one path every "New Machine" entrypoint (Machines panel ＋, the
@@ -154,6 +184,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanId: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         preferredWindow: NSWindow?,
         coordinator: MachineCreateCoordinator? = nil
     ) {
@@ -171,6 +202,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
             lockedMemoryOptionsMb: lockedMemoryOptionsMb,
             memoryUpgradePlanId: memoryUpgradePlanId,
             memoryUpgradePlansByMb: memoryUpgradePlansByMb,
+            vcpusByMemoryMb: vcpusByMemoryMb,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
             submit: { request in
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
@@ -206,13 +238,22 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
-        var page: VMListPage?
-        if let client = VMClient.shared { page = try? await client.listPage() }
+#if DEBUG
+        let requestedAt = ProcessInfo.processInfo.systemUptime
+        let wasReady = dataCache?.readyData != nil
+#endif
+        // The cache is warmed at sign-in, so this returns at once; only a
+        // cold cache joins the same in-flight preload.
+        guard let cachedData = await dataCache?.data(), cachedData.hasPlan else {
+            finishSelection(selectionID, request: nil)
+            return nil
+        }
         guard !Task.isCancelled, !isPresenting else {
             finishSelection(selectionID, request: nil)
             return nil
         }
-        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits)
+        let limits = cachedData.limits
+        let plan = cachedData.plan
         guard !Self.shouldPresentUpgrade(for: plan) else {
             finishSelection(selectionID, request: nil)
             ProUpgradePresenter.present(source: .newMachineAtLimit)
@@ -228,10 +269,11 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                 let model = NewMachineModel(
                     mode: .newMachine,
                     plan: plan,
-                    memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
-                    lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
-                    memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
-                    memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
+                    memoryOptionsMb: limits?.memoryOptionsMb ?? [],
+                    lockedMemoryOptionsMb: limits?.lockedMemoryOptionsMb,
+                    memoryUpgradePlanId: limits?.memoryUpgradePlanId,
+                    memoryUpgradePlansByMb: limits?.memoryUpgradePlansByMb,
+                    vcpusByMemoryMb: limits?.vcpusByMemoryMb,
                     selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
                     submit: { [weak self] request in
                         guard let self, self.pendingSelectionID == selectionID else { return false }
@@ -247,6 +289,13 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     }
                 }
                 present(model: model, preferredWindow: preferredWindow)
+#if DEBUG
+                cmuxDebugLog(
+                    "cloud.newMachine.present source=\(wasReady ? "cache" : "fetch") " +
+                    "network=\(model.networkAvailability) sizes=\(model.memoryOptions.count)+\(model.lockedMemoryOptions.count) " +
+                    "ms=\(Int((ProcessInfo.processInfo.systemUptime - requestedAt) * 1000))"
+                )
+#endif
             }
         }, onCancel: {
             Task { @MainActor [weak self] in
@@ -283,27 +332,53 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         continuation?.resume(returning: request)
     }
 
-    /// Only the presenter can apply a refresh to its current sheet. Cancelled
-    /// or replaced requests cannot overwrite a newer plan snapshot.
+    /// Returning to the app (for example from checkout) revalidates the
+    /// plan; the listener applies the answer to the open sheet.
     @objc private func refreshPresentedPlan() {
-        guard let model, let client = VMClient.shared else { return }
-        planRefreshTask?.cancel()
-        let refreshID = UUID()
-        planRefreshID = refreshID
-        planRefreshTask = Task { [weak self, weak model] in
-            guard let page = try? await client.listPage(), !Task.isCancelled,
-                  let self, let model, self.model === model,
-                  self.planRefreshID == refreshID else { return }
-            model.applyPage(page)
-            self.planRefreshTask = nil
+        dataCache?.refresh()
+    }
+
+    /// Fills the sheet from the cache before it is shown, so it opens at its
+    /// final size, then revalidates in the background. Updates apply in
+    /// place: the plan and machine count to a New Machine sheet, the catalog
+    /// to its Network row.
+    private func attachCachedData(to model: NewMachineModel) {
+        guard let dataCache else {
+            if model.supportsNetworkPolicy { model.applyNetworkCatalog(nil) }
+            return
+        }
+        if let data = dataCache.currentData {
+            apply(data, to: model, includingPlan: false)
+        }
+        if let cacheListenerID { dataCache.removeListener(cacheListenerID) }
+        cacheListenerID = dataCache.addListener { [weak self, weak model] data in
+            guard let self, let model, self.model === model else { return }
+            self.apply(data, to: model, includingPlan: true)
+        }
+        // Signed out: no answer will come, so the Network row must not spin.
+        if !dataCache.refresh(), model.supportsNetworkPolicy, model.networkAvailability == .loading {
+            model.applyNetworkCatalog(nil)
+        }
+    }
+
+    private func apply(_ data: NewMachineSheetData, to model: NewMachineModel, includingPlan: Bool) {
+        if includingPlan, data.hasPlan, model.mode == .newMachine {
+            model.applyPlan(activeCount: data.activeCount, limits: data.limits)
+        }
+        guard model.supportsNetworkPolicy else { return }
+        if let catalog = data.catalog {
+            if model.networkAvailability != .available || model.network.catalog != catalog {
+                model.applyNetworkCatalog(catalog)
+            }
+        } else if data.catalogFailed, model.networkAvailability == .loading {
+            model.applyNetworkCatalog(nil)
         }
     }
 
     private func dismiss() {
         NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
-        planRefreshID = nil
-        planRefreshTask?.cancel()
-        planRefreshTask = nil
+        if let cacheListenerID { dataCache?.removeListener(cacheListenerID) }
+        cacheListenerID = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

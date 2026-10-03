@@ -222,7 +222,7 @@ struct CloudMachinesHeaderCountTests {
         NSHostingView(rootView: CloudTeamPickerHeader(
             accountFlow: nil, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { EmptyView() }, status: status
+            status: status
         )).fittingSize.height
     }
 
@@ -292,7 +292,6 @@ struct CloudMachinesHeaderCountTests {
         let header = CloudTeamPickerHeader(
             accountFlow: flow, presentation: nil, chromeBackgroundColor: .windowBackgroundColor,
             isRefreshing: false, onRefresh: {}, onNewMachine: {},
-            agentMenu: { Image(systemName: "sparkles").frame(width: 22, height: 20) },
             status: { EmptyView() }
         )
         let row = NSHostingView(rootView: header.actionsRow(actions, picker: CloudTeamPickerPresentation()).fixedSize())

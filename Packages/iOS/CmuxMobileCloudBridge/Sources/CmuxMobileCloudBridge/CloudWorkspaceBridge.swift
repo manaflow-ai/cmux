@@ -282,7 +282,30 @@ public final class CloudWorkspaceBridge: MobileExternalHostSource {
             bridgeLog.error("create workspace failed host=\(hostID, privacy: .public)")
             return nil
         }
-        await reloadCatalog(of: machine, over: connection)
+        // Publish the newly-created row as soon as the daemon returns its id.
+        // The full catalog read (which supplies the initial terminal) can
+        // finish afterward; the shell can select this row immediately instead
+        // of waiting for that read to become ready.
+        let optimisticWorkspace = CloudWorkspaceSummary(id: remoteWorkspaceID)
+        let previous = lastCatalogs[machine.id]
+        let optimisticWorkspaces = (previous?.workspaces ?? []).contains(where: { $0.id == remoteWorkspaceID })
+            ? (previous?.workspaces ?? [])
+            : (previous?.workspaces ?? []) + [optimisticWorkspace]
+        lastCatalogs[machine.id] = (
+            workspaces: optimisticWorkspaces,
+            terminals: previous?.terminals ?? []
+        )
+        publish(
+            machine: machine,
+            workspaces: optimisticWorkspaces,
+            terminals: previous?.terminals ?? [],
+            status: .connected,
+            isAuthoritative: false
+        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.reloadCatalog(of: machine, over: connection)
+        }
         return MobileWorkspacePreview.ID(
             rawValue: CloudAddress(machineID: machine.id, component: remoteWorkspaceID).identifier
         )

@@ -41,6 +41,21 @@ struct SSHHereCLIIntegrationTests {
         #expect(response["workspace_id"] as? String == Self.workspaceID)
     }
 
+    @Test("SSH here defaults to focus and honors an explicit no-focus flag", arguments: [true, false])
+    func hereRetainsSSHFocusPolicy(focus: Bool) throws {
+        // The harness launches a non-TTY CLI. SSH still defaults to focus;
+        // generic script/agent opening defaults must not override that policy.
+        let run = try Self.run(arguments: ["--here"], focusArguments: focus ? [] : ["--no-focus"])
+        #expect(!run.result.timedOut)
+        #expect(run.result.status == 0, Comment(rawValue: run.result.stderr))
+        let open = try #require(run.requests.first { $0["method"] as? String == "workspace.ssh.open" })
+        let params = try #require(open["params"] as? [String: Any])
+        #expect(params["focus"] as? Bool == focus)
+        #expect(params["here"] as? Bool == true)
+        #expect(params["workspace_id"] as? String == Self.workspaceID)
+        #expect(params["surface_id"] as? String == Self.surfaceID)
+    }
+
     @Test("SSH here keeps the invoking shell blocked until its own remote visit ends")
     func callerCannotContinueInParkedLocalShell() throws {
         let run = try Self.run(arguments: ["--here"], exerciseShellContinuation: true)
@@ -110,7 +125,8 @@ struct SSHHereCLIIntegrationTests {
         arguments: [String],
         environmentOverrides: [String: String] = [:],
         exerciseShellContinuation: Bool = false,
-        dropFirstStatusConnection: Bool = false
+        dropFirstStatusConnection: Bool = false,
+        focusArguments: [String] = ["--no-focus"]
     ) throws -> Run {
         let cli = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let root = FileManager.default.temporaryDirectory
@@ -238,7 +254,7 @@ struct SSHHereCLIIntegrationTests {
         }
         let result = Harness.runProcess(
             executablePath: cli,
-            arguments: ["--json", "--id-format", "uuids", "ssh", "--no-focus", "example.test"] + arguments,
+            arguments: ["--json", "--id-format", "uuids", "ssh"] + focusArguments + ["example.test"] + arguments,
             environment: environment,
             timeout: 5
         )

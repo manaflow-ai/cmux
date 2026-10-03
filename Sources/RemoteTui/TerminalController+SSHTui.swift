@@ -76,6 +76,7 @@ extension TerminalController {
         }
         try Task.checkCancellation()
         guard ManagedRemoteConnectionsPolicy.isEnabled else { throw CancellationError() }
+        let shouldFocus = params["focus"] as? Bool != false
         let workspace: Workspace
         let payload: [String: Any]
         let hereSession: SSHTuiHereSession?
@@ -110,7 +111,7 @@ extension TerminalController {
             var creation = params
             creation.removeValue(forKey: "initial_command")
             creation["eager_load_terminal"] = false
-            creation["focus"] = false
+            creation["focus"] = shouldFocus
             let created = v2WorkspaceCreate(params: creation)
             guard case .ok(let raw) = created,
                   let createdPayload = raw as? [String: Any],
@@ -130,9 +131,12 @@ extension TerminalController {
             }
             let initialCommand = (params["initial_command"] as? String).map(connection.commandArguments)
             try await coordinator.open(workspace: workspace, configuration: configuration, initialCommand: initialCommand,
-                                       expectedHereSession: hereSession)
+                                       focus: shouldFocus, expectedHereSession: hereSession)
             let surfaceID = hereSession?.reservation.panelID ?? workspace.focusedPanelId
-            if params["focus"] as? Bool != false, let panelID = surfaceID {
+            if shouldFocus, let panelID = surfaceID {
+                if let manager = AppDelegate.shared?.tabManagerFor(tabId: workspace.id) {
+                    manager.selectWorkspace(workspace)
+                }
                 SurfacePaneFactory.focus(panelID: panelID, in: workspace.id)
             }
             var result = payload
