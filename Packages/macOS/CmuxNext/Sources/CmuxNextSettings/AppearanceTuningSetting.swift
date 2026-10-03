@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// The persisted appearance tuner values in `cmux.json`.
 ///

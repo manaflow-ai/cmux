@@ -1,7 +1,7 @@
 import Foundation
 
 /// Live appearance adjustments applied to the shared window backdrop.
-public struct AppearanceTuning: Equatable, Sendable {
+public nonisolated struct AppearanceTuning: Equatable, Sendable {
     /// Extra transparency from 0 (theme opacity) to 1 (clear glass).
     public var glassTransparency: Double
     /// Hue shift, where 0.5 leaves the theme color unchanged.
@@ -10,16 +10,16 @@ public struct AppearanceTuning: Equatable, Sendable {
     public var saturation: Double
 
     /// The identity tuning used when the experimental controls are off.
-    public static let identity = AppearanceTuning(glassTransparency: 0, hue: 0.5, saturation: 1)
+    public nonisolated static let identity = AppearanceTuning(glassTransparency: 0, hue: 0.5, saturation: 1)
 
     /// Creates a clamped live tuning.
-    public init(glassTransparency: Double, hue: Double, saturation: Double) {
+    public nonisolated init(glassTransparency: Double, hue: Double, saturation: Double) {
         self.glassTransparency = Self.clamp(glassTransparency, to: 0...1, fallback: 0)
         self.hue = Self.clamp(hue, to: 0...1, fallback: 0.5)
         self.saturation = Self.clamp(saturation, to: 0...2, fallback: 1)
     }
 
-    private static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
+    private nonisolated static func clamp(_ value: Double, to range: ClosedRange<Double>, fallback: Double) -> Double {
         guard value.isFinite else { return fallback }
         return min(max(value, range.lowerBound), range.upperBound)
     }
