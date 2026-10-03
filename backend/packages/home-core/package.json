@@ -9,7 +9,8 @@
     "./inbox": "./src/inbox/index.ts",
     "./mux": "./src/mux/index.ts",
     "./address": "./src/address/index.ts",
-    "./invites": "./src/invites/index.ts"
+    "./invites": "./src/invites/index.ts",
+    "./user": "./src/user/index.ts"
   },
   "scripts": {
     "typecheck": "tsc -p .",

@@ -378,6 +378,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>fade</string>
+			<key>pfm_description</key>
+			<string>How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.</string>
+			<key>pfm_name</key>
+			<string>focus.inactiveTabStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>fade</string>
+				<string>tonal</string>
+				<string>quiet</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Unfocused Pane Tabs</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>fast</string>
 			<key>pfm_name</key>
 			<string>ui.animationSpeed</string>
