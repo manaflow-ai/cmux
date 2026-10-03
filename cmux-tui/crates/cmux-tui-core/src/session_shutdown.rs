@@ -31,7 +31,14 @@
 //! the owner that started at `E` closed the window. A closed window stays
 //! until the next shutdown replaces it, so an owner that crashes leaves the
 //! same window to the next one, and exits during the crashed owner's run
-//! (after `E`) stay real ends. Older binaries never read the file.
+//! (after `E`) stay real ends, unless closing the marker failed: then the
+//! next owner closes it at its own start, so exits in the window limit after
+//! `E` read as host losses (the safe side). Older binaries never read the
+//! file.
+//!
+//! A receipt that settles to a host loss after it was committed with its
+//! signal (the logout race) is rewritten to the host-loss shape, so owners
+//! that no longer know the window read the host loss from the receipt.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -44,6 +51,12 @@ use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
 /// as part of the shutdown. Logout signals every process of the session at
 /// once, so a shell can die a moment before the owner records the start.
 pub(crate) const SESSION_SHUTDOWN_LEAD_MS: u64 = 2_000;
+
+/// Debug builds only: overrides [`SESSION_SHUTDOWN_LEAD_MS`] so integration
+/// tests on loaded runners do not depend on a 2 s timing window. Release
+/// builds ignore it.
+#[cfg(debug_assertions)]
+const SESSION_SHUTDOWN_LEAD_TEST_ENV: &str = "CMUX_TUI_TEST_SESSION_SHUTDOWN_LEAD_MS";
 
 /// How long after its start a shutdown window lasts at most.
 pub(crate) const SESSION_SHUTDOWN_WINDOW_MS: u64 = 60_000;
@@ -94,6 +107,8 @@ pub(crate) struct SessionShutdownClock {
     /// Where the start is recorded for the next owner; `None` for an
     /// in-memory registry.
     marker: Option<PathBuf>,
+    /// [`SESSION_SHUTDOWN_LEAD_MS`], or the debug-build test override.
+    lead_ms: u64,
     /// A fixed clock for tests; zero reads the system clock.
     #[cfg(test)]
     test_now_ms: AtomicU64,
@@ -106,6 +121,7 @@ impl SessionShutdownClock {
             own_started: AtomicBool::new(false),
             own_since_ms: AtomicU64::new(0),
             marker,
+            lead_ms: lead_ms(),
             #[cfg(test)]
             test_now_ms: AtomicU64::new(0),
         }
@@ -190,15 +206,15 @@ impl SessionShutdownClock {
         }
     }
 
-    fn within(start_ms: u64, end_ms: u64, exited_at_ms: u64) -> bool {
+    fn within(&self, start_ms: u64, end_ms: u64, exited_at_ms: u64) -> bool {
         let end_ms = end_ms.min(start_ms.saturating_add(SESSION_SHUTDOWN_WINDOW_MS));
-        (start_ms.saturating_sub(SESSION_SHUTDOWN_LEAD_MS)..end_ms).contains(&exited_at_ms)
+        (start_ms.saturating_sub(self.lead_ms)..end_ms).contains(&exited_at_ms)
     }
 
     fn during_shutdown(&self, own_start: Option<u64>, exited_at_ms: u64) -> bool {
         let previous =
-            self.previous.is_some_and(|(start, end)| Self::within(start, end, exited_at_ms));
-        previous || own_start.is_some_and(|start| Self::within(start, u64::MAX, exited_at_ms))
+            self.previous.is_some_and(|(start, end)| self.within(start, end, exited_at_ms));
+        previous || own_start.is_some_and(|start| self.within(start, u64::MAX, exited_at_ms))
     }
 
     fn classify_with(&self, own_start: Option<u64>, end: TerminalEnd) -> TerminalEnd {
@@ -231,17 +247,18 @@ impl SessionShutdownClock {
     /// begun shutting down, at most the lead before now, is pending: a start
     /// stamped later than the lead after the exit cannot cover it.
     pub(crate) fn settle(&self, end: TerminalEnd) -> SettledEnd {
-        // Read the flag before the clock: if it is unset, any start is
-        // stamped after `now_ms`.
-        let own_start = self.own_start();
+        // Read the clock before the flag: if the flag is still unset, a
+        // later `begin` sets it before it reads the clock, so its start is
+        // at or after `now_ms`.
         let now_ms = self.now_ms();
+        let own_start = self.own_start();
         let end = self.classify_with(own_start, end);
         match &end {
             TerminalEnd::ProcessEnded(TerminalExit {
                 outcome: TerminalExitOutcome::Signal { .. },
                 exited_at_ms,
             }) if own_start.is_none() => {
-                let until_ms = exited_at_ms.saturating_add(SESSION_SHUTDOWN_LEAD_MS + 1);
+                let until_ms = exited_at_ms.saturating_add(self.lead_ms + 1);
                 if now_ms < until_ms {
                     SettledEnd::Pending { end, until_ms }
                 } else {
@@ -251,6 +268,16 @@ impl SessionShutdownClock {
             _ => SettledEnd::Final(end),
         }
     }
+}
+
+fn lead_ms() -> u64 {
+    #[cfg(debug_assertions)]
+    if let Some(lead_ms) =
+        std::env::var(SESSION_SHUTDOWN_LEAD_TEST_ENV).ok().and_then(|value| value.parse().ok())
+    {
+        return lead_ms;
+    }
+    SESSION_SHUTDOWN_LEAD_MS
 }
 
 fn previous_window(path: &Path, started_at_ms: u64) -> anyhow::Result<Option<(u64, u64)>> {

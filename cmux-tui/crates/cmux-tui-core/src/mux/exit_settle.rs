@@ -18,6 +18,13 @@ use std::time::Duration;
 
 use super::Mux;
 
+/// How often a failed deferred detach is retried before it is left to the
+/// next owner's startup reconciliation.
+const SETTLE_ATTEMPTS: u32 = 8;
+/// The first retry delay; it doubles up to [`SETTLE_RETRY_MAX_MS`].
+const SETTLE_RETRY_MS: u64 = 25;
+const SETTLE_RETRY_MAX_MS: u64 = 5_000;
+
 #[derive(Default)]
 pub(super) struct ExitSettleTimer {
     state: Mutex<ExitSettleState>,
@@ -32,9 +39,17 @@ pub(super) struct ExitSettleTimer {
 
 #[derive(Default)]
 struct ExitSettleState {
-    /// Internal terminal id -> Unix milliseconds at which to detach.
-    deadlines: BTreeMap<String, u64>,
+    /// Internal terminal id -> when to detach.
+    deadlines: BTreeMap<String, Deadline>,
     worker_running: bool,
+}
+
+#[derive(Clone, Copy)]
+struct Deadline {
+    /// Unix milliseconds.
+    until_ms: u64,
+    /// Failed detach attempts so far.
+    failures: u32,
 }
 
 impl ExitSettleTimer {
@@ -42,18 +57,22 @@ impl ExitSettleTimer {
         let _ = self.mux.set(mux);
     }
 
-    fn take_due(&self, now_ms: u64) -> Vec<String> {
+    fn take_due(&self, now_ms: u64) -> Vec<(String, u32)> {
         let mut state = self.state.lock().unwrap();
         let due = state
             .deadlines
             .iter()
-            .filter(|(_, until_ms)| **until_ms <= now_ms)
-            .map(|(terminal_id, _)| terminal_id.clone())
+            .filter(|(_, deadline)| deadline.until_ms <= now_ms)
+            .map(|(terminal_id, deadline)| (terminal_id.clone(), deadline.failures))
             .collect::<Vec<_>>();
-        for terminal_id in &due {
+        for (terminal_id, _) in &due {
             state.deadlines.remove(terminal_id);
         }
         due
+    }
+
+    fn earliest(state: &ExitSettleState) -> Option<u64> {
+        state.deadlines.values().map(|deadline| deadline.until_ms).min()
     }
 
     fn stop_worker(&self) {
@@ -66,7 +85,7 @@ impl ExitSettleTimer {
         loop {
             let next = {
                 let mut state = self.state.lock().unwrap();
-                match state.deadlines.values().min().copied() {
+                match Self::earliest(&state) {
                     Some(next) => next,
                     None => {
                         state.worker_running = false;
@@ -92,7 +111,7 @@ impl ExitSettleTimer {
             drop(owner);
             let state = self.state.lock().unwrap();
             // An earlier deadline scheduled meanwhile restarts the loop.
-            if state.deadlines.values().min().copied() == Some(next) {
+            if Self::earliest(&state) == Some(next) {
                 let _ = self.changed.wait_timeout(state, Duration::from_millis(next - now_ms));
             }
         }
@@ -103,10 +122,15 @@ impl Mux {
     /// Detach `terminal_id`'s tabs at `until_ms` unless a shutdown started
     /// meanwhile; the detach re-classifies the durable receipt.
     pub(super) fn schedule_exit_settle(&self, terminal_id: &str, until_ms: u64) {
+        self.schedule_exit_settle_attempt(terminal_id, Deadline { until_ms, failures: 0 });
+    }
+
+    fn schedule_exit_settle_attempt(&self, terminal_id: &str, scheduled: Deadline) {
         let timer = &self.exit_settles;
         let mut state = timer.state.lock().unwrap();
-        let deadline = state.deadlines.entry(terminal_id.to_string()).or_insert(until_ms);
-        *deadline = (*deadline).min(until_ms);
+        let deadline = state.deadlines.entry(terminal_id.to_string()).or_insert(scheduled);
+        deadline.until_ms = deadline.until_ms.min(scheduled.until_ms);
+        deadline.failures = deadline.failures.max(scheduled.failures);
         timer.changed.notify_all();
         if state.worker_running {
             return;
@@ -129,14 +153,31 @@ impl Mux {
     }
 
     /// Run every deferred detach whose deadline passed. A failed detach is
-    /// logged and left to the next owner's startup reconciliation; the tab
-    /// stays dead meanwhile (the safe side of invariant 3).
+    /// retried with a doubling delay; after [`SETTLE_ATTEMPTS`] failures it
+    /// is left to the next owner's startup reconciliation. The tab stays
+    /// dead meanwhile (the safe side of invariant 3). Nothing runs once the
+    /// owner shuts down; the next owner settles the receipts.
     pub(super) fn run_due_exit_settles(&self) {
         let _running = self.exit_settles.running.lock().unwrap();
         let now_ms = self.session_shutdown.now_ms();
-        for terminal_id in self.exit_settles.take_due(now_ms) {
-            if let Err(error) = self.detach_exited_terminal_topology(&terminal_id) {
-                eprintln!("cmux-tui: could not settle exited terminal {terminal_id}: {error:#}");
+        for (terminal_id, failures) in self.exit_settles.take_due(now_ms) {
+            if self.shutting_down.load(Ordering::Acquire) {
+                return;
+            }
+            let Err(error) = self.detach_exited_terminal_topology(&terminal_id) else {
+                continue;
+            };
+            let failures = failures + 1;
+            eprintln!(
+                "cmux-tui: could not settle exited terminal {terminal_id} \
+                 (attempt {failures} of {SETTLE_ATTEMPTS}): {error:#}"
+            );
+            if failures < SETTLE_ATTEMPTS {
+                let delay_ms = (SETTLE_RETRY_MS << (failures - 1).min(16)).min(SETTLE_RETRY_MAX_MS);
+                self.schedule_exit_settle_attempt(
+                    &terminal_id,
+                    Deadline { until_ms: now_ms.saturating_add(delay_ms), failures },
+                );
             }
         }
     }

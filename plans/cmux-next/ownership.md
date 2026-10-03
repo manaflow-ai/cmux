@@ -178,8 +178,10 @@ Logout race (2026-10-02): logout signals the shell and the daemon at the same ti
 shell's signal exit can reach the daemon before it records its shutdown start. A signal
 exit is final only once the 2 s lead has passed: until then the daemon commits the exit
 receipt without removing the tab, then classifies the receipt again (a shutdown that
-started meanwhile makes it a host loss). A daemon that stops first leaves the receipt to
-the next one, which classifies it against the recorded window with the same result. The
+started meanwhile makes it a host loss, and the receipt is rewritten to the host-loss
+shape so later daemons agree without the window). A daemon that stops first leaves the
+receipt to the next one, which classifies and rewrites it the same way. Visible cost: a
+command ended by Ctrl-C or a user's `kill` shows its tab dead for 2 s before it goes. The
 receipt records no provenance (the public `TerminalExit` shape is closed and older
 daemons reject unknown receipt keys), so an older host's status-less exit and an
 abandoned launch read as host losses after a restart: the tab stays dead, the safe side

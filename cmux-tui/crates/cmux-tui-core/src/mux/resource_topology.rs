@@ -3282,10 +3282,38 @@ impl Mux {
         // and a signal during a session shutdown counts as a host loss. A
         // signal exit within the shutdown lead waits until the lead passed
         // (logout race) and is classified again then.
-        let settled =
-            self.session_shutdown.settle(TerminalEnd::from_receipt(terminal.exit.as_ref()));
+        let recorded = TerminalEnd::from_receipt(terminal.exit.as_ref());
+        let settled = self.session_shutdown.settle(recorded.clone());
         if let Some(until_ms) = settled.pending_until_ms() {
             self.schedule_exit_settle(terminal_id, until_ms);
+            return Ok(false);
+        }
+        if let (TerminalEnd::ProcessEnded(recorded), TerminalEnd::HostLost(lost)) =
+            (&recorded, settled.end())
+        {
+            // The receipt still records the signal (its exit committed within
+            // the shutdown lead). Record the host loss in the receipt, so an
+            // owner that no longer knows this shutdown window agrees. Best
+            // effort: on failure the tab stays dead now and a later owner
+            // that still knows the window settles it again.
+            let mut state = self.state.lock().unwrap();
+            let settled = terminal_exit_snapshot_in_state(&registry, &state, terminal_id).and_then(
+                |snapshot| registry.settle_terminal_exit(terminal_id, recorded, lost, snapshot),
+            );
+            match settled {
+                Ok((_, terminal_revision, resource_revision, false)) => {
+                    state.resource_revision = resource_revision;
+                    self.emit_terminal_registry_changed(&registry, terminal_revision);
+                    drop(state);
+                    drop(registry);
+                    self.publish_resource_event();
+                }
+                Ok(_) => {}
+                Err(error) => eprintln!(
+                    "cmux-tui: could not record the session shutdown host loss of terminal \
+                     {terminal_id}: {error:#}"
+                ),
+            }
             return Ok(false);
         }
         let Some(proof) = settled.end().detach_proof() else {
