@@ -2008,6 +2008,14 @@ class TabManager: ObservableObject {
         workspaceReordering.isAtTopOfUnpinnedTier(tabId)
     }
 
+    func moveTabToBottom(_ tabId: UUID) {
+        workspaceReordering.moveTabToBottom(tabId)
+    }
+
+    func moveTabsToBottom(_ tabIds: Set<UUID>) {
+        workspaceReordering.moveTabsToBottom(tabIds)
+    }
+
     @discardableResult
     func reorderWorkspace(tabId: UUID, toIndex targetIndex: Int, isDragOperation: Bool = false) -> Bool {
         let previousMemberships = workspaceGroupMemberships(for: [tabId])
