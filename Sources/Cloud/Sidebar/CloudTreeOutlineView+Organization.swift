@@ -60,8 +60,8 @@ extension CloudTreeOutlineView.Coordinator {
         outlineView.setDropItem(drop.parent, dropChildIndex: drop.childIndex)
         if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
             cloudOutline.trackDragDestination(sequenceNumber: info.draggingSequenceNumber)
-            // Machines show their destination by the rows parting, never a line.
-            if case .organization = drop.operation {
+            // A lifted drag shows its destination by the rows parting, never a line.
+            if case .organization = drop.operation, !isMachineLiftActive(outlineView, info: info) {
                 cloudOutline.reorderPresentation.show(drop, sequence: info.draggingSequenceNumber)
             } else {
                 cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
@@ -77,7 +77,12 @@ extension CloudTreeOutlineView.Coordinator {
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
         case .organization(let action):
-            return organize(action, nodeID: drop.sourceID)
+            guard isMachineLiftActive(outlineView, info: info) else {
+                return organize(action, nodeID: drop.sourceID)
+            }
+            return finishMachineLift { [weak self] in
+                self?.organize(action, nodeID: drop.sourceID) ?? false
+            }
         case .machine(let id, let move):
             guard let actions = machineOrdering(for: info, nodeID: drop.sourceID) else { return false }
             guard isMachineLiftActive(outlineView, info: info) else {
@@ -126,7 +131,7 @@ extension CloudTreeOutlineView.Coordinator {
             sourceID: id, nodes: nodes, state: organization.state,
             proposedItem: item as? CloudTreeNode, proposedChildIndex: index,
             dropAfterItem: row >= 0 && point.y >= outlineView.rect(ofRow: row).midY,
-            machineSlot: machineLiftSlot(outlineView, info: info)
+            liftSlot: machineLiftSlot(outlineView, info: info)
         ) else { return nil }
         if case .machine(let machineID, let move) = drop.operation {
             guard machineOrdering(for: info, nodeID: id)?.canMove(machineID, move) == true else { return nil }

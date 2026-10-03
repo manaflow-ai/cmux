@@ -2,11 +2,11 @@ import AppKit
 import CmuxCloud
 import QuartzCore
 
-/// The visuals of a continuous machine drag in the Cloud tree.
+/// The visuals of a continuous machine or workspace drag in the Cloud tree.
 ///
-/// There is no drag image and no insertion line: the real machine row is
-/// what the hand holds. Open machines close for the drag so every machine is
-/// one row, the peers part around the lifted row on springs, and the release
+/// There is no drag image and no insertion line: the real row is what the
+/// hand holds. Open rows close for the drag so every peer is one row, the
+/// peers part around the lifted row on springs, and the release
 /// lands each row from wherever it is on screen. The model is untouched until
 /// the drop; during the drag everything is a layer transform over an
 /// unchanged outline, laid out by `CloudTreeReorderLiftLayout`.
@@ -35,6 +35,9 @@ final class CloudTreeMachineReorderLift: NSObject {
     }
 
     private var session: Session?
+    /// Called once when the pointer leaves the outline, for drags that can
+    /// continue somewhere else (a workspace onto a pane).
+    private var onLeave: (() -> Void)?
     private var displayLink: CADisplayLink?
     /// Row views this drag has moved or styled, reset when it ends.
     private let touched = NSHashTable<NSTableRowView>.weakObjects()
@@ -55,21 +58,20 @@ final class CloudTreeMachineReorderLift: NSObject {
 
     // MARK: Begin
 
-    /// Lifts `source` out of `siblings`. `collapse` closes the given machines
-    /// without recording it as the person's choice.
+    /// Lifts `source` out of `siblings`. `isPeer` picks the siblings it can
+    /// trade places with, `closes` the ones that close for the drag, and
+    /// `collapse` closes them without recording it as the person's choice.
     /// `pressY` is where the press landed, before anything closed; it
     /// defaults to the outline's last mouse-down.
     func begin(
         sequence: Int, source: CloudTreeNode, siblings: [CloudTreeNode], pressY: CGFloat? = nil,
+        isPeer: (CloudTreeNode) -> Bool, closes: (CloudTreeNode) -> Bool, onLeave: (() -> Void)? = nil,
         collapse: ([CloudTreeNode]) -> Void
     ) {
         guard let outline else { return }
         discard()
         let before = visualTops()
-        let closing = siblings.filter { node in
-            if case .machine = node.kind { return outline.isItemExpanded(node) }
-            return false
-        }
+        let closing = siblings.filter { closes($0) && outline.isItemExpanded($0) }
         let ghosts = closing.isEmpty ? [] : makeGhosts(under: Set(closing.map(\.id)))
         if !closing.isEmpty { collapse(closing) }
 
@@ -89,7 +91,7 @@ final class CloudTreeMachineReorderLift: NSObject {
             }
             blocks.append(.init(
                 rows: row..<end,
-                isPeer: sibling !== source && sibling.canReorderMachine && sibling.isPinned == source.isPinned
+                isPeer: sibling !== source && isPeer(sibling)
             ))
         }
         guard let sourceIndex, let sourceRows,
@@ -108,6 +110,7 @@ final class CloudTreeMachineReorderLift: NSObject {
             collapsedIDs: closing.map(\.id),
             placement: layout.placement(dragOffset: 0)
         )
+        self.onLeave = onLeave
         animateGhosts(ghosts, before: before)
         land(from: before, excluding: source.id, fadingIn: false)
         if let pointer = pointerY() { update(pointerY: pointer) }
@@ -121,9 +124,19 @@ final class CloudTreeMachineReorderLift: NSObject {
     // MARK: Drag
 
     @objc private func tick() {
-        guard session != nil, let pointer = pointerY() else { return }
-        update(pointerY: pointer)
+        guard session != nil, let pointer = pointer() else { return }
+        if let onLeave, let outline,
+           !outline.visibleRect.insetBy(dx: -Self.leaveMargin, dy: -Self.leaveMargin).contains(pointer) {
+            self.onLeave = nil
+            onLeave()
+            return
+        }
+        update(pointerY: pointer.y)
     }
+
+    /// How far past the outline's visible edge the pointer goes before a
+    /// drag that can leave hands off to a native drag.
+    private static let leaveMargin: CGFloat = 12
 
     /// The part of the close shift the held row still carries: a critically
     /// damped glide from under the hand into its closed slot.
@@ -187,6 +200,7 @@ final class CloudTreeMachineReorderLift: NSObject {
         guard let session, outline != nil else { return false }
         displayLink?.invalidate()
         displayLink = nil
+        onLeave = nil
         let before = visualTops()
         resetTouched()
         self.session = nil
@@ -206,17 +220,20 @@ final class CloudTreeMachineReorderLift: NSObject {
         guard !isFinishing else { return }
         displayLink?.invalidate()
         displayLink = nil
+        onLeave = nil
         session = nil
         resetTouched()
     }
 
     // MARK: Geometry
 
-    private func pointerY() -> CGFloat? {
+    private func pointer() -> NSPoint? {
         guard let outline, let window = outline.window else { return nil }
         let windowPoint = window.convertPoint(fromScreen: NSEvent.mouseLocation)
-        return outline.convert(windowPoint, from: nil).y
+        return outline.convert(windowPoint, from: nil)
     }
+
+    private func pointerY() -> CGFloat? { pointer()?.y }
 
     /// Where each visible row is on screen right now, by node id: its frame
     /// plus whatever translation it is showing mid-flight.
@@ -306,7 +323,7 @@ final class CloudTreeMachineReorderLift: NSObject {
     // MARK: Closing machines
 
     /// Pictures of the rows that are about to close, so they can fade out
-    /// into their machine instead of vanishing.
+    /// into their machine or workspace instead of vanishing.
     private struct Ghost {
         let layer: CALayer
         let machineID: String
