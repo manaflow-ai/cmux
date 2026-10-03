@@ -134,6 +134,23 @@ import Testing
         #expect(harness.controller.stagedUpdate != nil)
     }
 
+    /// The controller ends an install attempt itself ("Updater is still starting", the install
+    /// watchdog) without going through the driver; a later download must still wait for a click.
+    @Test func aControllerSideErrorDropsAClickToInstallWhenReady() async {
+        let harness = Harness()
+        harness.controller.installsUpdatesInBackground = true
+        harness.controller.installWhenStaged()
+        harness.model.setState(.error(.init(error: NSError(domain: "test", code: 1), retry: {}, dismiss: {})))
+        for _ in 0..<20_000 where harness.controller.driver.installsWhenStaged { await Task.yield() }
+
+        find(harness, into: ChoiceBox())
+        let readyBox = ChoiceBox()
+        ready(harness, into: readyBox)
+
+        #expect(readyBox.choice == nil)
+        #expect(harness.controller.stagedUpdate != nil)
+    }
+
     @Test func backgroundModeWritesNothingToDefaults() {
         let harness = Harness()
         let before = persisted(harness)

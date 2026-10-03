@@ -99,6 +99,9 @@ extension UpdateIndicatorPhase {
         }
     }
 
+    /// Whether the ring spins: work with no measured progress.
+    public var spins: Bool { false }
+
     /// The circle menu's titles.
     public static var installTitle: String { UpdaterStrings.install }
     public static var releaseNotesTitle: String { UpdaterStrings.releaseNotes }

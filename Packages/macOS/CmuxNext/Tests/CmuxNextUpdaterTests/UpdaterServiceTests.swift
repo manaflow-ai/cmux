@@ -55,7 +55,11 @@ import Testing
 
     @Test func managedPolicyNeverTouchesTheFeed() async {
         let (service, fetcher) = service(AppcastFixtures.identity(), data: AppcastFixtures.feed(), managed: true)
+        var presented = 0
+        service.presentUpdateUI = { presented += 1 }
         #expect(service.checkForUpdates() == nil)
+        // The managed explanation is the one check result that still opens the sheet.
+        #expect(presented == 1)
         #expect(fetcher.requested.isEmpty)
         #expect(service.disabledReason == .managedPolicy)
         #expect(throws: UpdaterUnavailable.self) { try service.installAvailableUpdate() }
@@ -140,5 +144,16 @@ import Testing
         #expect(error?.buttons == [.done, .retry])
         let ready = UpdateSheetContent.sparkle(.installing(.init(isAutoUpdate: true, retryTerminatingApplication: {}, dismiss: {})), current: identity)
         #expect(ready?.buttons == [.later, .relaunch])
+    }
+
+    /// With the window rail off there is no circle, so a check falls back to the sheet.
+    @Test func checksOpenTheSheetWhenThereIsNoCircle() async {
+        let feed = AppcastFixtures.feed(AppcastFixtures.item("106", short: "0.64.25", minimum: "14.0"))
+        let (service, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.updtr", build: "106"), data: feed)
+        var presented = 0
+        service.presentUpdateUI = { presented += 1 }
+        service.showsIndicator = { false }
+        _ = await service.checkForUpdates()?.value
+        #expect(presented == 1)
     }
 }

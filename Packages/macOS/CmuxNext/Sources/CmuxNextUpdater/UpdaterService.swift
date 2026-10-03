@@ -42,6 +42,10 @@ public final class UpdaterService {
     /// Sparkle is about to relaunch into the update (set by the App: the quit
     /// keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
+    /// Whether a window shows the rail's update circle (set by the App:
+    /// false while the window rail is off). Without it, checks and installs
+    /// open the update sheet.
+    @ObservationIgnored public var showsIndicator: () -> Bool = { true }
     @ObservationIgnored private let policy: ManagedUpdatePolicy
     @ObservationIgnored private let prober: UpdateProber
     @ObservationIgnored private let defaults: UserDefaults

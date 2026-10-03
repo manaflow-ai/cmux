@@ -56,4 +56,13 @@ import Testing
         #expect(UpdateIndicatorPhase(probe: nil, error: nil, probing: true) == .checking)
         #expect(UpdateIndicatorPhase(probe: nil, error: nil, probing: false) == .hidden)
     }
+
+    /// The ring spins while nothing measures progress, never for a known fraction.
+    @Test func onlyUnmeasuredWorkSpins() {
+        #expect(UpdateIndicatorPhase.checking.spins)
+        #expect(UpdateIndicatorPhase.installing.spins)
+        #expect(UpdateIndicatorPhase.downloading(progress: nil).spins)
+        #expect(!UpdateIndicatorPhase.downloading(progress: 0.75).spins)
+        #expect(!UpdateIndicatorPhase.ready(version: nil).spins)
+    }
 }
