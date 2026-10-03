@@ -11038,7 +11038,19 @@ struct CMUXCLI {
                 unknown
             ))
         }
-        let positional = rem1.first(where: { !$0.hasPrefix("--") })
+        let positionals = rem1.filter { !$0.hasPrefix("--") }
+        if positionals.count > 1 || (positionals.count == 1 && workspaceArg != nil) {
+            let extra = positionals.count > 1 ? positionals[1] : positionals[0]
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.workspace.env.error.extraPositional",
+                    defaultValue: "workspace env: unexpected argument '%@'. Expected at most one workspace handle (a positional or --workspace)"
+                ),
+                locale: .current,
+                extra
+            ))
+        }
+        let positional = positionals.first
         let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride)
         // Match reconnect/disconnect: default to the caller's workspace
         // ($CMUX_WORKSPACE_ID) before the selected one, but only when no explicit
