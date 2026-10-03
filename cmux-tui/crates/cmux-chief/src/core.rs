@@ -94,8 +94,13 @@ pub enum Input {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         cursor_reset: bool,
         /// The log's identity: the `at` of its seq 1 event (absent for an
-        /// empty log).
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// empty log). Anything but a non-negative safe integer reads as
+        /// absent, as in TypeScript.
+        #[serde(
+            default,
+            deserialize_with = "crate::acp::lenient_count",
+            skip_serializing_if = "Option::is_none"
+        )]
         log_id: Option<u64>,
         /// The shell created the session on this connect: its log is new,
         /// nothing can reuse its keys.
@@ -689,11 +694,11 @@ impl Core {
         text: String,
         seq: Option<u64>,
     ) {
+        // An outstanding prompt recorded again keeps its place.
+        let kept = self.state.prompts.get(&prompt_id).and_then(|p| p.order);
         let last = self.state.prompts.values().map(|p| p.order.unwrap_or(0)).max().unwrap_or(0);
-        self.state.prompts.insert(
-            prompt_id,
-            OutstandingPrompt { conversation, text, seq, order: Some(last + 1) },
-        );
+        let order = Some(kept.unwrap_or(last + 1));
+        self.state.prompts.insert(prompt_id, OutstandingPrompt { conversation, text, seq, order });
     }
 
     /// Emits the prompt for an outstanding entry; false without a session.
@@ -725,9 +730,11 @@ impl Core {
     /// log's seq 1 event (`log_id`, else a replayed seq 1 event). A reset is
     /// a log whose turn seqs may repeat keys already used:
     /// - same session: `cursor_reset` (acpmux refused the saved cursor) or a
-    ///   known identity that differs from host.json's `acpmuxLog`; the epoch
-    ///   becomes max(identity, else now; previous epoch + 1), so a repeated
-    ///   import of the same bundle still gets a new epoch;
+    ///   known identity that differs from host.json's `acpmuxLog` (a host.json
+    ///   without one, from before it existed, adopts the identity with no
+    ///   reset); the epoch becomes max(identity + 1, else now; the previous
+    ///   epoch + 1), so a repeated import of the same bundle still gets a
+    ///   new epoch, and no epoch an older core used repeats;
     /// - a session host.json does not know (a lost or replaced host.json)
     ///   with a non-empty log, unless the shell created it on this connect
     ///   (`created`: a new log, whose only event is acpmux's created event):
@@ -762,10 +769,18 @@ impl Core {
                 self.state.acpmux_epoch = Some(self.now);
             }
             self.dirty = true;
-        } else if cursor_reset || (identity.is_some() && identity != self.state.acpmux_log) {
+        } else if cursor_reset
+            // A legacy host.json (no acpmuxLog) adopts the identity below
+            // without a reset.
+            || (identity.is_some()
+                && self.state.acpmux_log.is_some()
+                && identity != self.state.acpmux_log)
+        {
             reset = true;
             self.state.acpmux_seq = 0;
-            let candidate = identity.unwrap_or(self.now);
+            // identity + 1: an older core used the identity itself as the
+            // first epoch (downgrade-safe).
+            let candidate = identity.map_or(self.now, |identity| identity + 1);
             self.state.acpmux_epoch = Some(match self.state.acpmux_epoch {
                 Some(previous) => candidate.max(previous + 1),
                 None => candidate,
@@ -806,7 +821,10 @@ impl Core {
         // Permissions that waited for a session list (a failed fetch, or the
         // last connection's loss).
         if !self.pending_permissions.is_empty() {
-            self.sessions(&listed);
+            // One whose session is no longer waiting was answered meanwhile.
+            let waiting: Vec<SessionSummary> =
+                listed.into_iter().filter(|s| s.status == SessionStatus::Waiting).collect();
+            self.sessions(&waiting);
         }
         self.reconcile_children();
         if self.daemon_up {

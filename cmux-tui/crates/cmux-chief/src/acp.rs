@@ -87,6 +87,16 @@ struct RawAcpmuxEvent {
 /// JavaScript's `Number.MAX_SAFE_INTEGER`.
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
+/// Reads an optional count leniently: anything but a non-negative safe
+/// integer (a float, a negative number, a string) is `None`, as the
+/// TypeScript core treats it (`acpmux_connected.log_id`).
+pub(crate) fn lenient_count<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(count(value).ok().flatten())
+}
+
 /// An absent or null count is `Ok(None)`; a non-negative safe integer is
 /// `Ok(Some)`; anything else is `Err`.
 fn count(value: Option<Value>) -> Result<Option<u64>, ()> {
