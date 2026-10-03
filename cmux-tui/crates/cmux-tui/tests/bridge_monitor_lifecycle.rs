@@ -114,13 +114,17 @@ fn request(socket: &Path, value: serde_json::Value) -> serde_json::Value {
     serde_json::from_str(&line).unwrap()
 }
 
-/// The connection reaches end of file (or a reset), never a timeout.
+/// The connection reaches end of file (or a reset), never a timeout. A
+/// daemon may send a last notice first; that is drained.
 fn assert_closed(mut stream: UnixStream) {
-    let mut byte = [0_u8; 1];
-    match stream.read(&mut byte) {
-        Ok(0) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
-        other => panic!("the bridge connection stayed open: {other:?}"),
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match stream.read(&mut buffer) {
+            Ok(0) => return,
+            Ok(_) => continue,
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => return,
+            other => panic!("the bridge connection stayed open: {other:?}"),
+        }
     }
 }
 
