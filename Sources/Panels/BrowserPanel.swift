@@ -8794,12 +8794,27 @@ final class BrowserUIDelegate: BrowserPDFPreviewActionUIDelegate {
         // background tabs it can attach to (Playwright's "popup" event). The
         // tab adopts a web view made from WebKit's configuration, so
         // window.opener and postMessage to the opener work as in a browser.
-        if let attachment = owner.flatMap({ BrowserReplTabAttachments.shared.attachment(for: $0.id) }) {
-            if case .opened(let popup)? = attachment.adoptPopup(request: navigationAction.request, configuration: configuration) {
-                return popup
-            }
-            if attachment.handlePopup(request: navigationAction.request) {
+        // The page controls the URL, and a session's popup opens through
+        // cmux's own navigation, so it goes to the sessions only as an
+        // untrusted navigation the URL allowlist and the creating session's
+        // domain policy allow (BrowserReplNavigationGuard.popupRoute).
+        if let owner, let attachment = BrowserReplTabAttachments.shared.attachment(for: owner.id) {
+            switch BrowserReplNavigationGuard.shared.popupRoute(panelID: owner.id, url: navigationAction.request.url) {
+            case .refused(let reason):
+#if DEBUG
+                cmuxDebugLog("browser.nav.createWebView kind=replPopupRefused reason=\(reason)")
+#endif
+                _ = reason
                 return nil
+            case .browser:
+                break
+            case .session:
+                if case .opened(let popup)? = attachment.adoptPopup(request: navigationAction.request, configuration: configuration) {
+                    return popup
+                }
+                if attachment.handlePopup(request: navigationAction.request) {
+                    return nil
+                }
             }
         }
         if let url = navigationAction.request.url {

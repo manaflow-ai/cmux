@@ -197,7 +197,15 @@ native (`BrowserReplBoundary` in the session, and the driver):
   is not recorded. In tabs the session created the content rules keep a
   blocked frame from loading at all; its empty frame belongs to the parent
   and refuses nothing. The page can still move a frame or the focus in its
-  own web process between the check and the input reaching it. When WebKit refuses to compile the policy's
+  own web process between the check and the input reaching it.
+- Page-opened windows: a window a page opens from a tab a session drives
+  becomes a popup tab through cmux's own navigation, which trusts local
+  files and cmux's internal schemes, and the page controls its URL. So it
+  goes to the session (`tab.created`) only when it is an `http`, `https`,
+  `about:blank` or `blob:` (of such an origin) page that the browser's URL
+  allowlist and the creating session's domain policy allow. Otherwise a
+  tab a session created opens nothing, and a user's tab a session only
+  drives leaves the window to the browser's own popup handling. When WebKit refuses to compile the policy's
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
