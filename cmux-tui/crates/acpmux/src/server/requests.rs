@@ -669,8 +669,9 @@ pub(super) async fn handle_request(
             let level = params.get("level").and_then(Value::as_str).map(str::to_owned);
             let setting = m == method::ACP_TRUST_SET;
             // Small files, read and written off the runtime threads.
-            tokio::task::spawn_blocking(move || {
-                let paths = crate::trust::Paths::current();
+            let reply = tokio::task::spawn_blocking(move || {
+                let paths = crate::trust::Paths::current()
+                    .ok_or_else(|| crate::trust::Failure::Record("no home directory".into()))?;
                 if setting {
                     crate::trust::set(&paths, &cwd, level.as_deref().unwrap_or_default())
                 } else {
@@ -678,8 +679,11 @@ pub(super) async fn handle_request(
                 }
             })
             .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(RpcError::invalid_params)
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+            reply.map_err(|failure| match failure {
+                crate::trust::Failure::Invalid(message) => RpcError::invalid_params(message),
+                crate::trust::Failure::Record(message) => RpcError::internal(message),
+            })
         }
         method::MUX_SET_RULES => {
             let s = hub.resolve(session_key(&params)?)?;
