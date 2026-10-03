@@ -92,6 +92,9 @@ Environment:
 | `setup-hooks`, `uninstall-hooks` | Compatibility aliases for `hooks setup` and `hooks uninstall`, kept for hook setup docs and scripts written before `cmux hooks`. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
+| `sudo run [-r <reason>] [-t <timeout>] (-c <command> \| <script.sh> \| -)` | Submit a privileged command request through cmux's secure runner. |
+| `sudo pending` | List queued privileged command request IDs. |
+| `sudo setup-touch-id` | Install or refresh the Touch ID sudo helper used by cmux privileged commands. |
 | `capabilities` | Print server capabilities as JSON. |
 | `iroh-diag` | Print this host's Iroh Connection Report: the same data as Settings > Networking > Connection Report. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
@@ -253,6 +256,10 @@ Environment:
 | `__debug-tmux-compat-env` | Internal debug probe printing the environment a tmux compatibility agent would be launched with, resolved against the socket this command was pointed at. |
 | `__cmux-sudo-runner` | Internal sudo broker entrypoint that runs one approved sudo manifest under its own process-tree deadline. Takes a request id and a base64 manifest, and checks that its parent is the enclosing app; exits 2 on any other argument shape. Only the broker invokes it. |
 | `__cmux-sudo-privileged-executor` | Internal sudo broker entrypoint re-entered as root after sudo authenticates. Takes exactly four arguments (reviewed byte count, absolute deadline, display name, control token) and exits 126 unless it is running as root. Only the broker invokes it. |
+
+`sudo run` accepts exactly one script source: `-c <command>`, a regular UTF-8 script file, or `-` for standard input. `-r` supplies the approval reason. `-t` must be a positive integer no larger than 86,400 seconds; omitted requests wait up to 300 seconds. Script input is bounded by the sudo broker resource policy and oversized, unreadable, non-regular, or non-UTF-8 input is rejected before queueing.
+
+After queueing, cmux launches the app and the app shows the pending request for approval before execution. Denied requests print the denial and exit 77. Approved scripts return the script's exit code on completion; broker or runner failures return a failure message and a non-zero exit. Pending approval or approved execution timeouts return exit code 124. `sudo pending` lists queued request IDs, one per line, for requests still waiting for approval or completion.
 
 
 ## Glaeda execution exchange and current-work ownership
@@ -936,6 +943,10 @@ the expected text without connecting to a cmux socket.
 - `cmux help remote` -> `Remote:`
 - `cmux help diagnostics` -> `Diagnostics / Advanced:`
 - `cmux help diagnostics` -> `socket-status [--json]`
+- `cmux help diagnostics` -> `sudo run [-r reason] [-t timeout] (-c 'command' | script.sh | -)`
+- `cmux help diagnostics` -> `sudo pending`
+- `cmux help diagnostics` -> `sudo setup-touch-id`
+- `cmux iroh-diag --help` -> `Usage: cmux iroh-diag`
 - `cmux help remote` -> `auth <status|login|logout|team>`
 - `cmux --help` -> `socket-status [--json]`
 - `cmux --help` -> `cmux help <start|agents|navigate|inspect|customize|automation|browser|remote|diagnostics>`
