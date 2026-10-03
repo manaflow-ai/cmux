@@ -61,10 +61,24 @@ export const verifyPresence = (jwk: unknown, payload: ProofPayload, signature: s
   if (!key || !sig || sig.length !== 64) return false
   const data = proofMessage(payload)
   try {
-    return verifySignature("sha256", data, { key, dsaEncoding: "ieee-p1363" }, sig)
+    // DER, the default encoding: workerd's node:crypto has no dsaEncoding option.
+    return verifySignature("sha256", data, key, rawToDer(sig))
   } catch {
     return false
   }
+}
+
+/** Raw r||s (64 bytes) to a DER ECDSA-Sig-Value. */
+const rawToDer = (raw: Uint8Array): Buffer => {
+  const int = (b: Uint8Array) => {
+    let i = 0
+    while (i < b.length - 1 && b[i] === 0) i++
+    const v = b.subarray(i)
+    return v[0]! & 0x80 ? Uint8Array.of(0, ...v) : Uint8Array.from(v)
+  }
+  const r = int(raw.subarray(0, 32))
+  const s = int(raw.subarray(32, 64))
+  return Buffer.from([0x30, r.length + s.length + 4, 0x02, r.length, ...r, 0x02, s.length, ...s])
 }
 
 // Plain Uint8Array helpers: the Worker's Buffer typings lack Node's read and compare methods.
@@ -136,7 +150,7 @@ export const verifyAppAttest = (key: AppAttestKey, payload: ProofPayload, assert
   const clientDataHash = createHash("sha256").update(proofMessage(payload)).digest()
   const nonce = createHash("sha256").update(Buffer.concat([auth, clientDataHash])).digest()
   try {
-    return verifySignature("sha256", nonce, { key: pub, dsaEncoding: "der" }, sig) ? { ok: true, counter } : { ok: false }
+    return verifySignature("sha256", nonce, pub, sig) ? { ok: true, counter } : { ok: false }
   } catch {
     return { ok: false }
   }
