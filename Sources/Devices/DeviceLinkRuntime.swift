@@ -36,7 +36,7 @@ struct DeviceLinkRuntime: MobileSyncRuntime {
         now: @escaping @Sendable () -> Date = { Date() }
     ) {
         self.automaticClient = automaticClient
-        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil, allowsLegacyTailscale: automaticClient == nil)
+        let routeSelector = routeSelector ?? DeviceRouteSelector(allowsIroh: automaticClient != nil)
         self.routeSelector = routeSelector
         transportFactory = CmxNetworkByteTransportFactory(supportedKinds: routeSelector.supportedKinds.filter { $0 != .iroh })
         independentEventByteStreamProvider = nil
