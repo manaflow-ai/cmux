@@ -404,11 +404,29 @@ button, [role="button"], .menu-item, .model-row, .row-control { cursor: default 
 .turn-list { min-height: 100%; }
 .turn-virtual-row { overflow-anchor: none; }
 .turn-group { min-width: 0; }
+.transcript-guide {
+  max-width: 760px; margin: 0 auto 18px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 12px; background: color-mix(in srgb, var(--accent) 7%, var(--bg-input)); color: var(--text-dim); font-size: calc(var(--font-size-base) - 1.5px);
+}
+.transcript-guide-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.transcript-guide h2 { margin: 0 0 3px; color: var(--text); font-size: calc(var(--font-size-base) + 1px); font-weight: 600; }
+.transcript-guide p { margin: 0; }
+.transcript-guide ul { margin: 11px 0 13px; padding-left: 20px; }
+.transcript-guide li + li { margin-top: 5px; }
+.transcript-guide strong { color: var(--text); font-weight: 600; }
+.transcript-guide-actions { display: flex; gap: 7px; }
+.transcript-guide-actions button, .transcript-guide-close, .transcript-help {
+  border: 1px solid var(--border); border-radius: 7px; background: transparent; color: var(--text); font: inherit; cursor: default;
+}
+.transcript-guide-actions button { padding: 5px 9px; }
+.transcript-guide-actions button:hover, .transcript-guide-close:hover, .transcript-help:hover { background: var(--bg-hover); }
+.transcript-guide-actions button:last-child { border-color: transparent; background: var(--accent); color: #fff; }
+.transcript-guide-actions button:last-child:hover { filter: brightness(1.08); }
+.transcript-guide-close { flex: none; width: 26px; height: 26px; padding: 0; color: var(--text-faint); font-size: 19px; line-height: 1; }
 .connection-notice {
   max-width: 760px; margin: 0 auto 14px; padding: 8px 12px; border-radius: 9px;
   background: color-mix(in srgb, var(--accent) 9%, var(--bg-input)); color: var(--text-faint);
   font-size: calc(var(--font-size-base) - 2px);
-}
 .msg { max-width: 760px; margin: 0 auto; padding: 0 24px 16px; }
 .msg.user { display: flex; justify-content: flex-end; }
 .msg.user .body {
@@ -700,11 +718,13 @@ details.thinking .t-body { white-space: pre-wrap; font-size: calc(var(--font-siz
 .transcript-composer-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 0 1px 8px;
 }
+.transcript-actions { display: flex; align-items: center; gap: 6px; }
 .transcript-hint {
   display: inline-flex; align-items: center; gap: 8px; min-width: 0;
   color: var(--text-faint); font: 400 calc(var(--font-size-base) - 2px) var(--font-sans);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.transcript-help { padding: 4px 8px; color: var(--text-faint); font-size: calc(var(--font-size-base) - 2px); }
 .transcript-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint); }
 .transcript-dot.running { background: var(--accent); animation: transcript-pulse 1.4s ease-in-out infinite; }
 @keyframes transcript-pulse { 50% { opacity: 0.35; } }
