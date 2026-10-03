@@ -27,21 +27,28 @@ public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible
 /// Bearer <access>`, `X-Stack-Refresh-Token`, and the team in
 /// `X-Cmux-Team-Id`. Tokens come from the caller per request and are never
 /// stored. Every call has a deadline.
+///
+/// This is the privacy boundary for account identities: what leaves the
+/// client carries ``AccountLabel``s (an `acct_…` handle and a redacted
+/// display), never a server label that is an email.
 public struct CodeRouterClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
     public typealias TeamID = @Sendable () async -> String?
+    public typealias Labeler = @Sendable () async -> AccountLabeler
 
     public let baseURL: URL
     let tokens: Tokens
     let teamID: TeamID
+    let labeler: Labeler
     let session: URLSession
     let timeout: Duration
 
-    public init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, session: URLSession = .shared,
-                timeout: Duration = .seconds(15)) {
+    public init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, labeler: @escaping Labeler,
+                session: URLSession = .shared, timeout: Duration = .seconds(15)) {
         self.baseURL = baseURL
         self.tokens = tokens
         self.teamID = teamID
+        self.labeler = labeler
         self.session = session
         self.timeout = timeout
     }
@@ -52,8 +59,19 @@ public struct CodeRouterClient: Sendable {
         struct Claude: Decodable { var accounts: [ClaudeAccountRow] }
         async let native = decode(Native.self, try await send("GET", "/api/coderouter/accounts"))
         async let claude = decode(Claude.self, try await send("GET", "/api/coderouter/claude-upstream"))
-        return try await native.accounts.compactMap(LinkedAccount.init(native:))
-            + claude.accounts.compactMap(LinkedAccount.init(claude:))
+        let labeler = await labeler()
+        return try await native.accounts.compactMap { LinkedAccount(native: $0, labeler: labeler) }
+            + claude.accounts.compactMap { LinkedAccount(claude: $0, labeler: labeler) }
+    }
+
+    /// One control-plane request with an optional team override, returning
+    /// the JSON body with every account identity redacted
+    /// (``AccountJSONRedactor``). The `coderouter.*` socket methods pass
+    /// this through to the CLI, MCP and apps.
+    public func request(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
+                        team override: String? = nil) async throws -> Data {
+        let data = try await send(method, path, body: body, team: override)
+        return AccountJSONRedactor(labeler: await labeler()).redact(data)
     }
 
     /// Adds an account. Re-adding the same sign-in or key updates it.
@@ -75,8 +93,9 @@ public struct CodeRouterClient: Sendable {
     }
 
     /// One control-plane request with an optional team override, returning
-    /// the raw JSON body (the `coderouter.*` socket methods pass it through).
-    public func send(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
+    /// the raw JSON body. Internal: callers outside the client use
+    /// ``request(_:_:body:team:)``, which redacts account identities.
+    func send(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                      team override: String? = nil) async throws -> Data {
         let (access, refresh): (String, String)
         do { (access, refresh) = try await tokens() } catch { throw CodeRouterError.notSignedIn }
@@ -115,8 +134,8 @@ public struct CodeRouterClient: Sendable {
     static func failure(status: Int, data: Data) -> CodeRouterError {
         if status == 401 { return .notSignedIn }
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let code = object?["error"] as? String
-        let message = (object?["message"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(300)) }
+        let code = (object?["error"] as? String).map(EmailRedaction.redactEmails(in:))
+        let message = (object?["message"] as? String).flatMap { $0.isEmpty ? nil : EmailRedaction.redactEmails(in: String($0.prefix(300))) }
         return .http(status: status, code: code, message: message)
     }
 
