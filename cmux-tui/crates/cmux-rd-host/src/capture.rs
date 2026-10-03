@@ -1,6 +1,5 @@
 //! Screen capture: XShm GetImage on the root window, driven by XDamage raw rectangles.
 
-use crate::clock::now_ns;
 use crate::shm::ShmSeg;
 use crate::Res;
 use std::os::fd::{AsRawFd, RawFd};
@@ -20,18 +19,6 @@ pub struct Rect {
 }
 
 impl Rect {
-    pub fn union(self, o: Rect) -> Rect {
-        let x0 = self.x.min(o.x);
-        let y0 = self.y.min(o.y);
-        let x1 = (self.x + self.w).max(o.x + o.w);
-        let y1 = (self.y + self.h).max(o.y + o.h);
-        Rect { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
-    }
-
-    pub fn intersects(self, o: Rect) -> bool {
-        self.x < o.x + o.w && o.x < self.x + self.w && self.y < o.y + o.h && o.y < self.y + self.h
-    }
-
     /// Grows the rect to even coordinates and sizes (4:2:0 chroma), clamped to the screen.
     pub fn align_even(self, sw: u32, sh: u32) -> Rect {
         let x0 = self.x & !1;
@@ -42,9 +29,8 @@ impl Rect {
     }
 }
 
-/// One damage report, stamped with the host monotonic time we received it.
+/// One damage report.
 pub struct DamageEvent {
-    pub t_ns: u64,
     pub rect: Rect,
 }
 
@@ -78,17 +64,13 @@ impl Capturer {
         self.conn.stream().as_raw_fd()
     }
 
-    pub fn full(&self) -> Rect {
-        Rect { x: 0, y: 0, w: self.width, h: self.height }
-    }
-
     /// Drains every queued X event without blocking; returns damage reports.
     pub fn drain(&self, out: &mut Vec<DamageEvent>) -> Res<()> {
         while let Some(ev) = self.conn.poll_for_event()? {
             if let Event::DamageNotify(d) = ev {
                 let a = d.area;
                 let rect = Rect { x: a.x.max(0) as u32, y: a.y.max(0) as u32, w: u32::from(a.width), h: u32::from(a.height) };
-                out.push(DamageEvent { t_ns: now_ns(), rect });
+                out.push(DamageEvent { rect });
             }
         }
         Ok(())

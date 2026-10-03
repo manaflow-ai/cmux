@@ -7,10 +7,6 @@ pub fn now_ns() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
-pub fn ms(ns: u64) -> f64 {
-    ns as f64 / 1e6
-}
-
 /// Small xorshift PRNG (test patterns and inter-sample jitter; not cryptographic).
 pub struct Rng(u64);
 

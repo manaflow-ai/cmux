@@ -3,6 +3,7 @@
 
 pub const CELLS: usize = 20;
 pub const CELL: u32 = 32;
+#[cfg(test)]
 pub const WIDTH: u32 = CELL * CELLS as u32;
 const GUARD: [bool; 4] = [true, false, true, false];
 

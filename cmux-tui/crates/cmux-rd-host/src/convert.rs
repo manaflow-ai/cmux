@@ -2,7 +2,6 @@
 
 pub struct I420 {
     pub width: usize,
-    pub height: usize,
     pub y: Vec<u8>,
     pub u: Vec<u8>,
     pub v: Vec<u8>,
@@ -12,7 +11,6 @@ impl I420 {
     pub fn new(width: usize, height: usize) -> Self {
         Self {
             width,
-            height,
             y: vec![16; width * height],
             u: vec![128; width * height / 4],
             v: vec![128; width * height / 4],
