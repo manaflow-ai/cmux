@@ -318,6 +318,9 @@ fn a_torn_line_in_a_stale_owners_segment_does_not_block_recovery() {
 #[derive(Clone, Default)]
 struct TeamVmJournal {
     appends: Shipped,
+    /// Refuse the append that would become this index (tests a failure in
+    /// the middle of a multi-range group commit).
+    refuse_append: Arc<Mutex<Option<usize>>>,
 }
 
 impl Journal for TeamVmJournal {
@@ -331,6 +334,9 @@ impl Journal for TeamVmJournal {
     ) -> io::Result<()> {
         assert_eq!(stream, "tasks");
         let mut appends = self.appends.lock().unwrap();
+        if *self.refuse_append.lock().unwrap() == Some(appends.len()) {
+            return Err(io::Error::other("journal unreachable"));
+        }
         let high_water = appends.last().map_or(0, |a| a.2);
         let max_epoch = appends.iter().map(|a| a.0).max().unwrap_or(0);
         let limit = RangeLimit::TEAM_VM_JOURNAL;
@@ -426,6 +432,46 @@ fn a_group_commit_over_the_journal_limit_ships_in_ranges() {
     }
     assert!(journal.appends.lock().unwrap().len() >= 2);
     assert_journal_holds_the_log(&journal, dir.path(), 10);
+}
+
+/// Review finding: the journal refuses the SECOND range of one group
+/// commit. The writer stops before any reply; the reopen re-ships from the
+/// journal's high water and completes the group commit with no gap and no
+/// duplicate.
+#[test]
+fn a_failed_second_range_is_completed_by_the_reopen() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TeamVmJournal::default();
+    *journal.refuse_append.lock().unwrap() = Some(1);
+    {
+        let mut engine = open_journal(dir.path(), &journal).unwrap();
+        let batch: Vec<_> = (1..=10).map(|i| (me(), big(i))).collect();
+        assert!(engine.handle_batch(batch).is_err(), "no reply after a failed range");
+        assert!(engine.handle(&me(), request(11, None)).is_err(), "the writer stays stopped");
+    }
+    let shipped_first = journal.appends.lock().unwrap().clone();
+    assert_eq!(shipped_first.len(), 1, "only the first range reached the journal");
+    assert!(shipped_first[0].2 < 10, "the first range holds part of the group commit");
+    *journal.refuse_append.lock().unwrap() = None;
+    let mut engine = open_journal(dir.path(), &journal).unwrap();
+    assert_journal_holds_the_log(&journal, dir.path(), 10);
+    assert_eq!(journal.appends.lock().unwrap()[0], shipped_first[0], "nothing shipped twice");
+    engine.handle(&me(), request(11, None)).unwrap().reply.unwrap();
+    assert_journal_holds_the_log(&journal, dir.path(), 11);
+}
+
+/// Review finding: the size bound must not hide the ledger. A large op sent
+/// under a key the ledger holds for another op is an idempotency conflict.
+#[test]
+fn a_large_op_under_a_used_key_is_an_idempotency_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TeamVmJournal::default();
+    let mut engine = open_journal(dir.path(), &journal).unwrap();
+    engine.handle(&me(), request(1, None)).unwrap().reply.unwrap();
+    let mut huge = request(1, None);
+    huge.params["description"] = json!("x".repeat(cmux_tasks::engine::MAX_OP_BYTES + 1));
+    let err = engine.handle(&me(), huge).unwrap().reply.unwrap_err();
+    assert_eq!(err.code, ErrorCode::IdempotencyConflict);
 }
 
 /// An op too large for one journal append is refused as `invalid`; nothing

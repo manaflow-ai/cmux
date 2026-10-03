@@ -268,8 +268,12 @@ impl Engine {
             grants,
             op,
         };
+        // A key the ledger holds answers from the ledger (replay or
+        // idempotency conflict) and logs nothing, so the bound skips it.
         let size = serde_json::to_vec(&envelope).map_or(usize::MAX, |bytes| bytes.len());
-        if size > MAX_OP_BYTES {
+        if size > MAX_OP_BYTES
+            && !cmux_tasks_core::reduce::is_in_ledger(self.store.state(), &envelope)
+        {
             return (
                 Err(ErrorBody::new(
                     ErrorCode::Invalid,

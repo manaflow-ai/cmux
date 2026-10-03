@@ -124,6 +124,27 @@ fn needs_grant_for_ordinary_agent(op: &Op) -> bool {
     )
 }
 
+/// The ledger key of an envelope. Stamped records scope keys to the
+/// accountable person, not to the principal or the stamp: the same key sent
+/// again under another credential of the same person is a replay and keeps
+/// the first actor (identity.md section 3). Records written before the stamp
+/// existed keep their old principal scope, so an old log replays byte for
+/// byte.
+fn envelope_ledger_key(envelope: &Envelope) -> String {
+    let scope = match envelope.stamp {
+        Some(_) => envelope.actor.human(),
+        None => envelope.actor.id(),
+    };
+    ledger_key(scope, &envelope.key)
+}
+
+/// True when the ledger already holds this envelope's key: `reduce` answers
+/// it from the ledger (a replay, or an idempotency conflict) without
+/// committing anything.
+pub fn is_in_ledger(state: &State, envelope: &Envelope) -> bool {
+    state.ledger.contains_key(&envelope_ledger_key(envelope))
+}
+
 /// Apply one envelope. On `Ok` the state holds the commit (or is unchanged
 /// for a replay); on `Err` the state is unchanged.
 pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit, Reject> {
@@ -131,16 +152,7 @@ pub fn reduce(state: &mut State, envelope: &Envelope, ctx: Ctx) -> Result<Commit
         return Err(invalid("idempotency key must be 1..=200 bytes"));
     }
     let print = fingerprint(&envelope.op);
-    // Stamped records scope keys to the accountable person, not to the
-    // principal or the stamp: the same key sent again under another
-    // credential of the same person is a replay and keeps the first actor
-    // (identity.md section 3). Records written before the stamp existed keep
-    // their old principal scope, so an old log replays byte for byte.
-    let scope = match envelope.stamp {
-        Some(_) => envelope.actor.human(),
-        None => envelope.actor.id(),
-    };
-    let ledger_id = ledger_key(scope, &envelope.key);
+    let ledger_id = envelope_ledger_key(envelope);
     if let Some(entry) = state.ledger.get(&ledger_id) {
         if entry.fingerprint != print {
             return Err(Reject::new(
