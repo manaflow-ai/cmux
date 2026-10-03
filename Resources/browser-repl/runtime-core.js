@@ -2185,6 +2185,9 @@
   // ---------------------------------------------------------------------------
   // Page
 
+  // Unfinished requests a page keeps to pair with their later events.
+  const MAX_OPEN_REQUESTS = 1000;
+
   class Page extends EventEmitter {
     constructor(session, targetId) {
       super();
@@ -2572,6 +2575,10 @@
       if (event === "request") {
         const req = new Request(this, p);
         this._requests.set(p.requestId, req);
+        // Requests that never finish (streams, long polls, a page that
+        // opens them without end) keep only the newest; a later event for
+        // an evicted one builds its Request from the event.
+        if (this._requests.size > MAX_OPEN_REQUESTS) this._requests.delete(this._requests.keys().next().value);
         this.emit("request", req);
         return;
       }

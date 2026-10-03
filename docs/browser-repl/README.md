@@ -44,7 +44,7 @@ reference ([parity-report.md](parity-report.md)).
 | `snapshot(target?, options?)` | Accessibility snapshot of `page`, a locator, or a ref string. See [Snapshot](#snapshot). |
 | `screenshot(target?, options?)` | PNG of the viewport, full page, locator or ref. `{ annotate: true }` draws each ref's box and label. Returns an `Image` that displays when printed. |
 | `fetch` | Standard `fetch` that sends the current tab's cookies (`credentials`: `"include"` by default, `"same-origin"`, `"omit"`). The domain policy is checked on every redirect hop; a body over 64 MiB fails (download it in a tab instead). |
-| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the system temp directory; a symbolic link is never followed out of them, and `rm`, `rename` and `lstat` act on the link itself as in Node. `import("node:fs")` and friends return the same modules. |
+| `fs`, `path`, `os`, `Buffer` | Node-compatible subsets. Files are limited to the session directory (the caller's cwd; `/` and the home directory are refused, and `repl mcp` started there uses a temporary directory) and the session's own temporary directory (`os.tmpdir()`, mode 0700, never shared with another session); a symbolic link is never followed out of them, and `rm`, `rename` and `lstat` act on the link itself as in Node. `import("node:fs")` and friends return the same modules. |
 | `sleep(ms)`, `display(value)` | Wait; show a value or image to the agent. |
 | `sites` | Site tools that run through the signed-in browser session: Google Docs/Sheets/Slides/Drive, Gmail, Calendar, Search, YouTube, Slack, Notion, LinkedIn, X, GitHub, Linear, Jira, page assets, WebMCP and a secure sign-in sheet. Writes to other people are drafts until confirmed. See [site-tools.md](site-tools.md). |
 | `session` | `name(label)` labels this session's tabs in the UI; `keep(page)` keeps a tab open after a one-shot run ends; `id`; `guide()` returns the agent guide (`Resources/browser-repl/guide.md`). `configure({ userAgent, extraHTTPHeaders, permissions, proxy })` sets Playwright browser-context options for the tabs the session created. The domain policy (`allowedDomains`, `prohibitedDomains`, `blockIPAddresses`, `blockedNavigations`, which also blocks subresources), `storageState` (the current tab's site by default, `{ all: true }` for the whole profile)/`setStorageState`, `downloads()` and `record()`: see [reference-c-parity.md](reference-c-parity.md). |
@@ -112,6 +112,9 @@ url: http://localhost:8765/
 
 Rules, and how they improve on the references:
 
+- **Header** lines (title, URL, a pending dialog or file chooser) are the
+  page's text, so terminal escape sequences and C0/C1 control characters
+  are removed and a line longer than 500 characters is cut with its length.
 - **Refs** go on interactive elements, iframes, scrollable regions and named
   landmarks, dialogs and lists (so a region can be scoped with
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is
@@ -286,14 +289,20 @@ rest. Measurements: [performance.md](performance.md).
 - **A diff too large for the budget** prints the condensed tree with a note
   that `.diff` has the changes.
 - **Per call**, the REPL prints at most 25,000 characters
-  (`cmux browser repl --max-output <chars>`, `0` for no limit), under both
+  (`cmux browser repl --max-output <chars>`, `0` for no limit up to
+  4,000,000 characters, past which the call spills as below), under both
   harness limits above so the REPL, not the harness, picks what is cut.
   Past the cap, the call's whole output goes to
-  `<tmp>/cmux-browser-repl/<session>/output-N.txt`: the first 80% prints,
+  `<tmp>/cmux-browser-repl/<session>/output-N.txt` under the session's own
+  `os.tmpdir()` (kept after the session ends): the first 80% prints,
   then `# output continues in <path>`, and at the end of the call its last
   lines and `# output truncated: X of Y characters shown; full output:
   <path>`. The file is written as output arrives, so a call that times out
   still has it.
+- **Control characters** in printed text (page titles and text can hold
+  terminal escape sequences) print visibly: newline and tab stay, other C0
+  controls print as their control pictures (ESC as `␛`), DEL as `␡` and C1
+  controls as `\u{9B}`. `--json` keeps the exact text.
 
 ## Sessions and tabs
 

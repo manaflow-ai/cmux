@@ -135,7 +135,7 @@ struct BrowserReplTimerSchedulerTests {
         #expect(scheduler.isScheduled(id: 1))
     }
 
-    @Test("An interval re-arms until cancelled")
+    @Test("An interval re-arms after each delivered fire until cancelled")
     func intervalRepeatsUntilCancelled() async {
         let clock = BrowserReplManualClock()
         let fired = FiredTimers()
@@ -144,6 +144,7 @@ struct BrowserReplTimerSchedulerTests {
         scheduler.schedule(id: 7, after: .milliseconds(10), repeating: true)
         clock.advance(by: .milliseconds(10))
         #expect(await fired.wait(forCount: 1) == [7])
+        scheduler.delivered(id: 7)
         clock.advance(by: .milliseconds(10))
         #expect(await fired.wait(forCount: 2) == [7, 7])
 
@@ -151,6 +152,24 @@ struct BrowserReplTimerSchedulerTests {
         scheduler.schedule(id: 8, after: .milliseconds(15), repeating: false)
         clock.advance(by: .milliseconds(20))
         #expect(await fired.wait(forCount: 3) == [7, 7, 8])
+    }
+
+    @Test("An interval whose last fire has not run yet does not fire again")
+    func overdueIntervalTicksCoalesce() async {
+        let clock = BrowserReplManualClock()
+        let fired = FiredTimers()
+        let scheduler = BrowserReplTimerScheduler(clock: clock) { fired.record($0) }
+
+        scheduler.schedule(id: 7, after: .milliseconds(10), repeating: true)
+        clock.advance(by: .milliseconds(10))
+        #expect(await fired.wait(forCount: 1) == [7])
+        // The JS thread is busy: interval 7's fire is still queued there.
+        clock.advance(by: .milliseconds(10))
+        clock.advance(by: .milliseconds(10))
+        scheduler.schedule(id: 8, after: .milliseconds(1), repeating: false)
+        clock.advance(by: .milliseconds(1))
+
+        #expect(await fired.wait(forCount: 2) == [7, 8])
     }
 
     @Test("Invalidation drops pending timers and refuses new ones")

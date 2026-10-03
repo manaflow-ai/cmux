@@ -253,11 +253,11 @@ extension CMUXCLI {
             return ok
         }
         for line in payload["output"] as? [[String: Any]] ?? [] {
-            print(line["text"] as? String ?? "")
+            print(Self.browserReplTerminalText(line["text"] as? String ?? ""))
         }
         let duration = payload["duration_ms"] as? Int ?? 0
         let color = ProcessInfo.processInfo.environment["NO_COLOR"] == nil && isatty(STDOUT_FILENO) != 0
-        if let error = payload["error"] as? String {
+        if let error = (payload["error"] as? String).map(Self.browserReplTerminalText) {
             print(color ? "\u{1B}[31m\(error)\u{1B}[0m" : error)
             print(color ? "\u{1B}[31m[error | \(duration)ms]\u{1B}[0m" : "[error | \(duration)ms]")
         } else {
@@ -267,13 +267,46 @@ extension CMUXCLI {
         return ok
     }
 
+    /// `text` with every control character except newline and tab made
+    /// visible: C0 as its Unicode control picture (ESC as U+241B), DEL as
+    /// U+2421 and C1 as `\u{9B}`. Output carries page text (a title, a
+    /// dialog, whatever a cell prints), whose escape sequences would act on
+    /// the terminal showing it: set its title, write its clipboard (OSC 52),
+    /// clear or redraw it. `--json` keeps the exact text.
+    static func browserReplTerminalText(_ text: String) -> String {
+        func isControl(_ value: UInt32) -> Bool {
+            (value < 0x20 && value != 0x09 && value != 0x0A) || (0x7F...0x9F).contains(value)
+        }
+        guard text.unicodeScalars.contains(where: { isControl($0.value) }) else { return text }
+        var visible = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case let value where !isControl(value):
+                visible.append(scalar)
+            case 0x7F:
+                visible.append("\u{2421}")
+            case let value where value < 0x20:
+                visible.append(Unicode.Scalar(0x2400 + value) ?? "?")
+            case let value:
+                visible.append(contentsOf: "\\u{\(String(value, radix: 16, uppercase: true))}".unicodeScalars)
+            }
+        }
+        return String(visible)
+    }
+
+    /// Reads stdin in chunks and stops as soon as it passes
+    /// `maximumEncodedTextBytes`, so an endless stream is refused instead of
+    /// being buffered whole.
     private static func readBrowserReplStandardInput() throws -> String {
-        let data = FileHandle.standardInput.readDataToEndOfFile()
-        guard data.count <= maximumEncodedTextBytes else {
-            throw CLIError(message: String(
-                localized: "cli.browser.repl.error.inputTooLarge",
-                defaultValue: "REPL input is too large"
-            ))
+        var data = Data()
+        while let chunk = try FileHandle.standardInput.read(upToCount: 1 << 20), !chunk.isEmpty {
+            data.append(chunk)
+            guard data.count <= maximumEncodedTextBytes else {
+                throw CLIError(message: String(
+                    localized: "cli.browser.repl.error.inputTooLarge",
+                    defaultValue: "REPL input is too large"
+                ))
+            }
         }
         guard let text = String(data: data, encoding: .utf8) else {
             throw CLIError(message: String(

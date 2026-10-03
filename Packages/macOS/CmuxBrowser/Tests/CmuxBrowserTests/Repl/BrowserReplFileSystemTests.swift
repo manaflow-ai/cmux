@@ -225,6 +225,53 @@ struct BrowserReplFileSystemTests {
         #expect(fileManager.fileExists(atPath: scratch.root + "/mine.txt"))
         #expect(fileManager.fileExists(atPath: scratch.base + "/tmp"))
     }
+
+    /// Agent code cannot create a link, but it can move one that is already
+    /// in the root, and two sessions on the same root run their fs calls on
+    /// two threads. One session swapping such a link in for a directory must
+    /// never let the other's write, checked against the directory, land
+    /// through the link.
+    @Test("A link swapped in by another session between the check and the write is never written through")
+    func concurrentLinkSwapNeverEscapes() async throws {
+        let scratch = try Scratch()
+        defer { scratch.remove() }
+        try fileManager.createDirectory(atPath: scratch.root + "/sub", withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(atPath: scratch.root + "/escape", withDestinationPath: scratch.outside)
+        let swapper = makeFileSystem(scratch)
+        let writer = makeFileSystem(scratch)
+        let escaped = scratch.outside + "/written.txt"
+        let done = BrowserReplRaceFlag()
+
+        let swapping = Task.detached {
+            while !done.isSet {
+                _ = swapper.perform("rename", arguments: ["from": "sub", "to": "held"])
+                _ = swapper.perform("rename", arguments: ["from": "escape", "to": "sub"])
+                _ = swapper.perform("rename", arguments: ["from": "sub", "to": "escape"])
+                _ = swapper.perform("rename", arguments: ["from": "held", "to": "sub"])
+            }
+        }
+        let writing = Task.detached {
+            let payload = Data("x".utf8).base64EncodedString()
+            for _ in 0..<5_000 where !FileManager.default.fileExists(atPath: escaped) {
+                _ = writer.perform("writeFile", arguments: ["path": "sub/written.txt", "base64": payload])
+            }
+            done.set()
+        }
+        await writing.value
+        await swapping.value
+
+        #expect(!fileManager.fileExists(atPath: escaped))
+    }
+}
+
+/// A flag one task sets and another polls.
+private final class BrowserReplRaceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool { lock.withLock { value } }
+
+    func set() { lock.withLock { value = true } }
 }
 
 private extension Result where Success == Any, Failure == BrowserReplFileSystemError {

@@ -12,24 +12,38 @@ import Foundation
 /// the other operations act on what it points to. `rename` and `copyFile`
 /// replace an existing destination atomically: it stays intact until the new
 /// file is complete.
+///
+/// Every operation of every session runs under one process-wide lock, from
+/// the path check to the last system call. Agent code cannot create a
+/// symbolic link, but it can move one already inside a root, and two
+/// sessions on the same root call `fs` from two threads; without the lock
+/// one session could swap such a link in for a directory between the other
+/// session's check and its write. The REPL's `fs` is the only way agent
+/// code changes files, so serializing it closes that window. Another
+/// process of the same user already has the user's file access and is not
+/// what the sandbox guards against.
 public struct BrowserReplFileSystem: Sendable {
     /// The sandbox that authorizes every path.
     public var sandbox: BrowserReplFileSandbox
 
-    /// Canonical temporary directory, a second root next to the sandbox root.
-    public let temporaryRoot: String
+    /// The session's own canonical temporary directory, a second root next
+    /// to the sandbox root, or `nil` for none.
+    public let temporaryRoot: String?
 
-    /// - Parameter temporaryDirectory: The user's temporary directory;
-    ///   `nil` uses `NSTemporaryDirectory()`.
+    /// - Parameter temporaryDirectory: The session's private temporary
+    ///   directory (`os.tmpdir()` in the REPL), never a directory other
+    ///   sessions or apps share; `nil` gives the sandbox root only.
     public init(sandbox: BrowserReplFileSandbox, temporaryDirectory: String? = nil) {
         self.sandbox = sandbox
-        self.temporaryRoot = BrowserReplFileSandbox.canonicalize(
-            BrowserReplFileSandbox.lexicallyNormalized(temporaryDirectory ?? NSTemporaryDirectory())
-        )
+        self.temporaryRoot = temporaryDirectory.map {
+            BrowserReplFileSandbox.canonicalize(BrowserReplFileSandbox.lexicallyNormalized($0))
+        }
     }
 
     /// Runs one operation. See `docs/browser-repl/driver-protocol.md` for ops.
     public func perform(_ operation: String, arguments: [String: Any]) -> Result<Any, BrowserReplFileSystemError> {
+        Self.operationLock.lock()
+        defer { Self.operationLock.unlock() }
         do {
             return .success(try run(operation, arguments))
         } catch let error as BrowserReplFileSystemError {
@@ -39,10 +53,13 @@ public struct BrowserReplFileSystem: Sendable {
         }
     }
 
+    /// Held for each operation's check and use; see the type's documentation.
+    private static let operationLock = NSLock()
+
     private func run(_ operation: String, _ arguments: [String: Any]) throws -> Any {
         let fileManager = FileManager.default
-        // `fs` reaches the working directory and the temporary directory.
-        let extraRoots = [temporaryRoot]
+        // `fs` reaches the working directory and the session's temporary directory.
+        let extraRoots = temporaryRoot.map { [$0] } ?? []
         func path(
             _ access: BrowserReplFileSandbox.Access,
             key: String = "path",
@@ -141,7 +158,7 @@ public struct BrowserReplFileSystem: Sendable {
             let to = try path(.write, key: "to", followingLastLink: false)
             // Like rm: the working directory and the temporary root are never
             // moved away or replaced.
-            let roots = [sandbox.root, temporaryRoot]
+            let roots = [sandbox.root] + extraRoots
             guard !roots.contains(from), !roots.contains(to) else {
                 throw BrowserReplFileSystemError(code: "EACCES", message: "EACCES: refusing to move or replace the REPL working directory")
             }

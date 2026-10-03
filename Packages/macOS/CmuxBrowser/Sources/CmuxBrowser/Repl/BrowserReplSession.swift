@@ -61,11 +61,20 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var workingDirectory: String
     private var currentEval: EvalState?
     private var nextEvalID = 0
-    /// Driver calls and fetches in flight; `close()` cancels them.
-    private var inFlight: [Int: Task<Void, Never>] = [:]
+    /// Driver calls and fetches in flight; `close()` cancels them, and a
+    /// cell's timeout cancels the fetches it started.
+    private var inFlight: [Int: InFlightWork] = [:]
     private var nextInFlightID = 0
+    /// Fetches running now, at most `maxConcurrentFetches`.
+    private var runningFetches = 0
+    /// Fetches waiting for a running one to finish, oldest first.
+    private var queuedFetches: [PendingFetch] = []
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
+    /// The session's private temporary directory (mode 0700): `os.tmpdir()`
+    /// in the REPL, where output spill files go, and the only `fs` root
+    /// besides the working directory.
+    private let privateTemporaryDirectory: String
     private let homeDirectory: String
 
     // JS-thread state.
@@ -78,6 +87,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// One evaluation's result. It is finished exactly once: by the JS
     /// thread when the cell settles, or from outside it by the timeout or
     /// `close()`, so a wedged JS thread can never strand the caller.
+    ///
+    /// Past `maxRetainedOutputBytes` of output, whatever reaches the native
+    /// print (the runtime's own gate stops well before that), the rest goes
+    /// to `<tmpdir>/output-<id>.txt` instead of memory.
     private final class EvalState: @unchecked Sendable {
         let id: Int
         let start = ContinuousClock.now
@@ -86,9 +99,15 @@ public final class BrowserReplSession: @unchecked Sendable {
         private var continuation: CheckedContinuation<BrowserReplEvalResult, Never>?
         private var timeoutTask: Task<Void, Never>?
         private var finished = false
+        private let spillPath: String
+        private var retainedBytes = 0
+        private var spilledBytes = 0
+        private var spill: FileHandle?
+        private var spilling = false
 
-        init(id: Int, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
+        init(id: Int, spillDirectory: String, continuation: CheckedContinuation<BrowserReplEvalResult, Never>) {
             self.id = id
+            self.spillPath = spillDirectory + "/output-\(id).txt"
             self.continuation = continuation
         }
 
@@ -96,8 +115,39 @@ public final class BrowserReplSession: @unchecked Sendable {
 
         func append(_ line: BrowserReplOutputLine) {
             lock.withLock {
-                if !finished { lines.append(line) }
+                guard !finished else { return }
+                let size = line.text.utf8.count + 1
+                if !spilling, retainedBytes + size <= BrowserReplSession.maxRetainedOutputBytes {
+                    retainedBytes += size
+                    lines.append(line)
+                    return
+                }
+                if !spilling {
+                    spilling = true
+                    // O_EXCL: never write into a file that is already there.
+                    let descriptor = open(spillPath, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+                    if descriptor >= 0 { spill = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true) }
+                    lines.append(BrowserReplOutputLine(
+                        level: "info",
+                        text: spill == nil ? "# output past this point was dropped" : "# output continues in \(spillPath)"
+                    ))
+                }
+                spilledBytes += size
+                try? spill?.write(contentsOf: Data((line.text + "\n").utf8))
             }
+        }
+
+        /// The note that ends spilled output. Call with `lock` held.
+        private func spillSummaryLocked() -> BrowserReplOutputLine? {
+            guard spilling else { return nil }
+            try? spill?.close()
+            spill = nil
+            let total = retainedBytes + spilledBytes
+            let destination = FileManager.default.fileExists(atPath: spillPath) ? "full output: \(spillPath)" : "the rest was dropped"
+            return BrowserReplOutputLine(
+                level: "info",
+                text: "# output truncated: \(retainedBytes) of \(total) bytes shown; \(destination)"
+            )
         }
 
         func setTimeoutTask(_ task: Task<Void, Never>) {
@@ -120,6 +170,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             finished = true
             let continuation = self.continuation
             self.continuation = nil
+            if let summary = spillSummaryLocked() { self.lines.append(summary) }
             let lines = self.lines
             let timeoutTask = self.timeoutTask
             self.timeoutTask = nil
@@ -136,6 +187,33 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
     }
 
+    /// The most fetches one session runs at once. Each holds up to
+    /// `BrowserReplFetcher.defaultMaxBodyBytes` of body, so this also bounds
+    /// a session's fetch buffers; later fetches wait in order.
+    static let maxConcurrentFetches = 16
+
+    /// The most timers a session has scheduled, or fired with their callback
+    /// not yet run, at once; `setTimer` returns false past it.
+    static let maxPendingTimers = 10_000
+
+    /// The most output, in UTF-8 bytes, one evaluation keeps in memory; the
+    /// rest goes to a file in the session's temporary directory.
+    static let maxRetainedOutputBytes = 16 << 20
+
+    /// A tracked task, and the evaluation that was running when it started.
+    private struct InFlightWork {
+        let task: Task<Void, Never>
+        let evalID: Int?
+        let isFetch: Bool
+    }
+
+    /// A fetch the runtime asked for, waiting for a slot or running.
+    private struct PendingFetch {
+        let callID: Int
+        let requestJSON: String
+        let evalID: Int?
+    }
+
     /// Creates a session. The context is created lazily on the first evaluation.
     /// - Parameters:
     ///   - id: Session name.
@@ -146,7 +224,8 @@ public final class BrowserReplSession: @unchecked Sendable {
     ///   - bundle: Runtime scripts.
     ///   - driver: Engine driver for the session's tabs.
     ///   - sleeper: Cancellable sleep used for evaluation timeouts.
-    ///   - temporaryDirectory: The second `fs` root; `nil` uses `NSTemporaryDirectory()`.
+    ///   - temporaryDirectory: The app's temporary directory, under which the
+    ///     session creates its private one; `nil` uses `NSTemporaryDirectory()`.
     ///   - homeDirectory: The user's home directory, refused as a root;
     ///     `nil` uses `NSHomeDirectory()`.
     public init(
@@ -169,6 +248,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             resolvedCwd = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot)
             ownedWorkingDirectory = resolvedCwd
         }
+        privateTemporaryDirectory = Self.makeSessionDirectory(id: id, temporaryRoot: temporaryRoot, suffix: "-tmp", mode: 0o700)
         self.id = id
         self.workingDirectory = resolvedCwd
         self.homeDirectory = homeDirectory ?? NSHomeDirectory()
@@ -179,24 +259,32 @@ public final class BrowserReplSession: @unchecked Sendable {
         self.fetcher = BrowserReplFetcher(driver: driver)
         self.fileSystem = BrowserReplFileSystem(
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
-            temporaryDirectory: temporaryRoot
+            temporaryDirectory: privateTemporaryDirectory
         )
-        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
+        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: Self.maxPendingTimers) { [weak self] id in
             self?.fireTimer(id)
         }
         let boundary = self.boundary
         fetcher.setBlockReason { url in boundary.blockReason(url) }
     }
 
-    /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random>` for a
-    /// session started without a cwd.
-    private static func makeSessionDirectory(id: String, temporaryRoot: String) -> String {
+    /// Creates `<temporaryRoot>/cmux-browser-repl/<id>-<random><suffix>`, a
+    /// new directory of the session's own: its working directory when it
+    /// was started without a cwd, and its private temporary directory.
+    private static func makeSessionDirectory(id: String, temporaryRoot: String, suffix: String = "", mode: mode_t = 0o755) -> String {
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
         let safeID = String(String.UnicodeScalarView(id.unicodeScalars.prefix(64).map { allowed.contains($0) ? $0 : "_" }))
-        let name = "\(safeID)-\(UUID().uuidString.prefix(8))"
-        let path = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl/" + name
+        let parent = (temporaryRoot == "/" ? "" : temporaryRoot) + "/cmux-browser-repl"
+        try? FileManager.default.createDirectory(atPath: parent, withIntermediateDirectories: true)
+        var path = ""
+        // mkdir(2) creates the directory itself, never one that already
+        // exists, so no other session's directory is ever reused.
+        for _ in 0..<8 {
+            path = parent + "/\(safeID)-\(UUID().uuidString.prefix(8))\(suffix)"
+            // The umask can only narrow `mode`.
+            if mkdir(path, mode) == 0 { break }
+        }
         // A failure surfaces as ENOENT on the first fs write.
-        try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
         return path
     }
 
@@ -263,7 +351,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             if let cwd { workingDirectory = cwd }
             nextEvalID += 1
-            let state = EvalState(id: nextEvalID, continuation: continuation)
+            let state = EvalState(id: nextEvalID, spillDirectory: privateTemporaryDirectory, continuation: continuation)
             currentEval = state
             let submitted = thread.perform { [self] in
                 self.beginEval(state, code: code, cwd: cwd, maxOutput: maxOutput)
@@ -297,8 +385,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         closed = true
         let running = currentEval
         currentEval = nil
-        let tasks = Array(inFlight.values)
+        let tasks = inFlight.values.map(\.task)
         inFlight.removeAll()
+        queuedFetches.removeAll()
+        runningFetches = 0
         watchdog.requestTermination()
         thread.perform { [self] in
             self.nativeHost = nil
@@ -311,10 +401,13 @@ public final class BrowserReplSession: @unchecked Sendable {
         driver.detach()
         fetcher.invalidate()
         running?.finish(error: "Error: REPL session '\(id)' was closed")
+        // Only an empty directory goes; files the session wrote stay, since
+        // a one-shot run prints paths (spilled output, screenshots) that the
+        // caller reads after the session has closed.
         if let ownedWorkingDirectory {
-            // Only an empty directory goes; files the session wrote stay.
             rmdir(ownedWorkingDirectory)
         }
+        rmdir(privateTemporaryDirectory)
     }
 
     /// Finishes `state` and forgets it when it is still the current evaluation.
@@ -341,6 +434,73 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.cancelRunningCell(message, evalID: state.id)
         }
         finish(state, error: message)
+        cancelFetches(ofEval: state.id)
+    }
+
+    /// Cancels the running fetches cell `evalID` started and fails its queued ones.
+    private func cancelFetches(ofEval evalID: Int) {
+        let (tasks, dropped): ([Task<Void, Never>], [PendingFetch]) = stateLock.withLock {
+            let tasks = inFlight.values.filter { $0.isFetch && $0.evalID == evalID }.map(\.task)
+            let dropped = queuedFetches.filter { $0.evalID == evalID }
+            queuedFetches.removeAll { $0.evalID == evalID }
+            return (tasks, dropped)
+        }
+        for task in tasks { task.cancel() }
+        guard !dropped.isEmpty else { return }
+        thread.perform { [weak self] in
+            for fetch in dropped { self?.resolveCall(fetch.callID, .failure(Self.cancelledFetchError)) }
+        }
+    }
+
+    private static let cancelledFetchError = BrowserReplDriverError(
+        code: "cancelled",
+        message: "fetch: cancelled because the cell that started it timed out"
+    )
+
+    /// Runs the fetch now, or queues it while `maxConcurrentFetches` run.
+    /// Returns false when the session is closed. The evaluation running
+    /// when the runtime asked owns the fetch, so its timeout cancels it.
+    private func startOrQueueFetch(callID: Int, requestJSON: String) -> Bool {
+        stateLock.withLock {
+            guard !closed else { return false }
+            let fetch = PendingFetch(callID: callID, requestJSON: requestJSON, evalID: currentEval?.id)
+            if runningFetches < Self.maxConcurrentFetches {
+                startFetchLocked(fetch)
+            } else {
+                queuedFetches.append(fetch)
+            }
+            return true
+        }
+    }
+
+    /// Starts `fetch` as an in-flight task. Call with `stateLock` held.
+    private func startFetchLocked(_ fetch: PendingFetch) {
+        runningFetches += 1
+        nextInFlightID += 1
+        let taskID = nextInFlightID
+        let fetcher = self.fetcher
+        let boundary = self.boundary
+        // The task finishes itself; it waits for the lock held here, so the
+        // entry exists before the removal runs.
+        let task = Task { [weak self] in
+            let result = boundary.redactFetch(await fetcher.fetch(requestJSON: fetch.requestJSON))
+            guard let self else { return }
+            self.thread.perform { [weak self] in self?.resolveCall(fetch.callID, result) }
+            self.fetchFinished(taskID)
+        }
+        inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true)
+    }
+
+    /// Frees the finished fetch's slot and starts the oldest queued one.
+    private func fetchFinished(_ taskID: Int) {
+        stateLock.withLock {
+            // close() already dropped every entry and the queue.
+            guard inFlight.removeValue(forKey: taskID) != nil else { return }
+            runningFetches -= 1
+            if !closed, !queuedFetches.isEmpty {
+                startFetchLocked(queuedFetches.removeFirst())
+            }
+        }
     }
 
     /// Asks the runtime to drop cell `evalID` if it is still running
@@ -365,11 +525,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         let taskID = nextInFlightID
         // The task removes itself; it waits for the lock held here, so the
         // entry exists before the removal runs.
-        inFlight[taskID] = Task { [weak self] in
+        let task = Task { [weak self] in
             await body()
             guard let self else { return }
             self.stateLock.withLock { _ = self.inFlight.removeValue(forKey: taskID) }
         }
+        inFlight[taskID] = InFlightWork(task: task, evalID: nil, isFetch: false)
         return true
     }
 
@@ -497,7 +658,7 @@ public final class BrowserReplSession: @unchecked Sendable {
         native.setObject(id, forKeyedSubscript: "sessionId" as NSString)
         native.setObject(fileSystem.sandbox.root, forKeyedSubscript: "cwd" as NSString)
         native.setObject(driver.capabilities, forKeyedSubscript: "capabilities" as NSString)
-        native.setObject(fileSystem.temporaryRoot, forKeyedSubscript: "tmpdir" as NSString)
+        native.setObject(privateTemporaryDirectory, forKeyedSubscript: "tmpdir" as NSString)
         native.setObject(homeDirectory, forKeyedSubscript: "homedir" as NSString)
 
         let print: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] level, text in
@@ -507,10 +668,10 @@ public final class BrowserReplSession: @unchecked Sendable {
                 text: self.boundary.secrets.redact(text?.toString() ?? "")
             ))
         }
-        let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] id, delay, repeating in
-            guard let self, let id = id?.toInt32() else { return }
+        let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Bool = { [weak self] id, delay, repeating in
+            guard let self, let id = id?.toInt32() else { return false }
             let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
-            self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
+            return self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
             guard let self, let id = id?.toInt32() else { return }
@@ -537,14 +698,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
-            let requestJSON = request?.toString() ?? "{}"
-            let fetcher = self.fetcher
-            let boundary = self.boundary
-            let started = self.track { [weak self] in
-                let result = boundary.redactFetch(await fetcher.fetch(requestJSON: requestJSON))
-                self?.thread.perform { self?.resolveCall(Int(callID), result) }
+            if !self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
+                self.resolveCall(Int(callID), .failure(Self.closedError))
             }
-            if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
             guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
@@ -658,7 +814,10 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private func fireTimer(_ id: Int) {
         thread.perform { [weak self] in
-            guard let self, let context = self.context else { return }
+            guard let self else { return }
+            // The timer counts as pending until its callback has run.
+            defer { self.scheduler.delivered(id: id) }
+            guard let context = self.context else { return }
             self.watchdog.absorbTermination(in: context)
             guard let handler = context.objectForKeyedSubscript("__cmuxHostOnTimer"),
                   !handler.isUndefined else { return }

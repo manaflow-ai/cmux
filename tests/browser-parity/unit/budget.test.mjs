@@ -148,6 +148,34 @@ test("repl output: a call over its cap prints the head and spills everything to 
   fs.rmSync(workDir, { recursive: true, force: true });
 });
 
+test("repl output: no limit (0) still spills past a hard ceiling instead of printing everything", () => {
+  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), "cap-"));
+  let printedChars = 0;
+  const notes = [];
+  const host = createNodeHost({
+    workDir,
+    sessionId: `hard-${process.pid}`,
+    print: (level, t) => {
+      printedChars += t.length + 1;
+      if (t.startsWith("# output")) notes.push(t);
+    },
+  });
+  const line = "w".repeat(9999);
+  for (const maxOutput of [0, Infinity, 1e12]) {
+    printedChars = 0;
+    notes.length = 0;
+    const gate = ns.replHost.createOutputGate(host, { maxOutput });
+    for (let i = 0; i < 600; i++) gate.print("log", line);
+    gate.finish();
+    // 6,000,000 characters printed; at most the ceiling (4,000,000) reaches the caller.
+    assert.ok(printedChars <= 4_000_000 + 1000, `maxOutput ${maxOutput}: printed ${printedChars}`);
+    const full = /full output: (\S+)$/.exec(notes.at(-1) || "");
+    assert.ok(full, `maxOutput ${maxOutput}: ${notes.join(" | ")}`);
+    assert.equal(fs.statSync(full[1]).size, 600 * 10000);
+  }
+  fs.rmSync(workDir, { recursive: true, force: true });
+});
+
 test("frames: a frame that never answers is left out and marked, and the rest of the page reads", async () => {
   const host = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: (t) => clearTimeout(t) };
   const hung = { p: "f1", _detached: false, _agent: () => new Promise(() => {}) };

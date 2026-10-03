@@ -170,21 +170,8 @@ enum BrowserReplCapture {
         }
     }
 
-    /// Playwright's cookie URL filter: domain and path match, secure only on https.
+    /// Whether `cookie` goes with a request to `url` (`HTTPCookie.browserReplMatches`).
     static func cookie(_ cookie: HTTPCookie, matches url: URL) -> Bool {
-        guard let host = url.host?.lowercased() else { return false }
-        let domain = cookie.domain.lowercased()
-        let bare = domain.hasPrefix(".") ? String(domain.dropFirst()) : domain
-        guard host == bare || host.hasSuffix("." + bare) else { return false }
-        let path = url.path.isEmpty ? "/" : url.path
-        guard path.hasPrefix(cookie.path) else { return false }
-        return !cookie.isSecure || url.scheme == "https" || isLoopback(host)
-    }
-
-    /// Loopback hosts are potentially trustworthy origins, so a Secure
-    /// cookie goes to them over http, as the page's own requests send it.
-    static func isLoopback(_ host: String) -> Bool {
-        let bare = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
-        return bare == "localhost" || bare.hasSuffix(".localhost") || bare == "::1" || bare.hasPrefix("127.")
+        cookie.browserReplMatches(url)
     }
 }

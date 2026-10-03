@@ -306,25 +306,26 @@ structured values cross the boundary as JSON strings.
 | `version` | `1` |
 | `sessionId`, `cwd` | session name; absolute fs root: the CLI caller's cwd, or, when the request has none, a new directory of the session's own under the temporary directory (removed on close when empty). The app refuses `/`, the home directory and any directory containing it with an error telling the agent to `cd` to a project or scratch directory; `cmux browser repl mcp` sends no cwd when started in one of those |
 | `capabilities` | array of driver capability names (`[]` on WebKit) |
-| `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted |
-| `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared |
+| `print(level, text)` | append one output line; `level` is `log`, `info`, `warn`, `error` or `debug`; `text` is already formatted. An evaluation keeps at most 16 MiB of lines; the rest goes to `<tmpdir>/output-<evalId>.txt`, announced by a `# output continues in <path>` line and summed up by a last `# output truncated: …; full output: <path>` line |
+| `setTimer(id, delayMs, repeat)` / `clearTimer(id)` | on fire the app calls `globalThis.__cmuxHostOnTimer(id)`; repeating timers keep firing until cleared, each fire `delayMs` after the previous callback ran, so a busy thread holds at most one queued callback per timer. `setTimer` returns `false`, scheduling nothing, when the session already has 10,000 timers scheduled or fired with their callback not yet run; the runtime's `setTimeout` then throws a `RangeError` |
 | `driverCall(callId, method, paramsJSON)` | the app later calls `globalThis.__cmuxHostOnResult(callId, errorJSON, resultJSON)`; exactly one of the two is `null`; `errorJSON` is `{ code, message }` |
-| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store, for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; the session redacts the URL, headers and the body (UTF-8 text as text; other bytes by each value's UTF-8 and escaped bytes, and its percent-encoded and Base64 forms) |
+| `fetch(callId, requestJSON)` | request `{ url, method, headers: [[k, v]], bodyBase64?, targetId?, credentials?, origin? }`; result via `__cmuxHostOnResult`: `{ url, status, statusText, headers: [[k, v]], bodyBase64, redirected }`. Cookies come from, and `Set-Cookie` goes back to, the attached tab's cookie store (a cookie goes to a URL its domain matches and whose path its path matches by RFC 6265, so a `/account` cookie never goes to `/accounting`), for `credentials` `include` (default) always, `same-origin` only for URLs on `origin`, `omit` never. The domain policy is checked on the URL and every redirect hop (`blocked`); a body over 64 MiB fails; a session runs at most 16 fetches at once and queues the rest in order; when a cell times out, the fetches it started are cancelled and its queued ones fail with `cancelled`; the session redacts the URL, headers and the body (UTF-8 text as text; other bytes by each value's UTF-8 and escaped bytes, and its percent-encoded and Base64 forms) |
 | `secrets(op, argsJSON)` | synchronous, `{"ok": value}` or `{"error": {code, message}}`: `set { name, value, domains, totp }`, `load { path }` (read natively) or `load { object }`, `list`, `has { name }`, `delete { name }`, `clear`. No result holds a value |
 | `policy(op, argsJSON)` | synchronous, as `secrets`: `get` → `{ allowed, prohibited, blockIPs, locked }`, `check { url }` → reason or `null`, `site { host }` → the host's site (registrable domain by the Public Suffix List, or the host itself when it has none), the same site `cookies.clear` scopes to, `set { allowed?, prohibited?, blockIPs?, lock?, title }` (a locked policy refuses) |
 | `fs(op, argsJSON)` | synchronous; returns `{"ok": value}` or `{"error": {"code": "ENOENT"\|"EACCES"\|"EEXIST"\|"ENOTDIR"\|"EISDIR"\|"ENOTEMPTY"\|"EINVAL", "message"}}` |
 | `readResource(relativePath)` | text of a bundled `Resources/browser-repl/` file, or `null` |
-| `tmpdir`, `homedir` | canonical temporary and home directories, for `node:os` |
+| `tmpdir`, `homedir` | the session's private temporary directory (`<app temp>/cmux-browser-repl/<session>-<random>-tmp`, mode 0700, removed on close when empty; no other session's files are in it) and the canonical home directory, for `node:os` |
 
 `fs` ops, paths relative to `cwd` (absolute paths must stay inside `cwd` or
-the user's temporary directory, except files the driver reported through
+the session's own `tmpdir`, never the system temporary directory that other
+sessions and apps share, except files the driver reported through
 `download.finished`, which are readable): `readFile {path}` → base64 (secrets redacted, text or bytes), `writeFile {path, base64, append?}`,
 `mkdir {path, recursive?}`, `readdir {path}` → `[{ name, type }]`,
 `stat {path}` → `{ size, type: "file"|"directory"|"symlink"|"other", mtimeMs, birthtimeMs }`,
 `lstat {path}` (as `stat`, for the link itself), `rm {path, recursive?, force?}`,
 `rename {from, to}`, `copyFile {from, to}`, `exists {path}` → boolean,
-`resolve {path}` → absolute path. `rm` refuses `cwd` and the temporary
-directory themselves.
+`resolve {path}` → absolute path. `rm` refuses `cwd` and `tmpdir`
+themselves.
 
 Symbolic links follow Node. `rm`, `rename` and `lstat` act on the link itself
 and check only that its parent directory is inside a root, so a link pointing
@@ -335,6 +336,10 @@ roots, and a dangling link is refused for writing. `readdir` reports a link as
 `symlink`. `rename` uses `rename(2)` and `copyFile` copies to a temporary
 file beside the destination before renaming it into place, so an existing
 destination stays intact until the new file is complete.
+Every `fs` operation of every session runs under one process-wide lock from
+its path check to its last system call, so a session moving a link (agent
+code cannot create one) never changes what another session's checked path
+reaches.
 
 Entry points the runtime defines, called by the app:
 

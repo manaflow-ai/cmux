@@ -248,6 +248,62 @@ struct BrowserReplSessionTests {
         #expect(!FileManager.default.fileExists(atPath: idle.cwd))
     }
 
+    @Test("Each session's temporary directory is private to it and never reaches another session's files")
+    func temporaryDirectoryIsPrivateToTheSession() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-session-\(UUID().uuidString)")
+        for name in ["a", "b"] {
+            try FileManager.default.createDirectory(at: base.appendingPathComponent(name), withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: base) }
+        let shared = BrowserReplFileSandbox.canonicalize(base.path)
+        try Data("x".utf8).write(to: base.appendingPathComponent("other-app-file.txt"))
+        func make(_ id: String) -> BrowserReplSession {
+            BrowserReplSession(
+                id: id,
+                cwd: base.appendingPathComponent(id).path,
+                bundle: BrowserReplRuntimeBundle(replScripts: [.init(name: "stub.js", source: stubRuntime)], agentScripts: []),
+                driver: RecordingReplDriver(),
+                temporaryDirectory: base.path
+            )
+        }
+        let first = make("a")
+        let second = make("b")
+        defer {
+            first.close()
+            second.close()
+        }
+
+        // A spill file in the first session's temporary directory, as the runtime writes one.
+        let wrote = await first.evaluate(code: "fs('writeFile', { path: native.tmpdir + '/output-1.txt', base64: 'aGk=' }); console.log(native.tmpdir);")
+        #expect(wrote.error == nil)
+        let firstTemporary = try #require(wrote.lines.first?.text)
+        let listed = await second.evaluate(code: "console.log(native.tmpdir);")
+        let secondTemporary = try #require(listed.lines.first?.text)
+        #expect(firstTemporary != shared && secondTemporary != shared && firstTemporary != secondTemporary)
+        for path in [firstTemporary, secondTemporary] {
+            let mode = try FileManager.default.attributesOfItem(atPath: path)[.posixPermissions] as? NSNumber
+            #expect(mode?.intValue == 0o700, "\(path)")
+        }
+
+        // The other session reaches neither that file, nor the shared directory, nor other files in it.
+        for code in [
+            "fs('readFile', { path: \(quoted(firstTemporary + "/output-1.txt")) });",
+            "fs('writeFile', { path: \(quoted(firstTemporary + "/output-1.txt")), base64: '' });",
+            "fs('readdir', { path: \(quoted(shared)) });",
+            "fs('readFile', { path: \(quoted(shared + "/other-app-file.txt")) });",
+        ] {
+            let refused = await second.evaluate(code: code)
+            #expect(refused.error == "Error: EACCES", "\(code)")
+        }
+        #expect(FileManager.default.contents(atPath: firstTemporary + "/output-1.txt") == Data("hi".utf8))
+
+        // Closing removes an empty temporary directory; files the session wrote stay readable.
+        first.close()
+        second.close()
+        #expect(!FileManager.default.fileExists(atPath: secondTemporary))
+        #expect(FileManager.default.contents(atPath: firstTemporary + "/output-1.txt") == Data("hi".utf8))
+    }
+
     @Test("The injected home directory is the one refused")
     func injectedHomeDirectoryIsRefused() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-home-\(UUID().uuidString)")
