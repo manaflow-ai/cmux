@@ -135,6 +135,32 @@ describe("KMS fallback is counted, marked and re-sealed", () => {
     })
   })
 
+  it("never overwrites a credential stored while the re-seal waited on KMS", async () => {
+    const { storeCredential, loadCredential, resealFallbacks } = await import("../src/integrations/credentials.ts")
+    const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName("team_fallback_race"))
+    const cr = { ...c, owner: "team_fallback_race" }
+    await inDO(stub, async (_i, s) => {
+      const sql = s.storage.sql
+      await storeCredential(sql, kmsEnv as any, async () => new Response("", { status: 503 }), cr, credential)
+      const kms = fakeKms()
+      const rotated = { kind: "oauth" as const, access_token: "ya29.new", refresh_token: "1//rotated" }
+      let raced = false
+      // While the re-seal's KMS Encrypt is in flight, a refresh stores a rotated token.
+      const racing: Http = async (req) => {
+        if (!raced) {
+          raced = true
+          await storeCredential(sql, kmsEnv as any, kms.http, cr, rotated)
+        }
+        return kms.http(req)
+      }
+      await resealFallbacks(sql, kmsEnv as any, racing, { [cr.id]: cr }, Date.now() + 16 * 60_000)
+      expect(raced).toBe(true)
+      expect(await loadCredential(sql, kmsEnv as any, kms.http, cr)).toEqual(rotated)
+      expect(sql.exec("SELECT generation FROM credentials WHERE connection = ?", cr.id).one()).toEqual({ generation: 2 })
+      expect(sql.exec("SELECT * FROM kms_fallbacks").toArray()).toHaveLength(0)
+    })
+  })
+
   it("opens rows wrapped by a previous KMS key listed in INTEGRATIONS_KMS_PREVIOUS_KEY_ARNS", async () => {
     const { sealCredential, openCredential } = await import("../src/integrations/credentials.ts")
     const kms = fakeKms()

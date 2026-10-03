@@ -126,11 +126,23 @@ const RESEAL_RETRY_MS = 15 * 60_000
 type Owned = { readonly id: string; readonly owner: string; readonly provider: string }
 const addressOf = (c: Owned, generation: number): CredentialAddress => ({ connection: c.id, owner: c.owner, provider: c.provider, generation })
 
-/** Seals into the `credentials` table with the next generation, and tracks a KMS fallback. */
-export const storeCredential = async (sql: SqlStorage, env: Env, http: Http, c: Owned, credential: Credential): Promise<void> => {
-  const row = sql.exec<{ generation: number }>(`SELECT generation FROM credentials WHERE connection = ?`, c.id).toArray()[0]
-  const generation = (row?.generation ?? 0) + 1
+const generationOf = (sql: SqlStorage, connection: string): number | undefined => {
+  const g = sql.exec<{ generation: number }>(`SELECT generation FROM credentials WHERE connection = ?`, connection).toArray()[0]?.generation
+  return g === undefined ? undefined : Number(g)
+}
+
+/**
+ * Seals into the `credentials` table with the next generation, and tracks a KMS fallback.
+ * With `ifGeneration`, writes only when the row still has that generation after the (async) seal and
+ * returns false otherwise: the re-seal job must never overwrite a credential stored while KMS answered
+ * (a refresh in between may have rotated a single-use refresh token).
+ */
+export const storeCredential = async (sql: SqlStorage, env: Env, http: Http, c: Owned, credential: Credential, ifGeneration?: number): Promise<boolean> => {
+  const before = ifGeneration ?? generationOf(sql, c.id) ?? 0
+  const generation = before + 1
   const { sealed, fallback } = await sealCredentialWithInfo(env, http, addressOf(c, generation), credential)
+  // No await between this check and the writes below, so nothing can interleave in the object.
+  if (ifGeneration !== undefined && generationOf(sql, c.id) !== ifGeneration) return false
   sql.exec(
     `INSERT INTO credentials (connection, generation, sealed, updated_at) VALUES (?, ?, ?, ?)
      ON CONFLICT (connection) DO UPDATE SET generation = excluded.generation, sealed = excluded.sealed, updated_at = excluded.updated_at`,
@@ -141,7 +153,7 @@ export const storeCredential = async (sql: SqlStorage, env: Env, http: Http, c: 
   )
   if (!fallback) {
     sql.exec(`DELETE FROM kms_fallbacks WHERE connection = ?`, c.id)
-    return
+    return true
   }
   const now = Date.now()
   sql.exec(
@@ -151,7 +163,9 @@ export const storeCredential = async (sql: SqlStorage, env: Env, http: Http, c: 
     now,
     now + RESEAL_RETRY_MS
   )
+  // The monitor `cmux-api-<env>-kms-fallback` (integrations-plan.md G6, step file 08) alerts on this event.
   console.error(JSON.stringify({ event: "kms_fallback", alert: true, msg: "KMS seal failed; credential sealed under INTEGRATIONS_KEK", connection: c.id, provider: c.provider }))
+  return true
 }
 
 export const loadCredential = async (sql: SqlStorage, env: Env, http: Http, c: Owned): Promise<Credential> => {
@@ -169,14 +183,17 @@ export const nextResealAt = (sql: SqlStorage): number | null => {
 export const resealFallbacks = async (sql: SqlStorage, env: Env, http: Http, connections: Readonly<Record<string, Owned & { status: string }>>, now: number): Promise<void> => {
   for (const r of sql.exec<{ connection: string; count: number }>(`SELECT connection, count FROM kms_fallbacks WHERE next_at <= ?`, now).toArray()) {
     const c = connections[r.connection]
-    const hasRow = sql.exec(`SELECT 1 FROM credentials WHERE connection = ?`, r.connection).toArray().length > 0
-    if (!c || !hasRow || !kmsConfig(env)) {
+    const row = sql.exec<{ generation: number; sealed: string }>(`SELECT generation, sealed FROM credentials WHERE connection = ?`, r.connection).toArray()[0]
+    // Nothing to move: the connection or its row is gone, KMS is off, or a later seal already used KMS.
+    if (!c || !row || !kmsConfig(env) || (JSON.parse(row.sealed) as { fb?: number }).fb !== 1) {
       sql.exec(`DELETE FROM kms_fallbacks WHERE connection = ?`, r.connection)
       continue
     }
     try {
       // storeCredential clears the row when KMS sealed it, or counts another fallback and retries later.
-      await storeCredential(sql, env, http, c, await loadCredential(sql, env, http, c))
+      // A credential stored meanwhile wins: then this write is skipped and that store owns the record.
+      const generation = Number(row.generation)
+      await storeCredential(sql, env, http, c, await openCredential(env, http, addressOf(c, generation), row.sealed), generation)
     } catch (e) {
       sql.exec(`UPDATE kms_fallbacks SET next_at = ? WHERE connection = ?`, now + RESEAL_RETRY_MS, r.connection)
       console.error(JSON.stringify({ event: "kms_reseal_failed", connection: r.connection, error: e instanceof Error ? e.name : "unknown" }))
