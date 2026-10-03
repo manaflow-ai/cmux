@@ -29,8 +29,11 @@ pub(super) fn apply_write(state: &State, op: Op) -> Result<Applied, Refusal> {
                     write: None,
                 });
             }
-            Lookup::Conflict => {
-                return Err(Refusal::IdempotencyConflict { idempotency_key: key.clone() });
+            Lookup::Conflict(committed_operation) => {
+                return Err(Refusal::IdempotencyConflict {
+                    idempotency_key: key.clone(),
+                    committed_operation,
+                });
             }
             Lookup::Miss => {}
         }
