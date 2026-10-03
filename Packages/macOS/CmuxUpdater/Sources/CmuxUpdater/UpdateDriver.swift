@@ -34,6 +34,11 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     private var pendingCheckTransitionState: UpdateState?
     private var checkTimeoutTask: Task<Void, Never>?
     private(set) var lastFeedURLString: String?
+    /// Opt-in background installs (see `UpdateDriver+BackgroundInstall.swift`); off keeps the
+    /// prompt-driven flow unchanged.
+    var installsInBackground = false
+    /// The update downloaded in the background and waiting for the user, if any.
+    var stagedAppcastItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 
