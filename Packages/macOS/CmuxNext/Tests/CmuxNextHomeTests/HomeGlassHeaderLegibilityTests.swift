@@ -4,8 +4,8 @@ import Testing
 @testable import CmuxNextHome
 
 /// The glass header must read as live chrome (lane 16 screenshot
-/// home-native-light.png): the name pill's title is dark on a light theme,
-/// never the gray of a disabled control, and the glass carries an opaque
+/// home-native-light.png): the name pill's title contrasts with the header
+/// in every theme, never the gray of a disabled control, and the glass carries an opaque
 /// enough veil of the page colour that rows scrolled under it do not show
 /// through as blurred text.
 @MainActor
@@ -31,27 +31,28 @@ import Testing
         return (window, view)
     }
 
-    /// The darkest luminance drawn inside `rect` of `view`.
-    static func darkestLuminance(_ view: NSView, in rect: NSRect) throws -> CGFloat {
-        let rep = try #require(view.bitmapImageRepForCachingDisplay(in: rect))
-        view.cacheDisplay(in: rect, to: rep)
-        var darkest: CGFloat = 1
-        for x in 0..<rep.pixelsWide {
-            for y in 0..<rep.pixelsHigh {
-                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.5 else { continue }
-                darkest = min(darkest, 0.2126 * c.redComponent + 0.7152 * c.greenComponent + 0.0722 * c.blueComponent)
-            }
-        }
-        return darkest
+    static func luminance(_ color: NSColor) -> CGFloat {
+        let c = color.usingColorSpace(.sRGB) ?? .gray
+        func channel(_ v: CGFloat) -> CGFloat { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * channel(c.redComponent) + 0.7152 * channel(c.greenComponent) + 0.0722 * channel(c.blueComponent)
     }
 
-    @Test func theNamePillTitleIsDarkOnALightTheme() throws {
+    /// WCAG contrast ratio of two opaque colours.
+    static func contrast(_ a: NSColor, _ b: NSColor) -> CGFloat {
+        let (l1, l2) = (luminance(a), luminance(b))
+        return (max(l1, l2) + 0.05) / (min(l1, l2) + 0.05)
+    }
+
+    /// The pill title is the theme's primary text on the page-coloured veil,
+    /// in every theme, so it never reads as a disabled control.
+    @Test func theNamePillTitleContrastsWithTheVeil() throws {
         let (window, view) = Self.header()
         defer { window.close() }
-        let pill = view.header.name
-        #expect(!pill.frame.isEmpty)
-        let darkest = try Self.darkestLuminance(pill, in: pill.bounds)
-        #expect(darkest < 0.35, "the pill title draws like a disabled control (darkest luminance \(darkest))")
+        #expect(!view.header.namePill.frame.isEmpty)
+        let veil = try #require(view.header.glass.tintColor?.withAlphaComponent(1))
+        let title = try #require(view.header.name.textColor)
+        let ratio = Self.contrast(title, veil)
+        #expect(ratio >= 4.5, "the pill title is \(ratio):1 against the header")
     }
 
     @Test func theGlassCarriesAPageColouredVeil() {
