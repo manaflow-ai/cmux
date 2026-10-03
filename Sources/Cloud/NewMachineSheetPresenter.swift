@@ -245,8 +245,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let model = NewMachineModel(
             mode: .newMachine,
             plan: nil,
-            planIsLoading: true,
             selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
+            planIsLoading: true,
             submit: { [weak self] request in
                 guard let self, self.pendingSelectionID == selectionID else { return false }
                 guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
