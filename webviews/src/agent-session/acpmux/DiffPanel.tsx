@@ -9,6 +9,7 @@ import { registerAgentDiffTheme } from "./diffTheme";
 import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons";
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
+import { DiffKeyHints } from "./changes/DiffKeyHints";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
 import type { HunkReview } from "./changes/hunkReview";
 import type { FileActions, OpenTarget } from "./changes/FileHeader";
@@ -21,6 +22,7 @@ import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
+import { useDiffKeys } from "./changes/useDiffKeys";
 import { useScopeChanges } from "./changes/useScopeChanges";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
@@ -112,7 +114,7 @@ export function DiffPanel({
   const stopRevealing = () => {
     revealing.current = undefined;
   };
-  const revealFromTree = (path: string) => {
+  const revealFromTree = useStableCallback((path: string) => {
     revealing.current = path;
     // A file picked in the tree opens if it was collapsed.
     setCollapsed((current) => {
@@ -122,7 +124,7 @@ export function DiffPanel({
       return next;
     });
     reveal(path);
-  };
+  });
   // Wheel, pointer or key input in the diffs means the reader is moving on their own.
   useEffect(() => {
     const node = body.current;
@@ -146,6 +148,8 @@ export function DiffPanel({
   // Escape closes the view while focus is in it (or nowhere), not while typing in the composer
   // or the file filter.
   const panel = useRef<HTMLElement>(null);
+  // j/k move between files as picking them in the tree does; n/p between changes.
+  useDiffKeys(panel, body, revealFromTree);
   useEffect(() => {
     const close = (event: KeyboardEvent) => {
       const focus = document.activeElement;
@@ -339,6 +343,7 @@ export function DiffPanel({
         )}
       </div>
       {hunkReview && <RevertBar files={files} review={hunkReview} onSent={() => back.current?.focus()} />}
+      {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>
   );
 }

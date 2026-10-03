@@ -3,6 +3,7 @@ import claudeRecording from "./fixtures/claude-live-notifications.ndjson?raw";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../acpmux/model";
 import { commandsFromUpdate } from "../acpmux/slashCommands";
 import { sessionEntry } from "../acpmux/sessionList";
+import { workedTurnRows } from "./workedTurnFixture";
 
 const catalog = [
   {
@@ -282,6 +283,12 @@ function groupedPermissionSnapshot(): AcpmuxSnapshot {
 const codex = recordingRows(codexRecording, "Codex recorded session", "codex");
 const claude = recordingRows(claudeRecording, "Claude recorded session", "claude");
 
+function workedTurnSnapshot(): AcpmuxSnapshot {
+  const snapshot = baseSnapshot("Add retries to the fetch helper", "codex");
+  snapshot.rows = workedTurnRows(previewStartedAt);
+  return snapshot;
+}
+
 function sessionListSnapshot(): AcpmuxSnapshot {
   const now = Date.now();
   const minutes = (count: number) => now - count * 60_000;
@@ -360,4 +367,5 @@ export const previewFixtures: PreviewFixture[] = [
   { id: "grouped-permissions", label: "Grouped tool permissions", snapshot: groupedPermissionSnapshot() },
   { id: "permission-queue", label: "Permission and queue", snapshot: permissionSnapshot() },
   { id: "session-list", label: "Session list", snapshot: sessionListSnapshot() },
+  { id: "worked-turn", label: "Worked turn with edits", snapshot: workedTurnSnapshot() },
 ];
