@@ -20,6 +20,7 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "customElements",
     "Node",
+    "MutationObserver",
     "IntersectionObserver",
     "ResizeObserver",
     "requestAnimationFrame",
@@ -34,6 +35,8 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
+  // Code blocks and edit diffs watch the pane's theme attribute.
+  MutationObserver: dom.window.MutationObserver,
   IntersectionObserver: class {
     observe() {}
     unobserve() {}
@@ -838,13 +841,17 @@ describe("acpmux host handshake", () => {
         },
       },
     };
-    // The picker lists its models while open; open it once it exists and read the menu.
+    // The picker lists its models while open: open it once it exists, type "m" to list every
+    // model (ids m1, m2), and read the matches.
     const models = () => {
-      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      const doc = dom.window.document;
+      const button = doc.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
       if (button && button.getAttribute("aria-expanded") !== "true") button.click();
-      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) =>
-        option.getAttribute("data-value"),
-      );
+      if (button && doc.querySelector(".acpmux-mp .acpmux-menu-search")?.textContent !== "m")
+        button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+      return [...doc.querySelectorAll('.acpmux-mp [data-key^="model:"]')]
+        .map((row) => row.getAttribute("data-key")!.slice("model:".length))
+        .sort();
     };
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
@@ -949,6 +956,74 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// A resumed chat: the handshake's adopt is resumed on connect and becomes the tab's session at
+  /// once, before any Send, so restoring the tab reopens that chat rather than an empty one.
+  test("a resumed chat becomes the tab's session without a Send", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const native: { method: string; params?: Record<string, unknown> }[] = [];
+    class AdoptSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-adopted", _meta: { acpmux: { agentSessionId: "0a1b2c3d" } } }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-adopted", harness: "claude" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = AdoptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params?: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              native.push(message);
+              return Promise.resolve({ ok: true, value: null });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                adopt: { harness: "claude", agentSessionId: "0a1b2c3d" },
+              },
+            });
+          },
+        },
+      },
+    };
+    const persisted = () => native.filter((message) => message.method === "chat.persistSession");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && persisted().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(persisted().map((message) => message.params?.sessionId)).toEqual(["s-adopted"]);
+      expect(sent.filter((message) => message.method === "session/new")).toHaveLength(1);
+      expect(sent.some((message) => message.method === "session/prompt")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -989,6 +1064,75 @@ describe("acpmux host handshake", () => {
       globals.WebSocket = realSocket;
       delete host.webkit;
       delete host.cmuxAcpmuxRegistry;
+    }
+  });
+
+  /// acpmux serves no git methods: the changes view's reads reach Swift with the session's folder.
+  test("the changes view reads git from the native host in the selected session's folder", async () => {
+    class FolderSocket extends FakeSocket {
+      static git: string[] = [];
+      override send(raw: string) {
+        const { id, method } = JSON.parse(raw) as { id: number; method: string };
+        if (method.startsWith("git.")) FolderSocket.git.push(method);
+        const session = { sessionId: "s", cwd: "/work/app" };
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [session] }
+            : method === "_acpmux/attach"
+              ? { session, events: [] }
+              : method.startsWith("git.")
+                ? { files: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    FakeSocket.made = [];
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    const asked: { method: string; params: Record<string, unknown> }[] = [];
+    globals.WebSocket = FolderSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              asked.push({ method: message.method, params: message.params });
+              return Promise.resolve({ ok: true, value: { scope: "staged", files: [] } });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                sessionId: "s",
+              },
+            });
+          },
+        },
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && !host.cmuxAcpmuxActions; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      for (let tries = 0; tries < 10; tries += 1) await act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(await host.cmuxAcpmuxActions!["git.diff"]!({ scope: "staged" })).toEqual({ scope: "staged", files: [] });
+      await host.cmuxAcpmuxActions!["git.status"]!({});
+      // The checkpoint control also asks for `git.capabilities`; this test is about the reads.
+      expect(asked.filter((entry) => entry.method === "git.diff" || entry.method === "git.status")).toEqual([
+        { method: "git.diff", params: { cwd: "/work/app", scope: "staged", include_patch: true } },
+        { method: "git.status", params: { cwd: "/work/app" } },
+      ]);
+      expect(FolderSocket.git).toEqual([]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
     }
   });
 });
@@ -1194,23 +1338,24 @@ describe("acpmux turn diff", () => {
       more.focus();
       await click(more);
       expect(more.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Collapse file"]);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Collapse file"]);
       expect(document.activeElement).toBe(items()[0]);
       await click(items()[0]!);
       expect(copied).toEqual(["/repo/notes.md"]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(more);
-      // From the keyboard: Arrow Down moves to Collapse file, Enter folds the file.
+      // From the keyboard: Arrow Down twice moves to Collapse file, Enter folds the file.
       await click(more);
       await key(items()[0]!, "ArrowDown");
+      await key(document.activeElement!, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Collapse file");
       await key(document.activeElement!, "Enter");
       expect(diffShown()).toEqual([true, false]);
       expect(items()).toEqual([]);
       // Folded, the item opens the file again.
       await click(more);
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Expand file"]);
-      await click(items()[1]!);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Expand file"]);
+      await click(items()[2]!);
       expect(diffShown()).toEqual([true, true]);
       // Escape closes only the menu and returns focus to its button; the view stays open.
       await click(more);
@@ -1231,6 +1376,198 @@ describe("acpmux turn diff", () => {
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
       if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
       else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
+
+  test("a changed file opens in a tab or the editor from its header and its More menu, and a failed open says so", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const asked: unknown[] = [];
+    let refuse = false;
+    host.cmuxAcpmuxActions = {
+      "file.open": (params) => {
+        asked.push(params);
+        return refuse ? Promise.reject(new Error("The file could not be opened.")) : Promise.resolve(null);
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
+      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      expect([tab?.title, editor?.title]).toEqual(["Open file in a tab", "Open in editor"]);
+      // The header's buttons ask the host to open the file's full path.
+      await click(tab);
+      await click(editor);
+      expect(asked).toEqual([
+        { path: "/repo/notes.md", where: "tab" },
+        { path: "/repo/notes.md", where: "editor" },
+      ]);
+      // So does the More menu's Open file in a tab.
+      await click(panel.querySelector('[aria-label="More actions for notes.md"]')!);
+      const item = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === "Open file in a tab",
+      )!;
+      await click(item);
+      expect(asked.at(-1)).toEqual({ path: "/repo/notes.md", where: "tab" });
+      expect(panel.querySelector('.acpmux-diff-notice[role="alert"]')).toBeNull();
+      // A refused open says why, in the host's words; the next open clears it.
+      refuse = true;
+      await click(editor);
+      expect(panel.querySelector('.acpmux-diff-notice[role="alert"]')?.textContent).toBe(
+        "The file could not be opened.",
+      );
+      refuse = false;
+      await click(tab);
+      expect(panel.querySelector(".acpmux-diff-notice")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+
+  test("an open's failure gives way to a later open or another scope, and a deleted file offers no open", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const opens: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+    host.cmuxAcpmuxActions = {
+      "file.open": () => new Promise((resolve, reject) => opens.push({ resolve, reject })),
+      "git.diff": () =>
+        Promise.resolve({
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+A\n" },
+            { path: "src/old.ts", status: "deleted", additions: 0, deletions: 1, patch: "@@ -1 +0,0 @@\n-gone\n" },
+          ],
+        }),
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const notice = () => panel.querySelector('.acpmux-diff-notice[role="alert"]');
+      const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
+      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      // A slow open that fails after a later one worked says nothing: the file is open.
+      await click(tab);
+      await click(editor);
+      opens[1].resolve(null);
+      await settle();
+      opens[0].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()).toBeNull();
+      // A failure shows until another scope replaces the files it was about.
+      await click(tab);
+      opens[2].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()?.textContent).toBe("The file could not be opened.");
+      await click(panel.querySelector('.acpmux-diff-header [aria-haspopup="menu"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          (node) => node.textContent === "Uncommitted",
+        )!,
+      );
+      expect(panel.querySelector('[aria-label="Open src/main.ts in a tab"]')).not.toBeNull();
+      expect(notice()).toBeNull();
+      // A deleted file has nothing on disk to open.
+      expect(panel.querySelector('[aria-label="Open src/old.ts in a tab"]')).toBeNull();
+      expect(panel.querySelector('[aria-label="Open src/old.ts in the editor"]')).toBeNull();
+      await click(panel.querySelector('[aria-label="More actions for src/old.ts"]')!);
+      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
+      expect(items).toEqual(["Copy path", "Collapse file"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
     }
   });
 
@@ -1630,6 +1967,340 @@ describe("acpmux turn diff", () => {
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
     }
   });
+
+  test("the options menu refreshes a scope, toggles the view in words, and copies a git apply command", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const asked: unknown[] = [];
+    host.cmuxAcpmuxActions = {
+      "git.diff": async (params) => {
+        asked.push(params);
+        return {
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            {
+              path: "src/main.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n-a\n+A\n b\n",
+            },
+          ],
+          total_files: 1,
+          files_omitted: 0,
+        };
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\nb\nc\n", newText: "a\nB\nc\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    const key = (node: Element, name: string) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+      });
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const options = panel.querySelector<HTMLElement>('[data-tool="options"]')!;
+      expect(options?.getAttribute("aria-label")).toBe("Changes options");
+      // Escape is the page's own key, not an app shortcut, so the tooltip shows no keycap.
+      expect(panel.querySelector(".acpmux-diff-back")?.getAttribute("title")).toBe("Back to transcript");
+      const rows = () => [
+        ...panel.querySelectorAll<HTMLButtonElement>('[aria-label="Changes options"][role="menu"] [role="menuitem"]'),
+      ];
+      const row = (label: string) => rows().find((item) => item.textContent === label)!;
+      const tool = (id: string) => panel.querySelector<HTMLElement>(`[data-tool="${id}"]`)!;
+      // Last turn comes from the transcript: nothing to refresh and no git patches to copy.
+      await click(options);
+      expect(options.getAttribute("aria-expanded")).toBe("true");
+      expect(rows().map((item) => [item.textContent, item.getAttribute("aria-disabled") === "true"])).toEqual([
+        ["Refresh", true],
+        ["Word wrap", false],
+        ["Switch to split diff", false],
+        ["Collapse all diffs", false],
+        ["Copy git apply command", true],
+      ]);
+      expect(document.activeElement).toBe(row("Word wrap"));
+      // A disabled row is still in the menu for the keyboard and a screen reader, and does nothing.
+      await key(document.activeElement!, "ArrowUp");
+      expect(document.activeElement).toBe(row("Refresh"));
+      await key(document.activeElement!, "Enter");
+      await settle();
+      expect([rows().length, asked.length]).toEqual([5, 0]);
+      await key(document.activeElement!, "ArrowDown");
+      // A row runs the same toggle as its toolbar button, and the menu then names the way back.
+      await click(row("Word wrap"));
+      expect(rows()).toEqual([]);
+      expect(tool("wrap").getAttribute("aria-pressed")).toBe("true");
+      await click(options);
+      expect(row("Disable word wrap")).toBeDefined();
+      await click(row("Collapse all diffs"));
+      expect(tool("collapse").getAttribute("aria-pressed")).toBe("true");
+      await click(options);
+      expect(row("Expand all diffs")).toBeDefined();
+      // Escape closes the menu, not the changes view, and focus returns to the button.
+      await key(document.activeElement!, "Escape");
+      expect(rows()).toEqual([]);
+      expect(document.activeElement).toBe(options);
+      expect(document.querySelector("section.acpmux-diff-panel")).not.toBeNull();
+      // A git scope refreshes from the host and copies its patches as one git apply command.
+      const pill = panel.querySelector<HTMLElement>(".acpmux-diff-scope")!;
+      await click(pill);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          (item) => item.textContent === "Uncommitted",
+        )!,
+      );
+      expect(asked.length).toBe(1);
+      await click(options);
+      await click(row("Refresh"));
+      expect(asked.length).toBe(2);
+      await click(options);
+      await click(row("Copy git apply command"));
+      expect(copied).toEqual([
+        `git -C "$(git rev-parse --show-toplevel)" apply <<'CMUX_PATCH'\ndiff --git a/src/main.ts b/src/main.ts\n--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,2 +1,2 @@\n-a\n+A\n b\nCMUX_PATCH\n`,
+      ]);
+      expect(document.activeElement).toBe(options);
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      for (const name of ["cmux.acpmux.diffWrap", "cmux.acpmux.diffLayout", "cmux.acpmux.diffTree"])
+        dom.window.localStorage.removeItem(name);
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
+
+  test("a scope that skipped untracked files says so, and the branch scope names its branch and base", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const copied: string[] = [];
+    const clipboard = Object.getOwnPropertyDescriptor(globalThis.navigator, "clipboard");
+    Object.defineProperty(globalThis.navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const diffs: unknown[] = [];
+    let statuses = 0;
+    let skipped = 1234;
+    const file = {
+      path: "src/main.ts",
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      patch: "@@ -1 +1 @@\n-a\n+A\n",
+    };
+    host.cmuxAcpmuxActions = {
+      "git.diff": async (params) => {
+        diffs.push(params.scope);
+        return params.scope === "branch"
+          ? { scope: "branch", root: "/repo", base: "4be1c2e", files: [file], total_files: 1, files_omitted: 0 }
+          : {
+              scope: params.scope,
+              root: "/repo",
+              files: [file],
+              total_files: 1,
+              files_omitted: 0,
+              untracked_skipped: skipped,
+            };
+      },
+      "git.status": async () => {
+        statuses += 1;
+        return {
+          root: "/repo",
+          branch: "feat-retry",
+          upstream: "origin/feat-retry",
+          base: "origin/main",
+          ahead: 2,
+          behind: 0,
+        };
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Edit main.ts",
+          tool: {
+            id: "t1",
+            title: "Edit main.ts",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/src/main.ts", oldText: "a\n", newText: "A\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const banner = () => panel.querySelector<HTMLElement>(".acpmux-changes-banner");
+      const branch = () => panel.querySelector<HTMLElement>(".acpmux-branch-pill");
+      const pick = async (label: string) => {
+        await click(panel.querySelector<HTMLElement>(".acpmux-diff-scope")!);
+        await click(
+          [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+            (item) => item.textContent === label,
+          )!,
+        );
+      };
+      // Last turn comes from the transcript: no skipped files and no branch.
+      expect([banner(), branch(), statuses]).toEqual([null, null, 0]);
+      await pick("Uncommitted");
+      // Only the message is announced, not the buttons beside it.
+      expect(banner()?.getAttribute("role")).toBeNull();
+      expect(banner()?.querySelector('[role="status"]')?.className).toBe("acpmux-changes-banner-text");
+      expect(banner()?.querySelector(".acpmux-changes-banner-title")?.textContent).toBe("Showing tracked changes only");
+      expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
+        "The Changes tab skipped 1,234 untracked files to stay responsive. If these files are generated, clean them up and refresh",
+      );
+      expect([branch(), statuses]).toEqual([null, 0]);
+      const action = (label: string) =>
+        [...banner()!.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === label)!;
+      // The cleanup command is a dry run that lists the untracked files the scope left out.
+      await click(action("Copy cleanup command"));
+      expect(copied).toEqual(["git clean -nd"]);
+      // Refresh replaces the banner, so focus moves to the scope pill; the new count shows.
+      skipped = 1;
+      await click(action("Refresh"));
+      expect(diffs).toEqual(["uncommitted", "uncommitted"]);
+      expect(document.activeElement).toBe(panel.querySelector(".acpmux-diff-scope"));
+      expect(banner()?.querySelector(".acpmux-changes-banner-body")?.textContent).toBe(
+        "The Changes tab skipped 1 untracked file to stay responsive. If these files are generated, clean them up and refresh",
+      );
+      // The branch scope names the branch and the base it is compared with.
+      await pick("Branch");
+      expect(banner()).toBeNull();
+      expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-retry");
+      expect(branch()?.querySelector(".acpmux-branch-to")?.textContent).toBe("origin/main");
+      expect(branch()?.textContent).toBe("feat-retry compared with origin/main");
+      expect(statuses).toBe(1);
+      // A refresh asks for the branch again too.
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      expect([diffs.length, statuses]).toEqual([4, 2]);
+      // A status asked before a refresh never names the branch after it.
+      const pending: ((branch: string) => void)[] = [];
+      host.cmuxAcpmuxActions["git.status"] = () =>
+        new Promise((resolve) => pending.push((name) => resolve({ branch: name, base: "origin/main" })));
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      expect([branch(), pending.length]).toEqual([null, 1]);
+      await click(panel.querySelector<HTMLElement>('[data-tool="options"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent === "Refresh")!,
+      );
+      await act(async () => pending[1]!("feat-new"));
+      await act(async () => pending[0]!("feat-old"));
+      await settle();
+      expect(branch()?.querySelector(".acpmux-branch-from")?.textContent).toBe("feat-new");
+      // A failed status leaves the scope's diffs and names no branch.
+      host.cmuxAcpmuxActions["git.status"] = async () => {
+        throw new Error("Not a git repository");
+      };
+      await pick("Uncommitted");
+      await pick("Branch");
+      expect([branch(), panel.querySelectorAll(".acpmux-diff-file").length > 0]).toEqual([null, true]);
+      // A detached head has no branch to name, even when the host still sends its last one.
+      host.cmuxAcpmuxActions["git.status"] = async () => ({
+        root: "/repo",
+        detached: true,
+        branch: "feat-retry",
+        base: "origin/main",
+        ahead: 0,
+        behind: 0,
+      });
+      await pick("Uncommitted");
+      await pick("Branch");
+      expect(branch()).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
+      else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
 });
 
 describe("acpmux composer", () => {
@@ -1715,6 +2386,82 @@ describe("acpmux turn counts", () => {
     } finally {
       await act(async () => root.unmount());
       restore();
+    }
+  });
+});
+
+describe("acpmux docked permission asks", () => {
+  test("folder trust coexists with a group without duplicating its individual controls", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window;
+    const priorActions = host.cmuxAcpmuxActions;
+    host.cmuxAcpmuxActions = { "acp.trust.get": async ({ cwd }) => ({ cwd, level: "unknown" }) };
+    const permission = {
+      permissionId: "p",
+      groupId: "g",
+      pending: true,
+      title: "Write app.ts",
+      options: [{ id: "yes", name: "Individual allow", allow: true }],
+    };
+    const snapshot = {
+      type: "snapshot",
+      protocolVersion: 1,
+      sessionId: "s",
+      summary: { sessionId: "s", cwd: "/repo/app", harness: "claude", turnCount: 1 },
+      rows: [
+        { id: "u", version: 1, at: 1, kind: "user", text: "fix it" },
+        { id: "p", version: 1, at: 2, kind: "permission", permission },
+      ],
+      sessions: [],
+      connection: "connected",
+      isWorking: true,
+      queue: [],
+      catalog: [],
+      canLoadOlder: false,
+      permission,
+      permissionGroups: {
+        supported: true,
+        ready: true,
+        chatAllowance: false,
+        busy: false,
+        loading: false,
+        groups: [
+          {
+            groupId: "g",
+            sessionId: "s",
+            turnId: "t",
+            revision: 1,
+            state: "pending",
+            decision: null,
+            decisions: ["allow_once", "allow_chat", "deny"],
+            items: [
+              { permissionId: "p", state: "pending", request: { toolCall: { title: "Write app.ts", kind: "edit" } } },
+            ],
+          },
+        ],
+      },
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () => host.cmuxAcpmuxBridge!.receive(snapshot as never));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+      const buttons = () => [...dom.window.document.querySelectorAll("button")].map((button) => button.textContent);
+      expect(buttons()).toContain("Allow for this chat");
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(false);
+      // An interactive request remains individually answerable beside both asks.
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          ...snapshot,
+          permission: { ...permission, permissionId: "interactive", groupId: undefined },
+        } as never),
+      );
+      expect(buttons().some((label) => label?.endsWith("Individual allow"))).toBe(true);
+      expect(buttons()).toContain("Allow for this chat");
+      expect(dom.window.document.querySelector(".acpmux-trust-ask")).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      host.cmuxAcpmuxActions = priorActions;
     }
   });
 });
@@ -1990,6 +2737,32 @@ describe("acpmux shell calls", () => {
 });
 
 describe("acpmux timestamp lines", () => {
+  test("unknown turn times and replayed date rows leave the prompt visible without an epoch date", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      for (const at of [undefined, 0, NaN, Infinity]) {
+        const user: AcpmuxRow = { id: "u", version: 1, at: 0, kind: "user", text: "Update dependencies" };
+        if (at === undefined) delete (user as Partial<AcpmuxRow>).at;
+        else user.at = at;
+        await act(async () =>
+          root.render(
+            createElement(VirtualTranscript, {
+              rows: [...turnView([user], new Set()), { ...user, id: "date-replay", kind: "date" }],
+              onToggleActivity: () => {},
+              expanded: new Set<string>(),
+            }),
+          ),
+        );
+        expect(dom.window.document.querySelector("time.cv-date-line")).toBeNull();
+        expect(dom.window.document.body.textContent).toContain("Update dependencies");
+      }
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// A turn that starts over an hour after the last answer gets a date; the pane showed no
   /// date at all.
   test("a turn over an hour after the previous answer draws its time above it", async () => {
@@ -2094,6 +2867,83 @@ describe("acpmux edit diffs", () => {
     } finally {
       await act(async () => root.unmount());
       restore();
+    }
+  });
+});
+
+describe("acpmux hunk review", () => {
+  test("rejected hunks go to the agent as one revert prompt, and are marked requested", async () => {
+    const { DiffPanel } = await import("./DiffPanel");
+    const { turnFiles } = await import("./diff");
+    const files = turnFiles([
+      {
+        id: "activity-1",
+        version: 1,
+        at: 1,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t1",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "/repo/a.ts", oldText: "one\ntwo\n", newText: "one\n2\n", line: 4 }],
+            },
+          },
+        ],
+      },
+    ]);
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const decisions = new Map<string, "accepted" | "rejected" | "requested">();
+    const sent: { keys: string[]; prompt: string }[] = [];
+    const render = () =>
+      root.render(
+        createElement(DiffPanel, {
+          files,
+          onClose: () => {},
+          review: {
+            decisions: new Map(decisions),
+            decide: (key: string, decision?: "accepted" | "rejected" | "requested") => {
+              if (decision) decisions.set(key, decision);
+              else decisions.delete(key);
+              void act(async () => render());
+            },
+            requestRevert: (keys: string[], prompt: string) => {
+              sent.push({ keys, prompt });
+              for (const key of keys) decisions.set(key, "requested");
+              void act(async () => render());
+            },
+          },
+        }),
+      );
+    const document = dom.window.document;
+    const click = (node: Element) =>
+      act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+    try {
+      await act(async () => render());
+      for (let tries = 0; tries < 50 && !document.querySelector(".acpmux-hunk-reject"); tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(document.querySelector(".acpmux-hunk-reject")?.getAttribute("aria-label")).toBe(
+        "Reject change at a.ts line 5",
+      );
+      await click(document.querySelector(".acpmux-hunk-reject")!);
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("RejectedUndo");
+      // The pressed button is gone; focus moves to the Undo that replaced it.
+      expect(document.activeElement?.textContent).toBe("Undo");
+      expect(document.querySelector(".acpmux-revert-count")?.textContent).toBe("1 change rejected");
+      await click([...document.querySelectorAll(".acpmux-revert-send")][0]);
+      expect(sent.length).toBe(1);
+      expect(sent[0].prompt).toContain("--- /repo/a.ts\n+++ /repo/a.ts\n@@ -4,2 +4,2 @@\n one\n-two\n+2");
+      expect(document.querySelector(".acpmux-hunk-actions")?.textContent).toBe("Revert requested");
+      expect(document.querySelector(".acpmux-revert-bar")).toBeNull();
+      expect(document.activeElement?.getAttribute("aria-label")).toBe("Back to transcript");
+    } finally {
+      await act(async () => root.unmount());
     }
   });
 });

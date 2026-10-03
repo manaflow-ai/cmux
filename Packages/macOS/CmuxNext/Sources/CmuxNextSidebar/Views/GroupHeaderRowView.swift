@@ -79,7 +79,6 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     override func updateLayer() {
-        guard let layer else { return }
         performWithTheme {
             name.textColor = Palette.textSecondary
             count.textColor = Palette.textTertiary
@@ -88,9 +87,9 @@ final class GroupHeaderRowView: SidebarRowView {
             let tint = SidebarStyle.color(color)
             // Fills only: a drop onto the group tints the row in its color.
             if isDropTarget {
-                layer.backgroundColor = (color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16)).cgColor
+                paintFill(color == .grey ? Palette.selectionFill : tint.withAlphaComponent(0.16))
             } else {
-                layer.backgroundColor = isHovered ? Palette.hoverFill.cgColor : nil
+                paintFill(isHovered ? Palette.hoverFill : nil)
             }
             CATransaction.begin()
             CATransaction.setDisableActions(true)

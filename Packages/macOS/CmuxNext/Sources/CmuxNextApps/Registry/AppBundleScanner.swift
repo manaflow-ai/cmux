@@ -3,8 +3,10 @@ public import Foundation
 /// An app package on disk: a directory holding `cmux-app.json`.
 public nonisolated struct AppBundle: Sendable, Hashable, Identifiable {
     public enum Source: String, Sendable, Hashable, Codable {
-        /// A first-party sample shipped inside the app.
+        /// A sample app shipped inside the app (opt-in).
         case bundled
+        /// A first-party app shipped inside the app: installed by default, hideable.
+        case firstParty
         /// A sideloaded development app under `<apps dir>/local/`.
         case local
     }

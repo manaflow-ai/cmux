@@ -120,7 +120,7 @@ final class ScreenContentView: NSView {
         // Dividers and column edges.
         var targets: [DividerHandleView.Kind: (rect: CGRect, axis: SplitAxis)] = [:]
         for divider in geometry.dividers { targets[.split(divider.id)] = (divider.hitFrame, divider.axis) }
-        for edge in geometry.columnEdges { targets[.columnEdge(edge.column)] = (edge.hitFrame, .horizontal) }
+        for edge in geometry.columnEdges { targets[.columnEdge(edge.column)] = (edge.hitFrame, edge.axis) }
         for (kind, target) in targets {
             let view: DividerHandleView
             if let existing = dividerViews[kind] {

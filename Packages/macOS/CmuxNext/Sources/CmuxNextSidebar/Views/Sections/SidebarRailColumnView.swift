@@ -34,7 +34,7 @@ public final class SidebarRailColumnView: NSView {
         addSubview(rail)
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self, model] in
-            for await _ in Observations({ (model.layout, model.itemInfo, model.activeProfileID, Metrics.sidebarRowHeight, Metrics.lineWidth(Metrics.dividerThickness)) }) {
+            for await _ in Observations({ (model.layout, model.itemInfo, model.suppressedApps, model.activeProfileID, Metrics.sidebarRowHeight, Metrics.lineWidth(Metrics.dividerThickness)) }) {
                 self?.refresh()
             }
         }
@@ -66,7 +66,7 @@ public final class SidebarRailColumnView: NSView {
     func refresh() {
         let hidden = Set(model.itemInfo.filter(\.value.isHidden).keys)
         var document = model.layout
-        document.sections = document.sections.hidingItems(hidden)
+        document.sections = document.sections.presenting(hidingItems: hidden, apps: model.suppressedApps)
         var toolTips: [LayoutItemID: String] = [:]
         if let toolTipProvider {
             for section in document.sections {

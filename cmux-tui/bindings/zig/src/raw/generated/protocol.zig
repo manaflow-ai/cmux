@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9";
+pub const ir_sha256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -1470,10 +1470,12 @@ pub const TabBrowserStatus = enum {
 pub const TabKind = enum {
     pty,
     browser,
+    conversation,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
+        if (std.mem.eql(u8, value, "conversation")) return .conversation;
         return error.UnknownEnumValue;
     }
 
@@ -1481,6 +1483,7 @@ pub const TabKind = enum {
         return switch (self) {
             .pty => "pty",
             .browser => "browser",
+            .conversation => "conversation",
         };
     }
 };
@@ -3748,6 +3751,25 @@ pub fn getCellPixels(client: anytype, request: GetCellPixelsRequest) !wire.Decod
     );
 }
 
+pub const GetFrontendBrowserHistoryRequest = struct {
+    surface: Id,
+};
+
+pub const GetFrontendBrowserHistoryResult = JsonValue;
+
+pub fn getFrontendBrowserHistory(client: anytype, request: GetFrontendBrowserHistoryRequest) !wire.Decoded(GetFrontendBrowserHistoryResult) {
+    return client.callTyped(
+        GetFrontendBrowserHistoryResult,
+        .{
+            .name = "get-frontend-browser-history",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-history-v1",
+        },
+        request,
+    );
+}
+
 pub const GetFrontendProjectionRequest = struct {
     frontend: []const u8,
     scope: []const u8,
@@ -4675,10 +4697,37 @@ pub fn newBrowserTab(client: anytype, request: NewBrowserTabRequest) !wire.Decod
     );
 }
 
+pub const NewConversationTabRequest = struct {
+    cols: wire.Field(u16) = .absent,
+    conversation: []const u8,
+    mutation_id: wire.Field([]const u8) = .absent,
+    origin: wire.Field([]const u8) = .absent,
+    owner: []const u8,
+    pane: wire.Field(Id) = .absent,
+    rows: wire.Field(u16) = .absent,
+    workspace: wire.Field(Id) = .absent,
+};
+
+pub const NewConversationTabResult = JsonValue;
+
+pub fn newConversationTab(client: anytype, request: NewConversationTabRequest) !wire.Decoded(NewConversationTabResult) {
+    return client.callTyped(
+        NewConversationTabResult,
+        .{
+            .name = "new-conversation-tab",
+            .authority = "control",
+            .since = 12,
+            .capability = "conversation-tabs-v1",
+        },
+        request,
+    );
+}
+
 pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
@@ -5871,6 +5920,26 @@ pub fn setDefaultColors(client: anytype, request: SetDefaultColorsRequest) !wire
     );
 }
 
+pub const SetFrontendBrowserHistoryRequest = struct {
+    history: wire.Nullable(JsonValue),
+    surface: Id,
+};
+
+pub const SetFrontendBrowserHistoryResult = JsonValue;
+
+pub fn setFrontendBrowserHistory(client: anytype, request: SetFrontendBrowserHistoryRequest) !wire.Decoded(SetFrontendBrowserHistoryResult) {
+    return client.callTyped(
+        SetFrontendBrowserHistoryResult,
+        .{
+            .name = "set-frontend-browser-history",
+            .authority = "control",
+            .since = 12,
+            .capability = "frontend-browser-history-v1",
+        },
+        request,
+    );
+}
+
 pub const SetPersonalTerminalRequest = struct {
     session_id: []const u8,
     terminal_key: []const u8,
@@ -6597,6 +6666,7 @@ pub fn updateBrowserProfile(client: anytype, request: UpdateBrowserProfileReques
 
 pub const UpdateFrontendBrowserTabRequest = struct {
     favicon_url: wire.Field([]const u8) = .absent,
+    owner: wire.Field([]const u8) = .absent,
     surface: Id,
     title: wire.Field([]const u8) = .absent,
     url: wire.Field([]const u8) = .absent,
@@ -7920,7 +7990,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 205;
+pub const command_count: usize = 208;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -7987,6 +8057,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "get-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "get-cell-pixels", .authority = "frontend", .since = 6, .capability = null, .stream = null },
+    .{ .name = "get-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "get-frontend-projection", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "get-size-state", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "identify", .authority = "control", .since = 5, .capability = null, .stream = null },
@@ -8030,6 +8101,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "move-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "move-workspace-to-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
     .{ .name = "new-browser-tab", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "new-conversation-tab", .authority = "control", .since = 12, .capability = "conversation-tabs-v1", .stream = null },
     .{ .name = "new-frontend-browser-tab", .authority = "control", .since = 12, .capability = "frontend-browser-tabs-v1", .stream = null },
     .{ .name = "new-pane", .authority = "control", .since = 9, .capability = null, .stream = null },
     .{ .name = "new-pane-right", .authority = "control", .since = 9, .capability = "viewport-splits-v1", .stream = null },
@@ -8082,6 +8154,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-client-sizing", .authority = "control", .since = 10, .capability = null, .stream = null },
     .{ .name = "set-column-sticky", .authority = "control", .since = 12, .capability = "sticky-columns-v1", .stream = null },
     .{ .name = "set-default-colors", .authority = "control", .since = 5, .capability = null, .stream = null },
+    .{ .name = "set-frontend-browser-history", .authority = "control", .since = 12, .capability = "frontend-browser-history-v1", .stream = null },
     .{ .name = "set-personal-terminal", .authority = "control", .since = 12, .capability = "personal-terminals-v1", .stream = null },
     .{ .name = "set-personal-workspace", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
     .{ .name = "set-profile-follows", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

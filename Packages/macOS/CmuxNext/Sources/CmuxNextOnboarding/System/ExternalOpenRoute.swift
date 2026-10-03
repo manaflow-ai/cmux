@@ -10,6 +10,9 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A terminal tab in the current window's focused pane, started in
     /// `cwd`, then `command` typed into its shell (already shell-quoted).
     case terminal(cwd: String?, command: String?)
+    /// A link in this build's scheme (`cmux://tab/…`): the caller runs the
+    /// `link.open` action with it, which only navigates.
+    case deepLink(URL)
     /// Not something cmux opens; the caller refuses it.
     case unsupported
 }
@@ -19,14 +22,38 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
 public nonisolated struct ExternalOpenRouter: Sendable {
     public var isDirectory: @Sendable (String) -> Bool
     public var isExecutable: @Sendable (String) -> Bool
+    /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), the
+    /// one sign-in calls back on; nil routes no links.
+    public var linkScheme: String?
+    /// Whether a URL is the sign-in callback, which goes to auth, never to a
+    /// link. The App passes Cloud auth's own matcher; the default accepts
+    /// the same host and path forms (``isSignInCallback(_:)``).
+    public var isAuthCallback: @Sendable (URL) -> Bool
+
+    /// The sign-in callback's target, as host or path.
+    static let authCallbackTarget = "auth-callback"
+
+    /// The sign-in callback in any form auth accepts: `<scheme>://auth-callback`,
+    /// `<scheme>:auth-callback` and `<scheme>:///auth-callback`.
+    public static func isSignInCallback(_ url: URL) -> Bool {
+        let slashes = CharacterSet(charactersIn: "/")
+        if let host = url.host(percentEncoded: false)?.trimmingCharacters(in: slashes), !host.isEmpty {
+            return host.lowercased() == authCallbackTarget
+        }
+        return url.path.trimmingCharacters(in: slashes).lowercased() == authCallbackTarget
+    }
 
     public init(
+        linkScheme: String? = nil,
+        isAuthCallback: @escaping @Sendable (URL) -> Bool = { ExternalOpenRouter.isSignInCallback($0) },
         isDirectory: @escaping @Sendable (String) -> Bool = { path in
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
         },
         isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
     ) {
+        self.linkScheme = linkScheme
+        self.isAuthCallback = isAuthCallback
         self.isDirectory = isDirectory
         self.isExecutable = isExecutable
     }
@@ -36,6 +63,12 @@ public nonisolated struct ExternalOpenRouter: Sendable {
     static let pageExtensions: Set<String> = ["html", "htm", "xhtml", "shtml", "webarchive", "svg"]
 
     public func route(_ url: URL) -> ExternalOpenRoute {
+        if let linkScheme, let scheme = url.scheme, scheme.caseInsensitiveCompare(linkScheme) == .orderedSame {
+            // The sign-in callback shares the scheme; it stays auth's, in
+            // every form auth accepts.
+            if isAuthCallback(url) { return .unsupported }
+            return .deepLink(url)
+        }
         switch url.scheme?.lowercased() {
         case "http", "https": return .browserTab(url)
         case "file": return routeFile(url.path)

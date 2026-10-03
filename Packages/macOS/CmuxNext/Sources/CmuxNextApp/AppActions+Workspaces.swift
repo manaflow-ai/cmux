@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
 
@@ -29,7 +30,7 @@ extension AppActions {
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue, let state = services.windows.active?.state else { return }
             // Sidebar order across every machine section.
-            let all = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+            let all = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
             guard !all.isEmpty else { return }
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
@@ -40,9 +41,14 @@ extension AppActions {
 
     /// New workspace with one terminal (`WorkspaceSpawn` arguments), shown
     /// in the active window unless `focus` is false (the CLI's default).
+    /// With `activate: true` as well (`cmux open <dir>` run by a person) it
+    /// also brings that window forward and activates the app
+    /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
         let spawn = WorkspaceSpawn(invocation)
-        let show = invocation["focus"]?.boolValue ?? true
+        let focus = NewWorkspaceFocus(invocation)
+        let show = focus.shows
+
         let windows = services.windows!
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new
@@ -59,6 +65,7 @@ extension AppActions {
         services.registry.track(Task {
             do {
                 _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
             } catch {
                 services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
@@ -67,9 +74,23 @@ extension AppActions {
         })
     }
 
+    /// Makes window `id` key and activates the app. A new window still
+    /// waiting for its first workspace comes to the front when that shows.
+    private static func focusWindow(_ windows: WindowManager, _ id: String) {
+        guard windows.ordersWindowsIn, let controller = windows.controller(for: id) else { return }
+        if windows.awaitingContent[id] != nil {
+            windows.bringToFront(controller)
+            WindowActivation.activateApp()
+            return
+        }
+        guard let window = controller.window else { return }
+        WindowActivation.show(window, .focus)
+        windows.didActivate(controller)
+    }
+
     private static func selectWorkspace(_ services: AppServices, offset: Int) {
         guard let state = services.windows.active?.state else { return }
-        let ids = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
+        let ids = services.windows.active?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? []
         guard !ids.isEmpty else { return }
         let current = state.workspaceID.flatMap(ids.firstIndex(of:)) ?? 0
         services.windows.show(workspaceID: ids[(current + offset + ids.count) % ids.count], in: state)

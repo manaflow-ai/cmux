@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDaemon
 
 // Creating workspaces and windows. A window exists only while it owns a
@@ -64,10 +65,15 @@ extension WindowManager {
     /// it; an unregistered id opens a new window with it (at `frame`). The
     /// placement happens when the daemon reports the workspace; a window
     /// never opens before that.
+    /// An action run without view-change permission files it into an open
+    /// window without showing it, or opens the new window behind.
     func claimNew(workspaceID: String, window windowID: String, frame: CGRect? = nil) {
         guard services.machines.workspace(id: workspaceID) != nil else {
             pendingClaims[workspaceID] = windowID
             if let frame, registry.value.window(windowID) == nil { pendingFrames[windowID] = frame }
+            if !ActionRunScope.viewChangeAllowed() {
+                if registry.value.window(windowID)?.isOpen == true { quietClaims.insert(workspaceID) } else { behindWindows.insert(windowID) }
+            }
             return
         }
         // Already mirrored (the claim came after the delta): place it now.

@@ -3,10 +3,15 @@ import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
+import { postNative } from "./native";
 import { HandoffClient } from "./handoff/client";
+import { PermissionGroupClient } from "./permissions/client";
+import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
 import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
+import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
+import { acpmuxPerf } from "./perf";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -16,17 +21,37 @@ export type AcpmuxHostConfig = {
   sessionId?: string;
   /** A pane opened as a new chat: do not fall back to the most recent session; the first prompt creates one. */
   newSession?: boolean;
+  /** A tab a `cmux://session/<id>` link opened: `sessionId` must exist. When the daemon has no such
+   * session the pane says so rather than falling back to the most recent one, and marks nothing seen. */
+  sessionMustExist?: boolean;
   /** A new chat's working directory, inherited from the tab it was opened from. */
   cwd?: string;
   /** Text the composer starts with. Shown, never sent by itself. */
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** An outside Claude Code or Codex chat this pane resumes once it connects. */
+  adopt?: AcpmuxAdopt;
 };
 
-/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
-export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+/** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
+export type AcpmuxAdopt = { harness: string; agentSessionId: string };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
+ *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
+export function newSessionParams(
+  host: Pick<AcpmuxHostConfig, "cwd" | "adopt">,
+  harness?: string,
+): Record<string, unknown> {
+  if (host.adopt)
+    return { mcpServers: [], _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } } };
   return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
+
+/** True when a `session/new` result resumed `adopt`. A daemon without adopt ignores the request
+ *  and starts a fresh chat, whose `agentSessionId` is its own or absent. */
+export function adoptedBy(result: any, adopt: AcpmuxAdopt): boolean {
+  return result?._meta?.acpmux?.agentSessionId === adopt.agentSessionId;
 }
 
 export type EventRecord = {
@@ -38,7 +63,7 @@ export type EventRecord = {
   msg: Record<string, any>;
 };
 type Session = Record<string, any> & { sessionId: string };
-type Reply = { id: number; result?: any; error?: { message?: string; data?: unknown } };
+type Reply = { id: number; result?: any; error?: { message?: string; code?: unknown; data?: unknown } };
 type Notification = { method: string; params?: any };
 type Listener = (snapshot: AcpmuxSnapshot) => void;
 
@@ -55,6 +80,8 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
   return {
     permissionId: String(permissionId),
+    groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
+    turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
     kind: raw.toolCall?.kind,
     pending: true,
@@ -213,6 +240,9 @@ function sessionUpdate(event: EventRecord): any | undefined {
 /// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
 export type OpenSocket = (url: URL) => WebSocket;
 
+/// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
+export type GitRoute = "native" | "daemon";
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
@@ -230,9 +260,12 @@ export class AcpmuxDirectClient {
   /// user has seen, so the pane keeps this until the session is selected.
   private unseen = new Set<string>();
   private selectedSessionId?: string;
+  /** The session a link named that the daemon does not have (`sessionMustExist`). */
+  private missingSession?: string;
   private summary: Record<string, any> | undefined;
   private queue: { id: string; prompt: string }[] = [];
   private pendingPermission?: AcpmuxPermission;
+  private groupedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -248,6 +281,16 @@ export class AcpmuxDirectClient {
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
+  );
+  readonly permissions = new PermissionGroupClient(
+    (method, params) => this.request(method, params, 15000),
+    () => {
+      for (const group of this.permissions.state.groups)
+        for (const item of group.items) if (item.state !== "pending") this.groupedPermissions.delete(item.permissionId);
+      if (!this.permissions.state.supported && !this.pendingPermission)
+        this.pendingPermission = [...this.groupedPermissions.values()].at(-1);
+      this.emit();
+    },
   );
   private forking = false;
   private streamingAssistant?: string;
@@ -278,6 +321,9 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+    private readonly gitRoute: GitRoute = "native",
+    /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
+    private readonly wire: AcpWireLog = acpWire,
   ) {
     this.host = host;
     this.listener = listener;
@@ -290,8 +336,10 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     openSocket?: OpenSocket,
+    gitRoute?: GitRoute,
+    wire?: AcpWireLog,
   ): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket);
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
     await client.open();
     return client;
   }
@@ -301,30 +349,45 @@ export class AcpmuxDirectClient {
     this.opening = true;
     const url = new URL(this.host.endpoint);
     url.searchParams.set("token", this.host.token);
+    this.wire.lifecycle("connecting", {
+      endpoint: redactEndpoint(this.host.endpoint),
+      sessionId: this.selectedSessionId,
+    });
     await new Promise<void>((resolve, reject) => {
       const socket = this.openSocket(url);
       this.socket = socket;
       let opened = false;
       socket.onopen = () => {
         opened = true;
+        this.wire.lifecycle("open");
         resolve();
       };
       socket.onerror = () => {
+        this.wire.lifecycle("error", { message: opened ? "WebSocket error" : "Unable to connect" });
         this.opening = false;
         reject(new Error("Unable to connect to acpmux WebSocket"));
       };
-      socket.onclose = () => {
+      socket.onclose = (event?: CloseEvent) => {
         if (this.socket !== socket) return;
+        this.wire.lifecycle("close", {
+          code: event?.code,
+          reason: event?.reason || undefined,
+          wasClean: event?.wasClean,
+          established: opened,
+        });
         if (!opened) {
           this.opening = false;
           reject(new Error("acpmux WebSocket closed before connect"));
           return;
         }
         this.handoff.disconnect();
+        this.groupedPermissions.clear();
+        this.permissions.disconnected();
         this.rejectPending();
         this.emit("disconnected");
         if (!this.hasConnected || this.closed) return;
         if (this.onLost) {
+          this.wire.lifecycle("lost", { message: "asking for a fresh handshake" });
           const onLost = this.onLost;
           this.close();
           onLost();
@@ -340,14 +403,23 @@ export class AcpmuxDirectClient {
       });
       this.canFork = servesOperation(initialized, FORK_OP);
       this.handoffSupported = supportsHandoff(initialized);
+      const groupedPermissionsSupported = supportsPermissionGroups(initialized);
+      if (!groupedPermissionsSupported) this.groupedPermissions.clear();
+      this.permissions.configure(groupedPermissionsSupported);
       const watched = await this.request("_acpmux/watch", { enabled: true });
       this.sessions = this.reread(watched?.sessions);
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
-        this.selectedSessionId = this.sessions[0]?.sessionId;
+        // A linked session the daemon lacks is refused, never replaced by the most recent chat.
+        if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
+        this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
         this.selectionGeneration += 1;
         this.resetSessionState();
       }
-      this.selectedSessionId = initialSession(this.selectedSessionId, this.sessions, this.host.newSession);
+      this.selectedSessionId = initialSession(
+        this.selectedSessionId,
+        this.sessions,
+        this.host.newSession || this.missingSession !== undefined,
+      );
       if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
       // A reconnect to the same session keeps its transcript; the attach page holds only the newest events.
       const resumeAfter = this.lastSeq;
@@ -358,11 +430,15 @@ export class AcpmuxDirectClient {
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
           await this.fetchMissedEvents(sessionId, generation, resumeAfter, false);
+      } else if (this.host.adopt) {
+        await this.adoptChat(this.host.adopt);
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
+      this.wire.lifecycle("connected", { sessionId: this.selectedSessionId, sessions: this.sessions.length });
       this.emit("connected");
     } catch (error) {
+      this.wire.lifecycle("connect failed", { message: error instanceof Error ? error.message : String(error) });
       this.socket?.close();
       throw error;
     } finally {
@@ -390,15 +466,18 @@ export class AcpmuxDirectClient {
     this.messageRows.clear();
     this.toolRows.clear();
     this.pendingPermission = undefined;
+    this.groupedPermissions.clear();
     this.commands = [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
+    this.permissions.select(this.selectedSessionId);
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== undefined || this.closed) return;
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(delay * 2, 30_000);
+    this.wire.lifecycle("reconnect scheduled", { delayMs: delay });
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = undefined;
       void this.open().catch(() => this.scheduleReconnect());
@@ -406,6 +485,7 @@ export class AcpmuxDirectClient {
   }
 
   private receive(raw: string): void {
+    this.wire.received(raw);
     let message: Reply | Notification;
     try {
       message = JSON.parse(raw) as Reply | Notification;
@@ -417,7 +497,13 @@ export class AcpmuxDirectClient {
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
-      if (message.error) request.reject(new AcpmuxRpcError(message.error));
+      // The failure's code (`validation.invalid`, ...) rides along for callers that tell failures apart.
+      if (message.error)
+        request.reject(
+          Object.assign(new AcpmuxRpcError(message.error), {
+            code: (message.error.data as { code?: unknown } | undefined)?.code ?? message.error.code,
+          }),
+        );
       else request.resolve(message.result);
       return;
     }
@@ -448,6 +534,7 @@ export class AcpmuxDirectClient {
     if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
     if (Array.isArray(params?.sessionIds) && !params.sessionIds.map(String).includes(sessionId)) return;
     this.emit("resyncing");
+    void this.permissions.refresh().catch(() => {});
     const generation = this.selectionGeneration;
     void this.fetchMissedEvents(sessionId, generation, this.lastSeq).catch(() => {
       if (!this.closed && generation === this.selectionGeneration)
@@ -529,28 +616,69 @@ export class AcpmuxDirectClient {
     );
   }
 
+  /// Whether the user trusts `cwd` (folderTrust.ts).
+  trustGet(cwd: string): Promise<unknown> {
+    return this.request("acp.trust.get", { cwd });
+  }
+
+  /// Records the user's trust in `cwd` in acpmux's own record, never the agents' config files (folderTrust.ts).
+  trustSet(cwd: string, level: string): Promise<unknown> {
+    return this.request("acp.trust.set", { cwd, level });
+  }
+
+  /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
+  fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
+    return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+  }
+
   /// The selected session's repository changes in one git scope (changes/model.ts).
   gitDiff(scope: string): Promise<unknown> {
-    return this.request("git.diff", { sessionId: this.selectedSessionId, scope, include_patch: true });
+    return this.git("git.diff", { scope, include_patch: true });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
   gitStatus(): Promise<unknown> {
-    return this.request("git.status", { sessionId: this.selectedSessionId });
+    return this.git("git.status", {});
+  }
+
+  /// acpmux serves no git methods: the native host runs them on the session host in the selected
+  /// session's folder, and mock mode's in-page daemon answers them by session.
+  private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    const cwd = text(summary?.cwd) ?? text(entry?.cwd);
+    if (!sessionId || !cwd) return Promise.reject(new Error("This chat has no working folder to read changes from"));
+    // The native host reads folders on this Mac; a cloud session's folder is on its machine.
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
+    return this.gitRoute === "daemon"
+      ? this.request(method, { sessionId, cwd, ...params })
+      : postNative(method, { cwd, ...params });
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {
-    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.reject(new Error("acpmux WebSocket is not open"));
+    if (this.socket?.readyState !== WebSocket.OPEN)
+      return Promise.reject(
+        Object.assign(new Error("acpmux WebSocket is not open"), { code: "native.not_connected", origin: "native" }),
+      );
     const id = this.nextRequest++;
     return new Promise((resolve, reject) => {
       const timer = deadline
         ? setTimeout(() => {
             this.pending.delete(id);
-            reject(new Error("Continuation request timed out. Read its saved state before retrying."));
+            reject(
+              Object.assign(new Error("The agent request timed out. Read its saved state before retrying."), {
+                code: "native.timed_out",
+                origin: "native",
+              }),
+            );
           }, deadline)
         : undefined;
       this.pending.set(id, { resolve, reject, timer });
-      this.socket!.send(JSON.stringify({ jsonrpc: "2.0", id, method, params }));
+      const text = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+      this.wire.sent(text, method, id);
+      this.socket!.send(text);
     });
   }
 
@@ -581,6 +709,22 @@ export class AcpmuxDirectClient {
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     this.attachedGeneration = generation;
+    this.permissions.select(sessionId);
+    await this.permissions.refresh().catch(() => {});
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    if (Array.isArray(detail.pending)) {
+      const groupedIds = new Set(
+        this.permissions.state.supported
+          ? this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId))
+          : [],
+      );
+      this.pendingPermission = detail.pending
+        .map((item: any) => permissionFromMessage({ ...item, sessionId }, sessionId))
+        .find(
+          (item: AcpmuxPermission | undefined) =>
+            item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
+        );
+    }
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
       try {
@@ -642,6 +786,10 @@ export class AcpmuxDirectClient {
   private applyPermission(message: any): void {
     const permission = permissionFromMessage(message, this.selectedSessionId ?? "");
     if (!permission) return;
+    if (permission.groupId && this.permissions.state.supported) {
+      this.groupedPermissions.set(permission.permissionId, permission);
+      return;
+    }
     this.pendingPermission = permission;
     this.emit("permission");
   }
@@ -703,7 +851,15 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") this.applyPermission({ ...msg, sessionId: event.sessionId });
-    else if (event.kind === "permission_decision") this.pendingPermission = undefined;
+    else if (event.kind === "permission_decision") {
+      if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
+      else this.groupedPermissions.clear();
+      if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
+        this.pendingPermission = this.permissions.state.supported
+          ? undefined
+          : [...this.groupedPermissions.values()].at(-1);
+    } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
+      void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
   }
 
@@ -749,6 +905,8 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.pendingPermission = undefined;
+        this.groupedPermissions.clear();
         if (this.streamingAssistant) {
           const row = this.rows.get(this.streamingAssistant);
           if (row) {
@@ -783,6 +941,7 @@ export class AcpmuxDirectClient {
     }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
+      acpmuxPerf.markAgent("firstToken");
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -920,16 +1079,22 @@ export class AcpmuxDirectClient {
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
+      permissionGroups: this.permissions.state,
       queue: this.queue,
       permission: this.pendingPermission,
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+      missingSession: this.selectedSessionId ? undefined : this.missingSession,
     });
   }
 
   snapshot(): void {
     this.emit();
+  }
+  /** The session this pane shows, if any. */
+  get selectedSession(): string | undefined {
+    return this.selectedSessionId;
   }
   /** A `session/new` in flight, so a Send during the first prompt's start joins it. */
   private creating?: Promise<string | undefined>;
@@ -939,6 +1104,22 @@ export class AcpmuxDirectClient {
       await this.creating;
     }
     return this.selectedSessionId;
+  }
+
+  /// Starts one live agent child for each of the most recent project sessions.
+  /// Old daemons simply reject this extension, so warming never blocks chat.
+  async warmRecentProjects(limit = 3): Promise<void> {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
+      const cwd = typeof session.cwd === "string" ? session.cwd : "";
+      if (!cwd || seen.has(cwd)) continue;
+      seen.add(cwd);
+      ids.push(session.sessionId);
+      if (ids.length >= limit) break;
+    }
+    if (!ids.length) return;
+    await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
   async send(text: string): Promise<string | undefined> {
     const record = this.handoff.state.record;
@@ -1004,19 +1185,27 @@ export class AcpmuxDirectClient {
     return this.handoff.refresh();
   }
   async cancel(): Promise<void> {
-    if (this.selectedSessionId)
-      this.socket?.send(
-        JSON.stringify({ jsonrpc: "2.0", method: "session/cancel", params: { sessionId: this.selectedSessionId } }),
-      );
+    if (!this.selectedSessionId || !this.socket) return;
+    const text = JSON.stringify({
+      jsonrpc: "2.0",
+      method: "session/cancel",
+      params: { sessionId: this.selectedSessionId },
+    });
+    this.wire.sent(text, "session/cancel");
+    this.socket.send(text);
   }
   async permission(permissionId: string, optionId: string): Promise<void> {
     if (this.selectedSessionId)
       await this.request("_acpmux/permission_respond", { sessionId: this.selectedSessionId, permissionId, optionId });
   }
+  async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    await this.permissions.respond(groupId, revision, decision);
+  }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
     this.selectedSessionId = sessionId;
+    this.missingSession = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
     if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
@@ -1030,6 +1219,42 @@ export class AcpmuxDirectClient {
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
+  }
+  /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
+  adopted?: string;
+  /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
+  /// without adopt starts a fresh one) is removed, and the pane says so instead of posing as it.
+  /// A socket that drops meanwhile fails the connect, so the host reconnects and adopts again
+  /// (acpmux maps one chat to one session).
+  private async adoptChat(adopt: AcpmuxAdopt): Promise<void> {
+    this.host = { ...this.host, adopt: undefined };
+    let result: any;
+    try {
+      result = await this.request("session/new", newSessionParams({ adopt }));
+    } catch (error) {
+      if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
+      return;
+    }
+    const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (sessionId && adoptedBy(result, adopt)) {
+      this.adopted = sessionId;
+      await this.select(sessionId);
+      return;
+    }
+    if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+    this.adoptFailed(": this acpmux can't resume chats");
+  }
+  private adoptFailed(reason: string): void {
+    const at = Date.now();
+    this.rows.set(`notice-adopt-${at}`, {
+      id: `notice-adopt-${at}`,
+      version: 1,
+      at,
+      kind: "notice",
+      text: `Couldn't resume this chat${reason}`,
+    });
+    this.emit();
   }
   /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
   /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
@@ -1099,6 +1324,7 @@ export class AcpmuxDirectClient {
     this.closed = true;
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
+    this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
@@ -1106,7 +1332,12 @@ export class AcpmuxDirectClient {
   private rejectPending(): void {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
-      request.reject(new Error("acpmux WebSocket closed"));
+      request.reject(
+        Object.assign(new Error("The agent connection was interrupted. Read its saved state before retrying."), {
+          code: "native.timed_out",
+          origin: "native",
+        }),
+      );
     }
     this.pending.clear();
   }

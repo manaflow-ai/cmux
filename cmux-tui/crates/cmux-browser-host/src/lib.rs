@@ -12,5 +12,17 @@
 
 pub mod cdp;
 pub mod driver;
+pub mod engines;
+pub mod fs_sandbox;
+pub mod gate;
+pub mod host;
+pub mod mcp;
+pub mod policy;
 pub mod protocol;
 pub mod provider;
+#[cfg(unix)]
+pub mod provider_link;
+pub mod secrets;
+#[cfg(unix)]
+pub mod server;
+pub mod vm;

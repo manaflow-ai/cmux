@@ -1,7 +1,8 @@
 import CmuxNextDaemon
 import Foundation
 
-/// Recently closed screens, newest last, for Reopen Closed Screen. Each
+/// Recently closed screens, newest last, for Reopen Closed Screen on a
+/// daemon without closed history (`DaemonClosedHistory` serves the rest). Each
 /// record keeps what the screen looked like (name, color, icon, pin, group,
 /// position) and the directory of its active tab. Reopening creates a new
 /// screen with that metadata at the old position; terminals are not
@@ -22,7 +23,9 @@ final class ClosedScreenHistory {
     static let capacity = 20
     private(set) var records: [Record] = []
 
-    func record(_ screen: ScreenModel, in workspace: WorkspaceModel) {
+    /// Records `screen` unless `daemon` keeps closed history itself.
+    func record(_ screen: ScreenModel, in workspace: WorkspaceModel, daemon: DaemonStore) {
+        guard !daemon.servesStateResources else { return }
         let pane = screen.defaultPane.flatMap(screen.pane) ?? screen.panes.first
         let tab = pane.flatMap { $0.tabs.indices.contains($0.defaultTabIndex) ? $0.tabs[$0.defaultTabIndex] : $0.tabs.first }
         let index = workspace.screens.firstIndex { $0 === screen } ?? workspace.screens.count

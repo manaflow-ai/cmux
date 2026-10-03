@@ -16,13 +16,8 @@ public struct CmuxNextApp {
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
         _ = cmux_early_malloc_zone_registration()
-        // Before any socket or pipe exists: a write to a closed peer returns
-        // EPIPE instead of ending the process (most macOS network apps do
-        // the same; CEF sets it anyway once Chromium starts). Every
-        // write site already handles the error, and sockets also set
-        // SO_NOSIGPIPE. Children get the default back: Foundation's Process
-        // and Chromium reset it, and the one forkpty site resets it itself.
-        _ = signal(SIGPIPE, SIG_IGN)
+        // Before any socket or pipe exists (ChildSignalDefaults).
+        ChildSignalDefaults.installAppSignalPolicy()
         // Before any thread starts or anything reads the environment: drop
         // cmux variables inherited from a shell inside another cmux, so they
         // cannot pick this app's socket, tag, or daemon session.
@@ -31,6 +26,7 @@ public struct CmuxNextApp {
         LaunchWarmup.start()
         var environment = AppEnvironment.current()
         environment.marksRun = true
+        environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider())

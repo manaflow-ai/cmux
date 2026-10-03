@@ -276,13 +276,15 @@ fn collection_action(scope: &str, value: &str) -> Option<&'static str> {
 
 fn instance_actions(scope: &str) -> &'static [&'static str] {
     match scope {
-        "workspace" => &["show", "rename", "move", "focus", "close", "run", "layout"],
-        "screen" => &["show", "rename", "focus", "close", "layout"],
+        "workspace" => &["show", "rename", "update", "move", "focus", "close", "run", "layout"],
+        "screen" => {
+            &["show", "rename", "update", "pin", "unpin", "move", "focus", "close", "layout"]
+        }
         "pane" => &[
             "show", "rename", "focus", "close", "split", "neighbor", "swap", "zoom", "viewport",
             "run",
         ],
-        "tab" => &["show", "rename", "move", "focus", "close"],
+        "tab" => &["show", "rename", "move", "focus", "close", "pin", "unpin", "zoom", "update"],
         "terminal" => &[
             "show", "write", "keys", "mouse", "focus", "read", "screen", "state", "history",
             "output", "copy", "process", "viewport", "move", "project", "attach", "close",

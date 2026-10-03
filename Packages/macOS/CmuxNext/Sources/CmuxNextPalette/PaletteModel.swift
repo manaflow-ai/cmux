@@ -18,6 +18,7 @@ public final class PaletteModel {
         didSet {
             guard query != oldValue else { return }
             notice = nil
+            selectsQuery = false
             current?.query = query
             refreshResults(resetSelection: true)
         }
@@ -39,6 +40,9 @@ public final class PaletteModel {
     /// Titles of the pages above the root, for the breadcrumb.
     public private(set) var breadcrumbs: [String] = []
     public private(set) var isTextInput = false
+    /// The text step opened on its initial text (a rename's current name):
+    /// the field selects it, so typing replaces it and the arrow keys edit it.
+    public private(set) var selectsQuery = false
     /// Why the last command could not run, shown as its row's subtitle
     /// until the query or the page changes (never a beep).
     public internal(set) var notice: PaletteNotice?
@@ -66,6 +70,8 @@ public final class PaletteModel {
     /// Cmd-K on a row that runs a registry action: opens the shortcut
     /// recorder. Returns false when it cannot (then the Actions menu opens).
     @ObservationIgnored public var onEditShortcut: (@MainActor (ActionID) -> Bool)?
+    /// A page change dropped an open shortcut recorder.
+    @ObservationIgnored var onDropShortcutRecorder: (() -> Void)?
     /// Injected clock for frecency.
     @ObservationIgnored public var now: @MainActor () -> Date = { Date() }
     @ObservationIgnored public internal(set) var frecency: FrecencyStore
@@ -179,6 +185,7 @@ public final class PaletteModel {
         }
         stack = []
         actionsMenu = nil
+        if shortcutRecorder != nil { onDropShortcutRecorder?() }
         shortcutRecorder = nil
         hoveredRowID = nil
         pendingSubmit = nil
@@ -285,6 +292,11 @@ public final class PaletteModel {
             query = state.query
         } else {
             refreshResults(resetSelection: true)
+        }
+        if case .textInput(let spec) = state.kind {
+            selectsQuery = !spec.initialText.isEmpty && query == spec.initialText
+        } else {
+            selectsQuery = false
         }
         if restoring, let savedSelection {
             restoreSelection = savedSelection

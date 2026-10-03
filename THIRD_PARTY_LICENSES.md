@@ -129,6 +129,22 @@ cryptographic release signature for remote updates.
 
 ---
 
+## executor (integration ingestion and tool policy)
+
+cmux includes integration ingestion (OpenAPI, GraphQL and MCP) and tool policy
+code adapted from executor in the MIT package `libs/integrations-core/`
+(`@cmux/integrations-core`). The `cmux/integrations` app bundles that package
+into `first-party-apps/integrations/dist/main.js`.
+
+- **License:** MIT License
+- **Copyright:** Copyright (c) 2026 Rhys Sullivan
+- **Source:** https://github.com/UsefulSoftwareCo/executor (commit `98d606bd2b47b9dcc2c03a129a14b5134d9852c8`)
+- **License text and adapted-file list:** `libs/integrations-core/LICENSE` and
+  `libs/integrations-core/NOTICE`; the app's notice is
+  `first-party-apps/integrations/LICENSE-executor`
+
+---
+
 ## Sparkle
 
 - **License:** MIT License

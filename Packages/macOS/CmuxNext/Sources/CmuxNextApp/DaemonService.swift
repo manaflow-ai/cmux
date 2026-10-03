@@ -29,7 +29,7 @@ final class DaemonService {
     @ObservationIgnored private let scheduler = FrameBatcher(owner: "DaemonStore.drain")
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.daemon")
     /// The window records of the daemon's launch snapshot, drawn before the
-    /// first connection (`WindowManager.showLaunchSnapshot`); nil without one.
+    /// first connection (`LaunchSnapshotWindow`); nil without one.
     @ObservationIgnored var launchSnapshotWindows: WindowStateDocument?
     /// The local session whose launch snapshot path each handshake records.
     @ObservationIgnored var launchSnapshotSession: String?
@@ -101,7 +101,8 @@ final class DaemonService {
         }
         let configuration = DaemonConnection.Configuration(
             retryWake: retryWake,
-            terminalEnvironment: terminalEnvironmentProvider)
+            terminalEnvironment: terminalEnvironmentProvider,
+            sessionEvents: true)
         var first: (@Sendable () async -> DaemonPrestart.Outcome)?
         if let prestart {
             // Cancelling the startup (shutdown) cancels the attempt too.
@@ -174,7 +175,8 @@ final class DaemonService {
             // wakeup-allow: each iteration runs a connection to its end, then waits in RetryPacer
             while !Task.isCancelled {
                 let connected = await DaemonStartup.shared.connect(wake: wake, clock: clock) {
-                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil)) {
+                    DaemonConnection(configuration: DaemonConnection.Configuration(retryWake: wake, terminalEnvironment: nil,
+                                                                                    sessionEvents: true)) {
                         DaemonEndpoint(socketPath: try await endpoint())
                     }
                 } onFailure: { error in
@@ -238,7 +240,7 @@ final class DaemonService {
     }
 
     func supports(_ capability: String) -> Bool {
-        identity?.supports(capability) ?? false
+        store.supports(capability)
     }
 
     /// The socket for dedicated terminal attachments (re-read on reconnect).
@@ -254,17 +256,7 @@ final class DaemonService {
     /// Runs a command and logs a failure. Returns false when it threw.
     @discardableResult
     func run(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> Bool {
-        guard let connection else {
-            logger.error("\(label, privacy: .public): not connected")
-            return false
-        }
-        do {
-            try await body(connection)
-            return true
-        } catch {
-            logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            return false
-        }
+        await failure(label, ticket: openTicket(), body) == nil
     }
 
     /// Outcome of a command whose reply may miss its deadline.
@@ -278,18 +270,23 @@ final class DaemonService {
     /// Like ``run(_:_:)``, but tells a deadline miss (outcome unknown) apart
     /// from a failure, so callers can reconcile instead of reverting.
     func runReportingTimeout(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> CommandOutcome {
+        let ticket = openTicket()
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
+            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             return .failed
         }
         do {
             try await body(connection)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return .succeeded
         } catch DaemonError.timedOut(let what) {
             logger.info("\(label, privacy: .public) outcome unknown: \(what, privacy: .public)")
+            await closeTicket(ticket, label: label, error: DaemonError.timedOut(what))
             return .unknown
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            await closeTicket(ticket, label: label, error: error)
             return .failed
         }
     }
@@ -298,21 +295,32 @@ final class DaemonService {
     func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
         // Always start the task; `workTracker?(Task {...})` would skip
         // creating it (and drop the command) when no tracker is set.
-        let task = Task { await failure(label, body) }
+        // The ticket opens now, so an action that awaits its scope waits
+        // for this command even before the task starts.
+        let ticket = openTicket()
+        let task = Task { await failure(label, ticket: ticket, body) }
         workTracker?(task)
     }
 
     /// Runs a command; returns nil on success, else the failure (logged).
     func failure(_ label: String, _ body: @Sendable (DaemonConnection) async throws -> Void) async -> ActionWorkFailure? {
+        await failure(label, ticket: openTicket(), body)
+    }
+
+    private func failure(_ label: String, ticket: CommandTicket?,
+                         _ body: @Sendable (DaemonConnection) async throws -> Void) async -> ActionWorkFailure? {
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
+            await closeTicket(ticket, label: label, error: DaemonError.notConnected)
             return "\(label): not connected to cmux-tui"
         }
         do {
             try await body(connection)
+            await closeTicket(ticket, label: label, error: nil, replying: connection)
             return nil
         } catch {
             logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            await closeTicket(ticket, label: label, error: error)
             return ActionWorkFailure(label, error)
         }
     }

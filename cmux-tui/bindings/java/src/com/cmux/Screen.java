@@ -43,6 +43,16 @@ public final class Screen {
         return mutateSnapshot(Operations.SCREEN_RENAME, params, options.mutation());
     }
 
+    public MutationResult<Snapshots.ScreenSnapshot> updateColumn(Options.ColumnUpdate options) {
+        Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
+        params.put("column", options.column());
+        options.sticky().ifPresent(sticky -> params.put("sticky", sticky));
+        options.edge().ifPresent(edge -> params.put("edge", edge));
+        options.mode().ifPresent(mode -> params.put("mode", mode));
+        options.width().ifPresent(width -> params.put("width", width));
+        return mutateSnapshot(Operations.SCREEN_COLUMN_UPDATE, params, options.mutation());
+    }
+
     public MutationResult<Snapshots.ScreenSnapshot> focus(Options.Mutation options) {
         return mutateSnapshot(
             Operations.SCREEN_FOCUS,

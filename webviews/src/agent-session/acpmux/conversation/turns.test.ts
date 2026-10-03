@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { DATE, formatDuration, turnView as shape, workedLabel } from "./turns";
-import { timestampText } from "./timestamps";
+import { timestampText, timestampTurns } from "./timestamps";
 
 /// The turn shape without its date lines, which "date lines" covers.
 const turnView = (...args: Parameters<typeof shape>) => shape(...args).filter((entry) => entry.kind !== DATE);
@@ -179,6 +179,24 @@ describe("timestamp lines", () => {
     expect(dated(rows, start + 2 * HOUR)).toEqual(["date-a"]);
     // The line sits right above its prompt.
     expect(ids(shape(rows, new Set(), { now: start + 2 * HOUR }))).toEqual(["date-a", "a", "a-a"]);
+  });
+
+  test("missing, zero or invalid times never add a date or an artificial gap", () => {
+    for (const unknown of [undefined, 0, NaN, Infinity, 1e20]) {
+      expect(timestampTurns([{ promptAt: unknown }], start, true)).toEqual([false]);
+      expect(timestampTurns([{ promptAt: start, answerAt: start }, { promptAt: unknown }], start, true)).toEqual([
+        false,
+        false,
+      ]);
+      expect(
+        timestampTurns(
+          [{ promptAt: start, answerAt: unknown }, { promptAt: start + 2 * HOUR }],
+          start + 2 * HOUR,
+          true,
+        ),
+      ).toEqual([true, false]);
+    }
+    expect(dated(turnAt("unknown", 0), start)).toEqual([]);
   });
 
   test("a prompt more than an hour after the previous answer is dated; turns within the hour are not", () => {

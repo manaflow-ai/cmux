@@ -68,7 +68,11 @@ extension AppServices {
         var sinceCheckpoint = Int.max
         controller.focus.settledObserver = { [weak self, weak controller] state in
             self?.notifications.focusDidSettle(state)
-            if let controller { self?.locationTrail.focusDidSettle(state, in: controller) }
+            self?.keyRouter.focusDidSettle(state, in: controller?.window)
+            if let controller {
+                self?.windows.recordSaver.focusDidSettle(controller.state, pane: state.pane)
+                self?.locationTrail.focusDidSettle(state, in: controller)
+            }
         }
         controller.focus.observer = { [weak state = controller.state] observation in
             monitor?.noteChange()
@@ -84,6 +88,9 @@ extension AppServices {
                 journal.append(window: window, .focus(event, after: FocusDigest(next)))
             case .suppressedResponder(let responder):
                 journal.append(window: window, .responder(responder, suppressed: true))
+            case .refusedByRun:
+                // Nothing changed: the run had no view-change permission.
+                break
             }
         }
     }

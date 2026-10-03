@@ -3,7 +3,8 @@
 #
 # Mechanical enforcement of the modular-refactor conventions (CLAUDE.md
 # "Modern Swift concurrency" + "Package design discipline") over the iOS
-# line: the mobile packages, the cmuxFeature package, and the iOS app shell.
+# line: the mobile packages and the iOS app shell. ios/CmuxiOS (the rewritten
+# app package) is not in scope yet.
 #
 # A finding is suppressed when the offending line, or one of the two lines
 # above it, contains one of:
@@ -20,7 +21,7 @@ cd "$ROOT"
 
 BASELINE_FILE="scripts/lint-ios-package-conventions-baseline.txt"
 SCOPES=()
-for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxAgentChat Packages/iOS/CmuxAgentChatUI Packages/Shared/CmuxSyncStore ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/Shared/CMUXMobileCore Packages/iOS/CmuxMobile* Packages/Shared/CmuxSyncStore ios/cmux; do
   [ -d "$d" ] && SCOPES+=("$d")
 done
 
@@ -92,12 +93,14 @@ scan free-function ERROR '^(@[A-Za-z()_ ]+ )?(public |internal |package |private
 
 echo "== namespace-enums and namespace-types =="
 NS_TYPE_ROOTS=()
-for d in Packages/*/*/Sources ios/cmuxPackage/Sources ios/cmux; do
+for d in Packages/*/*/Sources ios/cmux; do
   [ -d "$d" ] && NS_TYPE_ROOTS+=("$d")
 done
 if ! python3 scripts/lint_swift_namespaces.py \
   --baseline scripts/lint-namespace-types-baseline.txt \
   --general-baseline "$BASELINE_FILE" \
+  --ratchet scripts/lint-namespace-types-ratchet.txt \
+  ${NAMESPACE_RATCHET_UPDATE:+--update-ratchet} \
   --enum-roots "${SCOPES[@]}" \
   --type-roots "${NS_TYPE_ROOTS[@]}"; then
   fail=1

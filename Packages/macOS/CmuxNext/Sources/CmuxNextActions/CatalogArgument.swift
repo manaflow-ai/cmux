@@ -51,6 +51,12 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "pane", title: String(localized: "argument.pane", defaultValue: "Pane", bundle: .module), kind: .target(.pane))
     }
 
+    /// A recently closed item (`closed_…`); Recently Closed lists them.
+    static var closedItem: ActionArgument {
+        ActionArgument(name: "closed", title: String(localized: "argument.closed", defaultValue: "Closed Item", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     static var tabTab: ActionArgument {
         ActionArgument(name: "tab", title: String(localized: "argument.tab", defaultValue: "Tab", bundle: .module), kind: .target(.tab))
     }
@@ -180,6 +186,13 @@ nonisolated enum CatalogArgument {
                        kind: .enumeration([choice("webkit"), choice("cef")]), isRequired: false)
     }
 
+    /// Where `file.open` opens a file: a tab in the pane, or the text editor.
+    /// Without it, a tab.
+    static var whereChoice: ActionArgument {
+        ActionArgument(name: "where", title: String(localized: "argument.where", defaultValue: "Open In", bundle: .module),
+                       kind: .enumeration([choice("tab"), choice("editor")]), isRequired: false)
+    }
+
     /// Optional `confirm` flag every destructive action takes.
     static var confirmBool: ActionArgument {
         ActionArgument(name: ActionArgument.confirmName, title: String(localized: "argument.confirm", defaultValue: "Confirm", bundle: .module),
@@ -194,7 +207,8 @@ nonisolated enum CatalogArgument {
         switch value {
         case "grey": String(localized: "argument.value.grey", defaultValue: "Grey", bundle: .module)
         case "docked": String(localized: "argument.value.docked", defaultValue: "Docked", bundle: .module)
-        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Overlay", bundle: .module)
+        // UI name "Floating"; the value stays `overlay` on the wire and in cmux.json.
+        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Floating", bundle: .module)
         case "blue": String(localized: "argument.value.blue", defaultValue: "Blue", bundle: .module)
         case "red": String(localized: "argument.value.red", defaultValue: "Red", bundle: .module)
         case "yellow": String(localized: "argument.value.yellow", defaultValue: "Yellow", bundle: .module)
@@ -224,6 +238,8 @@ nonisolated enum CatalogArgument {
         case "down": String(localized: "argument.value.down", defaultValue: "Down", bundle: .module)
         case "left": String(localized: "argument.value.left", defaultValue: "Left", bundle: .module)
         case "up": String(localized: "argument.value.up", defaultValue: "Up", bundle: .module)
+        case "tab": String(localized: "argument.value.tab", defaultValue: "Tab", bundle: .module)
+        case "editor": String(localized: "argument.value.editor", defaultValue: "Editor", bundle: .module)
         default: value
         }
     }

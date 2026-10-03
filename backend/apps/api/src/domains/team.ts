@@ -7,11 +7,14 @@ import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduc
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
 export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
+  /** Installs of removed servers whose UserDO revocation is not confirmed yet (TeamDO retries; server.md 6.5). */
+  readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
 }
 
 /**
@@ -91,6 +94,18 @@ export const teamDomain: Domain<TeamState> = {
           outbox: [{ kind: "host.delete", entity: host.id, payload: { id: host.id, team: state.team?.id } }]
         }
       }
+      case "server.enrolled": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        return reduceServerEnrolled(state, params, ctx)
+      }
+      case "server.install_revoked": {
+        if (p.kind !== "system") return reject("auth.forbidden", "internal op")
+        return reduceServerInstallRevoked(state, params)
+      }
+      case "server.revoke": {
+        if (!state.team) return reject("validation.invalid", "team not initialized")
+        return reduceServerRevoke(state, params, ctx)
+      }
       case "team.policy.integration_seed": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         return withAudit(reduceIntegrationSeed(state, params, ctx), state.team.id, ctx, op)
@@ -124,6 +139,12 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.release":
         // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
         return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "sso.signed_in": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        const q = params as { connection?: string; subject?: string; stack_user?: string; linked?: boolean }
+        // Audit only; no state beyond the audit chain (identities live in the sso_identities side table).
+        return withAudit({ ok: true, state, value: { connection: q.connection }, audit: { summary: q.linked ? `first SSO sign-in through ${q.connection}` : `SSO sign-in through ${q.connection}`, detail: q } }, state.team.id, ctx, op)
+      }
       case "sso.connection.secret_set":
       case "sso.connection.activated": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")

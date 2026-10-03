@@ -28,7 +28,8 @@ import Testing
     }
 
     static func runParams(_ action: ControlActionInfo, name: String) -> [String: JSONValue] {
-        var params: [String: JSONValue] = ["action": .string(name), "args": sampleArguments(action)]
+        // Reachability only: answer once the handler ran (`wait` is ActionRunContractTests').
+        var params: [String: JSONValue] = ["action": .string(name), "args": sampleArguments(action), "wait": false]
         if let kind = action.targets.first { params["target"] = .string("\(kind):target1") }
         return params
     }
@@ -95,6 +96,28 @@ import Testing
             }
             #expect(invocation.arguments.count == action.arguments.count, "\(action.id)")
         }
+    }
+
+    @Test func checkpointCaptureReportsItsCapabilityAndStaysGatedUntilAvailable() async throws {
+        let registry = ActionRegistry.standard()
+        registry.context = [.agentPaneFocused]
+        let executor = RecordingExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        let described = try await router.handle(ControlRequest(method: "action.describe", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(described["action"]?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(described["action"]?["available"] == false)
+        let refused = await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"]))
+        #expect(refused.failure?.code == "unavailable")
+        #expect(refused.failure?.data?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(executor.requests.withLock { $0.isEmpty })
+
+        registry.context.insert(.checkpointCaptureAvailable)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let accepted = try await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(accepted["action"] == "agentPane.createCheckpoint")
+        #expect(executor.requests.withLock { $0.count } == 1)
     }
 
     @Test func everyContextMenuIDResolves() async throws {

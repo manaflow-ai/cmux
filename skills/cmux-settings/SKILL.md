@@ -13,7 +13,7 @@ For a viewer-specific route, read [the viewer matrix](../cmux-customization/refe
 
 ## Helper script
 
-Use the bundled helper for every read/write. It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically unless the change adds a validation issue. Issues the file already had, such as a key from a newer cmux, don't block an unrelated change; run `validate` to see them.
+Use the bundled helper for reads, and for writes when a validator is available (see below). It strips JSONC comments, validates the complete proposed document with `cmux config validate` before writing, and writes atomically unless the change adds a validation issue. Issues the file already had, such as a key from a newer cmux, don't block an unrelated change; run `validate` to see them.
 
 ```bash
 skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux checkout
@@ -21,6 +21,17 @@ skills/cmux-settings/scripts/cmux-settings <subcommand>            # from a cmux
 ```
 
 The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkout, `export PATH="$PWD/skills/cmux-settings/scripts:$PATH"`.
+
+The helper's semantic validation shells out to `cmux --json config validate`, which the Rust `cmux` does not have. Until it does, `set`, `unset` and `validate` refuse with a validator failure unless `CMUX_CLI_BIN` names a CLI that still provides it. With the app running, use its settings verbs instead; they write the same `cmux.json`:
+
+```bash
+cmux settings get app.appearance
+cmux settings set app.appearance dark        # VALUE is parsed as JSON, else stored as a string
+cmux settings unset app.appearance
+cmux settings open-json                      # app action: open cmux.json
+```
+
+So without such a CLI, use the helper only for `path`, `dump`, `get`, `list-supported` and `open`, and make changes with `cmux settings`. Every helper command that writes or checks the file (`set`, `unset`, `undo`, `--preview`, `validate`) needs `CMUX_CLI_BIN`.
 
 | Command | What it does |
 |---|---|
@@ -45,15 +56,16 @@ The installed `cmux` CLI covers the common edits without the helper: `cmux confi
    ```bash
    cmux-settings list-supported | rg -i 'sidebar.*terminal|terminal.*sidebar'
    ```
-2. Set it. JSON literals must be valid JSON.
+2. Set it with the app's settings verb. JSON literals must be valid JSON.
    ```bash
-   cmux-settings set sidebarAppearance.matchTerminalBackground true
-   cmux-settings set app.appearance dark
-   cmux-settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
-   cmux-settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
+   cmux settings set sidebarAppearance.matchTerminalBackground true
+   cmux settings set app.appearance dark
+   cmux settings set shortcuts.bindings.newTab '["ctrl+b","c"]'
+   cmux settings set browser.hostsToOpenInEmbeddedBrowser '["localhost","*.internal.example"]'
    ```
-3. Read back and `cmux-settings validate`.
-4. Tell the user it auto-reloaded, and that `cmux-settings unset <key>` reverts it.
+   With `CMUX_CLI_BIN` set to a CLI that has `config validate`, `cmux-settings set` takes the same arguments and validates first.
+3. Read back with `cmux settings get <key>` (or `cmux-settings get <key>`). Run `cmux-settings validate` only when `CMUX_CLI_BIN` is set.
+4. Tell the user it auto-reloaded, and that `cmux settings unset <key>` reverts it.
 
 ## Viewer settings
 
@@ -66,22 +78,22 @@ cmux-settings list-supported | rg '^(browser|markdown|fileEditor|fileExplorer|di
 Examples:
 
 ```bash
-cmux-settings set markdown.fontSize 16
-cmux-settings set fileEditor.wordWrap true
-cmux-settings set fileExplorer.doubleClickAction '"preferredEditor"'
-cmux-settings set diffViewer.defaultLayout '"split"'
+cmux settings set markdown.fontSize 16
+cmux settings set fileEditor.wordWrap true
+cmux settings set fileExplorer.doubleClickAction '"preferredEditor"'
+cmux settings set diffViewer.defaultLayout '"split"'
 ```
 
 Browser profile import, per-page navigation, developer tools, and the current
 right-sidebar tab are runtime or UI state; use the browser/sidebar commands or
 the relevant Settings pane instead of adding guessed JSON keys. After any
-successful edit, run `cmux reload-config` and validate the exact path.
+successful edit, run `cmux settings reload-configuration` and read back the exact path.
 
-`set` and `unset` print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
+The helper's `set` and `unset` (with `CMUX_CLI_BIN`) print a JSON result such as `{"status": "persisted", "key": "app.appearance", "runtime": "unobserved"}`. It records what reached disk; the running app's reload is not observed. A refusal prints `{"status": "conflict", "code": ...}` on stderr and exits 1 without writing. An `invalid_config` refusal adds `issues`, the path and message of each problem the change would add.
 
 ## Reversible changes
 
-Use these when a change may need to be taken back later, for example a preset the user can uninstall:
+Use these when a change may need to be taken back later, for example a preset the user can uninstall. They are helper-only and need `CMUX_CLI_BIN` (see above); `cmux settings` has no preview, revision check or receipt:
 
 ```bash
 cmux-settings set computerUse.showInMenuBar false --preview        # prints the change and a revision; writes nothing
@@ -111,7 +123,7 @@ Full list of settings, defaults, and descriptions: `cmux-settings list-supported
 
 - Only edit `cmux.json`. Never `settings.json` unless the user explicitly asks; it is legacy and read only when a key is absent from `cmux.json`.
 - Never tell the user to restart cmux. The file watcher reloads on save.
-- Always `cmux-settings validate` after a bulk edit. Validation errors include the exact config path and violated constraint.
+- Always `cmux-settings validate` after a bulk edit when `CMUX_CLI_BIN` is set; otherwise read each path back with `cmux settings get`. Validation errors include the exact config path and violated constraint.
 - Do not blindly overwrite `actions`, `ui`, `commands`, `vault`, or `rightSidebar`; they share the file and hold hand-tuned non-settings config.
 - Shortcut action ids must match the schema enum. Look them up before binding.
 - Colors are `#RRGGBB`; opacities are `0..1`.

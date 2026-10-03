@@ -11,6 +11,8 @@ enum TabContent {
     case browser(BrowserEntry)
     /// An agent chat tab (`LocalAgentTab`), the React pane in a web view.
     case agent(AgentPaneView)
+    /// An internal page tab (`LocalPageTab`): Settings, Debug Settings.
+    case page(InternalPageView)
     /// A remote-terminal tab whose session is not attached (data-model.md 1.4).
     case placeholder(RemoteTerminalPlaceholderView)
 
@@ -19,8 +21,14 @@ enum TabContent {
         case .terminal(let entry): entry.session.view
         case .browser(let entry): entry.chrome
         case .agent(let view): view
+        case .page(let view): view
         case .placeholder(let view): view
         }
+    }
+
+    /// A Ghostty terminal (it is ready on its first frame, not when shown).
+    var isTerminal: Bool {
+        if case .terminal = self { true } else { false }
     }
 
     /// The view that should become first responder when the pane is focused.
@@ -29,6 +37,7 @@ enum TabContent {
         case .terminal(let entry): entry.session.surfaceView
         case .browser(let entry): entry.tab.contentView
         case .agent(let view): view.webView
+        case .page(let view): view.focusTarget
         case .placeholder(let view): view
         }
     }

@@ -29,8 +29,12 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
+        // Theme and background first: changing the window background while
+        // AppKit installs the content view puts the content above the
+        // titlebar, which hides the close button (lane 20).
         setThemeScope(SettingsTheme.shared.scope)
+        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
+        window.contentView = SettingsContentView(rootView: SettingsRootView(model: model))
     }
 
     /// Draws the window in `scope`: the App passes the scope of the main
@@ -45,11 +49,13 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    /// Shows the window on `section` (nil keeps the last one).
-    public func present(section: SettingsSection? = nil) {
-        if let section {
-            model.query = ""
-            model.selection = section
+    /// Shows the window on `section` (nil keeps the last one), or scrolled
+    /// to `anchor` with its highlight (`openSettings setting:`).
+    public func present(section: SettingsSection? = nil, anchor: SettingsAnchor? = nil) {
+        if let anchor {
+            model.open(anchor)
+        } else if let section {
+            model.select(section, layout: SettingsWindowLayout.tunable.value)
         }
         guard let window else { return }
         SettingsTheme.shared.scope.adopt(window)
@@ -59,6 +65,12 @@ public final class SettingsWindowController: NSWindowController, NSWindowDelegat
     public func windowWillClose(_ notification: Notification) {
         model.cancelRecording()
         onClose?()
+    }
+
+    /// Recording stops when the window loses the keys, so the system-wide
+    /// hot keys it suspended do not stay off behind another window or app.
+    public func windowDidResignKey(_ notification: Notification) {
+        model.cancelRecording()
     }
 }
 
@@ -76,7 +88,8 @@ final class SettingsContentView: NSHostingView<SettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
+        let color = performWithTheme { Palette.utilityWindowBackground }
+        if let window, window.backgroundColor != color { window.backgroundColor = color }
     }
 }
 

@@ -67,6 +67,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// Chromium's own Back/Forward state; the tab also offers the entries
+    /// saved before a relaunch (`restored`).
+    @ObservationIgnored var nativeHistory = (back: false, forward: false)
+    @ObservationIgnored lazy var restored = CEFRestoredSession(tab: self)
     /// A title Chromium reported before its own navigation (Back, Forward,
     /// a page-initiated load) committed. Back and Forward report the entry's
     /// title first, and a page restored from the back/forward cache never
@@ -258,8 +262,17 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         }
     }
 
-    public func goBack() { browserID.map { runtime.shim?.goBack($0) } }
-    public func goForward() { browserID.map { runtime.shim?.goForward($0) } }
+    public func goBack() {
+        if !nativeHistory.back, restored.step(by: -1) { return }
+        browserID.map { runtime.shim?.goBack($0) }
+    }
+
+    /// Saved forward entries sit right after Chromium's first entry
+    /// (`BrowserRestoredHistory`), so they come first from there.
+    public func goForward() {
+        if !nativeHistory.back, restored.step(by: 1) { return }
+        browserID.map { runtime.shim?.goForward($0) }
+    }
 
     public func reload() {
         reloadWhenShown = false

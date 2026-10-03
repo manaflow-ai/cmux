@@ -29,8 +29,11 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.model = model
         super.init(window: window)
         window.delegate = self
-        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
+        // Theme and background before the content view, so the titlebar
+        // (close button) stays above it (lane 20).
         setThemeScope(SettingsTheme.shared.scope)
+        window.backgroundColor = SettingsTheme.shared.scope.perform { Palette.utilityWindowBackground }
+        window.contentView = DebugSettingsContentView(rootView: DebugSettingsRootView(model: model))
     }
 
     @available(*, unavailable)
@@ -70,13 +73,14 @@ final class DebugSettingsContentView: NSHostingView<DebugSettingsRootView> {
     }
 
     private func applyColors() {
-        performWithTheme { window?.backgroundColor = Palette.utilityWindowBackground }
+        let color = performWithTheme { Palette.utilityWindowBackground }
+        if let window, window.backgroundColor != color { window.backgroundColor = color }
     }
 }
 
-/// Cmd-W closes this window (it is no cmux shell window, so the app's
-/// Close Tab shortcut must not reach the main window), Cmd-F focuses the
-/// search, Escape clears the search first and then closes.
+/// Cmd-F focuses the search, Escape clears the search first and then
+/// closes. Cmd-W closes it through the app's shared rule for standalone
+/// windows (`StandaloneWindowRule`), like every window of its own.
 final class DebugSettingsWindow: NSWindow {
     weak var model: DebugSettingsModel?
 
@@ -84,10 +88,6 @@ final class DebugSettingsWindow: NSWindow {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased()
-        if flags == .command, key == "w" {
-            performClose(nil)
-            return true
-        }
         if flags == .command, key == "f" {
             model?.searchFocusRequest += 1
             return true

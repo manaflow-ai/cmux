@@ -1,74 +1,63 @@
 ---
 name: cmux
-description: End-user control of cmux topology and routing (windows, workspaces, panes/surfaces, focus, moves, reorder, identify, trigger flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
+description: End-user control of cmux topology and routing (windows, workspaces, panes, tabs, terminals, focus, moves, identify, flash). Use when automation needs deterministic placement and navigation in a multi-pane cmux layout.
 ---
 
 # cmux Core Control
 
-Non-browser cmux topology and routing.
+Non-browser cmux topology and routing. The `cmux` CLI is noun-first: `cmux <scope> [<selector>] <verb>`.
 
-- **Window**: top-level macOS cmux window.
-- **Workspace**: tab-like group within a window.
-- **Pane**: split container in a workspace.
-- **Surface**: a tab within a pane (terminal or browser panel).
+- **Window**: top-level macOS cmux window, owned by the app.
+- **Workspace** (`ws_…`): a sidebar entry.
+- **Screen** (`screen_…`): a layout inside a workspace.
+- **Pane** (`pane_…`): a split region in a screen.
+- **Tab** (`tab_…`): a tab in a pane, showing a terminal or browser.
+- **Terminal** (`term_…`): terminal content, addressable with or without a tab.
+- **Room**: a personal view that shows the workspaces pinned to it and those of the sessions it follows. Rooms, workspace groups and tab or screen groups take their id or exact name (`cmux room --help`).
+- **Closed history**: recently closed tabs, screens and workspaces (`cmux closed list`, `cmux closed <id> reopen`).
 
 ## Fast start
 
 ```bash
-cmux identify --json                              # current caller context
-cmux list-windows / list-workspaces / list-panes
-cmux list-pane-surfaces --pane pane:1
-cmux new-workspace
-cmux new-split right --surface surface:1
-cmux new-split down --command "npm run dev"       # new terminal runs the command in a live shell
-cmux move-surface --surface surface:7 --pane pane:2 --focus true
-cmux split-off --surface surface:7 right
-cmux reorder-surface --surface surface:7 --before surface:3
-
-# workspace context-menu actions (color, description, rename, pin, ...)
-cmux workspace-action --action set-color --color Blue
-cmux workspace-action --action set-description --description "Ship checklist"
-
-# attention cue
-cmux trigger-flash --surface surface:7
+cmux app identify                                  # which app and socket
+cmux terminal "$CMUX_TUI_TERMINAL_ID" show --json  # the caller terminal
+cmux window list
+cmux workspace list
+cmux pane list
+cmux tab list
+cmux workspace create --name api
+cmux pane pane_… split --right
+cmux pane pane_… run -- npm run dev                # new tab running the argv
+cmux tab tab_… move --workspace ws_… --screen screen_… --pane pane_… --index 0
+cmux pane flash-focused                            # attention cue (app action)
 ```
 
-## Handle model
+## Selectors
 
-Output defaults to short refs (`window:N`, `workspace:N`, `pane:N`, `surface:N`). UUIDs are accepted as input; request UUID output only when needed with `--id-format uuids|both`.
+Every instance selector is a public id (`ws_…`, `pane_…`, `tab_…`, `term_…`), `current`, or an exact name. `name:<value>` forces a name; it is required for names equal to `current`, shaped like an id, or containing `_`. An ambiguous name fails with every candidate id. `current` is the focused object in the session, not the caller; use `$CMUX_TUI_TERMINAL_ID` for the caller. Ids are stable across app and daemon restarts. The old `window:N`, `workspace:N`, `pane:N` and `surface:N` refs are gone.
 
-## Initial command on new terminals
+## Running a command in a new terminal
 
-`new-workspace`, `new-split`, `new-pane`, and `new-surface` accept `--command <text>`. cmux starts the terminal's normal interactive shell and delivers the text plus one Enter at spawn time, so the command runs immediately and the shell stays alive after it exits. No follow-up `send` or `send-key enter` is needed, and the text is passed literally (quoting, `&&`, pipes, and `$VARS` are interpreted by the new shell). The flag is terminal-only: it is rejected with `--type browser|simulator|agent-session`, blank text is ignored, and `new-workspace --layout` ignores it because layout surfaces define their own commands. Details: [references/panes-surfaces.md](references/panes-surfaces.md).
+`cmux pane <sel> run -- <argv…>` opens a tab in that pane running the exact argv; `run shell '<script>'` passes a script to the shell. `--on-exit close|keep` controls the tab after the process exits, and `--cwd`/`--name` set its directory and title. `cmux workspace <sel> run` does the same in a workspace. The app action `cmux workspace new --command "…"` types the command into a new workspace's shell.
+
+## App actions
+
+Every action in the app's registry is also a verb: `cmux action list --noun workspace` lists them and `cmux action describe "<noun> <verb>"` shows arguments. Run one with `cmux <noun> <verb> [--target ID] [--<arg> VALUE]`, for example `cmux workspace set-color --target ws_… --color blue`. The daemon grammar is tried first; words it rejects run as an app action.
 
 ## Settings
 
-cmux-owned settings live in `~/.config/cmux/cmux.json`. `cmux docs settings` prints the docs URL, schema URL, raw GitHub resources, cmux.json paths, and reload command. `cmux settings`, `cmux settings cmux-json`, and `cmux settings shortcuts` open the UI.
+cmux-owned settings live in `~/.config/cmux/cmux.json`. With the app running, `cmux settings get [PATH]`, `cmux settings set PATH VALUE` and `cmux settings unset PATH` read and write it. `cmux settings reload-configuration` reloads it, and `cmux settings open-json` opens it.
 
-`cmux reload-config` reloads both `cmux.json` and `~/.config/ghostty/config`, refreshing terminals in place with no app restart.
-
-Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it. Legacy `~/.config/cmux/settings.json` and `~/Library/Application Support/com.cmuxterm.app/settings.json` are read only as fallback for missing keys.
-
-For a completed download, the CLI can inspect the bounded history owned by the
-target browser surface without consuming a waiter:
-
-```bash
-cmux browser --surface <surface> download list
-cmux browser --surface <surface> download list --limit 5 --json
-```
-
-Use the browser skill for the full response fields and wait/path compatibility
-details.
+Terminal rendering (font, cursor style, theme, scrollback, `background-opacity`, `background-blur`) belongs in Ghostty config, not cmux settings. Everything else (app behavior, sidebar, notifications, browser behavior, automation, workspace colors, cmux-owned shortcuts) is cmux settings. Before editing, copy any existing `cmux.json` to a timestamped `.bak` next to it.
 
 ## Deep-dive references
 
 | Reference | When to Use |
 |-----------|-------------|
-| [references/handles-and-identify.md](references/handles-and-identify.md) | Handle syntax, self-identify, caller targeting |
-| [references/windows-workspaces.md](references/windows-workspaces.md) | Window/workspace lifecycle, reorder/move, and context-menu actions (color, description, rename) |
-| [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, surfaces, move/reorder, focus routing |
-| [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue and surface health checks |
+| [references/handles-and-identify.md](references/handles-and-identify.md) | Selectors, ids, and finding the caller |
+| [references/windows-workspaces.md](references/windows-workspaces.md) | Window and workspace lifecycle, order, and context-menu actions |
+| [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
+| [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
-| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits and validation |
-| [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser automation on surface-backed webviews |
-| [../cmux-markdown/SKILL.md](../cmux-markdown/SKILL.md) | Markdown viewer panel with live file watching |
+| [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe cmux.json settings edits |
+| [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |

@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 
 /// New terminal tab, new browser tab, and close tab for a shown pane (the
@@ -14,6 +15,7 @@ enum TabLifecycle {
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).
         let keep = invocation["keep"]?.boolValue == true ? true : nil
+        noteUserChoice(.terminal, ctx, invocation, pane: pane)
         if let controller = ctx.services.paneController(for: pane) { return controller.newTerminalTab(cwd: cwd, keep: keep, fromSelectedTab: true) }
         let handle = pane.handle
         let start = cwd ?? pane.tabs.first?.cwd
@@ -21,19 +23,38 @@ enum TabLifecycle {
         ctx.send("new-tab") { _ = try await $0.newTab(in: handle, options: SpawnOptions(cwd: start, workspace: workspace, keep: keep)) }
     }
 
-    /// `newTab.sameKind` (Cmd-T): a tab of the kind of the pane's selected
-    /// tab (`NewTabKind`), through the New Terminal Tab and New Browser Tab
-    /// paths, so focus and options match them.
+    /// `newTab.sameKind` (Cmd-T, the strip's +): a tab of the kind of the
+    /// pane's selected tab (`NewTabKind`) unless `tabs.newTabKind` says
+    /// otherwise, through the New Terminal Tab, New Browser Tab and New
+    /// Agent Chat paths, so focus and options match them. Scripts (CLI,
+    /// MCP) always get the same kind, whatever the user's setting.
     static func newTabOfPaneKind(_ ctx: AppActionContext, _ invocation: ActionInvocation) {
         guard let pane = ctx.daemonPane(invocation) else { return }
+        let controller = ctx.services.paneController(for: pane)
         // The targeted tab (CLI `--tab`), else the pane's selected tab (an
         // empty pane has none and gets a terminal; never a refusal).
         let selectedID = invocation.target?.kind == .tab ? invocation.target?.id
-            : ctx.services.paneController(for: pane)?.stripModel.selectedID?.rawValue
+            : controller?.stripModel.selectedID?.rawValue
             ?? (pane.tabs.indices.contains(pane.defaultTabIndex) ? pane.tabs[pane.defaultTabIndex].id : nil)
         let tab = pane.tabs.first { $0.id == selectedID }
-        let local = selectedID?.hasPrefix(LocalBrowserTab.prefix) == true
-        switch NewTabKind.resolve(selectedKind: tab?.kind, engine: tab?.browserEngine, isLocalBrowser: local) {
+        let user = invocation.origin == .user
+        // Agent tabs and pages count as a kind for the user only: a script's
+        // `tab new` always gets a terminal or browser it can drive.
+        let onAgentTab = user && controller != nil && selectedID?.hasPrefix(LocalAgentTab.prefix) == true
+        var sameKind = NewTabKind.resolve(
+            selectedKind: tab?.kind, engine: tab?.browserEngine,
+            isLocalBrowser: selectedID?.hasPrefix(LocalBrowserTab.prefix) == true, isAgent: onAgentTab
+        )
+        if onAgentTab, let selectedID, ctx.services.agentTabs.isNewTabPage(selectedID) { sameKind = .page }
+        let folder = controller?.selectedTab?.cwd ?? tab?.cwd
+        var kind = sameKind
+        if user {
+            let setting = ctx.services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback
+            kind = NewTabKind.resolve(setting, sameKind: sameKind, recent: ctx.services.newTabKinds.recent(in: folder))
+        }
+        // Agent tabs and the page live in a shown pane; elsewhere, a terminal.
+        if controller == nil, kind == .agent || kind == .page { kind = .terminal }
+        switch kind {
         case .terminal:
             newTerminal(ctx, invocation)
         case .browser(let engine):
@@ -41,7 +62,19 @@ enum TabLifecycle {
             invocation.arguments["cwd"] = nil
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation)
+        case .agent:
+            ctx.services.newTabKinds.record(.agent, folder: folder)
+            controller?.newAgentTab()
+        case .page:
+            controller?.newTabPage()
         }
+    }
+
+    /// A tab the user opened on purpose, for `tabs.newTabKind: auto`.
+    private static func noteUserChoice(_ kind: NewTabKind, _ ctx: AppActionContext, _ invocation: ActionInvocation, pane: PaneModel) {
+        guard invocation.origin == .user else { return }
+        let folder = ctx.services.paneController(for: pane)?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+        ctx.services.newTabKinds.record(kind, folder: folder)
     }
 
     /// `openBrowser.webkit` and `openBrowser.chromium`: `openBrowser` with a fixed engine.
@@ -81,6 +114,10 @@ enum TabLifecycle {
         }
         guard let pane = ctx.daemonPane(invocation) else { return }
         let engine = invocation["engine"]?.stringValue
+        // A refused engine is not remembered, or Auto would repeat the refusal on every Cmd-T in the folder.
+        if case .open? = ctx.services.cache.browserTabs?.resolve(requested: engine) {
+            noteUserChoice(.browser(engine: engine), ctx, invocation, pane: pane)
+        }
         // A tab the CLI, MCP or a script opens is an agent's: no saved password fills in it (plans/cmux-next/browser.md).
         let cache: TabContentCache? = ctx.services.cache
         var agentTab: (@MainActor (SurfaceID) -> Void)?

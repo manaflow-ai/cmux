@@ -94,6 +94,36 @@ import Testing
         #expect(model.sections.last?.section.id == "tabSearch.closed")
     }
 
+    /// The owner's change event re-reads the shown page at once: the tab
+    /// leaves Open Tabs and appears under Recently Closed with no other
+    /// trigger (no wait for the next layout change).
+    @Test func aChangeEventUpdatesTheShownPageAtOnce() async {
+        let source = MockTabSearchSource(now: now)
+        let model = open(source)
+        let live = TabSearchLiveUpdates()
+        live.follow(source, in: model)
+        source.entries.removeAll { $0.id == "tab_3" }
+        source.entries.append(TabSearchEntry(id: "local/tab_3", kind: .terminal, title: "bun dev", order: 9,
+                                             state: .closed(closedAt: now)))
+        source.emitChange()
+        for _ in 0..<1_000 where !model.rows.contains(where: { $0.id == "closed:local/tab_3" }) { await Task.yield() }
+        #expect(model.rows.contains { $0.id == "closed:local/tab_3" })
+        #expect(!model.rows.contains { $0.id == "tab:tab_3" })
+        live.stop()
+    }
+
+    @Test func liveUpdatesStopOnceThePageIsGone() async {
+        let source = MockTabSearchSource(now: now)
+        let model = open(source)
+        let live = TabSearchLiveUpdates()
+        live.follow(source, in: model)
+        model.reset(to: PalettePageSpec(id: "root", title: "Commands", placeholder: "Search", providers: []))
+        source.emitChange()
+        for _ in 0..<50 { await Task.yield() }
+        #expect(model.currentPageID == "root")
+        #expect(model.rows.isEmpty)
+    }
+
     @Test func selectionAfterRemovingStaysInTheSection() {
         let rows = [(id: "a", section: "open"), (id: "b", section: "open"), (id: "c", section: "closed"), (id: "d", section: "closed")]
         #expect(PaletteModel.selection(afterRemoving: "a", from: rows) == "b")

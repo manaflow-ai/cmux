@@ -42,12 +42,33 @@ public struct SidebarMapping {
             machineID: machine,
             title: workspace.displayName,
             subtitle: subtitle(tabs),
-            status: status.flatMap { $0.isEmpty ? nil : $0 },
+            // The hooks' status line, else the daemon's workspace status (state resources).
+            status: (status ?? workspace.status?.line).flatMap { $0.isEmpty ? nil : $0 },
             icon: color(workspace.color).map(WorkspaceIcon.swatch) ?? workspace.icon.map(WorkspaceIcon.parse),
             unread: unread > 0 ? .count(unread) : (showsUnread && workspace.markedUnread ? .dot : .none),
             activity: indicator.state,
-            activityStyle: indicator.style
+            activityStyle: indicator.style,
+            progress: progress(workspace, tabs: tabs)
         )
+    }
+
+    /// The workspace's reported progress, else the first terminal progress
+    /// the daemon parsed for one of its tabs (mounted or not).
+    public func progress(_ workspace: WorkspaceModel, tabs: [TabModel]) -> SidebarProgress? {
+        if let reported = workspace.status?.progress { return SidebarProgress(value: reported.value) }
+        guard let terminal = tabs.lazy.compactMap(\.progress).first else { return nil }
+        return Self.progress(terminal)
+    }
+
+    /// A terminal's OSC 9;4 progress as a bar; nil for a paused one with no value.
+    public static func progress(_ report: TerminalProgressReport) -> SidebarProgress? {
+        let value = report.value.map { Double($0) / 100 }
+        switch report.state {
+        case .normal: return SidebarProgress(value: value)
+        case .error: return SidebarProgress(value: value ?? 1, isError: true)
+        case .indeterminate: return SidebarProgress(value: nil)
+        case .paused: return value.map { SidebarProgress(value: $0) }
+        }
     }
 
     /// cwd of the first tab that reports one, `~`-abbreviated, plus branch.

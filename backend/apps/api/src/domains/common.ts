@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, feedInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, InstallId, Platform, schedulerInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -66,6 +66,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       result: Schema.Unknown,
       errors: [],
       docs: "Internal: create the caller's personal team.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "sso.signed_in",
+    {
+      name: "sso.signed_in",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ connection: Schema.String, subject: Schema.String, stack_user: Schema.String, linked: Schema.Boolean }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a person signed in through an SSO connection (audit; subject is a hash of connection and IdP subject).",
       cli: { path: "", visible: false },
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
@@ -207,9 +224,68 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         } as CloudOpDef
       ] as const
   ),
+  [
+    "install.revoke_by_team",
+    {
+      name: "install.revoke_by_team",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "destructive",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId, team: TeamId, by: UserId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the bound team's TeamDO revokes a paired server's install (plans/cmux-next/server.md 6.5).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.install_revoked",
+    {
+      name: "server.install_revoked",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO confirmed the revocation of a removed server's install.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.enrolled",
+    {
+      name: "server.enrolled",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({
+        install: InstallId,
+        name: DisplayName,
+        platform: Platform,
+        wg_public_key: WgPublicKey,
+        owner_user: UserId,
+        approved_by: UserId
+      }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: an approved pairing adds the server to the directory (plans/cmux-next/server.md 6.2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
-  ...feedInternalOps.map((d) => [d.name, d] as const)
+  ...feedInternalOps.map((d) => [d.name, d] as const),
+  ...pushInternalOps.map((d) => [d.name, d] as const)
 ])
 
 /**

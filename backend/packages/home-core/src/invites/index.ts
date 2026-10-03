@@ -1,4 +1,5 @@
 /** Invite logic: pure functions plus the one provider path (home-messaging.md sections 5, 9, 15). */
+export { crockford, isCrockford } from "./base32.ts"
 export * from "./normalize.ts"
 export * from "./token.ts"
 export * from "./limits.ts"

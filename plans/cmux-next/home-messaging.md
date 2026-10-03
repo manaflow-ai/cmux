@@ -653,9 +653,51 @@ Goal: a person texts the cmux line and talks to their Chief; Chief replies in th
   (`textAuthority`). Never in a text: secrets, tokens, passwords, codes, other people's invite
   secrets; anything that would show one opens the app. Strongest objection: with the full
   default, a SIM swap, a stolen phone or a recycled number gives full Chief power by text.
-  DECISION (not built): require an in-app confirmation for destructive or irreversible actions
-  requested by text. RECOMMEND yes, because it closes the worst case of the full default at
-  the cost of one tap.
+  Decided (Lawrence, 2026-10-02) and built (`mux/text-confirm.ts`): an in-app confirmation for
+  destructive or irreversible actions requested by text.
+  Rule `needsConfirmation(level)` (levels decided 2026-10-02, `mux/confirm-level.ts`), one level
+  per user (UserDO, section 21), read by every chief as `chiefLevelOf`:
+  - `strict` (default): text requests that are `destructive`, `money`, `send-external` or
+    `access` (grants, installs, addresses, tokens, team invites, the text channel), or flagged
+    irreversible;
+  - `destructive-only`: `destructive` or flagged irreversible only;
+  - `off`: no confirmation.
+  A safer level applies at once; a riskier level needs Face ID or the device passcode and a
+  device proof the server checks; a team or MDM lock is a minimum (one slot per source, shown as
+  "Locked by <name>"; it can raise the level, never lower it); every change is audited and every lowering is announced to all of
+  the owner's devices and by email. Details and the client contract: section 21. The former
+  per-chief ops `mux.text_confirm.level.set|confirm|lock` are removed; per-chief values migrate
+  to the safest.
+  Settings copy (en; all 21 locales in `home-core/copy/text-confirm-levels.json`, ja written by
+  the agent, other locales `needs_review`):
+  - title: "Confirm risky actions asked by text"
+  - strict: "Strict (recommended): when a text asks Chief to delete something, spend money, send
+    something outside cmux, change who has access or do anything that cannot be undone, you
+    confirm it in the app first."
+  - destructiveOnly: "Destructive only: you confirm deletions and actions that cannot be undone.
+    Chief may spend money, send messages and change access from a text without asking you."
+  - off: "Off: Chief does everything a text asks without asking you."
+  - simSwapRisk (shown under every level): "Anyone who takes control of your phone number (a
+    stolen phone, a SIM swap or a recycled number) can text Chief as you. The less you confirm,
+    the more that person can do."
+  - raiseTitle, raiseBody, raiseConfirm (the second dialog): "Lower your protection?" / "With
+    this level, a person who takes over your phone number can do more as you. Continue only if
+    you accept that risk." / "Lower protection"
+  - lockedBy: "Locked by {name}"
+  - notices (feed and email): level.strict / level.destructiveOnly / level.off; lowered.title
+    "Text protection lowered", lowered.body "Confirmation for texts to Chief changed from {from}
+    to {to}. If you did not do this, open cmux on a trusted device and set it back to Strict.";
+    keyAdded.title and keyAdded.body for a new presence key.
+  Confirmation requests, MuxDO ops (idempotency keys from the caller): `mux.confirm.request {op, params_hash, risk, summary, source}` by the chief
+  (row in table `confirm`, at most 64 rows and 20 live pending); `mux.confirm.decide {confirm,
+  approve}` only by the owner's session or Mac, iPhone or web app install acting for no agent,
+  with origin `user` (never a text, a daemon or CLI install, the chief or another user);
+  `mux.confirm.consume {confirm, op, params_hash}` by the chief, once, for exactly the approved
+  op and params, all within 15 minutes of the request. Executor contract: the action's
+  idempotency key derives from the confirm id. Gap: the chief writes both the summary and the
+  params hash; the approval card must render the action from the op and params, not only the
+  summary. The adapter posts the request as an `approval` part in the chief
+  conversation and pushes it to the owner's devices.
 
 Decisions (Lawrence, 2026-10-02): T1 a texted Stack sign-in link (above), not reverse
 verification; T2 texts land in the main chief conversation marked `via: sms`; T3 full Chief
@@ -664,8 +706,15 @@ default (`?v=` keeps the others), `?s=square` renders 1200x1200.
 
 ## 20. One op vocabulary: reconciling home-core with `cmux-conversation`
 
-Contract: `backend/packages/home-core/conformance/conversation-cases.json` (64 cases) is the
-op-level contract both owners run; `conversation-cloud-cases.json` (84) covers cloud-only rules.
+Contract: `backend/packages/home-core/conformance/conversation-cases.json` (73 cases) is the
+op-level contract both owners run, and a REQUIRED check for the Rust owner (decision
+2026-10-02). Every head now carries `agent_text_streak` and `last_agent_text_at` (local heads
+too); the cases named "loop guard:" are the work-card bypass that a row window misses.
+`conversation-search-cases.json` (12 cases) is the contract for `conversation-search {query,
+limit 1-100} -> {hits: [{conversation, title, seq, message_id, author, created_at, snippet}]}`
+(read model `searchConversations`: current participants only, `since_join` honored, retracted
+messages never match, case-insensitive substring per code point, newest first, snippets of 120
+characters centered on the match); the cloud `home.search` returns the same hit shape. `conversation-cloud-cases.json` (84) covers cloud-only rules.
 The Rust owner adds a cargo test that replays the local file (on a testbox). Framing stays per
 transport (daemon line commands, `cmux.wire/1` frames); the op names, params, commits and reject
 reasons are the same.
@@ -677,10 +726,83 @@ reasons are the same.
 | 3 | Ledger scope | `op_ledger (conversation, idempotency_key)`: two actors with one key collide | engine ledger per (identity, key) inside the conversation's object | Rust adds the actor to the ledger key (bug: one participant can block another's `client_msg_id`) |
 | 4 | `client_msg_id == idempotency_key` | required | required when the engine passes the key (owner and own intent preview) | Same rule; corpus covers it |
 | 5 | Reject transport | `error_code: conversation_rejected`, reason in the message text | `code` = the reason | Rust adds a structured `reason` field (same 20 local codes); cloud keeps `code` = reason; corpus asserts reasons |
-| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1) | Rust adopts the head counters (fixes the loop bypass); the local corpus notes describe the two edge differences until then |
+| 6 | Agent budget | window of the newest 5 rows; text-less work cards fill the window, so two agents can loop forever with work cards | head counters `agent_text_streak`, `last_agent_text_at`, O(1), in every head | Decided: Rust adopts the head counters; the local corpus now requires them |
 | 7 | Typing | `conversation-typing` command, ephemeral event | ConversationDO memory broadcast | One non-op frame `typing {conversation, on}` and event `conversation-typing` on both; never stored, not in the corpus |
 | 8 | Agent identity | `conversation-agent-token` + `conversation-bind` (local token) | principal from the Worker (agent token, grant) | Transport auth, not ops; stays local-only; not in the corpus |
 | 9 | Participants | `user_local`, `user_<id>`, `agent_<name>` | plus `addr_<26>` (kind `address`), roles, `joined_seq`, `left_at` | Local stays a subset; `conversation.promote` maps `user_local` to the account's `user_<id>` |
 | 10 | Message ids | ULID `msg_<26>` | engine `newId("msg")` | Both accept any `msg_` id; the corpus passes `new_message_id` |
 | 11 | Events | `conversation-changed {rev, transaction, change}` | engine event `{seq, tx, op, params, effects}` | Clients map both to the corpus `Change`; ConversationDO also returns `change` in the op result |
 | 12 | Summary owner | `"local"` | `"cloud"` | Keep; the client shows "this Mac only" for local |
+
+## 21. Lowering the text confirmation level: per user, with a server-checked device proof
+
+Decisions (Lawrence, 2026-10-02): the level is stored once per user in UserDO and every chief
+reads it; lowering it needs Face ID or the device passcode AND a device proof the server checks;
+every owner device and the owner's email are told. Code: `home-core/src/user/` (owner logic,
+proofs, notices) and `home-core/src/mux/level-projection.ts` (each chief's copy).
+
+Owner and ops (UserDO delegates to `reduceUserConfirm`; UserDO passes the user, `installActive`,
+the user's chiefs and the locale):
+
+| Op | Caller | Effect |
+| --- | --- | --- |
+| `user.text_confirm.level.set {level}` | owner's app (session or mac/ios/web install, no agent), origin `user` | safer: applies; riskier: `text_confirm.proof_required`; locked: no-op on the locked level, else `text_confirm.locked` |
+| `user.text_confirm.lower.challenge {level}` | owner's mac or ios install with an active presence key past its 24 h cooldown, origin `user` | returns `{sign: {op: "user.text_confirm.lower", user, install, new_level, nonce, expires_at}, message}` (`message` = the exact bytes to sign, base64url); 2 minutes; one live nonce per install |
+| `user.text_confirm.lower {level, nonce, presence_sig, app_attest?}` | the same install, origin `user` | spends the nonce on any attempt; checks install, level, expiry, active key, lock, still riskier, the presence signature and (iOS) the App Attest assertion with a growing counter; applies, audits, syncs every chief, notifies |
+| `user.text_confirm.lock {level or null, by: team_policy or mdm, name}` | system (Worker, from TeamPolicy or MDM) | one slot per source; a lock is a minimum: it raises the user's own level to at least its level (ratchet) and caps how far the owner can lower; it never makes the level riskier; unlock never lowers |
+| `user.text_confirm.migrate {level}` | system, only `system:mux:<agent>` of one of this user's chiefs | an unset level reads as strict, so migration never lowers; a user who had chiefs at off lowers again with a proof |
+| `user.presence_key.register {install, jwk, platform, app_attest?}` | system (Worker, after its checks below) | the platform must equal the install's registered kind; stores the key; usable after 24 h; notifies every device and email |
+| `user.presence_key.revoke {install}` | owner's app, or system (`install.revoke`, device loss) | key unusable at once; its nonces dropped |
+| `mux.text_confirm.level.sync {level, rev}` | only the owner's UserDO (`system:user:<user>`) | each chief keeps the newest rev; `chiefLevelOf` feeds `needsConfirmation` |
+| `mux.text_confirm.migrate {}` | system (one maintenance pass per chief) | sends the chief's former level to UserDO once |
+
+Device keys (presence keys):
+- One per device install, separate from the install's token key: a Secure Enclave P-256 key
+  created with an access control that requires user presence (Face ID, Touch ID or the device
+  passcode), so it cannot sign without the person.
+- Registration: the app calls a Worker route with its install token. macOS: the Worker checks
+  that the install is active and that the install key signed the registration. iOS: the app also
+  creates an App Attest key and sends the attestation (client data = the presence key's
+  thumbprint); the Worker verifies Apple's certificate chain, the app id and the counter, then
+  commits `user.presence_key.register` with the attested key. Owner: UserDO; principal: the
+  install.
+- Revocation: `install.revoke` (device lost, remote sign-out) also commits
+  `user.presence_key.revoke`; the domain also refuses when UserDO says the install is no longer
+  active. A new key is unusable for 24 hours and every device and the email are told, so a key
+  added by an intruder (a stolen install token) can be removed before it works.
+- iOS sends both proofs: App Attest proves the genuine app on a genuine device but not Face ID;
+  the presence signature proves a person unlocked the key.
+
+Client contract (iOS lane and the Mac Home lead):
+1. Settings shows the three levels with the section 19 copy, and the lock line when locked.
+2. A safer level: `user.text_confirm.level.set {level}`.
+3. A riskier level: show the raise dialog (raiseTitle, raiseBody, raiseConfirm), then call
+   `user.text_confirm.lower.challenge {level}`; sign the returned `message` bytes as they are
+   (never re-encode the JSON) with the presence key (the system Face ID or passcode prompt;
+   ES256; raw r||s, exactly 64 bytes; base64url); on iOS also generate an App Attest assertion
+   with clientDataHash = sha256 of the same bytes; send `user.text_confirm.lower
+   {level, nonce, presence_sig, app_attest?}` with a fresh idempotency key; read
+   `value.lowered` (a refused proof commits with `lowered: false` and a code).
+4. First run on a device: create and register the presence key (backend route); say that
+   lowering works after 24 hours.
+
+Backend lead (through the coordinator): the UserDO domain delegates the `user.text_confirm.*` and
+`user.presence_key.*` ops and keeps `UserConfirmState`; the MuxDO wire route resolves
+`install_kind`; the registration route verifies App Attest attestations; `install.revoke`
+revokes the presence key; one `mux.text_confirm.migrate` pass per existing chief; a mail path for
+outbox items `mail.security_notice` (target class `MailerDO`, which does not exist yet); the feed
+accepts `feed.post` notices from UserDO.
+
+Residual risks: a person with the phone and its passcode can still lower the level (the proof
+cannot tell the owner from someone who knows the passcode); the notices make it visible. On
+macOS there is no key attestation: the server cannot prove the presence key lives in the Secure
+Enclave with a presence requirement, so a stolen install key plus a modified client could
+register a software key, which works after the 24 h cooldown unless the owner acts on the
+notice. `origin: user` is claimed by the client and is not a control; the device proof is. The
+per-chief MDM or team locks of the old design are not carried by `mux.text_confirm.migrate`
+(only their level); the Worker must push the locks to UserDO again before the migrate pass.
+DECISION: may a team or MDM lock make the level riskier (force `off`), or only set a minimum?
+RECOMMEND only a minimum (built), because otherwise a team admin can turn protection off without
+the owner's device.
+node:crypto `createPublicKey` and `verify` inside workerd, and the App Attest attestation check,
+are UNVERIFIED until the backend lead runs them in the Worker.

@@ -24,6 +24,17 @@ describe("mock transport", () => {
     for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
   };
 
+  test("a file search outside a repository fails through the client with the service's code", async () => {
+    const client = await connectMock([]);
+    const failure = await client.fileSearch("~/Downloads", "x", 10).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ code: "validation.invalid", message: "~/Downloads is not in a git repository" });
+    expect(await client.fileSearch("~/code/acpmux", "trust", 10)).toMatchObject({
+      root: "~/code/acpmux",
+      results: [{ path: "src/trust.rs" }],
+    });
+    client.close();
+  });
+
   /// Mock mode runs the real client against the in-page daemon, so a mock turn goes through the
   /// same event folding as an agent's.
   test("a prompt streams a scripted turn through the real client", async () => {
@@ -340,9 +351,38 @@ describe("mock transport", () => {
     const rows = snapshots.at(-1)!.rows;
     expect(rows.filter((row) => row.kind === "assistant").map((row) => row.text)).toEqual(["Recorded answer."]);
     const user = rows.find((row) => row.kind === "user")!;
-    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000);
-    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000);
+    // The recording's offsets, not the replay's few real milliseconds. The user row and the
+    // replay's start read the clock separately, so allow a little slack between them (CI once
+    // measured 1999 for the 2000 ms step).
+    const SLACK_MS = 50;
+    expect(rows.find((row) => row.kind === "assistant")!.at - user.at).toBeGreaterThanOrEqual(2_000 - SLACK_MS);
+    expect(rows.find((row) => row.kind === "turnSummary")!.at - user.at).toBeGreaterThanOrEqual(15_000 - SLACK_MS);
     client.close();
+  });
+
+  /// Mock mode keeps its git answers in the in-page daemon; nothing reaches a native host.
+  test("mock mode reads git scopes and the status from the in-page daemon", async () => {
+    const posted: unknown[] = [];
+    (globalThis as any).window ??= globalThis;
+    (globalThis as any).webkit = {
+      messageHandlers: { agentSession: { postMessage: (message: unknown) => posted.push(message) } },
+    };
+    try {
+      const client = await AcpmuxDirectClient.connect(
+        mockHost,
+        () => {},
+        undefined,
+        () => new MockAcpmuxSocket(() => Promise.resolve()) as unknown as WebSocket,
+        "daemon",
+      );
+      const staged = (await client.gitDiff("staged")) as { files: { path: string }[] };
+      expect(staged.files.map((file) => file.path)).toEqual(["Sources/Fleet/retry.ts"]);
+      expect(await client.gitStatus()).toMatchObject({ branch: "feat-upload-retry", ahead: 1 });
+      expect(posted).toEqual([]);
+      client.close();
+    } finally {
+      delete (globalThis as any).webkit;
+    }
   });
 });
 
@@ -456,7 +496,7 @@ describe("mock daemon", () => {
       detached: false,
       branch: "feat-upload-retry",
       upstream: "origin/main",
-      base: "main",
+      base: "origin/main",
       ahead: 1,
       behind: 0,
     });

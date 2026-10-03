@@ -13,7 +13,7 @@ export const HOME_LABELS = {
 /// Each list shows at most this many rows, newest first.
 export const HOME_ROWS = 3;
 
-/// What a new chat's home offers besides the composer (Claude's welcome screen):
+/// What a new chat's home offers besides the composer (its welcome screen):
 /// the other sessions waiting on the user, and the open pull requests ready for
 /// review. A session can sit in both lists. The current session never shows.
 export function homeLists(

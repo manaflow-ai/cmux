@@ -1,10 +1,23 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerContext } from "./ComposerContext";
-import { ArrowUpIcon, AtIcon, PaperclipIcon, Picker, PlusIcon, SlashIcon, StopIcon } from "./ComposerPickers";
+import {
+  ArrowUpIcon,
+  AtIcon,
+  PaperclipIcon,
+  Picker,
+  PlusIcon,
+  SearchIcon,
+  SlashIcon,
+  StopIcon,
+} from "./ComposerPickers";
+import { FileSearch } from "./FileSearch";
+import type { FileSearchSource } from "./fileSearchModel";
 import { applyCommand, matchCommands, slashQuery, type SlashCommand, type SlashMatch } from "./slashCommands";
 import { seededText } from "./composerDraft";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
+import { t } from "./i18n";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -28,7 +41,8 @@ export const COMPOSER_LABELS = {
 type Props = {
   snapshot: AcpmuxSnapshot;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot }>;
-  onSend(text: string): void;
+  /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it.
+  onSend(text: string): boolean | void;
   onStop(): void;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
@@ -37,10 +51,17 @@ type Props = {
   leading?: React.ReactNode;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
+  prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Opens the host's file and image picker; the + menu offers it only when set.
   onAttach?(): void;
+  /// Searches the session's files; the + menu offers Search files only when set.
+  searchFiles?: FileSearchSource;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string): void;
+  /// ⌘Return, only where set (the Quick Composer): sends what was typed as Return would, then
+  /// asks to open the chat in a window. `sent` says whether there was a prompt to send.
+  onOpenInWindow?(sent: boolean): void;
 };
 
 /// The prompt box with the agent's `/` command menu:
@@ -58,14 +79,30 @@ export function Composer({
   draft,
   leading,
   accessory,
+  prompt,
   onAttach,
+  searchFiles,
   onProject,
+  onOpenInWindow,
 }: Props) {
+  const [findingFiles, setFindingFiles] = useState(false);
+  // A new folder (another chat) closes the palette, so no row from the last one stays pickable.
+  useEffect(() => setFindingFiles(false), [searchFiles]);
+  // Search files sits over the transcript, so it mounts in the composer's parent (the pane's
+  // main column), not inside the composer the slash menu anchors to.
+  const form = useRef<HTMLFormElement>(null);
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [dismissed, setDismissed] = useState<string | undefined>();
   const field = useRef<MarkdownFieldHandle>(null);
+  const fieldRef = useCallback(
+    (handle: MarkdownFieldHandle | null) => {
+      field.current = handle;
+      if (prompt) prompt.current = handle;
+    },
+    [prompt],
+  );
   const pendingCaret = useRef<number | undefined>(undefined);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
@@ -124,25 +161,40 @@ export function Composer({
     const plus = plusDraft.current;
     return plus && plus.written === text ? plus.original : text;
   };
-  const submit = (event: { preventDefault(): void }) => {
+  /// Sends the draft; false when there was nothing to send or the host refused it.
+  const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
     const prompt = unwrapped().trim();
+    if (!prompt) {
+      plusDraft.current = undefined;
+      return false;
+    }
+    const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
+    if (onSend(prompt) === false) return false;
     plusDraft.current = undefined;
-    if (!prompt) return;
     edit("", 0);
     sentAt.current = Date.now();
-    refocusSend.current = document.activeElement?.classList.contains("acpmux-send") ?? false;
-    onSend(prompt);
+    refocusSend.current = fromSend;
+    return true;
   };
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
-  const mention = () => {
+  // Writes "@" at the caret, or "@path " for a file picked in Search files.
+  const mention = (path?: string) => {
     if (composing.current) return;
-    const at = caret;
+    const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
-    const insert = before && !/\s$/.test(before) ? " @" : "@";
+    // A path with a space is quoted, or an agent would read the mention only up to it. The prompt
+    // is markdown, which takes backslash escapes as its own, so a quote in a name is left as is.
+    const mentioned = path && /\s/.test(path) ? `"${path}"` : path;
+    const spaced = !before || /(\s|&#x20;|&#32;|&nbsp;)$/i.test(before);
+    const shown = (spaced ? "@" : " @") + (mentioned ? `${mentioned} ` : "");
+    // Escaped, the path reads as typed text (`__init__.py` is not bold); the caret counts what shows.
+    const insert = shown.replace(/[\\`*_[\]~<]/g, "\\$&");
     plusDraft.current = undefined;
-    pendingCaret.current = at + insert.length;
-    edit(before + insert + text.slice(at), at + insert.length);
+    pendingCaret.current = caret + shown.length;
+    // Markdown doesn't show trailing whitespace, so what follows an end-of-prompt caret is dropped.
+    const after = text.slice(at).replace(/^\s+$/, "");
+    edit(before + insert + after, caret + shown.length);
     field.current?.focus();
   };
   // + then Commands opens the agent's commands: the menu reads the
@@ -166,6 +218,22 @@ export function Composer({
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
+    if (
+      onOpenInWindow &&
+      event.key === "Enter" &&
+      event.metaKey &&
+      !event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey
+    ) {
+      const typed = unwrapped().trim() !== "";
+      const sent = submit(event);
+      // A prompt the host refused stays in the composer, and the chat stays here.
+      if (typed && !sent) return;
+      onOpenInWindow(sent);
+      return;
+    }
     // Enter sends unless it picks a command: with the menu closed, with nothing
     // to pick (an unknown command or a pasted path), or on a command already
     // typed in full that takes no arguments.
@@ -209,7 +277,7 @@ export function Composer({
     else if (open) setDismissed(text);
   };
   return (
-    <form className="acpmux-composer" onSubmit={submit} onBlur={blur}>
+    <form ref={form} className="acpmux-composer" onSubmit={submit} onBlur={blur}>
       {snapshot.queue.length > 0 && (
         <ol className="acpmux-composer-queue" aria-label={COMPOSER_LABELS.queue}>
           {snapshot.queue.map((entry) => (
@@ -233,6 +301,23 @@ export function Composer({
           })
         }
       />
+      {findingFiles &&
+        searchFiles &&
+        form.current?.parentElement &&
+        createPortal(
+          <FileSearch
+            search={searchFiles}
+            onClose={() => {
+              setFindingFiles(false);
+              field.current?.focus();
+            }}
+            onPick={(path) => {
+              setFindingFiles(false);
+              mention(path);
+            }}
+          />,
+          form.current.parentElement,
+        )}
       <div className="acpmux-composer-box">
         {/* Anchored to the field, like the picker menus, so a queue above it never pushes the menu up. */}
         {open && (
@@ -246,7 +331,7 @@ export function Composer({
         )}
         {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
         <MarkdownField
-          ref={field}
+          ref={fieldRef}
           className="acpmux-composer-prompt"
           value={text}
           placeholder={COMPOSER_LABELS.placeholder}
@@ -281,11 +366,19 @@ export function Composer({
                   choices: [
                     ...(onAttach ? [{ id: "attach", name: COMPOSER_LABELS.attach, icon: <PaperclipIcon /> }] : []),
                     { id: "mention", name: COMPOSER_LABELS.mention, icon: <AtIcon />, hint: "@" },
+                    ...(searchFiles ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }] : []),
                     ...(commands?.length
                       ? [{ id: "commands", name: COMPOSER_LABELS.commands, icon: <SlashIcon />, hint: "/" }]
                       : []),
                   ],
-                  onPick: (id) => (id === "attach" ? onAttach?.() : id === "mention" ? mention() : openCommands()),
+                  onPick: (id) =>
+                    id === "attach"
+                      ? onAttach?.()
+                      : id === "mention"
+                        ? mention()
+                        : id === "files"
+                          ? setFindingFiles(true)
+                          : openCommands(),
                 },
               ]}
             />
@@ -313,7 +406,7 @@ export function Composer({
                 type="submit"
                 className={`acpmux-send${text.trim() ? " acpmux-send-ready" : ""}`}
                 aria-label={COMPOSER_LABELS.send}
-                title={COMPOSER_LABELS.send}
+                title={t("composer.sendTooltip")}
               >
                 <ArrowUpIcon />
               </button>
@@ -403,4 +496,15 @@ function Highlighted({ name, ranges }: { name: string; ranges: [number, number][
   }
   if (at < name.length) parts.push(name.slice(at));
   return <>{parts}</>;
+}
+
+/// Where the caret, counted in the characters the prompt shows, falls in its markdown: a
+/// backslash escape and a character reference (the serializer's `&#x20;`) each show as one.
+function markdownOffset(markdown: string, shown: number): number {
+  let index = 0;
+  for (let count = 0; count < shown && index < markdown.length; count++) {
+    const escape = /^(\\[!-/:-@[-`{-~]|&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]*);)/i.exec(markdown.slice(index));
+    index += escape ? escape[0].length : 1;
+  }
+  return index;
 }

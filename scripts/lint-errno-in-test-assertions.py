@@ -48,8 +48,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # Swift test sources. Matches the paths the workflow guard router sends to the
 # quality-determinism group, which runs this lint.
 TEST_PATH = re.compile(
-    r"^(?:cmuxCLITests|cmuxCLITestSupport|ios/cmuxUITests)/.*\.swift$"
-    r"|^Packages/.*/Tests/.*\.swift$"
+    r"^Packages/.*/Tests/.*\.swift$"
 )
 
 ASSERTION = re.compile(r"(#expect|#require|\bXCTAssert[A-Za-z]*|\bXCTUnwrap)\s*\(")

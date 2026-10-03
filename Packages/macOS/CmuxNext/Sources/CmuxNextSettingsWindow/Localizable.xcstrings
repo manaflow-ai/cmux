@@ -787,6 +787,137 @@
         }
       }
     },
+    "settingsWindow.systemWideRefused": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another app or global shortcut holds this key, so it works only while cmux is in front."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のアプリまたはグローバルショートカットがこのキーを使用しているため、cmux が前面にあるときだけ動作します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم تطبيق آخر أو اختصار عام هذا المفتاح، لذا لا يعمل إلا عندما يكون cmux في المقدمة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Druga aplikacija ili globalna prečica drži ovu tipku, pa radi samo dok je cmux u prvom planu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En anden app eller global genvej bruger denne tast, så den virker kun, mens cmux er forrest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine andere App oder ein globaler Kurzbefehl belegt diese Taste, daher funktioniert sie nur, wenn cmux im Vordergrund ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otra app o un atajo global usa esta tecla, así que solo funciona cuando cmux está en primer plano."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une autre app ou un raccourci global utilise cette touche ; elle ne fonctionne donc que lorsque cmux est au premier plan."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un’altra app o una scorciatoia globale usa questo tasto, quindi funziona solo quando cmux è in primo piano."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីផ្សេង ឬផ្លូវកាត់សកលកំពុងប្រើគ្រាប់ចុចនេះ ដូច្នេះវាដំណើរការតែពេល cmux នៅខាងមុខប៉ុណ្ណោះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 앱이나 전역 단축키가 이 키를 사용 중이므로 cmux가 앞에 있을 때만 작동합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En annen app eller global snarvei bruker denne tasten, så den virker bare når cmux er foran."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inna aplikacja lub globalny skrót używa tego klawisza, więc działa on tylko wtedy, gdy cmux jest na pierwszym planie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outro app ou atalho global usa esta tecla, então ela só funciona quando o cmux está em primeiro plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эту клавишу занимает другое приложение или глобальное сочетание, поэтому она работает, только когда cmux на переднем плане."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แอปอื่นหรือทางลัดส่วนกลางใช้ปุ่มนี้อยู่ จึงใช้งานได้เฉพาะเมื่อ cmux อยู่ด้านหน้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu tuşu başka bir uygulama veya genel kısayol kullanıyor; bu yüzden yalnızca cmux öndeyken çalışır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цю клавішу займає інша програма або глобальне сполучення, тому вона працює, лише коли cmux на передньому плані."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một ứng dụng khác hoặc phím tắt toàn cục đang giữ phím này, nên nó chỉ hoạt động khi cmux ở phía trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一个应用或全局快捷键占用了此按键，因此它只在 cmux 位于前台时有效。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一個應用程式或全域快捷鍵佔用了此按鍵，因此它只在 cmux 位於前景時有效。"
+          }
+        }
+      }
+    },
     "settingsWindow.custom": {
       "extractionState": "manual",
       "localizations": {
@@ -9564,264 +9695,133 @@
         }
       }
     },
-    "settingsWindow.terminalBody.options": {
+    "settingsWindow.showSetting": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cursor, keybinds and other terminal options are Ghostty settings."
+            "value": "Go to Setting"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カーソル、キーバインド、その他のターミナルのオプションは Ghostty の設定です。"
+            "value": "設定へ移動"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "المؤشر واختصارات المفاتيح وخيارات الطرفية الأخرى هي إعدادات Ghostty."
+            "value": "الانتقال إلى الإعداد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kursor, prečice tastature i ostale opcije terminala su postavke Ghosttyja."
+            "value": "Idi na postavku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Markør, tastebindinger og andre terminalindstillinger er Ghostty-indstillinger."
+            "value": "Gå til indstilling"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cursor, Tastenbelegungen und andere Terminaloptionen sind Ghostty-Einstellungen."
+            "value": "Zur Einstellung"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El cursor, los atajos de teclado y otras opciones de la terminal son ajustes de Ghostty."
+            "value": "Ir al ajuste"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le curseur, les raccourcis clavier et les autres options du terminal sont des réglages Ghostty."
+            "value": "Aller au réglage"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cursore, scorciatoie da tastiera e altre opzioni del terminale sono impostazioni di Ghostty."
+            "value": "Vai all'impostazione"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទស្សន៍ទ្រនិច ការកំណត់គ្រាប់ចុច និងជម្រើសទែមីណាល់ផ្សេងទៀត គឺជាការកំណត់របស់ Ghostty។"
+            "value": "ទៅកាន់ការកំណត់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "커서, 키 바인딩 및 기타 터미널 옵션은 Ghostty 설정입니다."
+            "value": "설정으로 이동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Markør, hurtigtaster og andre terminalvalg er Ghostty-innstillinger."
+            "value": "Gå til innstilling"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kursor, skróty klawiszowe i inne opcje terminala to ustawienia Ghostty."
+            "value": "Przejdź do ustawienia"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cursor, atalhos de teclado e outras opções do terminal são ajustes do Ghostty."
+            "value": "Ir para o ajuste"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Курсор, сочетания клавиш и другие параметры терминала задаются в настройках Ghostty."
+            "value": "Перейти к настройке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เคอร์เซอร์ ปุ่มลัด และตัวเลือกเทอร์มินัลอื่น ๆ เป็นการตั้งค่าของ Ghostty"
+            "value": "ไปที่การตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "İmleç, tuş atamaları ve diğer terminal seçenekleri Ghostty ayarlarıdır."
+            "value": "Ayara git"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Курсор, сполучення клавіш та інші параметри термінала задаються в налаштуваннях Ghostty."
+            "value": "Перейти до налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Con trỏ, phím tắt và các tùy chọn terminal khác là cài đặt của Ghostty."
+            "value": "Đi tới cài đặt"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "光标、按键绑定和其他终端选项属于 Ghostty 设置。"
+            "value": "前往设置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "游標、按鍵綁定和其他終端機選項屬於 Ghostty 設定。"
-          }
-        }
-      }
-    },
-    "settingsWindow.moreThemes": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "More Themes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他のテーマ"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "مزيد من السمات"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Više tema"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flere temaer"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Weitere Designs"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Más temas"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Autres thèmes"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Altri temi"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "រចនាប័ទ្មបន្ថែម"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "추가 테마"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Flere temaer"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Więcej motywów"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Mais temas"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Другие темы"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ธีมเพิ่มเติม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diğer temalar"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Інші теми"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Thêm chủ đề"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "更多主题"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "更多主題"
+            "value": "前往設定"
           }
         }
       }
@@ -10215,6 +10215,268 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "自訂外觀"
+          }
+        }
+      }
+    },
+    "settingsWindow.terminalBody.options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cursor, keybinds and other terminal options are Ghostty settings."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カーソル、キーバインド、その他のターミナルのオプションは Ghostty の設定です。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المؤشر واختصارات المفاتيح وخيارات الطرفية الأخرى هي إعدادات Ghostty."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kursor, prečice tastature i ostale opcije terminala su postavke Ghosttyja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markør, tastebindinger og andre terminalindstillinger er Ghostty-indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursor, Tastenbelegungen und andere Terminaloptionen sind Ghostty-Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cursor, los atajos de teclado y otras opciones de la terminal son ajustes de Ghostty."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le curseur, les raccourcis clavier et les autres options du terminal sont des réglages Ghostty."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursore, scorciatoie da tastiera e altre opzioni del terminale sono impostazioni di Ghostty."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទស្សន៍ទ្រនិច ការកំណត់គ្រាប់ចុច និងជម្រើសទែមីណាល់ផ្សេងទៀត គឺជាការកំណត់របស់ Ghostty។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "커서, 키 바인딩 및 기타 터미널 옵션은 Ghostty 설정입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markør, hurtigtaster og andre terminalvalg er Ghostty-innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kursor, skróty klawiszowe i inne opcje terminala to ustawienia Ghostty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cursor, atalhos de teclado e outras opções do terminal são ajustes do Ghostty."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Курсор, сочетания клавиш и другие параметры терминала задаются в настройках Ghostty."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคอร์เซอร์ ปุ่มลัด และตัวเลือกเทอร์มินัลอื่น ๆ เป็นการตั้งค่าของ Ghostty"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İmleç, tuş atamaları ve diğer terminal seçenekleri Ghostty ayarlarıdır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Курсор, сполучення клавіш та інші параметри термінала задаються в налаштуваннях Ghostty."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Con trỏ, phím tắt và các tùy chọn terminal khác là cài đặt của Ghostty."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "光标、按键绑定和其他终端选项属于 Ghostty 设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "游標、按鍵綁定和其他終端機選項屬於 Ghostty 設定。"
+          }
+        }
+      }
+    },
+    "settingsWindow.moreThemes": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Themes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のテーマ"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "مزيد من السمات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Više tema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere temaer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Weitere Designs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Más temas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autres thèmes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altri temi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "រចនាប័ទ្មបន្ថែម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "추가 테마"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Flere temaer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Więcej motywów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mais temas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другие темы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ธีมเพิ่มเติม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer temalar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інші теми"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thêm chủ đề"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多主题"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "更多主題"
           }
         }
       }

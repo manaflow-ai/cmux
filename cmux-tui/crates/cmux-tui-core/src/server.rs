@@ -96,9 +96,13 @@ pub use loopback_forward::{
 };
 mod bookmarks;
 mod browser_profiles;
+mod conversation_tabs_wire;
 mod conversations;
+mod frontend_browser_history;
+mod home;
 mod launch_snapshot;
 mod personal;
+mod raw_tab;
 mod responses;
 mod screen_json;
 mod split_respawn;
@@ -219,6 +223,7 @@ pub const TAB_METADATA_CAPABILITY: &str = "tab-metadata-v1";
 /// `update-frontend-browser-tab`, and the `browser_renderer`,
 /// `browser_engine`, `favicon_url`, and `browser_profile_id` tab fields.
 pub const FRONTEND_BROWSER_TABS_CAPABILITY: &str = "frontend-browser-tabs-v1";
+pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// Tab drag outcomes as single atomic commands: `move-tab-to-split`,
 /// `move-tab-to-column`, `move-tab-to-new-workspace`, layout undo for
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
@@ -261,11 +266,23 @@ pub const LAUNCH_SNAPSHOT_CAPABILITY: &str = "launch-snapshot-v1";
 /// `shell_args` on `new-tab`, `split`, `new-pane`, `new-pane-right`, and
 /// `create-terminal`: arguments for the terminal's shell.
 pub const TERMINAL_SHELL_ARGS_CAPABILITY: &str = "terminal-shell-args-v1";
-/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`,
-/// `daemon`) on `notify`, the `notification` event, the tab marker and
-/// `list-notifications`; the daemon posts OSC 9, OSC 777 and OSC 99 from
-/// every terminal's output as `terminal`.
+/// Notifications name who posted them: `source` (`cli`, `terminal`, `agent`, `daemon`) on
+/// `notify`, the `notification` event, the tab marker and `list-notifications`; the daemon
+/// posts OSC 9, OSC 777 and OSC 99 from every terminal's output as `terminal`.
 pub const NOTIFICATION_SOURCE_CAPABILITY: &str = "notification-source-v1";
+/// The `cmux.protocol/2` state resources (plans/cmux-next/state-ownership.md steps A and B):
+/// workspace metadata, tab pins and tab groups, personal workspace groups, rooms and saved
+/// tab groups, screen metadata, order and screen groups, closed history, ephemeral
+/// workspaces, and workspace status, progress and log, with `extra.state` on session
+/// snapshots and `state_upsert`/`state_delete` changes on `session.events`.
+pub const STATE_RESOURCES_CAPABILITY: &str = "state-resources-v1";
+/// `window_record.list|put|delete`: one personal record per app window with
+/// a per-record revision (OWNERSHIP-PRINCIPLES single writer).
+pub const WINDOW_RECORDS_CAPABILITY: &str = "window-records-v1";
+/// `owner` on frontend browser records: the raw `new-frontend-browser-tab`
+/// and `update-frontend-browser-tab` field, `tab.update {owner}`, and the
+/// tab's `extra.owner` and raw `browser_owner`.
+pub const FRONTEND_BROWSER_OWNER_CAPABILITY: &str = "frontend-browser-owner-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -396,6 +413,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
+        FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
@@ -415,6 +433,12 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         NOTIFICATION_SOURCE_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        STATE_RESOURCES_CAPABILITY,
+        WINDOW_RECORDS_CAPABILITY,
+        FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
+        crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
+        crate::git_ops::CHECKPOINTS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -787,6 +811,13 @@ pub fn try_default_socket_path(session: &str) -> anyhow::Result<PathBuf> {
     Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir()))
 }
 
+/// The socket `session` listens on when its owner runs with `TMPDIR=base`
+/// and no `XDG_RUNTIME_DIR` (how the cmux app starts its session).
+pub fn try_default_socket_path_in_base(session: &str, base: &Path) -> anyhow::Result<PathBuf> {
+    validate_session_name(session)?;
+    Ok(default_socket_path_in_runtime_dir(session, platform::runtime_dir_for_base(base)))
+}
+
 fn invalid_session_socket_path(session: &str) -> PathBuf {
     let digest = format!("{:x}", Sha256::digest(session.as_bytes()));
     platform::invalid_runtime_dir().join(format!("{digest}.sock"))
@@ -874,8 +905,7 @@ struct BrowserProviderTargetRequest {
     target_id: String,
 }
 
-/// Optional shared-sizing identity carried by `set-client-info` and relay
-/// sub-views.
+/// Optional shared-sizing identity carried by `set-client-info` and relay sub-views.
 #[derive(Clone, Debug, Default, Deserialize)]
 struct ClientIdentityWire {
     #[serde(default)]
@@ -989,8 +1019,7 @@ fn size_state_event_json(
     event
 }
 
-/// The actor recorded on a kick: the explicit `by`, else the requester's own
-/// identity.
+/// The actor recorded on a kick: the explicit `by`, else the requester's own identity.
 fn detach_actor(mux: &Mux, requester: u64, by: Option<TerminalDetachActor>) -> TerminalDetachActor {
     by.unwrap_or_else(|| {
         let identity = mux.control_clients.sizing_identity(requester).unwrap_or_default();
@@ -1043,8 +1072,7 @@ enum Command {
         enabled: bool,
     },
     /// Gracefully hand this daemon's durable session to a replacement.
-    /// The caller must fence the request with values from this daemon's
-    /// `identify` response.
+    /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {
         pid: u32,
         generation: String,
@@ -1123,8 +1151,7 @@ enum Command {
         client: DetachClientTarget,
         #[serde(default)]
         by: Option<TerminalDetachActor>,
-        /// Resolves a participant id on this terminal only (participant ids
-        /// are per terminal).
+        /// Resolves a participant id on this terminal only (participant ids are per terminal).
         #[serde(default)]
         surface: Option<SurfaceId>,
     },
@@ -1293,8 +1320,7 @@ enum Command {
         level: Option<String>,
         #[serde(default)]
         surface: Option<SurfaceId>,
-        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or
-        /// `daemon`.
+        /// `notification-source-v1`: `cli` (default), `terminal`, `agent` or `daemon`.
         #[serde(default)]
         source: Option<String>,
     },
@@ -1323,8 +1349,7 @@ enum Command {
         ttl_ms: u64,
     },
     /// Mint a renderer credential from the stable public terminal identity.
-    /// Remote clients must not depend on this daemon generation's local
-    /// numeric surface handle.
+    /// Remote clients must not depend on this daemon generation's local numeric surface handle.
     MintTerminalRendererByTerminal {
         terminal: String,
         #[serde(default = "default_renderer_capability_ttl_ms")]
@@ -1346,8 +1371,7 @@ enum Command {
     },
     /// Set (`idle_close_seconds`) or clear (`null`, never close) the
     /// idle-close policy of one hosted terminal, named by exactly one of a
-    /// PTY `surface` or a stable `terminal_id`. The policy is durable and
-    /// survives owner restarts.
+    /// PTY `surface` or a stable `terminal_id`. The policy is durable and survives owner restarts.
     SetTerminalIdlePolicy {
         #[serde(default)]
         surface: Option<SurfaceId>,
@@ -1375,8 +1399,7 @@ enum Command {
         /// Extra environment for the new terminal's child only.
         #[serde(default)]
         env: Option<BTreeMap<String, String>>,
-        /// Expected content size in cells (spawn-at-size avoids shell
-        /// redraw artifacts).
+        /// Expected content size in cells (spawn-at-size avoids shell redraw artifacts).
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -1392,6 +1415,8 @@ enum Command {
         #[serde(default)]
         shell_args: Option<Vec<String>>,
     },
+    /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
+    NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
     /// The daemon persists its location and never attaches a CDP target.
     NewFrontendBrowserTab {
@@ -1405,21 +1430,17 @@ enum Command {
         favicon_url: Option<String>,
         #[serde(default)]
         profile_id: Option<String>,
+        /// Install id of the hosting app (the record's only writer).
+        #[serde(default)]
+        owner: Option<String>,
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
         rows: Option<u16>,
     },
-    /// Record a frontend-rendered browser's URL, title, or favicon.
-    UpdateFrontendBrowserTab {
-        surface: SurfaceId,
-        #[serde(default)]
-        url: Option<String>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default, deserialize_with = "present_nullable")]
-        favicon_url: Option<Option<String>>,
-    },
+    UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
+    SetFrontendBrowserHistory(frontend_browser_history::SetParams),
+    GetFrontendBrowserHistory(frontend_browser_history::GetParams),
     NewBrowserTab {
         url: String,
         #[serde(default)]
@@ -1548,8 +1569,7 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
-    /// Create a terminal inside an existing workspace selected by stable key
-    /// or legacy numeric id.
+    /// Create a terminal inside an existing workspace selected by stable key or legacy numeric id.
     CreateTerminal {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2012,8 +2032,7 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin
-    /// and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2201,8 +2220,7 @@ enum Command {
     },
     /// List sidebar workspace groups in order.
     ListWorkspaceGroups,
-    /// Create a sidebar workspace group. A caller-chosen `group` id makes a
-    /// retry idempotent.
+    /// Create a sidebar workspace group. A caller-chosen `group` id makes a retry idempotent.
     CreateWorkspaceGroup {
         name: String,
         #[serde(default)]
@@ -2274,8 +2292,7 @@ enum Command {
         surface: SurfaceId,
     },
     /// Close several tab placements in one durable commit. With
-    /// `end_terminals`, also end every terminal whose views all close and
-    /// that is not kept.
+    /// `end_terminals`, also end every terminal whose views all close and that is not kept.
     CloseTabs {
         surfaces: Vec<TabRef>,
         #[serde(default)]
@@ -2445,8 +2462,7 @@ enum Command {
         #[serde(default)]
         mode: Option<String>,
         /// Optional initial viewer size. Supplying this pair makes the attach
-        /// stream a sizing participant immediately, before its first frame is
-        /// rendered.
+        /// stream a sizing participant immediately, before its first frame is rendered.
         #[serde(default)]
         cols: Option<u16>,
         #[serde(default)]
@@ -2627,8 +2643,7 @@ fn surface_placement(mux: &Mux, surface: SurfaceId) -> (Option<WorkspaceId>, Opt
     })
 }
 
-/// The pane that anchors a column drop: the given pane, or the active pane
-/// of the given screen.
+/// The pane that anchors a column drop: the given pane, or the active pane of the given screen.
 fn column_anchor(
     mux: &Mux,
     pane: Option<PaneId>,
@@ -3071,8 +3086,7 @@ struct ConnectionSurfaceState {
     requests: VecDeque<PendingSurfaceRequest>,
     queued_bytes: usize,
     active_clear_surfaces: HashSet<SurfaceId>,
-    /// Terminal creates handed to the terminal work pool and not yet
-    /// answered (`terminal_create`).
+    /// Terminal creates handed to the terminal work pool and not yet answered (`terminal_create`).
     active_creations: usize,
     dispatcher_started: bool,
     dispatcher_done: bool,
@@ -3700,9 +3714,10 @@ struct MessageWriter {
     next_stream_id: Arc<AtomicU64>,
     render_service: Arc<RenderService>,
     wait_wakeups: Arc<Mutex<Vec<Weak<ResourceWaitWake>>>>,
-    /// Fired when the writer closes, so stream loops block instead of
-    /// polling `is_open`.
+    /// Fired when the writer closes, so stream loops block instead of polling `is_open`.
     closed: InterruptSet,
+    /// Negotiated `conversation-tabs-v1` (server/conversation_tabs_wire.rs).
+    conversation_tabs: Arc<AtomicBool>,
 }
 
 impl MessageWriter {
@@ -3728,6 +3743,7 @@ impl MessageWriter {
             render_service,
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
+            conversation_tabs: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -3885,7 +3901,7 @@ impl MessageWriter {
         let result = self
             .render_service
             .serialize_control(value)
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.sink.send_control(self.project_conversation_tabs(text)?));
         if result.is_err() {
             self.close();
         }
@@ -3896,7 +3912,8 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self.sink.send_control(text);
+        let result =
+            self.project_conversation_tabs(text).and_then(|text| self.sink.send_control(text));
         if result.is_err() {
             self.close();
         }
@@ -5518,7 +5535,10 @@ impl ClientRegistry {
                     || capability == CREATION_ATTEMPT_KEYS_CAPABILITY
                     || capability == CREATION_SELECTOR_FALLBACKS_CAPABILITY
                     || capability == LOOPBACK_FORWARD_CAPABILITY
+                    || capability
+                        == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
             }));
+            record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
         Ok((record.name.clone(), record.kind.clone()))
     }
@@ -7298,8 +7318,7 @@ fn detach_own_view(mux: &Mux, owner: u64, placement: SurfaceId, by: TerminalDeta
 /// in-process frontend's `detach-client {client: <participant>}`): a relay
 /// sub-view leaves alone and its relay forwards the notice; the own view of
 /// a client with [`SIZING_VIEW_DETACH_CAPABILITY`] leaves alone and that
-/// client stays; any other participant's whole client is kicked with
-/// `disconnected-by`.
+/// client stays; any other participant's whole client is kicked with `disconnected-by`.
 pub fn detach_size_participant(
     mux: &Arc<Mux>,
     requester: u64,
@@ -8463,6 +8482,7 @@ fn resource_client_metadata_update(
     request: &crate::resource_router::ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     let (target, session_id) = resolve_resource_client(mux, requesting_client, &request.selectors)?;
+    conversation_tabs_wire::set_resource_capabilities(mux, requesting_client, target, request)?;
     let name = request.fields.get("name").map(|value| value.as_str().map(str::to_string));
     let kind = request.fields.get("kind").map(|value| value.as_str().map(str::to_string));
     let (name, kind) = mux.control_clients.set_resource_info(target, name, kind)?;
@@ -11121,6 +11141,7 @@ fn response_error_code(error: &anyhow::Error) -> Option<String> {
         })
         .or_else(|| bookmarks::error_code(error))
         .or_else(|| conversations::error_code(error))
+        .or_else(|| crate::state::home_error_code(error))
 }
 
 fn auth_token(message: &str) -> Option<String> {
@@ -11569,6 +11590,8 @@ fn pane_json(
                     }
                     ContentPublicId::Terminal(_) => None,
                 });
+            let conversation = content_resource_id
+                .and_then(|id| notifications.presentation.conversation_tabs.get(id));
             let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
                 notifications.presentation.pinned_tabs.contains(tab.as_str())
             });
@@ -11581,7 +11604,7 @@ fn pane_json(
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()))
                 .map(|kept| json!({"cwd": kept.cwd}));
-            json!({
+            let mut tab = json!({
                 "surface": sid,
                 "tab_resource_id": tab_resource_id,
                 "group": group_of(sid),
@@ -11597,22 +11620,6 @@ fn pane_json(
                     .as_ref()
                     .map(|identity| &identity.incarnation),
                 "short_id": short_ids.get(sid).cloned().unwrap_or_default(),
-                "kind": surface.map(|s| s.kind().as_str()).unwrap_or("pty"),
-                "browser_source": surface.and_then(|s| s.browser_source().map(|source| source.as_str())),
-                "browser_status": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().map(|status| status.as_str())),
-                "browser_error": surface
-                    .filter(|_| frontend_browser.is_none())
-                    .and_then(|s| s.browser_status().and_then(|status| status.error())),
-                "browser_renderer": surface
-                    .filter(|surface| surface.kind() == SurfaceKind::Browser)
-                    .map(|_| if frontend_browser.is_some() { "frontend" } else { "daemon" }),
-                "browser_engine": frontend_browser.map(|record| record.engine.as_str()),
-                "favicon_url": frontend_browser.and_then(|record| record.favicon_url.as_deref()),
-                "browser_profile_id": frontend_browser.and_then(|record| record.profile_id.as_deref()),
-                "browser_frames_stalled": surface.and_then(|s| s.browser_frames_stalled()),
-                "url": surface.and_then(|s| s.browser_url()),
                 "supports_clear_history_key_fallback": surface
                     .is_some_and(|surface| surface.supports_clear_history_key_fallback()),
                 "notification": notifications.get(sid).copied().map(|n| {
@@ -11630,7 +11637,9 @@ fn pane_json(
                     json!({"cols": c, "rows": r})
                 }),
                 "dead": surface.map(|s| s.is_dead()).unwrap_or(true),
-            })
+            });
+            raw_tab::merge_browser_fields(&mut tab, surface, frontend_browser, conversation);
+            tab
         }).collect::<Vec<_>>(),
     })
 }
@@ -11691,6 +11700,7 @@ fn workspace_json(
         "title": presentation.and_then(|presentation| presentation.title.as_deref()),
         "pinned": presentation.is_some_and(|presentation| presentation.pinned),
         "marked_unread": presentation.is_some_and(|presentation| presentation.marked_unread),
+        "kind": home::raw_workspace_kind(&notifications.presentation, &workspace.key),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
         "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
@@ -11915,9 +11925,9 @@ fn require_pty(surface: &crate::Surface) -> anyhow::Result<()> {
     }
 }
 
-fn require_browser(surface: &crate::Surface) -> anyhow::Result<()> {
+fn require_browser(mux: &Mux, surface: &crate::Surface) -> anyhow::Result<()> {
     if surface.kind() == SurfaceKind::Browser {
-        Ok(())
+        mux.refuse_conversation_tab(surface)
     } else {
         anyhow::bail!("PTY surface is not a browser surface")
     }
@@ -12038,7 +12048,7 @@ fn handle_browser_frame_presented(
         );
     }
     let surface = get_surface(mux, surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let owner = mux.control_clients.browser_pointer_owner(client)?;
     let accepted = surface.browser_acknowledge_pointer_frame_from(owner, frame_seq);
     Ok(json!({ "accepted": accepted }))
@@ -12063,7 +12073,7 @@ fn handle_browser_mouse_command(
         .frame_seq
         .ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, command.surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let event_type = match command.kind {
         "down" => "mousePressed",
         "up" => "mouseReleased",
@@ -12098,7 +12108,7 @@ fn handle_browser_wheel_command(
     let frame_seq =
         frame_seq.ok_or_else(|| anyhow::anyhow!("browser pointer input requires a frame guard"))?;
     let surface = get_surface(mux, surface)?;
-    require_browser(&surface)?;
+    require_browser(mux, &surface)?;
     let input_owner = mux.control_clients.browser_pointer_owner(client)?;
     surface.browser_wheel_for_frame_from(input_owner, x_px, y_px, delta_y_px, Some(frame_seq))?;
     Ok(json!({}))
@@ -13993,6 +14003,9 @@ fn handle_command_with_cancellation(
                 mux.new_tab_with_options(pane, spawn, optional_surface_size(cols, rows))?;
             placed_terminal_result(mux, &surface, keep)
         }
+        Command::NewConversationTab(params) => {
+            conversation_tabs_wire::new_conversation_tab(mux, params)
+        }
         Command::NewFrontendBrowserTab {
             url,
             engine,
@@ -14000,6 +14013,7 @@ fn handle_command_with_cancellation(
             title,
             favicon_url,
             profile_id,
+            owner,
             cols,
             rows,
         } => {
@@ -14009,6 +14023,7 @@ fn handle_command_with_cancellation(
                 title,
                 favicon_url,
                 profile_id,
+                owner,
             };
             let surface = mux.new_frontend_browser_tab(
                 pane,
@@ -14022,17 +14037,9 @@ fn handle_command_with_cancellation(
                 "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
             }))
         }
-        Command::UpdateFrontendBrowserTab { surface, url, title, favicon_url } => {
-            let (record, changed) =
-                mux.update_frontend_browser_tab(surface, url, title, favicon_url)?;
-            Ok(json!({
-                "surface": surface,
-                "url": record.url,
-                "title": record.title,
-                "favicon_url": record.favicon_url,
-                "changed": changed,
-            }))
-        }
+        Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
+        Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
+        Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
         Command::NewBrowserTab { url, pane, cols, rows } => {
             let surface = mux.new_browser_tab(url, pane, optional_surface_size(cols, rows))?;
             Ok(json!({ "surface": surface.id }))
@@ -14149,7 +14156,7 @@ fn handle_command_with_cancellation(
             text,
         } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             let event_type = match kind.as_str() {
                 "down" => "keyDown",
                 "up" => "keyUp",
@@ -14174,7 +14181,7 @@ fn handle_command_with_cancellation(
             text,
         } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_key_press(
                 &key,
                 &code,
@@ -14186,37 +14193,37 @@ fn handle_command_with_cancellation(
         }
         Command::BrowserInsertText { surface, text } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_insert_text(&text)?;
             Ok(json!({}))
         }
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
-            surface.browser_navigate(&url)?;
+            require_browser(mux, &surface)?;
+            mux.navigate_browser_surface(&surface, &url)?;
             Ok(json!({}))
         }
         Command::BrowserBack { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_back()?;
             Ok(json!({}))
         }
         Command::BrowserForward { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_forward()?;
             Ok(json!({}))
         }
         Command::BrowserReload { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_reload()?;
             Ok(json!({}))
         }
         Command::BrowserActivate { surface } => {
             let surface = get_surface(mux, surface)?;
-            require_browser(&surface)?;
+            require_browser(mux, &surface)?;
             surface.browser_activate()?;
             Ok(json!({}))
         }
@@ -17924,6 +17931,9 @@ mod tests {
         let mux = test_mux();
         let surface = mux.new_workspace(Some("exiting".into()), None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().unwrap();
+        surface.record_process_end_for_test(crate::terminal_host_protocol::TerminalExit::now(
+            crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 0 },
+        ));
         mux.surface_exited(surface.id);
 
         let (writer, outbound) = captured_writer();
@@ -27199,6 +27209,7 @@ mod tests {
                 "bootstrap-receipt-00000001",
                 None,
                 &WorkspaceMutation::new("bootstrap-create", "chrome-gui").unwrap(),
+                Default::default(),
             )
             .unwrap();
         assert!(!created.replayed);
@@ -27512,6 +27523,10 @@ mod tests {
             CREATION_RECEIPTS_CAPABILITY,
             CREATION_SELECTOR_FALLBACKS_CAPABILITY,
             PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
+            STATE_RESOURCES_CAPABILITY,
+            WINDOW_RECORDS_CAPABILITY,
+            FRONTEND_BROWSER_OWNER_CAPABILITY,
+            crate::git_ops::CHECKPOINTS_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }
@@ -28002,108 +28017,5 @@ mod tests {
         );
     }
 
-    #[test]
-    fn agent_changed_event_preserves_the_scoped_agent_state() {
-        assert_eq!(
-            subscribed_event_json(&MuxEvent::AgentChanged {
-                surface: 7,
-                state: Arc::<str>::from("working"),
-                source: Arc::<str>::from("hook"),
-                session: Some(Arc::<str>::from("review")),
-                agent: Some(Arc::<str>::from("claude")),
-                updated_at_ms: 41,
-            }),
-            json!({
-                "event": "agent-changed",
-                "surface": 7,
-                "state": "working",
-                "source": "hook",
-                "session": "review",
-                "agent": "claude",
-                "updated_at_ms": 41,
-            })
-        );
-    }
-
-    #[test]
-    fn graphics_status_events_preserve_structured_localization_data() {
-        assert_eq!(
-            subscribed_event_json(&MuxEvent::GraphicsStatus(
-                GraphicsStatus::KittyImageBudgetUpdateFailed {
-                    retry_exhausted: true,
-                    summary: Arc::<str>::from("surface 7: offline"),
-                },
-            )),
-            json!({
-                "event": "graphics-status",
-                "kind": "kitty-image-budget-update-failed",
-                "retry_exhausted": true,
-                "summary": "surface 7: offline",
-            })
-        );
-        assert_eq!(
-            subscribed_event_json(&MuxEvent::GraphicsStatus(
-                GraphicsStatus::CellPixelUpdateRetriesExhausted {
-                    attempts: 5,
-                    remaining: 2,
-                    cell_pixels: (8, 16),
-                },
-            )),
-            json!({
-                "event": "graphics-status",
-                "kind": "cell-pixel-update-retries-exhausted",
-                "attempts": 5,
-                "remaining": 2,
-                "cell_width": 8,
-                "cell_height": 16,
-            })
-        );
-    }
-
-    #[test]
-    fn scroll_surface_emits_one_scroll_changed_event() {
-        let mux = test_mux();
-        let surface = mux.new_workspace(None, Some((20, 4))).unwrap();
-        surface
-            .try_with_terminal(|term| {
-                for i in 0..20 {
-                    term.vt_write(format!("line{i}\r\n").as_bytes());
-                }
-            })
-            .unwrap();
-        let shared_scrollbar = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
-        let view_scrollbar = surface.view_scrollbar().unwrap();
-        let events = mux.subscribe();
-
-        handle_command(
-            &mux,
-            0,
-            Command::ScrollSurface { surface: surface.id, delta: -5 },
-            &test_writer(),
-        )
-        .unwrap();
-
-        let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(
-            event,
-            MuxEvent::ScrollChanged { surface: id, offset, at_bottom: false }
-                if id == surface.id && offset > 0
-        ));
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-        assert_eq!(
-            surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap(),
-            shared_scrollbar,
-            "a backend view scroll must not mutate the shared terminal runtime"
-        );
-        assert_ne!(surface.view_scrollbar().unwrap(), view_scrollbar);
-
-        handle_command(
-            &mux,
-            0,
-            Command::ScrollSurface { surface: surface.id, delta: 0 },
-            &test_writer(),
-        )
-        .unwrap();
-        assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-    }
+    mod event_shape_tests;
 }

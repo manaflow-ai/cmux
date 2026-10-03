@@ -15,6 +15,7 @@ enum CloudHandlers {
         let reason: @MainActor () -> String? = { cloud.unavailableReason }
         let signedInReason: @MainActor () -> String? = { cloud.unavailableReason ?? (cloud.isSignedIn ? nil : CloudStrings.signInFirst) }
         bindMachineActions(into: registry, context: context, reason: signedInReason)
+        bindNetworkActions(into: registry, context: context, reason: signedInReason)
         bindCreation(into: registry, context: context, reason: signedInReason)
         bindAccount(into: registry, context: context, reason: reason)
         registry.bindUnavailable(["palette.mobileConnect"], ActionFailure(message: CloudStrings.mobilePairing))
@@ -37,7 +38,7 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure(message: RefusalStrings.notShownInAnyWindow(target.description)) }
+            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
             return session
         }
         if let state = context.services.windows.active?.state, let session = machines.session(state.machineID) { return session }
@@ -85,8 +86,8 @@ enum CloudHandlers {
 
     @MainActor static func reveal(_ surface: SurfaceID, in pane: PaneModel, workspaceID: String, _ context: AppActionContext) {
         let select: (PaneController) -> Void = { controller in
-            controller.pendingSelectSurface = surface
-            controller.syncStripFromStore()
+            // Through the run's view-change gate (ActionRunScope).
+            controller.selectWhenReported(surface: surface)
         }
         if let controller = context.services.paneController(for: pane) {
             select(controller)

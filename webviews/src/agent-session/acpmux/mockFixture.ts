@@ -22,7 +22,14 @@ export type MockSession = {
   pinned?: boolean;
   unread?: boolean;
   pendingPermissions?: number;
-  pullRequest?: { number: number; title: string; state: "open" | "draft" | "merged"; reviewReady?: boolean };
+  pullRequest?: {
+    number: number;
+    title: string;
+    state: "open" | "draft" | "merged";
+    reviewReady?: boolean;
+    /// The head commit's CI rollup.
+    checks?: "passing" | "failing" | "pending";
+  };
   /// The agent's last reply, for sessions other than the worked one.
   reply?: string;
   /// What a session needing input waits on: the tool call its permission card names.
@@ -37,14 +44,34 @@ export type SeedStep = ({ update: Update } | { mux: string; msg?: Record<string,
 
 export const LOCAL_HOST = "This Mac";
 
+/// Wide enough that the model picker's layers (provider, family, model) have something to show.
 export const claudeModels = [
   { id: "claude-opus-5-5", name: "Opus 5.5" },
   { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
   { id: "claude-haiku-4-5", name: "Haiku 4.5" },
+  { id: "claude-fable-1-5", name: "Fable 1.5" },
+  { id: "claude-opus-5", name: "Opus 5" },
+  { id: "claude-opus-4-6", name: "Opus 4.6" },
+  { id: "claude-opus-4-1", name: "Opus 4.1" },
+  { id: "claude-sonnet-5", name: "Sonnet 5" },
+  { id: "claude-sonnet-4-6", name: "Sonnet 4.6" },
+  { id: "claude-haiku-4", name: "Haiku 4" },
+  { id: "claude-fable-1", name: "Fable 1" },
 ];
+/// Codex's own series plus the open-weight models it runs through a local provider.
 export const codexModels = [
   { id: "gpt-6-astra", name: "GPT-6-Astra" },
   { id: "gpt-6-mini", name: "GPT-6 mini" },
+  { id: "gpt-6-nano", name: "GPT-6 nano" },
+  { id: "gpt-5.5-codex", name: "GPT-5.5-Codex" },
+  { id: "gpt-5.5", name: "GPT-5.5" },
+  { id: "gpt-5-mini", name: "GPT-5 mini" },
+  { id: "o4-mini", name: "o4-mini" },
+  { id: "o3", name: "o3" },
+  { id: "gpt-oss-120b", name: "gpt-oss-120b" },
+  { id: "gpt-oss-20b", name: "gpt-oss-20b" },
+  { id: "qwen3-coder", name: "Qwen3 Coder" },
+  { id: "devstral-2", name: "Devstral 2" },
 ];
 
 const claudeModes = {
@@ -101,6 +128,7 @@ export const mockSessions: MockSession[] = [
       title: "fleet: retry artifact uploads with backoff",
       state: "open",
       reviewReady: true,
+      checks: "passing",
     },
   },
   {
@@ -114,6 +142,7 @@ export const mockSessions: MockSession[] = [
     host: "hearty-beige-elk",
     hostKind: "cloud",
     branch: "fix-sidebar-flicker",
+    pullRequest: { number: 18231, title: "Read the theme after applyTheme", state: "draft", checks: "pending" },
     reply:
       "The sidebar reads the theme before the window applies it, so the first frame uses the old background. I'm moving the read after `applyTheme` and checking every theme.",
     working: { title: "Run bun test Sources/Sidebar", kind: "execute", command: "bun test Sources/Sidebar" },
@@ -247,6 +276,7 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "stream-tool-output",
+    pullRequest: { number: 219, title: "Stream tool output in 8 KiB chunks", state: "open", checks: "failing" },
     reply: "Splitting tool output into 8 KiB chunks so long shell runs stream instead of arriving at the end.",
     working: { title: "Edit src/tools/stream.rs", kind: "edit" },
   },
@@ -263,7 +293,13 @@ export const mockSessions: MockSession[] = [
     host: LOCAL_HOST,
     hostKind: "local",
     branch: "resume-after-restart",
-    pullRequest: { number: 212, title: "Resume sessions after a daemon restart", state: "open", reviewReady: true },
+    pullRequest: {
+      number: 212,
+      title: "Resume sessions after a daemon restart",
+      state: "open",
+      reviewReady: true,
+      checks: "passing",
+    },
     reply: "Sessions now reload from the event log on start. All 48 replay tests pass.",
   },
   {
@@ -374,14 +410,20 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
   };
 }
 
-/// A new chat in `cwd`: no turns yet.
-export function newSessionSummary(sessionId: string, cwd: string, now: number): Record<string, unknown> {
+/// A new chat in `cwd` on `harness` (Claude Code unless asked): no turns yet.
+export function newSessionSummary(
+  sessionId: string,
+  cwd: string,
+  now: number,
+  harness: MockSession["harness"] = "claude",
+): Record<string, unknown> {
+  const codex = harness === "codex";
   return {
     sessionId,
     title: "New chat",
-    name: "claude",
-    harness: "claude",
-    model: claudeModels[0]!.id,
+    name: harness,
+    harness,
+    model: (codex ? codexModels : claudeModels)[0]!.id,
     status: "idle",
     cwd,
     host: LOCAL_HOST,
@@ -389,8 +431,8 @@ export function newSessionSummary(sessionId: string, cwd: string, now: number): 
     branch: "main",
     updatedAt: now,
     turnCount: 0,
-    modes: claudeModes,
-    configOptions: effort("medium"),
+    modes: codex ? codexModes : claudeModes,
+    configOptions: effort(codex ? "high" : "medium"),
   };
 }
 

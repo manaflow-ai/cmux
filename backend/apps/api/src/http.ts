@@ -27,6 +27,8 @@ import { providers } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
+import { pairApprove, pairPreview } from "./pair-routes.ts"
+import { conversationMutate, conversationRead } from "./home-routes.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -78,6 +80,10 @@ const ownerRoute = (owner: string, p: Principal): { stub: OwnerStub; entity: str
   }
 }
 
+/** The stream a read answers from (Home conversations are keyed by params, inbox reads by the user). */
+const readStream = (owner: string, op: string, p: Principal, params: unknown) =>
+  op.startsWith("inbox.") ? `inbox:${p.user}` : owner === "cloud:ConversationDO" ? `conv:${String((params as { conversation?: unknown } | null)?.conversation ?? "")}` : owner === "cloud:UserDO" ? `user:${p.user}` : ownerRoute(owner, p).stream
+
 const unreachable = (e: unknown) => new OwnerUnreachable({ code: "owner.unreachable", message: String(e), retryable: true })
 
 /** Principal for a given owner: TeamDO calls carry the grant classes UserDO resolved. */
@@ -120,7 +126,8 @@ const externalOp = (principalIn: Principal, frame: { op: string; params: unknown
 /** Folds the requester frames (result|reject, request-settled) into one HTTP response. */
 const toResponse = (op: string, frames: ReadonlyArray<OwnerFrame>) => {
   const reply = frames.find((f): f is ResultFrame | RejectFrame => f.t === "result" || f.t === "reject")!
-  const settled = frames.find((f): f is SettledFrame => f.t === "request-settled")!
+  // A request refused before it reached an owner (Worker-side validation) has no settled frame.
+  const settled = frames.find((f): f is SettledFrame => f.t === "request-settled")
   return {
     ok: reply.t === "result",
     op,
@@ -131,8 +138,8 @@ const toResponse = (op: string, frames: ReadonlyArray<OwnerFrame>) => {
     transaction: reply.tx,
     idempotency_key: reply.idempotency_key,
     replayed: reply.replayed,
-    stream: settled.stream,
-    sequence: settled.sequence
+    stream: settled?.stream ?? "",
+    sequence: settled?.sequence ?? 0
   }
 }
 
@@ -191,12 +198,31 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
+        // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
+        if (payload.op === "server.pair.approve") {
+          return yield* Effect.tryPromise({
+            try: () => pairApprove(env, principal, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            catch: unreachable
+          })
+        }
         if (payload.op === "integration.connect") {
           const provider = (payload.params as { provider?: string } | null)?.provider
           const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
           if (impl && (!env.INTEGRATIONS_KEK || !env.DASHBOARD_ORIGIN || !impl.configured(env))) {
             return { ok: false, op: payload.op, error: { code: "integration.not_configured", message: `${provider} is not configured on this deployment`, retryable: false }, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `connections:${principal.team}`, sequence: 0 }
           }
+        }
+        // Home: conversations are keyed by the op's params, inbox ops run on UserDO's second stream (home-routes.ts).
+        if (def.owner === "cloud:ConversationDO" || payload.op.startsWith("inbox.")) {
+          const p = yield* principalFor(def.owner, principal)
+          const home = yield* Effect.tryPromise({
+            try: (): Promise<SubmitResult> =>
+              def.owner === "cloud:ConversationDO"
+                ? conversationMutate(env, p, { t: "op", ...frame })
+                : rpc<SubmitResult>(userStub(p.user!).submitInbox(p.user!, p, { t: "op", ...frame })),
+            catch: unreachable
+          })
+          return toResponse(payload.op, home.frames)
         }
         const { frames } = yield* submitTo(def.owner, principal, frame)
         const response = toResponse(payload.op, frames)
@@ -206,6 +232,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider }))
           const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
           return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
+        }
+        // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
+        if (payload.op === "server.revoke" && response.ok) {
+          const v = response.value as { host: string; install: string }
+          const team = principal.team!
+          const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          return { ...response, value: { host: v.host, install_revoked: flushed.revoked.includes(v.install) } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
@@ -229,6 +262,14 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
+        if (payload.op === "server.pair.preview") {
+          const r = yield* Effect.tryPromise({ try: () => pairPreview(env, principal, payload.params), catch: unreachable })
+          if (!r.ok) {
+            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+            return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
+          }
+          return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
+        }
         const reader = yield* principalFor(def.owner, principal)
         if (providerReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
@@ -242,8 +283,15 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           }
           return { op: payload.op, value: pr.value, stream: `connections:${reader.team}`, revision: "0" }
         }
-        const route = ownerRoute(def.owner, reader)
-        const r = yield* Effect.tryPromise({ try: () => rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params)), catch: unreachable })
+        const r = yield* Effect.tryPromise({
+          try: (): Promise<ReadResult> => {
+            if (def.owner === "cloud:ConversationDO") return conversationRead(env, reader, payload.op, payload.params) as Promise<ReadResult>
+            if (payload.op.startsWith("inbox.")) return rpc<ReadResult>(userStub(reader.user!).readInbox(reader.user!, reader, payload.op, (payload.params ?? {}) as Record<string, unknown>))
+            const route = ownerRoute(def.owner, reader)
+            return rpc<ReadResult>(route.stub.readOp(route.entity, reader, payload.op, payload.params))
+          },
+          catch: unreachable
+        })
         if (!r.ok) {
           if (r.code === "selector.not_found" || r.code === "validation.invalid") return yield* new BadRequest({ code: r.code, message: r.message })
           return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
@@ -259,9 +307,9 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
             secret,
             scheme: "x-cmux-signature: v1=hex(HMAC-SHA256(secret, x-cmux-timestamp + '.' + body)); dedupe on timestamp and body; optional x-cmux-delivery label"
           }
-          return { op: payload.op, value, stream: route.stream, revision: r.revision }
+          return { op: payload.op, value, stream: readStream(def.owner, payload.op, reader, payload.params), revision: r.revision }
         }
-        return { op: payload.op, value: r.value, stream: route.stream, revision: r.revision }
+        return { op: payload.op, value: r.value, stream: readStream(def.owner, payload.op, reader, payload.params), revision: r.revision }
       })
     )
     .handle("debug", () =>

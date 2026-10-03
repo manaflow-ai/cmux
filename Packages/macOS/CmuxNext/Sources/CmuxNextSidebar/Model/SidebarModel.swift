@@ -29,6 +29,10 @@ public final class SidebarModel {
     /// How layout items draw, by item id. Built-ins without an entry draw
     /// their own title and symbol.
     public var itemInfo: [LayoutItemID: SidebarItemInfo] = [:]
+    /// Apps whose sections and items draw nothing (installed but hidden or
+    /// disabled, D55); the App fills it from its one presence rule
+    /// (`AppsService.presence`). The layout keeps their places.
+    public var suppressedApps: Set<String> = []
     /// Collapsed titled sections: client view state, saved with the window.
     public var collapsedLayoutSections: Set<LayoutSectionID> = []
     /// Search field contents. Non-empty text filters rows and disables drag.
@@ -83,6 +87,10 @@ public final class SidebarModel {
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
+    /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
+    /// select first/last, arrow keys) may land on: every row but
+    /// placeholders, which are no workspace yet.
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
@@ -150,8 +158,13 @@ public final class SidebarModel {
 
     // MARK: Selection (UI-local)
 
+    /// A placeholder row (a machine still connecting) is never selected,
+    /// renamed, dragged or shown.
+    public func isPlaceholder(_ id: WorkspaceID) -> Bool { workspace(id)?.rowState == .placeholder }
+
     /// Plain click: select only `id` and activate it.
     public func click(_ id: WorkspaceID) {
+        guard !isPlaceholder(id) else { return }
         selection = [id]
         send(.select(id))
     }
@@ -159,6 +172,7 @@ public final class SidebarModel {
     /// Cmd-click: toggle `id` in the selection without changing the active
     /// workspace, unless it is the only selected item.
     public func toggleSelection(_ id: WorkspaceID) {
+        guard !isPlaceholder(id) else { return }
         if selection.contains(id) {
             guard selection.count > 1 else { return }
             selection.remove(id)
@@ -170,6 +184,7 @@ public final class SidebarModel {
 
     /// Shift-click: select the visual range from the active workspace to `id`.
     public func extendSelection(to id: WorkspaceID, visibleOrder: [WorkspaceID]) {
+        guard !isPlaceholder(id) else { return }
         guard let anchor = activeWorkspaceID,
               let a = visibleOrder.firstIndex(of: anchor),
               let b = visibleOrder.firstIndex(of: id) else {
@@ -185,6 +200,7 @@ public final class SidebarModel {
         let current = activeWorkspaceID.flatMap { visibleOrder.firstIndex(of: $0) }
         let next = current.map { max(0, min(visibleOrder.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : visibleOrder.count - 1)
         let id = visibleOrder[next]
+        guard !isPlaceholder(id) else { return }
         if extending {
             selection.insert(id)
             activeWorkspaceID = id

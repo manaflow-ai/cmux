@@ -15,7 +15,7 @@ public nonisolated enum SettingsSchema {
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
     /// (the app theme and the terminal font), which each row still resets.
     public static let keptOnResetAll: Set<[String]> = [
-        AppThemeSetting.configPath, TerminalFontSetting.familyPath, TerminalFontSetting.sizePath,
+        AppThemeSetting().configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath,
     ]
 
     /// The descriptors of one section, in order.
@@ -52,6 +52,7 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.text("settings.group.columns", "Columns")
         let quitting = SettingsText.text("settings.group.quit", "Quitting")
         let history = SettingsText.text("settings.group.history", "History")
+        let tabs = SettingsText.text("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -84,6 +85,7 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
+            newTabKind(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),
@@ -153,7 +155,7 @@ public nonisolated enum SettingsSchema {
         let appTheme = SettingsText.text("settings.group.appTheme", "App Theme")
         return [
             SettingDescriptor(
-                AppThemeSetting.configPath, section: .appearance, group: appTheme,
+                AppThemeSetting().configPath, section: .appearance, group: appTheme,
                 title: SettingsText.text("settings.appearance.theme", "Theme"),
                 help: SettingsText.text("settings.appearance.theme.help",
                                         "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it."),
@@ -191,11 +193,11 @@ public nonisolated enum SettingsSchema {
                 default: "compact", keywords: ["size", "spacing"]
             ),
             SettingDescriptor(
-                InterfaceSizeSetting.configPath, section: .appearance, group: look,
+                InterfaceSizeSetting().configPath, section: .appearance, group: look,
                 title: SettingsText.text("settings.appearance.interfaceSize", "Interface Size"),
                 help: SettingsText.text("settings.appearance.interfaceSize.help",
                                         "Text size of tabs, the sidebar and other controls. Terminal text has its own size."),
-                kind: .number(SettingNumber(InterfaceSizeSetting.range, step: 1, unit: .points, placeholder: 12)),
+                kind: .number(SettingNumber(InterfaceSizeSetting().range, step: 1, unit: .points, placeholder: 12)),
                 default: nil, defaultLabel: densityDefault,
                 keywords: ["font", "text", "size", "zoom", "scale", "bigger", "smaller", "chromeFontSize"]
             ),
@@ -232,6 +234,18 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(TabBarBackground.darker.rawValue, SettingsText.text("settings.choice.darker", "Darker")),
                 ]),
                 default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
+            ),
+            SettingDescriptor(
+                PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
+                title: SettingsText.text("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
+                help: SettingsText.text("settings.focus.inactiveTabStyle.help",
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                kind: .choice([
+                    SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.text("settings.choice.fade", "Fade")),
+                    SettingChoice(InactiveTabStyle.tonal.rawValue, SettingsText.text("settings.choice.tonal", "Tonal")),
+                    SettingChoice(InactiveTabStyle.quiet.rawValue, SettingsText.text("settings.choice.quiet", "Quiet")),
+                ]),
+                default: .string(PaneFocusSettings.inactiveTabStyleFallback.rawValue), keywords: ["focus", "inactive", "unfocused", "pane", "tab", "fade", "dim"]
             ),
             SettingDescriptor(
                 AnimationSpeedSetting.configPath, section: .appearance, group: look,

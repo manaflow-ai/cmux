@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9. */
+/* cmux-tui mux protocol 12, IR 9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6e4b74f422c11e18d69989adcf960e8ff35ea4ae3390ed528c66f9438c5f43f9" as const;
+export const SDK_IR_SHA256 = "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -825,6 +825,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "get-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
   "get-frontend-projection": {
     "authority": "control",
     "since": 7,
@@ -1273,6 +1283,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Bootstrap and navigation failures are asynchronous browser-state outcomes."
+    ]
+  },
+  "new-conversation-tab": {
+    "authority": "control",
+    "since": 12,
+    "capability": "conversation-tabs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
     ]
   },
   "new-frontend-browser-tab": {
@@ -1929,6 +1949,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Color strings are exactly #rrggbb.",
       "With complete:true, absent optional values reset to built-in defaults."
+    ]
+  },
+  "set-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "set-personal-terminal": {
@@ -7704,7 +7734,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "kind": "enum",
           "values": [
             "pty",
-            "browser"
+            "browser",
+            "conversation"
           ]
         }
       },
@@ -12072,6 +12103,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "GetCellPixelsResult"
     }
   },
+  "get-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "get-frontend-projection": {
     "request": {
       "additional_properties": false,
@@ -13642,6 +13693,88 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "SurfaceResult"
     }
   },
+  "new-conversation-tab": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cols": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mutation_id": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "pane": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "rows": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "workspace": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "new-frontend-browser-tab": {
     "request": {
       "additional_properties": false,
@@ -13664,6 +13797,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
           "default": null,
           "nullable": true,
           "presence": "optional",
@@ -16286,6 +16428,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "set-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "history is a JSON object or null; null clears the stored history.",
+        "Serialized history must be at most 65536 bytes."
+      ],
+      "fields": {
+        "history": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "set-personal-terminal": {
     "request": {
       "additional_properties": false,
@@ -17637,6 +17811,15 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "favicon_url": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "owner": {
           "default": null,
           "nullable": true,
           "presence": "optional",

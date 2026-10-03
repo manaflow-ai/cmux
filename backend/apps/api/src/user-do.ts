@@ -1,8 +1,9 @@
-import type { Domain, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { inbox as homeInbox } from "@cmux/home-core"
-import { challengeMessagePrefix } from "@cmux/protocol"
+import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
-import { installActive, userDomain, type UserState } from "./domains/user.ts"
+import { admit } from "./domains/common.ts"
+import { grantFor, installActive, userDomain, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
@@ -71,7 +72,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
   async submitInbox(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, frame.op)
+    if (refused) return { frames: [{ t: "reject", tx: "", idempotency_key: frame.idempotency_key, code: refused.code, message: refused.message, retryable: false, replayed: false } as OwnerFrame] }
     this.inbox.open(entity)
     const frames: Array<OwnerFrame> = []
     this.inbox.submit(principal, frame, (f) => frames.push(f))
@@ -81,8 +83,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
-    if (principal.user !== entity) return { ok: false, code: "auth.forbidden", message: "not this user's inbox" }
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, op)
+    if (refused) return { ok: false, code: refused.code, message: refused.message }
     const engine = this.inbox.open(entity)
     if (op === "inbox.dm_peer") {
       const peer = typeof params.peer === "string" ? params.peer : ""
@@ -97,10 +99,36 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
   }
 
+  /**
+   * Inbox calls come from this user only, through an active install whose grant covers the op
+   * (the catalog check other owners apply), checked before the object binds the entity.
+   */
+  private inboxRefusal(entity: string, principal: Principal, op: string): { code: string; message: string } | undefined {
+    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
+    const state = this.bind(entity).currentState
+    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+  }
+
   protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
+    // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
+    if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
+  }
+
+  /** Device push tokens reach only the user's session and the install that owns each token. */
+  protected override subscriberView(state: UserState, principal: Principal): unknown {
+    if (principal.kind === "session" || !state.push_targets) return state
+    const own = Object.fromEntries(Object.entries(state.push_targets).filter(([, t]) => t.install === principal.install))
+    return { ...state, push_targets: own }
+  }
+
+  /** Push-target events carry a device token: only the session and the install that owns it receive them. */
+  protected override mayReceive(_state: UserState, event: EventFrame, principal: Principal): boolean {
+    if (!event.op.startsWith("push.target.")) return true
+    return principal.kind === "session" || (principal.install !== undefined && event.actor.install === principal.install)
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
@@ -109,16 +137,44 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    if (op !== "install.revoke") return
+    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
     if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+  }
+
+  /**
+   * RPC from TeamDO only (plans/cmux-next/server.md 6.5): the team revoked a
+   * server whose install is bound to it. Revokes the grant and closes the
+   * install's sockets in the same commit; refuses an install not bound to `team`.
+   */
+  async revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "selector.not_found", message: "unknown user" }
+    const res = this.submitSystem("install.revoke_by_team", { install, team, by }, idempotencyKey, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */
   private existing() {
     const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
     return row ? this.bind(row.entity) : undefined
+  }
+
+  /** For FeedDO: the user's push targets whose install is still active (feed.md 7.3). */
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return []
+    const state = engine.currentState
+    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
+  }
+
+  /** For FeedDO: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
+  async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return
+    this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */

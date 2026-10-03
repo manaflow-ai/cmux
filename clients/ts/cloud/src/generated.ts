@@ -8,6 +8,11 @@ export interface MutationResult<T> {
   readonly replayed: boolean
 }
 
+/** HMAC id of a normalized email or phone; never the raw address. */
+export type AddressId = string
+
+export type AgentId = string
+
 export type Automation = {
   readonly id: AutomationId
   readonly owner: TeamId
@@ -56,6 +61,9 @@ export type Budget = {
   readonly tool_calls?: number
 }
 
+/** 1 to 128 printable ASCII characters (idempotency key, client_msg_id). */
+export type ClientToken = string
+
 export type Concurrency = {
   readonly max: number
   readonly on_limit: "queue" | "skip"
@@ -87,6 +95,11 @@ export type Connection = {
 export type ConnectionId = string
 
 export type ConnectionStatus = "pending" | "active" | "needs_reauth" | "error" | "revoked" | "expired"
+
+/** conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair). */
+export type ConversationId = string
+
+export type ConversationKind = "chief" | "dm" | "group"
 
 export type CronSpec = {
   readonly expr: string
@@ -261,6 +274,174 @@ export type Grant = {
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
 
+export type HomeChief = {
+  readonly agent: AgentId
+  readonly owner_user: string
+  readonly name: string
+  readonly avatar?: string
+  readonly parent?: AgentId
+  readonly brain: "local" | "cloud"
+  readonly thread: ConversationId
+  readonly archived_at?: Timestamp
+}
+
+/** rev after the op; seq and message_id for a new message; change is the committed Change. */
+export type HomeConversationCommit = {
+  readonly rev: number
+  readonly seq?: number
+  readonly message_id?: MessageId
+  readonly change: unknown
+}
+
+export type HomeConversationSettings = {
+  readonly wake_policy: "auto" | "mentions" | "all"
+  readonly agent_budget: {
+    readonly turns: number
+    readonly gap_ms: number
+  }
+  readonly history_visible: "all" | "since_join"
+}
+
+export type HomeConversationSummary = {
+  readonly id: ConversationId
+  readonly owner: string
+  readonly title: string
+  readonly participants: ReadonlyArray<HomeParticipant>
+  readonly last_seq: number
+  readonly rev: number
+  readonly created_at: Timestamp
+  readonly updated_at: Timestamp
+  readonly last_message?: HomeMessage
+  readonly read_cursors: Readonly<Record<string, number>>
+  readonly kind?: ConversationKind
+  readonly team?: string
+  readonly created_by?: string
+  readonly state?: "active" | "archived"
+  readonly settings?: HomeConversationSettings
+  readonly invites?: ReadonlyArray<HomeInvite>
+  readonly retention_days?: number
+}
+
+export type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
+
+export type HomeInboxEntry = {
+  readonly conversation: ConversationId
+  readonly rev: number
+  readonly kind: ConversationKind
+  readonly title: string
+  readonly last_seq: number
+  readonly last_at: Timestamp
+  readonly preview: string
+  readonly dm_peer?: ParticipantId
+  readonly removed: boolean
+  readonly unread: number
+  readonly mentions: number
+  readonly counts_rev: number
+  readonly pinned: boolean
+  readonly pin_position?: number
+  readonly muted: boolean
+  readonly muted_until?: number | "Infinity" | "-Infinity" | "NaN"
+  readonly archived: boolean
+  readonly archived_seq: number
+  readonly marked_unread: boolean
+}
+
+export type HomeInvite = {
+  readonly id: InviteId
+  readonly address: AddressId
+  readonly channel: "email" | "sms"
+  readonly display_name: string
+  readonly invited_by: ParticipantId
+  readonly created_at: Timestamp
+  readonly expires_at: Timestamp
+  readonly status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"
+  readonly accepted_by?: string
+  readonly accepted_at?: Timestamp
+  readonly requested_by?: string
+  readonly requested_name?: string
+  readonly requested_at?: Timestamp
+  readonly delivery: {
+    readonly state: HomeDeliveryState
+    readonly provider_id?: string
+    readonly at: Timestamp
+  }
+  readonly copy_variant: string
+  readonly locale: string
+}
+
+export type HomeMessage = {
+  readonly id: MessageId
+  readonly conversation: ConversationId
+  readonly seq: number
+  readonly client_msg_id: ClientToken
+  readonly author: ParticipantId
+  readonly parts: ReadonlyArray<HomePart>
+  readonly reply_to?: HomePartRef
+  readonly created_at: Timestamp
+  readonly edited_at?: Timestamp
+  readonly retracted_at?: Timestamp
+  readonly reactions: ReadonlyArray<HomeReaction>
+}
+
+export type HomePart = {
+  readonly type: "text"
+  readonly text: string
+  readonly runs?: ReadonlyArray<HomeTextRun>
+} | {
+  readonly type: "work"
+  readonly session: string
+  readonly host?: string
+  readonly status: "running" | "done" | "failed" | "waiting"
+  readonly preview?: string
+}
+
+export type HomeParticipant = {
+  readonly id: ParticipantId
+  readonly kind: "human" | "agent" | "address"
+  readonly display_name: string
+  readonly agent_class?: "mux" | "agent"
+  readonly acp_session?: string
+  readonly owner_user?: string
+  readonly role?: "owner" | "member"
+  readonly joined_seq?: number
+  readonly added_by?: string
+  readonly left_at?: Timestamp
+}
+
+export type HomeParticipantInput = {
+  readonly id: ParticipantId
+  readonly kind: "human" | "agent"
+  readonly display_name: string
+  readonly agent_class?: "mux" | "agent"
+  readonly owner_user?: string
+}
+
+export type HomePartRef = {
+  readonly message_id: MessageId
+  readonly part_index: number
+}
+
+export type HomeReaction = {
+  readonly author: ParticipantId
+  readonly part_index: number
+  readonly kind: HomeReactionKind
+  readonly at: Timestamp
+}
+
+export type HomeReactionKind = {
+  readonly tapback: "love" | "like" | "dislike" | "laugh" | "emphasize" | "question"
+} | {
+  readonly emoji: string
+}
+
+/** A styled range of a text part, in UTF-16 code units. */
+export type HomeTextRun = {
+  readonly start: number
+  readonly length: number
+  readonly mention?: ParticipantId
+  readonly link?: string
+}
+
 export type Host = {
   readonly id: HostId
   readonly name: string
@@ -268,10 +449,15 @@ export type Host = {
   readonly owner_user: UserId
   readonly enrolled_by: InstallId
   readonly enrolled_at: number
+  readonly kind?: HostKind
+  readonly wg_public_key?: WgPublicKey
+  readonly tags?: ReadonlyArray<string>
 }
 
 /** A machine's session host, enrolled by its link. */
 export type HostId = string
+
+export type HostKind = "device" | "server"
 
 export type Install = {
   readonly id: InstallId
@@ -285,6 +471,7 @@ export type Install = {
   readonly grant: GrantId
   readonly created_at: number
   readonly revoked_at: number | null
+  readonly bound_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -294,6 +481,8 @@ export type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
 
 export type IntegrationProvider = "github" | "linear" | "slack"
 
+export type InviteId = string
+
 export type ManagedDevice = {
   readonly install: InstallId
   readonly user: string
@@ -302,7 +491,32 @@ export type ManagedDevice = {
   readonly at: number
 }
 
+export type MessageId = string
+
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
+
+/** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
+export type PairingCode = string
+
+export type PairingInfo = {
+  readonly name: string
+  readonly platform: Platform
+  readonly os_version: string
+  readonly arch: "x86_64" | "aarch64"
+  readonly cmux_version: string
+}
+
+export type PairingPreview = {
+  readonly code: PairingCode
+  readonly info: PairingInfo
+  readonly public_jwk: PublicJwk
+  readonly thumbprint: string
+  readonly country: string | null
+  readonly expires_at: number
+}
+
+/** user_<id>, agent_<name> or addr_<26> (an invited address). */
+export type ParticipantId = string
 
 export type Platform = "macos" | "ios" | "linux" | "windows" | "web"
 
@@ -326,6 +540,19 @@ export type PublicJwk = {
   readonly x: string
   readonly y: string
 }
+
+/** One device's APNs registration. */
+export type PushTarget = {
+  readonly token: PushToken
+  readonly topic: string
+  readonly environment: "development" | "production"
+  readonly install: string
+  readonly device_name: string
+  readonly registered_at: number
+}
+
+/** An APNs device token (hex). */
+export type PushToken = string
 
 export type RepoPattern = string
 
@@ -566,6 +793,9 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+/** RFC 3339 UTC with milliseconds. */
+export type Timestamp = string
+
 export type Trigger = {
   readonly id: TriggerId
   readonly status: "active" | "not_yet_supported"
@@ -617,6 +847,9 @@ export type UserProfile = {
   readonly display_name: string
   readonly personal_team: TeamId
 }
+
+/** A WireGuard public key, standard base64 of 32 bytes. */
+export type WgPublicKey = string
 
 /** Params and result of every cloud op, keyed by op name. */
 export interface CloudOps {
@@ -715,6 +948,95 @@ export interface CloudOps {
       readonly path: string
       readonly secret: string
       readonly scheme: string
+    }
+  }
+  /** Archive a chief: its thread stays readable, it stops waking. */
+  readonly "chief.archive": {
+    readonly params: {
+      readonly agent: AgentId
+    }
+    readonly result: HomeChief
+  }
+  /** Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread. */
+  readonly "chief.create": {
+    readonly params: {
+      readonly name: string
+      readonly parent?: AgentId
+      readonly avatar?: string
+      readonly brain: "local" | "cloud"
+    }
+    readonly result: HomeChief
+  }
+  /** Rename a chief or change its avatar. */
+  readonly "chief.update": {
+    readonly params: {
+      readonly agent: AgentId
+      readonly name?: string
+      readonly avatar?: string
+    }
+    readonly result: HomeChief
+  }
+  /** Create a group conversation. The Worker derives the id from the caller and the idempotency key, so a retry reaches the same conversation. */
+  readonly "conversation.create": {
+    readonly params: {
+      readonly kind?: "group"
+      readonly title?: string
+      readonly participants: ReadonlyArray<HomeParticipantInput>
+      readonly settings?: HomeConversationSettings
+    }
+    readonly result: {
+      readonly conversation: HomeConversationSummary
+    }
+  }
+  /** Page older messages before before_seq (newest first within the page). */
+  readonly "conversation.history": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly before_seq?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly messages: ReadonlyArray<HomeMessage>
+      readonly next_before_seq: number | null
+      readonly revision: string
+    }
+  }
+  /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
+  readonly "conversation.settings.set": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly wake_policy?: "auto" | "mentions" | "all"
+      readonly agent_budget?: {
+        readonly turns: number
+        readonly gap_ms: number
+      }
+      readonly history_visible?: "all" | "since_join"
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Read the conversation and its newest messages (history_visible since_join hides earlier ones). */
+  readonly "conversation.snapshot": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly tail?: number
+    }
+    readonly result: {
+      readonly conversation: HomeConversationSummary
+      readonly messages: ReadonlyArray<HomeMessage>
+      readonly revision: string
+    }
+  }
+  /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. */
+  readonly "dm.open": {
+    readonly params: {
+      readonly peer: ParticipantId | {
+        readonly email: string
+      } | {
+        readonly phone: string
+      }
+    }
+    readonly result: {
+      readonly conversation: HomeConversationSummary
     }
   }
   /** Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
@@ -952,6 +1274,124 @@ export interface CloudOps {
       }>
     }
   }
+  /** Allow a validated path through the caller's private network. */
+  readonly "firewall.create": {
+    readonly params: {
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** Delete one firewall rule owned by the caller. */
+  readonly "firewall.delete": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly rule_id: string
+    }
+  }
+  /** Read one firewall rule owned by the caller. */
+  readonly "firewall.get": {
+    readonly params: {
+      readonly rule_id: string
+    }
+    readonly result: {
+      readonly id: string
+      readonly action: "allow"
+      readonly source: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly destination: {
+        readonly vmId?: string
+        readonly vpcId?: string
+        readonly tunnelId?: string
+        readonly cidr?: string
+        readonly public?: boolean
+        readonly port?: number
+        readonly protocol?: "tcp" | "udp" | "icmp"
+      }
+      readonly description?: string
+    }
+  }
+  /** List firewall rules attached to the caller's private network. */
+  readonly "firewall.list": {
+    readonly params: {
+      readonly vpc_id?: string
+      readonly vm_id?: string
+      readonly tunnel_id?: string
+    }
+    readonly result: {
+      readonly rules: ReadonlyArray<{
+        readonly id: string
+        readonly action: "allow"
+        readonly source: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly destination: {
+          readonly vmId?: string
+          readonly vpcId?: string
+          readonly tunnelId?: string
+          readonly cidr?: string
+          readonly public?: boolean
+          readonly port?: number
+          readonly protocol?: "tcp" | "udp" | "icmp"
+        }
+        readonly description?: string
+      }>
+    }
+  }
   /** Comment on a GitHub issue or pull request as the cmux GitHub App installation. */
   readonly "github.issue.comment": {
     readonly params: {
@@ -961,6 +1401,46 @@ export interface CloudOps {
       readonly body: string
     }
     readonly result: unknown
+  }
+  /** Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
+  readonly "home.search": {
+    readonly params: {
+      readonly q: string
+      readonly conversation?: ConversationId
+      readonly author?: ParticipantId
+      readonly kind?: ConversationKind
+      readonly before?: Timestamp
+      readonly cursor?: string
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly hits: ReadonlyArray<{
+        readonly conversation: ConversationId
+        readonly seq: number
+        readonly message_id: string
+        readonly author: ParticipantId
+        readonly created_at: Timestamp
+        readonly snippet: string
+        readonly ranges: ReadonlyArray<{
+          readonly start: number
+          readonly length: number
+        }>
+      }>
+      readonly cursor?: string
+    }
+  }
+  /** Choose who can find you by email or phone and who may start a DM with you. */
+  readonly "home.settings.set": {
+    readonly params: {
+      readonly discoverable_by_email?: boolean
+      readonly discoverable_by_phone?: boolean
+      readonly allow_dm_from?: "anyone" | "teams" | "contacts"
+    }
+    readonly result: {
+      readonly discoverable_by_email: boolean
+      readonly discoverable_by_phone: boolean
+      readonly allow_dm_from: "anyone" | "teams" | "contacts"
+    }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
   readonly "host.enroll": {
@@ -978,6 +1458,60 @@ export interface CloudOps {
     readonly result: {
       readonly host: HostId
     }
+  }
+  /** Archive or unarchive a conversation; a new message unarchives it. */
+  readonly "inbox.archive": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly archived: boolean
+    }
+    readonly result: HomeInboxEntry
+  }
+  /** Your existing one-to-one conversation with a peer, if any (dm.open checks it before deriving a new id). */
+  readonly "inbox.dm_peer": {
+    readonly params: {
+      readonly peer: ParticipantId
+    }
+    readonly result: {
+      readonly conversation: ConversationId | null
+    }
+  }
+  /** List your Home conversations: pinned first by position, then newest activity first. */
+  readonly "inbox.list": {
+    readonly params: {
+      readonly limit?: number
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<HomeInboxEntry>
+      readonly revision: string
+    }
+  }
+  /** Flag a conversation unread (the read cursor stays). */
+  readonly "inbox.mark_unread": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly unread: boolean
+    }
+    readonly result: HomeInboxEntry
+  }
+  /** Mute a conversation (until a time in ms, or until unmuted). Approvals still notify. */
+  readonly "inbox.mute": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly muted: boolean
+      readonly until?: number | "Infinity" | "-Infinity" | "NaN"
+    }
+    readonly result: HomeInboxEntry
+  }
+  /** Pin or unpin a conversation in your Home list. */
+  readonly "inbox.pin": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly pinned: boolean
+      readonly position?: number
+    }
+    readonly result: HomeInboxEntry
   }
   /** List the caller's installs and grants. */
   readonly "install.list": {
@@ -998,6 +1532,8 @@ export interface CloudOps {
       readonly device_name: string
       readonly platform: Platform
       readonly device?: DeviceId
+      readonly op_classes?: ReadonlyArray<OpClass>
+      readonly bound_team?: TeamId
     }
     readonly result: Install
   }
@@ -1014,6 +1550,11 @@ export interface CloudOps {
     readonly params: {
       readonly install: InstallId
     }
+    readonly result: Install
+  }
+  /** Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable. */
+  readonly "install.sign_out": {
+    readonly params: Readonly<Record<string, never>>
     readonly result: Install
   }
   /** Finish a connection from the provider's redirect (the signed-in user must be the one who started it). */
@@ -1074,6 +1615,46 @@ export interface CloudOps {
     }
     readonly result: Connection
   }
+  /** Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval. */
+  readonly "invite.accept": {
+    readonly params: {
+      readonly code: string
+      readonly secret: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Approve (default) or decline a join that waits for approval (pending_approval). */
+  readonly "invite.approve_join": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly invite_id: InviteId
+      readonly approve?: boolean
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Invite an email or phone to the conversation. The Worker normalizes the address, checks limits and suppression, and the invite is sent by email or iMessage/SMS after the commit. */
+  readonly "invite.create": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly address: {
+        readonly email: string
+      } | {
+        readonly phone: string
+      }
+      readonly display_name: string
+      readonly locale?: string
+      readonly copy_variant?: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Revoke a pending invite (the inviter or the conversation owner). */
+  readonly "invite.revoke": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly invite_id: InviteId
+    }
+    readonly result: HomeConversationCommit
+  }
   /** Create a Linear issue in a Linear team as the cmux app. */
   readonly "linear.issue.create": {
     readonly params: {
@@ -1095,6 +1676,161 @@ export interface CloudOps {
         readonly key: string
         readonly name: string
       }>
+    }
+  }
+  /** Replace the parts of one of your messages (not after it was retracted). */
+  readonly "message.edit": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly message_id: MessageId
+      readonly parts: ReadonlyArray<HomePart>
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Retract one of your messages: its parts and reactions are cleared and it leaves search. */
+  readonly "message.retract": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly message_id: MessageId
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
+  readonly "message.send": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly client_msg_id: ClientToken
+      readonly parts: ReadonlyArray<HomePart>
+      readonly reply_to?: HomePartRef
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor). */
+  readonly "mux.ack": {
+    readonly params: {
+      readonly agent: AgentId
+      readonly conversation: ConversationId
+      readonly seq: number
+    }
+    readonly result: {
+      readonly cursor: number
+      readonly cleared?: number
+    }
+  }
+  /** Run a chief's brain locally (on a host) or in the cloud (the chief's owner). */
+  readonly "mux.configure": {
+    readonly params: {
+      readonly agent: AgentId
+      readonly brain: "local" | "cloud"
+      readonly brain_host?: string | null
+    }
+    readonly result: unknown
+  }
+  /** List the caller-owned private Cloud networks. */
+  readonly "network.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly networks: ReadonlyArray<{
+        readonly id: string
+        readonly cidr: string | null
+        readonly cidrV6: string | null
+        readonly scope: "user" | "team"
+      }>
+    }
+  }
+  /** Add a user who shares a team or a conversation with you, or a chief its reachability allows (max 64). Anyone else needs invite.create. */
+  readonly "participants.add": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: HomeParticipantInput
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation. */
+  readonly "participants.remove": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Register the calling iPhone or iPad install's APNs token (replaces the install's earlier token). */
+  readonly "push.target.register": {
+    readonly params: {
+      readonly token: PushToken
+      readonly topic: string
+      readonly environment: "development" | "production"
+      readonly device_name?: string
+    }
+    readonly result: PushTarget
+  }
+  /** Remove an APNs token (sign-out on the device, or the user removes a device). */
+  readonly "push.target.remove": {
+    readonly params: {
+      readonly token: PushToken
+    }
+    readonly result: {
+      readonly token: PushToken
+      readonly removed: boolean
+    }
+  }
+  /** Add a tapback or emoji reaction to a message part (one per author, part and kind). */
+  readonly "reaction.add": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly message_id: MessageId
+      readonly part_index: number
+      readonly reaction: HomeReactionKind
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Remove one of your reactions. */
+  readonly "reaction.remove": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly message_id: MessageId
+      readonly part_index: number
+      readonly reaction: HomeReactionKind
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Move your read cursor forward (monotonic, at most last_seq). Recommended key: read:<seq>. */
+  readonly "read_cursor.set": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly seq: number
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+  readonly "server.pair.approve": {
+    readonly params: {
+      readonly code: PairingCode
+      readonly team: TeamId
+      readonly name: string
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly team: TeamId
+      readonly user: UserId
+      readonly install: InstallId
+    }
+  }
+  /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
+  readonly "server.pair.preview": {
+    readonly params: {
+      readonly code: PairingCode
+    }
+    readonly result: PairingPreview
+  }
+  /** Remove a server from the team directory and revoke its install key (the owner; a team admin removes it from the directory). */
+  readonly "server.revoke": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly install_revoked: boolean
     }
   }
   /** Post a message to a Slack channel as the cmux bot. */
@@ -1295,6 +2031,47 @@ export interface CloudOps {
     }
     readonly result: TeamPolicy
   }
+  /** Rename a group conversation (not a dm or chief thread). */
+  readonly "title.set": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly title: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Attach an owned WireGuard tunnel to an owned private network. */
+  readonly "tunnel.attach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Detach an owned WireGuard tunnel from an owned private network. */
+  readonly "tunnel.detach": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly network_id: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly network_id: string
+    }
+  }
+  /** Rotate an owned tunnel's WireGuard public key without changing its address. */
+  readonly "tunnel.rotate-key": {
+    readonly params: {
+      readonly device_fingerprint: string
+      readonly client_public_key: string
+    }
+    readonly result: {
+      readonly tunnel_id: string
+      readonly client_public_key: string
+    }
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -1316,6 +2093,14 @@ export const cloudOpMeta = {
   "automation.settings.set": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.update": { class: "mutation", owner: "cloud:SchedulerDO", risk: "mutate-shared" },
   "automation.webhook.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "conversation.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "domain.claim": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "domain.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "domain.release": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
@@ -1334,21 +2119,54 @@ export const cloudOpMeta = {
   "feed.seen": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.snooze": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
   "feed.unarchive": { class: "mutation", owner: "cloud:FeedDO", risk: "mutate-own" },
+  "firewall.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "firewall.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
+  "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "inbox.mark_unread": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.mute": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "inbox.pin": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "install.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.rename": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
+  "install.sign_out": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "integration.complete": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.policy.get": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.policy.set": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
+  "invite.accept": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.approve_join": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "invite.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "send-external" },
+  "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "linear.issue.create": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "linear.teams.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
+  "message.edit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "message.retract": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "message.send": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
+  "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
+  "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
+  "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
+  "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
+  "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "slack.post_as_bot": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
   "sso.connection.activate": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "sso.connection.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
@@ -1369,6 +2187,10 @@ export const cloudOpMeta = {
   "team.policy.history": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.policy.rollback": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team.policy.update": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "title.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 

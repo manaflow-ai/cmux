@@ -30,6 +30,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// True for a pane opened as a new chat: the page does not fall back to
     /// the most recent session and creates one on the first prompt.
     public var newSession: Bool?
+    /// Set for a tab opened as the new tab page; the page shows it until
+    /// the tab becomes a chat, a terminal or a browser.
+    public var newTab: AgentPaneNewTab?
     /// A new chat's working directory, sent with `session/new` (#16620).
     /// Pages that predate it ignore it, so the version stays the same.
     public var cwd: String?
@@ -38,6 +41,25 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// An outside chat the page resumes on connect. Pages that predate it
+    /// ignore it and open an empty chat, so the version stays the same.
+    public var adopt: AgentPaneAdopt?
+    /// Where the page is shown when it is not a pane tab (`"quick"`: the
+    /// quick panel's compact composer). Pages that predate it ignore it.
+    public var surface: AgentPaneSurface?
+    /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), for
+    /// the links the page copies (`links.ts` `sessionLink`). Pages that
+    /// predate it ignore it.
+    public var linkScheme: String?
+    /// True for a tab a `cmux://session/<id>` link opened: `sessionId`
+    /// must exist. When the daemon has no such session the page says so
+    /// instead of falling back to the most recent one, and marks nothing
+    /// seen. Pages that predate it fall back as before.
+    public var sessionMustExist: Bool?
+    /// The turn a `cmux://session/<id>#turn-<turnId>` link names: the page
+    /// scrolls to it once its row renders, and gives up quietly after a few
+    /// seconds. Handed out once.
+    public var revealTurn: String?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

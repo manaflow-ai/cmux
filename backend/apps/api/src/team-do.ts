@@ -9,7 +9,10 @@ import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from 
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
+import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
+import { mayEnrollServer } from "./domains/team-servers.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -81,6 +84,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
     if (!state.team) return null
+    if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
     const recheck = nextRecheckAt(state)
     const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
     return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
@@ -93,6 +97,7 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
     await this.recheckDomains(now)
     const engine = this.boundEngine
     let state = engine?.currentState
@@ -246,6 +251,106 @@ export class TeamDO extends OwnerDO<TeamState> {
   async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
     const engine = this.boundEngine ?? this.bind(entity)
     return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2):
+   * the approver must be a signed-in owner or admin of this team, never an install
+   * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
+   * pairing code, so a retried approval returns the same host.
+   */
+  /** May this signed-in principal add a server to this team? Checked before the approval writes anything. */
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
+    const engine = this.bind(entity)
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
+  }
+
+  async enrollServer(
+    entity: string,
+    principal: Principal,
+    params: { install: string; name: string; platform: string; wg_public_key: string },
+    idempotencyKey: string
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string }> {
+    const engine = this.bind(entity)
+    if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
+    if (!mayEnrollServer(engine.currentState, principal.user)) return { ok: false, code: "auth.forbidden", message: "only team owners and admins may add a server" }
+    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    return { ok: true, host: (reply.value as { id: string }).id }
+  }
+
+  /** Backoff after a failed revocation push (in memory: a restart retries at once). */
+  private revokeRetryAt: number | null = null
+  private revokeAttempts = 0
+
+  /**
+   * Pushes every pending server install revocation to its owner's UserDO
+   * (`install.revoke_by_team`, which also closes the install's sockets), then
+   * records the confirmation. Called by the Worker right after `server.revoke`
+   * and by the alarm until it succeeds. Returns the installs revoked now.
+   */
+  async flushServerRevocations(entity: string): Promise<{ revoked: Array<string> }> {
+    if (!entity) return { revoked: [] }
+    const engine = this.bind(entity)
+    const pending = Object.values(engine.currentState.server_revocations ?? {})
+    const revoked: Array<string> = []
+    for (const r of pending) {
+      const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
+      let res: { ok: boolean; code?: string }
+      try {
+        res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      } catch (e) {
+        // A thrown RPC keeps the item in the retried set and never stops the rest of onWake.
+        res = { ok: false, code: `rpc:${String(e)}` }
+      }
+      // Done or permanently impossible (not bound, unknown): stop retrying either way; failures are logged.
+      if (!res.ok && res.code !== "auth.forbidden" && res.code !== "selector.not_found") {
+        this.revokeAttempts += 1
+        this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+        console.error(JSON.stringify({ msg: "server install revocation failed", install: r.install, code: res.code }))
+        continue
+      }
+      if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
+      if (res.ok) revoked.push(r.install)
+    }
+    if (Object.keys(this.boundEngine?.currentState.server_revocations ?? {}).length === 0) {
+      this.revokeAttempts = 0
+      this.revokeRetryAt = null
+    }
+    return { revoked }
+  }
+
+  /** Stack server access for SSO sign-in; tests replace it. */
+  stack: StackServer | undefined = undefined
+
+  private loginDeps(entity: string): LoginDeps {
+    const engine = this.bind(entity)
+    return {
+      state: engine.currentState,
+      team: entity,
+      sql: this.ctx.storage.sql,
+      http: this.http,
+      kek: this.env.INTEGRATIONS_KEK,
+      stack: this.stack ?? stackServer(this.env),
+      now: Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }
+  }
+
+  /** RPCs from the unauthenticated SSO routes (sso-routes.ts). */
+  async ssoStart(entity: string, email: string, callbackBase: string, returnTo: string, clientChallenge: string) {
+    return ssoStart(this.loginDeps(entity), email, callbackBase, returnTo, clientChallenge)
+  }
+
+  async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
+    return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoRedeem(entity: string, code: string, clientVerifier: string) {
+    this.bind(entity)
+    return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

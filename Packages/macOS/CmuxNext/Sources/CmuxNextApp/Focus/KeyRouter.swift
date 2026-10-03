@@ -8,7 +8,9 @@ import CmuxNextTerminal
 ///
 /// 0. a chord (`["ctrl+b", "c"]`): its first key, outside text input and
 ///    browser focus mode, waits for the next key, which runs the chord's
-///    action or goes on to the view with no shortcut;
+///    action or goes on to the view with no shortcut. The Cmd-J leader
+///    (`LeaderLayer`) is such a chord that shows a which-key overlay while
+///    it waits and swallows a key that completes nothing;
 /// 1. tier 0 (system) actions, always;
 /// 2. browser focus mode on the focused page: the page gets the key;
 /// 3. tier 1 (navigation) actions, including the user's Ghostty keybinds for
@@ -38,9 +40,18 @@ final class KeyRouter: BrowserKeyRouting {
     /// The user's Ghostty host keybinds (`GhosttyRuntime.hostAction`),
     /// injectable for tests.
     var ghosttyHostAction: (NSEvent) -> TerminalHostAction? = { GhosttyRuntime.shared.hostAction(forKeyDown: $0) }
+    /// The leader's which-key overlay, shown while Cmd-J waits.
+    var whichKey: WhichKeyController?
+    private var resignObserver: (any NSObjectProtocol)?
 
     init(registry: ActionRegistry) {
         self.registry = registry
+        // Leaving the app ends a waiting chord (the overlay hides with it).
+        resignObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.cancelChord() }
+        }
     }
 
     /// Whether an action of `tier` may take a key from the current focus.
@@ -110,10 +121,20 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // A shortcut recording in a Settings tab takes every key first.
+        if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
+            chords.cancel()
+            return true
+        }
         // A popup panel (or its Chromium page window) has the keyboard:
         // Cmd-W closes the popup, never the opener's tab.
         if services?.popups.interceptKeyDown(event, in: window) == true {
-            chords.cancel()
+            cancelChord()
+            return true
+        }
+        // Link hints are showing: their letters, Backspace and Escape.
+        if let hints = services?.linkHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
+            cancelChord()
             return true
         }
         // Plain typing never looks up the window (typing-latency path).
@@ -147,23 +168,52 @@ final class KeyRouter: BrowserKeyRouting {
     /// the focused view, but runs no shortcut there or in the menu.
     private weak var chordMismatch: NSEvent?
 
+    /// Whether a chord, the Cmd-J leader included, may arm in `focus`:
+    /// where content shortcuts run (a terminal, a page, an agent chat, the
+    /// sidebar list), never in a text field, DevTools or browser focus mode,
+    /// whose own Cmd-J stays theirs, and never while an input method is
+    /// composing (marked text), so IME input is never cut short.
+    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool {
+        !hasMarkedText && allows(.content, focus: focus)
+    }
+
+    /// Ends a waiting chord and hides the leader's overlay (a click, a
+    /// window closing, the app resigning active).
+    func cancelChord() {
+        chords.cancel()
+        whichKey?.hide()
+    }
+
+    /// `window`'s focus settled: a chord armed there in another focus ends.
+    func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
+        guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
+        whichKey?.hide()
+    }
+
     /// A chord key in a cmux window: whether it was consumed, or nil to
-    /// route it as usual. Only focus outside text input and browser focus
-    /// mode arms a chord (``allows(_:focus:)`` for content), so the chord's
-    /// action runs whatever its tier.
+    /// route it as usual. Only ``canArm(focus:hasMarkedText:)`` arms a
+    /// chord, so the chord's action runs whatever its tier.
     private func routeChord(_ event: NSEvent, in window: NSWindow?) -> Bool? {
         let (controller, kind) = focus(for: window)
         guard let controller, let window, kind == .content else {
-            chords.cancel()
+            cancelChord()
             return nil
         }
-        let step = chords.step(event, window: ObjectIdentifier(window), registry: registry) {
-            Self.allows(.content, focus: controller.focus.state) && (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() != true
+        // Keyed by the shell window, as focus settles report it: a Chromium
+        // page window is a child of the shell.
+        let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), registry: registry, focus: controller.focus.state.resolved) {
+            Self.canArm(focus: controller.focus.state,
+                        hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true)
+        }
+        if let leader = chords.leaderPrefix, let shell = controller.window {
+            whichKey?.show(after: leader, in: shell)
+        } else {
+            whichKey?.hide()
         }
         switch step {
         case .pass:
             return nil
-        case .armed:
+        case .armed, .dismissed:
             return true
         case .run(let id, let argument):
             lastInterception = (id, controller.state.id)
@@ -215,7 +265,7 @@ final class KeyRouter: BrowserKeyRouting {
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if event === chordMismatch { return false }
         if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
-           Self.allows(.content, id: resolved.id, focus: focus) {
+           !isPageKey(event, id: resolved.id), Self.allows(.content, id: resolved.id, focus: focus) {
             return registry.runShortcut(resolved.id, argument: resolved.argument)
         }
         return runExtensionShortcut(event, focus: focus)
@@ -288,6 +338,29 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     // MARK: BrowserKeyRouting (CEF page window is key)
+
+    /// A letter the page did not handle outside any text field (Chromium
+    /// reports it after the page): runs the content action bound to that
+    /// single key, such as link hints (`f`, `F`), when that page has the
+    /// keyboard. Plain keys never reach ``interceptKeyDown(_:in:)``, so
+    /// typing in a terminal or a text field never gets here.
+    func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
+        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
+              case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
+              Self.allows(.content, focus: controller.focus.state),
+              let resolved = registry.resolve(Shortcut(key.character, modifiers: key.shift ? [.shift] : [])),
+              registry.descriptor(for: resolved.id)?.requires.contains(.browserFocused) == true else { return }
+        registry.runShortcut(resolved.id, argument: resolved.argument)
+    }
+
+    /// A key without Command, Control or Option bound to a browser action
+    /// (link hints): it runs only from ``routePageKey(_:from:)``, after the
+    /// page passed it on, never before a page (WebKit's included) whose
+    /// text field may want the letter.
+    func isPageKey(_ event: NSEvent, id: ActionID) -> Bool {
+        event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+            && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
+    }
 
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false

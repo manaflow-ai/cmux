@@ -2,11 +2,13 @@ import type { AcpmuxRow } from "./model";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
+import { acpWire, type AcpWireLog } from "./wire";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
 // until then the pane pays nothing for it. openMenu opens a composer menu for
-// automation and captures.
+// automation and captures. `acpLog` and `acpLogExport` read the pane's ACP
+// wire log (wire.ts), which is always kept.
 
 export type FlingOptions = { nominal_ms?: number; wait?: boolean };
 
@@ -15,10 +17,15 @@ export type AcpmuxDebug = {
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
   openMenu(label: string): Promise<Record<string, unknown>>;
+  /** The newest `limit` wire log entries (all when omitted) and the log's stats. */
+  acpLog(options?: { limit?: number }): Record<string, unknown>;
+  /** The wire log as JSON Lines. */
+  acpLogExport(): string;
 };
 
 const WARMUP_FRAMES = 30;
@@ -27,7 +34,10 @@ function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
-export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; rowCount(): number }): AcpmuxDebug {
+export function createAcpmuxDebug(
+  host: { replaceRows(rows: AcpmuxRow[]): void; rowCount(): number; sessionId?(): string | undefined },
+  wire: AcpWireLog = acpWire,
+): AcpmuxDebug {
   let timestamps: number[] = [];
   let nominal = 1000 / 60;
   let running = false;
@@ -109,7 +119,11 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
-      return { running, ...acpmuxPerf.stats(options.raw === true) };
+      return { running, ...acpmuxPerf.stats(options.raw === true), agent: acpmuxPerf.agentLatency() };
+    },
+
+    agentLatency() {
+      return acpmuxPerf.agentLatency();
     },
 
     typingStats() {
@@ -132,6 +146,16 @@ export function createAcpmuxDebug(host: { replaceRows(rows: AcpmuxRow[]): void; 
         (node) => node.dataset.menu === label,
       );
       return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
+    },
+
+    acpLog(options = {}) {
+      const entries = wire.entries();
+      const limit = options.limit && options.limit > 0 ? Math.floor(options.limit) : entries.length;
+      return { stats: wire.stats(), entries: entries.slice(-limit) };
+    },
+
+    acpLogExport() {
+      return wire.exportJsonl({ sessionId: host.sessionId?.() });
     },
   };
 }

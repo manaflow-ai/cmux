@@ -309,6 +309,31 @@ focus mode or to a text field cannot fire the menu item afterwards. A panel or s
 over the window (palette, rename sheet) counts as a text field. Clicks in an open menu
 are not gated.
 
+Leader key (Cmd-J, `LeaderLayer`). Before step 1, a two-key chord's first key arms it
+(`ChordTracker`). Cmd-J is the leader: it arms whenever some binding sits under it, even
+one that cannot run in this focus, and a which-key overlay (`WhichKeyController`,
+`WhichKeyPanel`) lists every key under it, bottom center of the window, until the next
+key. That key runs its action, or, when it completes nothing (Escape, an unbound key,
+Cmd-J again), dismisses the overlay and reaches no view. Defaults: Cmd-J J Scroll to
+Selection (`terminal.scrollToSelection`, Ghostty's macOS Cmd-J, so cmux loads
+`keybind = super+j=unbind` before the user's Ghostty files), Cmd-J S New Agent Chat
+(which keeps Shift-Cmd-I), Cmd-J ? (Shift-/) Search Keyboard Shortcuts. Each is an
+ordinary chord in `cmux.json` (`"terminal.scrollToSelection": ["cmd+j", "k"]`); a single
+key or `null` for an action drops its leader chord, and a user's own single-key `cmd+j`
+binding for any action makes the default leader chords step aside, so that action runs. A chord of the user's own under `cmd+j` keeps the leader armed, so a single-key `cmd+j`
+binding next to it never runs; pick one.
+The leader arms before a terminal sees the key, so cmux cannot tell that a Ghostty
+config binds `super+j` (a later `keybind` line only replaces cmux's unbind inside
+Ghostty's config); to give Cmd-J back to Ghostty, unbind the three leader chords in
+`cmux.json` (`terminal.scrollToSelection`, `palette.newAgentChat`,
+`palette.searchShortcuts` set to `null`). Where it arms (`KeyRouter.canArm`): Cmd-J is
+the app leader everywhere content shortcuts run (a terminal, a page, an agent chat, the
+sidebar list), never in a native text field, DevTools or browser focus mode, and never
+while an input method has marked text. In a page this shadows the site's own Cmd-J (VS
+Code for the web's Toggle Panel, for one); rebind or unbind the leader chords in
+`cmux.json` to give it back. Holding Cmd-J keeps the leader armed (repeats are
+ignored); a focus change in its window, a click or a window closing ends it.
+
 Browser context (a page, the address bar or the find bar has the keyboard). A chord
 resolves in this order: a cmux registry action (catalog default or `cmux.json`; the
 most specific performable one, so Cmd-[ is `browserBack` with a browser focused),
@@ -577,7 +602,7 @@ the user."):
   keep the plain colors), and the scope repaint is the same path a theme change uses.
   No Tabs code changes; no accent hue.
 - Debug Settings (Focus): `focus.indicator` and `focus.tabBarBackground` override the
-  settings; `focus.inactiveTabStyle` is the prototype switch (`fade` default: text, icons
+  settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
   and pills fade toward the background; `tonal`: every text tier steps down, the selected
   pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
   `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),

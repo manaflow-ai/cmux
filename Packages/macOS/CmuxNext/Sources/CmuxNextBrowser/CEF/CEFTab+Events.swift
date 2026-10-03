@@ -11,7 +11,9 @@ extension CEFTab {
     func handle(_ event: CEFShimEvent) {
         switch event {
         case .loadingState(_, let loading, let back, let forward):
-            machine.apply(.historyChanged(canGoBack: back, canGoForward: forward))
+            nativeHistory = (back, forward)
+            restored.applyAvailability()
+            restored.dropForwardIfLeftFirstEntry()
             if loading, !state.isLoading {
                 let id = makeNavigationID()
                 navigation = id
@@ -28,6 +30,7 @@ extension CEFTab {
                 machine.apply(.started(id, url: URL(string: url)))
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
+            restored.navigationCommitted(url: URL(string: url))
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
@@ -35,6 +38,7 @@ extension CEFTab {
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
+            restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
             syncSecurityFromChromium()
             // Extensions finish loading after the first window exists and
@@ -67,8 +71,12 @@ extension CEFTab {
             emit(.close)
         case .navigationReroute(_, let url, _):
             if let url = URL(string: url) { emit(.rerouteStore(url)) }
-        case .keyUnhandled(_, let keyCode):
-            if keyCode == 0x1B { emit(.unhandledEscape) }
+        case .keyUnhandled(_, let keyCode, let shift):
+            if keyCode == 0x1B {
+                emit(.unhandledEscape)
+            } else if let key = BrowserPageKey(windowsKeyCode: keyCode, shift: shift) {
+                emit(.unhandledKey(key))
+            }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
         case .renderTerminated(_, let status, let code, _):

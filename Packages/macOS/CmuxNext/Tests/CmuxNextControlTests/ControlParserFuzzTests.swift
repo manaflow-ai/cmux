@@ -24,7 +24,6 @@ import Testing
             var line = ""
             for _ in 0..<rng.below(24) { line += Self.pieces[rng.below(Self.pieces.count)] }
             _ = ControlWire.decode(line)
-            _ = CompatV1Line(line)
         }
     }
 
@@ -40,7 +39,6 @@ import Testing
             let bytes = (0..<rng.below(48)).map { _ in UInt8(truncatingIfNeeded: rng.next()) }
             let line = String(decoding: bytes, as: UTF8.self)
             _ = ControlWire.decode(line)
-            _ = CompatV1Line(line)
         }
     }
 }

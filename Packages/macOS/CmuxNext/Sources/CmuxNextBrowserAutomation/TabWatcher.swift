@@ -2,9 +2,10 @@ import CmuxNextBrowser
 import Foundation
 import Observation
 
-/// Watches a driven tab's engine-neutral state (`WebKitTab.state`, written
-/// by WebKitTab's navigation delegate) with Observation, no polling:
-/// - a failed navigation fails the waits no commit met, with its error;
+/// Watches a driven tab, no polling:
+/// - its navigation events (`WebKitTab.observeNavigationEvents`) go to the
+///   load waits, which key them by navigation;
+/// - from its engine-neutral state (`WebKitTab.state`, Observation):
 /// - a web content process exit emits `tab.crashed` and fails every wait;
 /// - a web view URL change (KVO) outside a load is a same-document
 ///   navigation (fragment, pushState): `tab.navigated {sameDocument: true}`
@@ -18,6 +19,8 @@ final class TabWatcher {
     private var lastExit: BrowserProcessExit?
     private var stopped = false
     private var urlObservation: NSKeyValueObservation?
+    private var loadingObservation: NSKeyValueObservation?
+    private var navigationObserver: UUID?
 
     init(tab: WebKitTab, session: TabSession, emit: @escaping (String, [String: DriverJSON]) -> Void) {
         self.tab = tab
@@ -26,6 +29,12 @@ final class TabWatcher {
         lastURL = tab.webView.url
         lastExit = tab.state.processExit
         observe()
+        // Commits, finishes and failures, keyed by navigation (LoadWaits).
+        navigationObserver = tab.observeNavigationEvents { [weak session] event in session?.waits.navigationEvent(event) }
+        // A load that never started a navigation ended: same-document (LoadWaits).
+        loadingObservation = tab.webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+            MainActor.assumeIsolated { if !webView.isLoading { self?.session?.waits.loadingEnded() } }
+        }
         // Same-document navigations change only the web view's URL.
         urlObservation = tab.webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated { self?.urlChanged(webView.url, loading: webView.isLoading) }
@@ -36,6 +45,10 @@ final class TabWatcher {
         stopped = true
         urlObservation?.invalidate()
         urlObservation = nil
+        loadingObservation?.invalidate()
+        loadingObservation = nil
+        if let navigationObserver { tab?.removeNavigationObserver(navigationObserver) }
+        navigationObserver = nil
     }
 
     private func urlChanged(_ url: URL?, loading: Bool) {
@@ -74,9 +87,6 @@ final class TabWatcher {
     private func apply(_ state: BrowserTabState, tab: WebKitTab) {
         guard let session else { return }
         let target = DriverJSON.string(tab.id.rawValue)
-        if case .failed(let error) = state.phase {
-            session.waits.navigationFailed(DriverError(.invalid, "navigation failed: \(error.message)"))
-        }
         if let exit = state.processExit, exit != lastExit {
             lastExit = exit
             session.waits.failAll(DriverError(.closed, "the page's web content process ended"))

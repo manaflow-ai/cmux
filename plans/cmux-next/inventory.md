@@ -113,6 +113,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 |---|---|---|---|---|
 | newSurface | New Tab (Terminal) | ⌃⇧⌘T in cmux-next (⌘T is `newTab.sameKind`; #16620) | PKC | KSS:152, CV:7596, TIV |
 | newTab.sameKind (cmux-next) | New Tab: same kind as the focused pane (browser pane: browser tab on its engine; else terminal) | ⌘T | PKMC, CLI `tab new` | user decision 2026-09-30 |
+| newTab.page (cmux-next) | New Tab Page: a field with a Terminal / Browser / Agent switch and recent sessions; the pick replaces the page | none (bindable) | PKC, CLI `tab new-page` | #16620 |
 | openBrowser | New Tab (Browser) | ⇧⌘L | PKC | KSS:202, CV:7605, TIV |
 | closeTab | Close Tab | ⌘W | PKM | KSS:144, CV:7618 |
 | closeOtherTabsInPane | Close Other Tabs | ⌥⌘T | KMC | KSS:145, TIV |
@@ -216,6 +217,7 @@ Registry rule for the new palette: one row below = one registered action with a 
 | newCloudWorkspace | New Cloud Workspace | ⇧⌘Y | KMC | KSS:97 |
 | newCloudMachine | New Cloud Machine… | ⌘Y | PKMC | KSS:98 |
 | palette.cloud.{fork,snapshot,restore,promoteTemplate,status,ports,tools,handoff} | Cloud VM ops (8) | — | P | ContentView+AuthCommandPalette:83-90. cmux-next: tools runs the `cmux vm tools` probe through `POST /api/vm/{id}/exec`; handoff shows the live status and the `cmux cloud open-machine` / `machine-tools` commands for the machine; promoteTemplate takes a snapshot named `template-<id12>-<unix>`, as `cmux vm promote-template` did |
+| cmuxCloud relay: `vm.*`, `vm.domain.*`, `vm.publication.*`, network/tunnel/firewall | Typed host relay operations | Catalog + code mode | P/MCP/CLI | `backend/catalog/cloud-relay-operations.json`; bwrap receives only `/run/cmux-cloud.sock`; merge gated on #16944 Swift test |
 | (cloud tree) | New Terminal, Open, Rename, Kill, Copy Link/Port/ID, Resize ▸ (25) | — | C | CloudTreeOutlineView:624, CloudTreeResizeMenu |
 | cloudDiagnostics | Cloud Diagnostics… | — | M | CmuxHelpCommands:14 |
 | openTeamPicker | Team Picker | ⌥⇧⌘T | PK | KSS:85 |

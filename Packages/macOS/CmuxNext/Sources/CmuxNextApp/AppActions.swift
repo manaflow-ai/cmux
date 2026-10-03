@@ -38,6 +38,7 @@ enum AppActions {
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
         StickyColumnHandlers.bind(into: registry, context: context)
+        ColumnAvailability.bind(into: registry, context: context)
         ScreenHandlers.bind(into: registry, context: context)
         TerminalHandlers.bind(into: registry, context: context)
         FindInDirectoryHandlers.bind(into: registry, context: context)
@@ -53,9 +54,11 @@ enum AppActions {
         AccountsHandlers.bind(into: registry, context: context)
         RemoteHandlers.bind(into: registry, context: context)
         ResourceHandlers.bind(into: registry, context: context)
+        LinkHandlers.bind(into: registry, context: context)
         context.observeRefusals()
         DestructiveConfirmation.install(services)
         ActionRouting.install(services)
+        StandaloneWindowRule.install(services)
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {

@@ -29,7 +29,7 @@ from test_execution_registry import load_registry
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "tests" / "test-execution.toml"
 NON_RUNNABLE_LANES = {"legacy", "manual"}
-SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
+SUPPORTED_REQUIREMENTS = {"fish"}
 # A hung test must fail on its own rather than hold every later test's
 # output until the job times out.
 DEFAULT_TIMEOUT_SECONDS = 900
@@ -53,15 +53,6 @@ def environment_for(entry: dict[str, object]) -> dict[str, str]:
         raise SystemExit(f"{entry.get('path')}: unsupported requirements: {', '.join(unknown)}")
 
     env = os.environ.copy()
-    if "cmux-cli" in requirements:
-        cli = env.get("CMUX_CLI_BIN", "")
-        if not cli:
-            raise SystemExit(f"{entry.get('path')}: lane requires CMUX_CLI_BIN")
-        if not Path(cli).is_file():
-            raise SystemExit(f"{entry.get('path')}: CMUX_CLI_BIN does not exist: {cli}")
-    else:
-        env.pop("CMUX_CLI_BIN", None)
-
     if "fish" in requirements and shutil.which("fish", path=env.get("PATH")) is None:
         raise SystemExit(f"{entry.get('path')}: lane requires fish on PATH")
     return env

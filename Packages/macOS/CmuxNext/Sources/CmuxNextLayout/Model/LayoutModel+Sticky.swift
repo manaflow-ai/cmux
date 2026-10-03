@@ -7,24 +7,27 @@ public import CmuxNextDesign
 extension LayoutModel {
     /// Why a column cannot become sticky or change its stickiness.
     public enum StickyRefusal: Hashable, Sendable {
-        /// The screen does not scroll columns (one tiled split tree).
-        case notColumns
+        /// No screen shows a column with that id.
+        case unknownColumn
         /// The change would leave no column to scroll.
         case lastScrollingColumn
         /// The column already has that state.
         case unchanged
     }
 
-    /// The column holding `pane` and its sticky state, on a columns screen.
+    /// The column holding `pane` and its sticky state (the implicit column
+    /// of a screen stored as one split tree).
     public func stickyColumn(containing pane: PaneID) -> LayoutColumn? {
-        screen(containing: pane)?.layout.column(containing: pane)
+        screen(containing: pane)?.column(containing: pane)
     }
 
     /// Checks a change the way the daemon does before sending it.
     public func validateSticky(_ sticky: StickyColumn?, for column: ColumnID) -> StickyRefusal? {
-        guard let screen = screens.first(where: { $0.layout.columns.contains { $0.id == column } }),
-              let current = screen.layout.columns.first(where: { $0.id == column }) else { return .notColumns }
+        guard let screen = screens.first(where: { $0.column(id: column) != nil }),
+              let current = screen.column(id: column) else { return .unknownColumn }
         guard current.sticky != sticky else { return .unchanged }
+        // The implicit column is a screen's only column: it must scroll.
+        if column == screen.implicitColumnID { return .lastScrollingColumn }
         let next = screen.layout.settingSticky(sticky, for: column)
         guard next.columns.contains(where: { $0.sticky == nil }) else { return .lastScrollingColumn }
         return nil
@@ -37,7 +40,7 @@ extension LayoutModel {
     public func setColumnSticky(_ column: ColumnID, _ sticky: StickyColumn?, transaction: LayoutTransactionID = .make()) -> StickyRefusal? {
         if let refusal = validateSticky(sticky, for: column) { return refusal }
         guard let anyPane = screens.lazy.compactMap({ $0.layout.columns.first { $0.id == column }?.root.panes.first }).first else {
-            return .notColumns
+            return .unknownColumn
         }
         emit(.setColumnSticky(column, anyPane: anyPane, sticky: sticky, transaction: transaction))
         return nil

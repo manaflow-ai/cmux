@@ -77,7 +77,8 @@ impl std::error::Error for ColumnStickyError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColumnStickyOutcome {
     pub screen: ScreenId,
-    /// The column's stable id (`Screen.columns[].id`).
+    /// The column's stable id (`Screen.columns[].id`), 0 for the implicit
+    /// column of a screen without `columns`.
     pub column: SplitId,
     /// The column's flag after the request.
     pub sticky: Option<ColumnSticky>,
@@ -142,6 +143,19 @@ pub(crate) fn reduce_column_sticky(
     Ok(next)
 }
 
+/// Sets the flag of `columns[index]` through [`reduce_column_sticky`] and
+/// writes the resulting flags back. On a reject the columns are unchanged.
+/// Shared by `set-column-sticky` and the resource op `column.update`.
+pub(crate) fn apply_column_sticky(
+    columns: &mut [LayoutColumn],
+    index: usize,
+    sticky: Option<ColumnSticky>,
+) -> Result<(), ColumnStickyError> {
+    let flags = reduce_column_sticky(&column_flags(columns), index, sticky)?;
+    write_column_flags(columns, flags);
+    Ok(())
+}
+
 fn column_flags(columns: &[LayoutColumn]) -> Vec<Option<ColumnSticky>> {
     columns.iter().map(|column| column.sticky).collect()
 }
@@ -184,6 +198,23 @@ impl Mux {
             transaction,
         });
         let unchanged = self.with_state(|state| {
+            // A screen stored as one split tree is one implicit column: the
+            // only column cannot be pinned, and unpinning it changes nothing.
+            if let Some((workspace, screen)) = state.screen_of(pane) {
+                let screen = &state.workspaces[workspace].screens[screen];
+                if screen.layout_columns.is_empty() {
+                    if sticky.is_some() {
+                        return Err(ColumnStickyError::LastScrollingColumn);
+                    }
+                    let outcome = ColumnStickyOutcome {
+                        screen: screen.id,
+                        column: 0,
+                        sticky,
+                        changed: false,
+                    };
+                    return Ok(Some(outcome));
+                }
+            }
             let (workspace, screen, column) = sticky_column_location(state, pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
             let flags = column_flags(&screen.layout_columns);
@@ -218,9 +249,7 @@ impl Mux {
                     let mut projected = state.clone();
                     let target = &mut projected.workspaces[workspace].screens[screen];
                     let before = target.layout_snapshot_for_coalescing_change(coalesce);
-                    let current = column_flags(&target.layout_columns);
-                    let flags = reduce_column_sticky(&current, column, sticky)?;
-                    write_column_flags(&mut target.layout_columns, flags);
+                    apply_column_sticky(&mut target.layout_columns, column, sticky)?;
                     target.record_prepared_layout_change(before, Vec::new(), coalesce);
                     let outcome = ColumnStickyOutcome {
                         screen: target.id,

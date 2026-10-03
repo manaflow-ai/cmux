@@ -1,5 +1,7 @@
 # Machine router: invisible cloud machines for coding agents
 
+> The Swift `cmux` CLI verbs named here were removed in the Rust CLI cutover ([plans/cmux-next/cli.md](../../plans/cmux-next/cli.md)). `cmux vm run` has no Rust equivalent yet; this page records the v1 design.
+
 Status: v1 shipped in the CLI (`cmux vm run`); this doc records the design and the path to the control-plane version that pairs with cmux-coderouter.
 
 ## Goal

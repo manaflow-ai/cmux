@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
@@ -9,6 +10,7 @@ public import WebKit
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
 public final class AgentPaneView: NSView {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
@@ -37,6 +39,11 @@ public final class AgentPaneView: NSView {
     private var crashReloads = AgentPaneCrashReloads()
     /// Shown instead of reloading once the page keeps crashing.
     private var crashNotice: NSView?
+    /// Re-pushes the theme when ui.animationSpeed or Reduce Motion changes, so the
+    /// page's `--agent-motion-*` fades follow them (AgentPaneTheme.values).
+    private var motionObservation: Task<Void, Never>?
+    private var reduceMotionObserver: (any NSObjectProtocol)?
+    private var reduceMotionOverrideObserver: (any NSObjectProtocol)?
 
     /// The bundled page, nil when it is missing (a broken build).
     public static var bundledPage: URL? {
@@ -93,6 +100,33 @@ public final class AgentPaneView: NSView {
         webView.navigationDelegate = navigation
         addSubview(webView)
         source.load(into: webView)
+        Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
+        observeMotion()
+    }
+
+    private static func sourceDescription(_ source: AgentPaneSource) -> String {
+        switch source {
+        case .bundled(let url): return "bundled:\(url.path)"
+        case .devServer(let url): return "dev:\(url.absoluteString)"
+        }
+    }
+
+    private func observeMotion() {
+        motionObservation = Task { [weak self] in
+            for await _ in Observations({ Motion.speed }) {
+                guard let self else { return }
+                self.applyTheme()
+            }
+        }
+        // Reduce Motion is not observable through Observation.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
+        reduceMotionOverrideObserver = NotificationCenter.default.addObserver(
+            forName: Motion.reduceMotionDidChange, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applyTheme() }
+        }
     }
 
     @available(*, unavailable)
@@ -201,6 +235,16 @@ public final class AgentPaneView: NSView {
         evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");")
     }
 
+    /// Runs a grouped-permission action from the app shortcut registry. The
+    /// page keeps the decision scoped to its selected session and refuses
+    /// stale, collecting, or unavailable groups before sending anything.
+    public func runPermissionAction(_ command: String) {
+        let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
+                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
+        guard allowed.contains(command) else { return }
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"\(command)\");")
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.
@@ -211,6 +255,12 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        motionObservation?.cancel()
+        motionObservation = nil
+        if let reduceMotionObserver { NSWorkspace.shared.notificationCenter.removeObserver(reduceMotionObserver) }
+        if let reduceMotionOverrideObserver { NotificationCenter.default.removeObserver(reduceMotionOverrideObserver) }
+        reduceMotionObserver = nil
+        reduceMotionOverrideObserver = nil
         dictation.close()
         webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
         webView.navigationDelegate = nil
@@ -292,6 +342,12 @@ public final class AgentPaneView: NSView {
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
         self?.webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    /// Focus Location Bar on a new tab page: the field takes the keyboard and
+    /// selects its text, wherever focus was on the page.
+    public func focusLocation() {
+        evaluateScript("window.dispatchEvent(new Event('acpmux-focus-location'))")
     }
 
     /// Pushes ``customization`` to the page, even an empty one (it clears

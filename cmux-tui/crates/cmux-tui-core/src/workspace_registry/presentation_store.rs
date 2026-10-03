@@ -19,6 +19,7 @@
 //! The materialized table is authoritative for restoration, so a restore
 //! preview never counts these records as unsupported required state.
 
+use crate::state::conversation_tabs_store::{ConversationTabRecord, read_conversation_tabs};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use anyhow::Context;
@@ -31,13 +32,19 @@ use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
 };
+mod saved_tab_groups;
+pub(crate) use saved_tab_groups::{
+    delete_saved_tab_group_in, put_saved_tab_group_in, read_saved_tab_groups,
+};
+
+mod frontend_browser_history;
 
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
 pub const MAX_WORKSPACE_GROUP_ID_BYTES: usize = 64;
 
-pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
     transaction.execute_batch(
         "CREATE TABLE IF NOT EXISTS workspace_groups (
            group_id TEXT PRIMARY KEY NOT NULL,
@@ -92,8 +99,25 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            profile_id TEXT
          );",
     )?;
+    migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
-    migrate_workspace_presentation_add_marked_unread(transaction)
+    migrate_workspace_presentation_add_marked_unread(transaction)?;
+    frontend_browser_history::create_frontend_browser_history_schema(transaction)
+}
+
+/// Add the hosting app's install id to frontend browser records of
+/// registries created before the column existed (unknown owner: NULL).
+fn migrate_frontend_browser_add_owner(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_owner = transaction
+        .prepare("PRAGMA table_info(frontend_browser_tabs)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "owner");
+    if !has_owner {
+        transaction.execute_batch("ALTER TABLE frontend_browser_tabs ADD COLUMN owner TEXT;")?;
+    }
+    Ok(())
 }
 
 /// Add the sidebar pin to registries created before the column existed.
@@ -135,8 +159,7 @@ fn migrate_workspace_presentation_add_marked_unread(
     Ok(())
 }
 
-/// One sidebar group. Groups are ordered by their index in
-/// [`PresentationSnapshot::groups`].
+/// One sidebar group. Groups are ordered by their index in [`PresentationSnapshot::groups`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct WorkspaceGroupRecord {
     pub id: String,
@@ -235,7 +258,11 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
-    /// Tab groups of every pane.
+    /// `conversation-tabs-v1` records keyed by public browser id.
+    pub conversation_tabs: HashMap<String, ConversationTabRecord>,
+    /// Key of the store's home workspace (`workspace-kind-v1`), if any.
+    pub home_workspace: Option<String>,
+    /// Tab groups of every pane, rendered with Chrome-style colors.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
@@ -314,10 +341,13 @@ pub enum SavedTabMember {
     },
 }
 
-/// A saved (pinned) tab group. It outlives its placements.
+/// A saved (pinned) tab group. It outlives its placements. Saved groups are
+/// personal state of the home session and belong to one room.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SavedTabGroupRecord {
     pub id: String,
+    /// The room (`profile`) whose bar shows the saved group.
+    pub room: String,
     pub name: String,
     pub color: String,
     pub members: Vec<SavedTabMember>,
@@ -333,7 +363,7 @@ pub fn new_saved_tab_group_id() -> String {
 }
 
 /// Replace every tab group row in the caller's transaction.
-pub(super) fn write_tab_group_state(
+pub(crate) fn write_tab_group_state(
     transaction: &Transaction<'_>,
     state: &TabGroupState,
 ) -> anyhow::Result<()> {
@@ -407,35 +437,6 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
     Ok(state)
 }
 
-fn read_saved_tab_groups(connection: &Connection) -> anyhow::Result<Vec<SavedTabGroupRecord>> {
-    let mut statement = connection.prepare(
-        "SELECT saved_id, name, color, members_json, updated_at_ms FROM saved_tab_groups
-         ORDER BY position ASC, saved_id ASC",
-    )?;
-    let rows = statement.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, String>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, i64>(4)?,
-        ))
-    })?;
-    let mut saved = Vec::new();
-    for row in rows {
-        let (id, name, color, members, updated_at_ms) = row?;
-        saved.push(SavedTabGroupRecord {
-            id,
-            name,
-            color,
-            members: serde_json::from_str(&members)
-                .context("saved tab group members are invalid")?,
-            updated_at_ms: u64::try_from(updated_at_ms)?,
-        });
-    }
-    Ok(saved)
-}
-
 /// Longest accepted frontend browser URL or favicon URL, in bytes.
 pub const MAX_FRONTEND_BROWSER_URL_BYTES: usize = 32 * 1024;
 /// Longest accepted frontend browser page title, in characters.
@@ -451,6 +452,12 @@ pub struct FrontendBrowserRecord {
     pub title: Option<String>,
     pub favicon_url: Option<String>,
     pub profile_id: Option<String>,
+    /// Install id of the app that hosts the page and is the record's only
+    /// writer (OWNERSHIP-PRINCIPLES single writer). Set by the app through
+    /// the frontend browser commands or `tab.update {owner}`; never by the
+    /// CLI. `None` for records from builds without owners.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl FrontendBrowserRecord {
@@ -473,6 +480,9 @@ impl FrontendBrowserRecord {
                     && profile_id.bytes().all(|byte| byte.is_ascii_graphic()),
                 "bad request: profile_id must be 1-128 printable ASCII characters"
             );
+        }
+        if let Some(owner) = &self.owner {
+            crate::state::window_record_store::validate_key("owner", owner)?;
         }
         Ok(())
     }
@@ -523,7 +533,7 @@ fn read_frontend_browser(
 ) -> anyhow::Result<Option<FrontendBrowserRecord>> {
     Ok(connection
         .query_row(
-            "SELECT engine, url, title, favicon_url, profile_id FROM frontend_browser_tabs
+            "SELECT engine, url, title, favicon_url, profile_id, owner FROM frontend_browser_tabs
              WHERE browser_id = ?1",
             [browser_id],
             |row| {
@@ -533,6 +543,7 @@ fn read_frontend_browser(
                     title: row.get(2)?,
                     favicon_url: row.get(3)?,
                     profile_id: row.get(4)?,
+                    owner: row.get(5)?,
                 })
             },
         )
@@ -596,8 +607,7 @@ pub fn validate_workspace_group_id(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A name or title: nonempty after trimming, bounded, and free of control
-/// characters.
+/// A name or title: nonempty after trimming, bounded, and free of control characters.
 pub fn validate_presentation_text(label: &str, value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(!value.trim().is_empty(), "bad request: {label} cannot be empty");
     anyhow::ensure!(
@@ -714,9 +724,8 @@ fn transaction_session_id(transaction: &Transaction<'_>) -> anyhow::Result<Strin
         .context("read journal session id")
 }
 
-/// Append the immutable fact for one presentation mutation in the caller's
-/// transaction.
-pub(super) fn append_presentation_record(
+/// Append the immutable fact for one presentation mutation in the caller's transaction.
+pub(crate) fn append_presentation_record(
     transaction: &Transaction<'_>,
     kind: &str,
     subjects: Vec<JournalSubject>,
@@ -826,7 +835,7 @@ fn read_workspace_presentation(
 
 /// Write one workspace's presentation row inside a workspace-registry
 /// transaction. A named group must exist.
-pub(super) fn write_workspace_presentation(
+pub(crate) fn write_workspace_presentation(
     transaction: &Transaction<'_>,
     workspace_key: &str,
     update: &WorkspacePresentationUpdate,
@@ -932,7 +941,7 @@ impl WorkspaceRegistry {
         let mut frontend_browsers = HashMap::new();
         {
             let mut statement = self.connection.prepare(
-                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id
+                "SELECT f.browser_id, f.engine, f.url, f.title, f.favicon_url, f.profile_id, f.owner
                  FROM frontend_browser_tabs AS f
                  WHERE NOT EXISTS (
                    SELECT 1 FROM resource_browsers AS b
@@ -948,6 +957,7 @@ impl WorkspaceRegistry {
                         title: row.get(3)?,
                         favicon_url: row.get(4)?,
                         profile_id: row.get(5)?,
+                        owner: row.get(6)?,
                     },
                 ))
             })?;
@@ -960,12 +970,16 @@ impl WorkspaceRegistry {
         let saved_tab_groups = read_saved_tab_groups(&self.connection)?;
         let screens = super::screen_store::read_screen_state(&self.connection)?;
         let saved_screen_groups = super::screen_store::read_saved_screen_groups(&self.connection)?;
-        let kept_tabs = super::kept_tab_store::read_kept_tabs(&self.connection)?;
+        let kept_tabs = crate::state::kept_tab_store::read_kept_tabs(&self.connection)?;
+        let conversation_tabs = read_conversation_tabs(&self.connection)?;
+        let home_workspace = crate::state::home_store::live_home(&self.connection)?.map(|h| h.1);
         Ok(PresentationSnapshot {
             groups,
             workspaces,
             pinned_tabs,
             frontend_browsers,
+            conversation_tabs,
+            home_workspace,
             tab_groups,
             saved_tab_groups,
             screens,
@@ -1064,8 +1078,7 @@ impl WorkspaceRegistry {
         Ok(group)
     }
 
-    /// Delete a group. Its workspaces stay in place and become ungrouped;
-    /// their keys are returned.
+    /// Delete a group. Its workspaces stay in place and become ungrouped; their keys are returned.
     pub fn delete_workspace_group(&mut self, id: &str) -> anyhow::Result<Vec<String>> {
         validate_workspace_group_id(id)?;
         let tx = self.connection.transaction()?;
@@ -1100,8 +1113,7 @@ impl WorkspaceRegistry {
     }
 
     /// Move a group to a zero-based insertion index among groups, with the
-    /// same insertion-point semantics as `move-workspace`. Returns the final
-    /// index.
+    /// same insertion-point semantics as `move-workspace`. Returns the final index.
     pub fn move_workspace_group(&mut self, id: &str, index: usize) -> anyhow::Result<usize> {
         validate_workspace_group_id(id)?;
         let tx = self.connection.transaction()?;
@@ -1128,8 +1140,7 @@ impl WorkspaceRegistry {
     }
 
     /// Store a tab placement's pinned flag, keyed by its public tab id.
-    /// Rows of closed tabs are pruned on the way. Returns whether the flag
-    /// changed.
+    /// Rows of closed tabs are pruned on the way. Returns whether the flag changed.
     pub fn set_tab_pinned(&mut self, tab_id: &str, pinned: bool) -> anyhow::Result<bool> {
         anyhow::ensure!(
             tab_id.starts_with("tab_") && tab_id.len() <= 64,
@@ -1181,12 +1192,12 @@ impl WorkspaceRegistry {
     }
 
     /// Register a frontend-rendered browser before its tab commits, so the
-    /// daemon never bootstraps a CDP target for it. The browser id must be
-    /// fresh.
+    /// daemon never bootstraps a CDP target for it. The browser id must be fresh.
     pub fn put_frontend_browser(
         &mut self,
         browser_id: &str,
         record: &FrontendBrowserRecord,
+        extra: Option<super::RegistryTransactionWrite<'_>>,
     ) -> anyhow::Result<()> {
         validate_browser_public_id(browser_id)?;
         record.validate()?;
@@ -1199,15 +1210,17 @@ impl WorkspaceRegistry {
             .is_some();
         anyhow::ensure!(!exists, "browser {browser_id} already exists");
         tx.execute(
-            "INSERT INTO frontend_browser_tabs(browser_id, engine, url, title, favicon_url, profile_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO frontend_browser_tabs(
+               browser_id, engine, url, title, favicon_url, profile_id, owner
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 browser_id,
                 record.engine,
                 record.url,
                 record.title,
                 record.favicon_url,
-                record.profile_id
+                record.profile_id,
+                record.owner
             ],
         )?;
         append_presentation_record(
@@ -1216,12 +1229,14 @@ impl WorkspaceRegistry {
             vec![browser_subject(browser_id)],
             &json!({"browser_id": browser_id, "browser": record}),
         )?;
+        extra.map_or(Ok(()), |extra| extra(&tx))?;
         tx.commit()?;
         Ok(())
     }
 
     /// Update a frontend browser's location and presentation. `None` leaves
-    /// a field unchanged; `favicon_url: Some(None)` clears the favicon.
+    /// a field unchanged; `favicon_url: Some(None)` clears the favicon. The
+    /// owner changes only on the state commit path (`Mux::commit_browser_owner`).
     pub fn update_frontend_browser(
         &mut self,
         browser_id: &str,
@@ -1261,14 +1276,6 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok((record, true))
-    }
-
-    /// Forget a frontend browser whose tab creation failed.
-    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
-        validate_browser_public_id(browser_id)?;
-        self.connection
-            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        Ok(())
     }
 
     /// Notification ids acknowledged as read on the shared console. A
@@ -1328,8 +1335,7 @@ impl WorkspaceRegistry {
         Ok(added)
     }
 
-    /// Replace every tab group and membership (metadata-only changes that
-    /// leave tab order alone).
+    /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
     pub fn replace_tab_groups(&mut self, state: &TabGroupState) -> anyhow::Result<()> {
         let tx = self.connection.transaction()?;
         write_tab_group_state(&tx, state)?;
@@ -1337,51 +1343,11 @@ impl WorkspaceRegistry {
         Ok(())
     }
 
-    /// Create or replace a saved tab group, keeping its bar position (new
-    /// records go last).
+    /// Create or replace a saved tab group, keeping its bar position and
+    /// room (new records go last).
     pub fn put_saved_tab_group(&mut self, record: &SavedTabGroupRecord) -> anyhow::Result<()> {
-        validate_workspace_group_id(&record.id)?;
-        validate_tab_group_name(&record.name)?;
-        validate_tab_group_color(&record.color)?;
         let tx = self.connection.transaction()?;
-        let position = match tx
-            .query_row(
-                "SELECT position FROM saved_tab_groups WHERE saved_id = ?1",
-                [&record.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()?
-        {
-            Some(position) => position,
-            None => tx.query_row(
-                "SELECT COALESCE(MAX(position) + 1, 0) FROM saved_tab_groups",
-                [],
-                |row| row.get::<_, i64>(0),
-            )?,
-        };
-        tx.execute(
-            "INSERT INTO saved_tab_groups(saved_id, name, color, members_json, position, updated_at_ms)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(saved_id) DO UPDATE SET
-               name = excluded.name,
-               color = excluded.color,
-               members_json = excluded.members_json,
-               updated_at_ms = excluded.updated_at_ms",
-            params![
-                record.id,
-                record.name,
-                record.color,
-                serde_json::to_string(&record.members)?,
-                position,
-                i64::try_from(record.updated_at_ms)?
-            ],
-        )?;
-        append_presentation_record(
-            &tx,
-            "tab.saved_group.updated",
-            vec![JournalSubject { kind: "saved_tab_group".into(), id: record.id.clone() }],
-            &json!({"saved_group": record}),
-        )?;
+        put_saved_tab_group_in(&tx, record)?;
         tx.commit()?;
         Ok(())
     }
@@ -1389,17 +1355,7 @@ impl WorkspaceRegistry {
     /// Delete a saved tab group. Returns whether it existed.
     pub fn delete_saved_tab_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
         let tx = self.connection.transaction()?;
-        let removed =
-            tx.execute("DELETE FROM saved_tab_groups WHERE saved_id = ?1", [saved_id])? > 0;
-        if removed {
-            tx.execute("UPDATE tab_groups SET saved_id = NULL WHERE saved_id = ?1", [saved_id])?;
-            append_presentation_record(
-                &tx,
-                "tab.saved_group.deleted",
-                vec![JournalSubject { kind: "saved_tab_group".into(), id: saved_id.to_string() }],
-                &json!({"saved_id": saved_id}),
-            )?;
-        }
+        let removed = delete_saved_tab_group_in(&tx, saved_id)?;
         tx.commit()?;
         Ok(removed)
     }
