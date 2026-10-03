@@ -13050,7 +13050,7 @@ fn handle_command_with_cancellation(
             bearer_token,
             targets,
         } => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.is_local_principal(client) {
                 anyhow::bail!("browser provider registration requires a trusted local connection");
             }
             let registration = browser_provider_registration(
@@ -13064,13 +13064,13 @@ fn handle_command_with_cancellation(
             Ok(browser_provider_json(Some(snapshot)))
         }
         Command::GetBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.is_local_principal(client) {
                 anyhow::bail!("browser provider discovery requires a trusted local connection");
             }
             Ok(browser_provider_json(mux.browser_provider_snapshot()))
         }
         Command::UnregisterBrowserProvider => {
-            if !mux.control_clients.is_unix(client) {
+            if !mux.control_clients.is_local_principal(client) {
                 anyhow::bail!("browser provider registration requires a trusted local connection");
             }
             Ok(json!({"removed":mux.unregister_browser_provider(client)}))
