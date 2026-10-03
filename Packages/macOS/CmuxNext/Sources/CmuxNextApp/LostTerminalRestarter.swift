@@ -21,7 +21,8 @@ final class LostTerminalRestarter {
 
     private unowned let services: AppServices
     private var observation: Task<Void, Never>?
-    /// Keys already sent; a terminal that dies again has a new key.
+    /// Keys sent for the current candidates; a terminal that dies again has
+    /// a new key.
     private var sent: Set<String> = []
 
     init(services: AppServices) {
@@ -56,11 +57,14 @@ final class LostTerminalRestarter {
     static func candidates(machine: String, tabs: [TabModel]) -> [Candidate] {
         tabs.filter { TabRestart.isRestartable($0) && $0.snapshot.relaunch == nil }.map { tab in
             Candidate(machine: machine, surface: tab.surface,
-                      key: TabRestart.idempotencyKey(deadTerminal: TabRestart.deadTerminal(of: tab)), cwd: tab.cwd)
+                      key: TabRestart.idempotencyKey(tab), cwd: tab.cwd)
         }
     }
 
     private func restart(_ candidates: [Candidate]) {
+        // Keys of tabs that are no longer candidates (restarted, closed, or
+        // their daemon disconnected) go, so a reconnect tries again.
+        sent.formIntersection(candidates.map(\.key))
         for candidate in candidates where sent.insert(candidate.key).inserted {
             guard let daemon = services.machines.daemons.first(where: { $0.machineID == candidate.machine }) else { continue }
             daemon.send("restart-tab") { connection in

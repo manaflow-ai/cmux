@@ -36,6 +36,19 @@ public struct RestartTabRequest: DaemonRequest {
     }
 }
 
+extension RestartTabRequest {
+    /// The key every client derives for restarting `tab` from the terminal
+    /// it shows now: a manual Restart, the automatic restart, the kept-layout
+    /// relaunch and other clients send it, so one dead terminal's tab
+    /// restarts once (the daemon replays the key). The tab is part of it
+    /// because the daemon's replay record names the tab.
+    public static func idempotencyKey(tab: TabSnapshot) -> String {
+        let surface = "surface:\(tab.surface.rawValue)"
+        let terminal = tab.terminalResourceID?.rawValue ?? tab.terminalID.map { "terminal:\($0.rawValue)" } ?? surface
+        return "tab-restart:\(tab.tabResourceID?.rawValue ?? surface):\(terminal)"
+    }
+}
+
 extension DaemonConnection {
     /// Needs `tab-restart-v1`. `fallbackCwd` is used only when the daemon
     /// knows no directory for the dead terminal.
