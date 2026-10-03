@@ -43,7 +43,8 @@ extension CloudTreeOutlineView.Coordinator {
                      proposedItem item: Any?, proposedChildIndex index: Int) -> NSDragOperation {
         // The tree is a navigation/source surface. Pane destinations own the
         // ownership warning and announcement; the tree draws no drag hints.
-        guard ownershipRejection(info: info, item: item) == nil else {
+        // A lifted drag only reorders, whatever row the pointer is over.
+        guard isMachineLiftActive(outlineView, info: info) || ownershipRejection(info: info, item: item) == nil else {
             if let cloudOutline = outlineView as? CloudTreeNSOutlineView {
                 cloudOutline.clearDragDestination(sequence: info.draggingSequenceNumber)
                 cloudOutline.reorderPresentation.clear(sequence: info.draggingSequenceNumber)
@@ -73,7 +74,9 @@ extension CloudTreeOutlineView.Coordinator {
     func outlineView(_ outlineView: NSOutlineView, acceptDrop info: any NSDraggingInfo,
                      item: Any?, childIndex index: Int) -> Bool {
         defer { (outlineView as? CloudTreeNSOutlineView)?.clearDragDestination(sequence: info.draggingSequenceNumber) }
-        guard ownershipRejection(info: info, item: item) == nil else { return false }
+        guard isMachineLiftActive(outlineView, info: info) || ownershipRejection(info: info, item: item) == nil else {
+            return false
+        }
         guard let drop = organizationDrop(outlineView, info: info, item: item, index: index) else { return false }
         switch drop.operation {
         case .organization(let action):

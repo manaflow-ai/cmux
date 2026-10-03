@@ -62,13 +62,14 @@ final class CloudTreeMachineReorderLift: NSObject {
     /// trade places with, `closes` the ones that close for the drag, and
     /// `collapse` closes them without recording it as the person's choice.
     /// `pressY` is where the press landed, before anything closed; it
-    /// defaults to the outline's last mouse-down.
+    /// defaults to the outline's last mouse-down. Returns whether the row lifted.
+    @discardableResult
     func begin(
         sequence: Int, source: CloudTreeNode, siblings: [CloudTreeNode], pressY: CGFloat? = nil,
         isPeer: (CloudTreeNode) -> Bool, closes: (CloudTreeNode) -> Bool, onLeave: (() -> Void)? = nil,
         collapse: ([CloudTreeNode]) -> Void
     ) {
-        guard let outline else { return }
+        guard let outline else { return false }
         discard()
         let before = visualTops()
         let closing = siblings.filter { closes($0) && outline.isItemExpanded($0) }
@@ -98,7 +99,7 @@ final class CloudTreeMachineReorderLift: NSObject {
               let layout = CloudTreeReorderLiftLayout(frames: frames, blocks: blocks, sourceIndex: sourceIndex)
         else {
             ghosts.forEach { $0.layer.removeFromSuperlayer() }
-            return
+            return false
         }
         let newTop = frames[sourceRows.lowerBound].minY
         let oldTop = before[source.id] ?? newTop
@@ -119,6 +120,7 @@ final class CloudTreeMachineReorderLift: NSObject {
         // .common keeps it firing inside the drag's event-tracking loop.
         link.add(to: .main, forMode: .common)
         displayLink = link
+        return true
     }
 
     // MARK: Drag
@@ -215,14 +217,17 @@ final class CloudTreeMachineReorderLift: NSObject {
     }
 
     /// Drops the visuals at once: the outline is about to reload under the
-    /// drag, or it is leaving its window.
+    /// drag, or it is leaving its window. A drag that could leave the tree
+    /// gets its native image back, as if it had left.
     func discard() {
         guard !isFinishing else { return }
+        let leave = onLeave
         displayLink?.invalidate()
         displayLink = nil
         onLeave = nil
         session = nil
         resetTouched()
+        leave?()
     }
 
     // MARK: Geometry

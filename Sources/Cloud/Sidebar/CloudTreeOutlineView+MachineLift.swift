@@ -28,9 +28,9 @@ extension CloudTreeOutlineView.Coordinator {
         let isPeer = { (sibling: CloudTreeNode) in
             sibling.canOrganize && state.isPinned(sibling.id, parent: group) == pinned
         }
-        let image = dragImage(of: session, node: node, in: outline)
-        hideDragImage(of: session, in: outline)
-        outline.machineLift.begin(
+        // Without a picture to hand back, a drag onto a pane would be invisible.
+        guard let image = dragImage(of: session, node: node, in: outline) else { return }
+        let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
             isPeer: isPeer, closes: isPeer,
             onLeave: { [weak self, weak outline] in
@@ -43,6 +43,8 @@ extension CloudTreeOutlineView.Coordinator {
                 for row in rows { outline.collapseItem(row) }
             }
         }
+        guard lifted else { return }
+        hideDragImage(of: session, in: outline)
         installMachineLiftMouseUpMonitor(for: session, in: outline)
     }
 
@@ -91,7 +93,7 @@ extension CloudTreeOutlineView.Coordinator {
             let rect = outline.convert(item.draggingFrame, to: rowView).intersection(rowView.bounds)
             guard !rect.isEmpty, let bitmap = rowView.bitmapImageRepForCachingDisplay(in: rect) else { return }
             rowView.cacheDisplay(in: rect, to: bitmap)
-            let picture = NSImage(size: item.draggingFrame.size)
+            let picture = NSImage(size: rect.size)
             picture.addRepresentation(bitmap)
             image = picture
         }
@@ -100,8 +102,7 @@ extension CloudTreeOutlineView.Coordinator {
 
     /// Gives a drag that left the tree its image back, so it reads as a
     /// normal drag over the panes.
-    private func restoreDragImage(_ image: NSImage?, of session: NSDraggingSession, in outline: NSOutlineView) {
-        guard let image else { return }
+    private func restoreDragImage(_ image: NSImage, of session: NSDraggingSession, in outline: NSOutlineView) {
         session.animatesToStartingPositionsOnCancelOrFail = true
         session.enumerateDraggingItems(
             options: [], for: outline, classes: [NSPasteboardItem.self], searchOptions: [:]
