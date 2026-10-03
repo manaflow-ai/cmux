@@ -1169,7 +1169,13 @@ fn frontend_browser_owner_is_set_by_the_app_and_shown_on_the_tab() {
     // The app's raw record write restates the tab too (invariant 4).
     let before = revision(&mux);
     let (record, changed) = mux
-        .update_frontend_browser_tab(browser.id, None, None, None, Some("install_mac_c".into()))
+        .update_frontend_browser_tab_with_owner(
+            browser.id,
+            None,
+            None,
+            None,
+            Some("install_mac_c".into()),
+        )
         .unwrap();
     assert!(changed);
     assert_eq!(record.owner.as_deref(), Some("install_mac_c"));

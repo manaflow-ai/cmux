@@ -357,7 +357,7 @@ fn cmux_next_frontend_browser_tabs_persist_without_a_cdp_target() {
     assert!(tab["browser_status"].is_null());
 
     let (updated, changed) = mux
-        .update_frontend_browser_tab(
+        .update_frontend_browser_tab_with_owner(
             browser.id,
             Some("https://example.com/next".into()),
             Some("Next".into()),
@@ -371,15 +371,24 @@ fn cmux_next_frontend_browser_tabs_persist_without_a_cdp_target() {
     assert_eq!(tab_json(&mux, browser.id)["browser_owner"], "install_mac_b");
     // An owner must be a valid install id.
     assert!(
-        mux.update_frontend_browser_tab(browser.id, None, None, None, Some("bad/owner".into()))
-            .is_err()
+        mux.update_frontend_browser_tab_with_owner(
+            browser.id,
+            None,
+            None,
+            None,
+            Some("bad/owner".into())
+        )
+        .is_err()
     );
     let tab = tab_json(&mux, browser.id);
     assert_eq!(tab["url"], "https://example.com/next");
     assert_eq!(tab["title"], "Next");
     assert_eq!(tab["favicon_url"], "https://example.com/favicon.ico");
     // A PTY tab is not a frontend browser.
-    assert!(mux.update_frontend_browser_tab(terminal, None, Some("x".into()), None, None).is_err());
+    assert!(
+        mux.update_frontend_browser_tab_with_owner(terminal, None, Some("x".into()), None, None)
+            .is_err()
+    );
     let tab_id = mux.with_state(|state| state.resource_indexes.tab_ids[&browser.id].clone());
     drop(browser);
     drop(mux);
