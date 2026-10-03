@@ -100,6 +100,8 @@ Rules:
 - The daemon never keeps an inherited `CMUX_LAUNCH_CREDENTIAL`: a mux process
   removes it from its own environment at start, and the CLI removes it from
   the detached owner it spawns, so no helper or plugin acts as a terminal.
+  acpmux removes it from the shared daemon it spawns and from every agent it
+  starts (an ACP agent gets its own credential in slice 4).
 - The actor is NOT part of the idempotency fingerprint. The same key sent again
   with a different credential is a replay and keeps the FIRST actor (tested).
 - Thread-local scope is allowed only for non-durable reads (logs, diagnostics).

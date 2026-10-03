@@ -408,6 +408,7 @@ fn spawn_detached() -> Result<std::fs::File> {
     }
     let mut cmd = std::process::Command::new(exe);
     crate::config::scrub_nested_claude_env(&mut cmd);
+    crate::config::scrub_launch_credential(&mut cmd);
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())

@@ -977,5 +977,15 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
 mod codex_adapter;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, codex_through_adapter_package};
 
+/// The cmux terminal launch credential (plans/cmux-next/identity.md
+/// section 2). It names the one terminal that started a process; the shared
+/// daemon and its agents serve many terminals, so neither may carry it.
+pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
+
+/// Remove the launch credential from a child's environment.
+pub fn scrub_launch_credential(cmd: &mut std::process::Command) {
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
+}
+
 #[cfg(test)]
 mod tests;

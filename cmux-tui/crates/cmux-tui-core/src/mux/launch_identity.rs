@@ -207,7 +207,19 @@ fn new_kid() -> String {
 fn read_keys(path: &Path) -> Option<LaunchKeys> {
     let bytes = std::fs::read(path).ok()?;
     let keys: LaunchKeys = serde_json::from_slice(&bytes).ok()?;
-    keys.is_valid().then_some(keys)
+    if !keys.is_valid() {
+        return None;
+    }
+    // A key file left with wider bits is narrowed again.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Some(directory) = path.parent() {
+            let _ = std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700));
+        }
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+    Some(keys)
 }
 
 /// Write `keys` with 0600 through a temporary file and a rename, in a 0700

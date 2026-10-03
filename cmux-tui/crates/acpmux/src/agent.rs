@@ -116,6 +116,9 @@ impl ChildAgent {
         let mut cmd = Command::new(program);
         crate::login_env::apply_tokio(&mut cmd);
         crate::config::scrub_nested_claude_env_tokio(&mut cmd);
+        // A daemon started in the foreground inside a terminal still has
+        // that terminal's credential; no agent may act as that terminal.
+        crate::config::scrub_launch_credential(cmd.as_std_mut());
         // Caller context, herdr-style: the agent knows which session it is.
         for (k, _) in std::env::vars_os() {
             if k.to_string_lossy().starts_with("ACPMUX_") {

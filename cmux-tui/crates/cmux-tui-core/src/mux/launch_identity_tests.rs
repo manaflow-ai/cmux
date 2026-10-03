@@ -129,7 +129,17 @@ fn keys_persist_owner_only_and_reload() {
         iat: 1,
     };
     let credential = first.mint(&claims).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
     let second = LaunchIdentity::load(Some(directory.path()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+    }
     assert_eq!(second.verify(&credential), Ok(claims));
     std::fs::write(&path, b"not json").unwrap();
     let replaced = LaunchIdentity::load(Some(directory.path()));

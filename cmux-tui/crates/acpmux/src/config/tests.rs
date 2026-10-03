@@ -304,3 +304,14 @@ fn websocket_allow_lists_read_in_either_spelling() {
     assert_eq!(snake.allowed_origins, vec!["http://127.0.0.1:5173".to_owned()]);
     assert_eq!(snake.allowed_hosts, vec!["box.local".to_owned()]);
 }
+
+#[test]
+fn the_launch_credential_never_reaches_the_daemon_or_an_agent() {
+    let mut cmd = std::process::Command::new("true");
+    cmd.env(LAUNCH_CREDENTIAL_ENV, "cmuxlc1.k.c.m").env("KEPT", "1");
+    scrub_launch_credential(&mut cmd);
+    let envs: std::collections::HashMap<_, _> =
+        cmd.get_envs().map(|(k, v)| (k.to_owned(), v.map(|v| v.to_owned()))).collect();
+    assert_eq!(envs.get(std::ffi::OsStr::new(LAUNCH_CREDENTIAL_ENV)), Some(&None));
+    assert_eq!(envs.get(std::ffi::OsStr::new("KEPT")), Some(&Some(std::ffi::OsString::from("1"))));
+}
