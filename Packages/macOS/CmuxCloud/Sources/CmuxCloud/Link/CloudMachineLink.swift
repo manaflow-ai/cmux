@@ -1,5 +1,6 @@
 import CmuxCloudTui
 import CmuxSurfaceCatalogModel
+import Darwin
 import Foundation
 import CmuxCore
 
@@ -94,9 +95,10 @@ public actor CloudMachineLink {
                 return "cmux-tui could not be started: \(detail)"
             case .failureMessage(let detail):
                 return detail
-            case .exited(let status, let output):
-                let tail = output.split(separator: "\n").suffix(3).joined(separator: " · ")
-                return "cmux-tui link exited with status \(status)" + (tail.isEmpty ? "" : ": \(tail)")
+            case .exited(let status, _):
+                // Stderr may contain credentials or other remote-controlled text.
+                // Keep it on the typed error for diagnostics, outside visible copy.
+                return "cmux-tui link exited with status \(status)"
             case .timedOut:
                 return "cmux-tui link did not report a socket within the connect timeout."
             }
@@ -129,10 +131,11 @@ public actor CloudMachineLink {
     }
     public private(set) var connected: Connected?
 
-    // Foundation `Process` and its pipes are actor-isolated state; every callback hops
-    // back into the actor through a Task, so nothing else touches them.
-    private var process: Process?
+    // The process wrapper and its pipes are actor-isolated state; every exit callback
+    // hops back into the actor through a Task, so nothing else touches them.
+    private var process: CloudLinkProcess?
     private var processExit: CloudLinkFirstValue<Int32>?
+    private var processExitObserverTask: Task<Void, Never>?
     /// One local JSON resource connection shared by every control request for
     /// this machine. Terminal attachment streams are still allowed to subscribe
     /// separately while they migrate onto this same multiplexer.
@@ -207,9 +210,7 @@ public actor CloudMachineLink {
         eventsCursor = nil
         resetEventsRecovery()
         try paths.ensureStateDir()
-        let process = Process()
-        process.executableURL = clientURL
-        process.arguments = ssh?.arguments(
+        let arguments = ssh?.arguments(
             stateDirectory: paths.stateDir.path,
             deviceName: CloudTuiClientPaths.deviceName(),
             upgrade: sshUpgrade
@@ -225,38 +226,41 @@ public actor CloudMachineLink {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
         if let ssh { environment = environment.merging((ssh.configuration.sshProcessEnvironment ?? [:])) { _, new in new } }
-        process.environment = environment
-        let stdout = Pipe()
-        let stderr = Pipe()
-        process.standardOutput = stdout
-        process.standardError = stderr
-        process.standardInput = FileHandle.nullDevice
-        let processExit = CloudLinkFirstValue<Int32>()
-        process.terminationHandler = { [weak self] terminated in
-            let status = terminated.terminationStatus
-            processExit.resolve(status)
-            Task { await self?.linkProcessDidExit(terminated, status: status) }
-        }
-        state = .connecting
-        lastError = nil
+        let process: CloudLinkProcess
         do {
-            try process.run()
+            process = try CloudLinkProcess.spawn(
+                executableURL: clientURL,
+                arguments: arguments,
+                environment: environment
+            )
         } catch {
             state = .error
             lastError = Self.errorText(error)
             await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
+        let processExit = process.exit
+        let processExitObserver = Task.detached { [weak self, process] in
+            guard let status = await processExit.result, !Task.isCancelled else { return }
+            guard let self else {
+                process.killDescendantsAndReap()
+                return
+            }
+            await self.linkProcessDidExit(process, status: status)
+        }
+        processExitObserverTask = processExitObserver
+        state = .connecting
+        lastError = nil
         self.process = process
         self.processExit = processExit
-        let stderrDrain = drainStderr(stderr.fileHandleForReading, generation: stderrGeneration)
+        let stderrDrain = drainStderr(process.standardError.fileHandleForReading)
         stderrDrainTask = stderrDrain
 
         // The first connection-snapshot line names the socket; later lines only update
         // transport topology and are ignored — but stdout keeps draining for the
         // process's whole life so the client never blocks on a full pipe.
         let firstSocket = CloudLinkFirstValue<String>()
-        let stdoutLines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
+        let stdoutLines = CloudLinkPipe.lines(from: process.standardOutput.fileHandleForReading)
         Task.detached {
             for await line in stdoutLines {
                 if let socket = CmuxTuiSnapshotParser.localSocket(fromLinkLine: line) {
@@ -285,24 +289,37 @@ public actor CloudMachineLink {
                     // stdout closed before a socket line: the client exited (an older
                     // client rejecting a flag, a refused dial). Report that exit and its
                     // stderr, not the deadline it never reached.
-                    await Self.terminateAndWait(process, exit: processExit)
+                    await Self.terminateAndWait(
+                        process,
+                        exit: processExit
+                    )
                     await Self.awaitStderrDrain(stderrDrain)
-                    throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                    let status = await processExit.result ?? -1
+                    throw LinkError.exited(status: status, output: stderrTail.joined(separator: "\n"))
                 case .timedOut?, nil:
                     throw LinkError.timedOut
                 }
             }
             guard process.isRunning else {
                 await Self.awaitStderrDrain(stderrDrain)
-                throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
+                let status = await processExit.result ?? -1
+                throw LinkError.exited(status: status, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
+            processExitObserver.cancel()
+            if self.process === process { processExitObserverTask = nil }
             state = .error
             lastError = Self.errorText(error)
-            await Self.terminateAndWait(process, exit: processExit)
+            await Self.terminateAndWait(
+                process,
+                exit: processExit
+            )
+            await Self.awaitStderrDrain(stderrDrain)
+            await processExitObserver.value
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
+                self.stderrDrainTask = nil
             }
             await releaseHubLeaseOnce()
             try Task.checkCancellation()
@@ -318,6 +335,9 @@ public actor CloudMachineLink {
     }
 
     public func disconnect() async {
+        let exitObserver = processExitObserverTask
+        exitObserver?.cancel()
+        processExitObserverTask = nil
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -334,12 +354,21 @@ public actor CloudMachineLink {
         changesContinuation.finish()
         await cancelEventsStream()
         if let process, let processExit {
-            await Self.terminateAndWait(process, exit: processExit)
+            let stderrDrain = self.stderrDrainTask
+            await Self.terminateAndWait(
+                process,
+                exit: processExit
+            )
+            if let stderrDrain {
+                await Self.awaitStderrDrain(stderrDrain)
+            }
             if self.process === process {
                 self.process = nil
                 self.processExit = nil
+                self.stderrDrainTask = nil
             }
         }
+        await exitObserver?.value
         await resourceConnection?.close()
         resourceConnection = nil
         await releaseHubLeaseOnce()
@@ -668,8 +697,14 @@ public actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
-        guard process === exitedProcess else { return }
+    private func linkProcessDidExit(_ exitedProcess: CloudLinkProcess, status: Int32) async {
+        guard process === exitedProcess, !Task.isCancelled else { return }
+        if let stderrDrainTask {
+            await Self.awaitStderrDrain(stderrDrainTask)
+        }
+        guard process === exitedProcess, !Task.isCancelled else { return }
+        exitedProcess.killDescendantsAndReap()
+        guard process === exitedProcess, !Task.isCancelled else { return }
         eventsSubscriptionID = nil
         eventsReaderTask?.cancel()
         eventsReaderTask = nil
@@ -678,8 +713,11 @@ public actor CloudMachineLink {
         cancelEventsStabilityReset()
         eventsRecoveryPhase = .healthy
         await cancelEventsStream()
+        guard process === exitedProcess, !Task.isCancelled else { return }
         process = nil
         processExit = nil
+        processExitObserverTask = nil
+        stderrDrainTask = nil
         connected = nil
         let stderrGeneration = self.stderrGeneration
         let stderrDrain = self.stderrDrainTask
@@ -716,15 +754,54 @@ public actor CloudMachineLink {
         ).errorDescription
     }
 
-    /// Foundation aborts if a running `Process` is released. Keep a detached exit
-    /// waiter alive because the caller can already be cancelled when cleanup starts.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    private nonisolated static func waitForExit(
+        _ exit: CloudLinkFirstValue<Int32>,
+        upTo limit: Duration
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask { await exit.result != nil }
+            group.addTask {
+                do {
+                    try await ContinuousClock().sleep(for: limit)
+                    return false
+                } catch {
+                    // Cancellation only cancels the timeout branch. It does
+                    // not prove that the child exited; the exit branch owns
+                    // that evidence and must be the only source of `true`.
+                    return false
+                }
+            }
+            let result = await group.next() ?? false
+            group.cancelAll()
+            return result
+        }
+    }
+
+    /// Cleanup keeps an uncancelled exit waiter alive even when connect was
+    /// cancelled. The process wrapper owns all signals and the final reap.
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
     private nonisolated static func terminateAndWait(
-        _ process: Process,
+        _ process: CloudLinkProcess,
         exit: CloudLinkFirstValue<Int32>
     ) async {
         let exitTask = Task.detached { await exit.result }
-        if process.isRunning { process.terminate() }
+        if process.isRunning {
+            process.signal(SIGTERM)
+            if !(await waitForExit(exit, upTo: .seconds(1))) {
+                process.signal(SIGKILL)
+            }
+        }
         _ = await exitTask.value
+        process.killDescendantsAndReap()
     }
 
     private func releaseHubLeaseOnce() async {
@@ -798,6 +875,213 @@ private enum CloudLinkCommandOutcome: Sendable, Equatable {
     case exited(Int32)
     case timedOut
     case cancelled
+}
+
+/// Owns one cmux-tui child in a dedicated POSIX process group.
+///
+/// `Foundation.Process` does not expose `POSIX_SPAWN_SETPGROUP`, so a parent-side
+/// `setpgid` call races a fast executable. This wrapper uses `posix_spawn` to claim
+/// the group before the child can run and keeps the exit waiter independent from
+/// the actor that owns the link.
+///
+/// The wrapper is unchecked Sendable because its pipes and PID are immutable,
+/// ``CloudLinkFirstValue`` synchronizes exit delivery, and the lifecycle lock
+/// serializes signaling, exit observation, and reaping.
+private final class CloudLinkProcess: @unchecked Sendable {
+    let processIdentifier: Int32
+    let processGroupIdentifier: Int32
+    let standardOutput: Pipe
+    let standardError: Pipe
+    let exit = CloudLinkFirstValue<Int32>()
+
+    private init(
+        processIdentifier: Int32,
+        standardOutput: Pipe,
+        standardError: Pipe
+    ) {
+        self.processIdentifier = processIdentifier
+        processGroupIdentifier = processIdentifier
+        self.standardOutput = standardOutput
+        self.standardError = standardError
+    }
+
+    static func spawn(
+        executableURL: URL,
+        arguments: [String],
+        environment: [String: String]
+    ) throws -> CloudLinkProcess {
+        let standardOutput = Pipe()
+        let standardError = Pipe()
+        var actions: posix_spawn_file_actions_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+
+        let outputRead = standardOutput.fileHandleForReading.fileDescriptor
+        let outputWrite = standardOutput.fileHandleForWriting.fileDescriptor
+        let errorRead = standardError.fileHandleForReading.fileDescriptor
+        let errorWrite = standardError.fileHandleForWriting.fileDescriptor
+        // Pipe() can reuse a closed standard descriptor. Stage every pipe fd
+        // above fd 2 before constructing file actions so a close action can
+        // never close the child's newly duplicated stdin/stdout/stderr.
+        func stagedDescriptor(_ descriptor: Int32) throws -> Int32 {
+            let staged = fcntl(descriptor, F_DUPFD_CLOEXEC, 3)
+            guard staged >= 0 else { throw POSIXError(.EIO) }
+            return staged
+        }
+        let stagedOutputRead = try stagedDescriptor(outputRead)
+        defer { close(stagedOutputRead) }
+        let stagedOutputWrite = try stagedDescriptor(outputWrite)
+        defer { close(stagedOutputWrite) }
+        let stagedErrorRead = try stagedDescriptor(errorRead)
+        defer { close(stagedErrorRead) }
+        let stagedErrorWrite = try stagedDescriptor(errorWrite)
+        defer { close(stagedErrorWrite) }
+        let actionStatus = [
+            posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0),
+            posix_spawn_file_actions_adddup2(&actions, stagedOutputWrite, STDOUT_FILENO),
+            posix_spawn_file_actions_adddup2(&actions, stagedErrorWrite, STDERR_FILENO),
+            posix_spawn_file_actions_addclose(&actions, stagedOutputRead),
+            posix_spawn_file_actions_addclose(&actions, stagedOutputWrite),
+            posix_spawn_file_actions_addclose(&actions, stagedErrorRead),
+            posix_spawn_file_actions_addclose(&actions, stagedErrorWrite),
+        ]
+        guard actionStatus.allSatisfy({ $0 == 0 }) else {
+            throw POSIXError(.EIO)
+        }
+
+        var attributes: posix_spawnattr_t?
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw POSIXError(.EIO)
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        var defaultSignals = sigset_t()
+        var signalMask = sigset_t()
+        sigfillset(&defaultSignals)
+        sigemptyset(&signalMask)
+        guard posix_spawnattr_setpgroup(&attributes, 0) == 0,
+              posix_spawnattr_setsigdefault(&attributes, &defaultSignals) == 0,
+              posix_spawnattr_setsigmask(&attributes, &signalMask) == 0,
+              posix_spawnattr_setflags(&attributes, Int16(
+                  POSIX_SPAWN_CLOEXEC_DEFAULT
+                      | POSIX_SPAWN_SETPGROUP
+                      | POSIX_SPAWN_SETSIGDEF
+                      | POSIX_SPAWN_SETSIGMASK
+              )) == 0
+        else {
+            throw POSIXError(.EIO)
+        }
+
+        let executablePath = executableURL.path
+        let argumentStrings = [executablePath] + arguments
+        let environmentStrings = environment.map { "\($0.key)=\($0.value)" }
+        var processIdentifier: Int32 = 0
+        let spawnStatus = Self.withCStringArray(argumentStrings) { argv in
+            Self.withCStringArray(environmentStrings) { envp in
+                executablePath.withCString { executable in
+                    posix_spawn(
+                        &processIdentifier,
+                        executable,
+                        &actions,
+                        &attributes,
+                        argv,
+                        envp
+                    )
+                }
+            }
+        }
+        guard spawnStatus == 0, processIdentifier > 1 else {
+            throw POSIXError(.init(rawValue: spawnStatus == 0 ? ECHILD : spawnStatus) ?? .EIO)
+        }
+        try? standardOutput.fileHandleForWriting.close()
+        try? standardError.fileHandleForWriting.close()
+        let process = CloudLinkProcess(
+            processIdentifier: processIdentifier,
+            standardOutput: standardOutput,
+            standardError: standardError
+        )
+        process.startReaper()
+        return process
+    }
+
+    var isRunning: Bool {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return !didReap && !didExit
+    }
+
+    /// The unreaped child reserves its PID. Serialize every signal with reaping
+    /// so repeated cleanup cannot target a group that has reused that identifier.
+    func signal(_ signal: Int32) {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard !didReap else { return }
+        signalGroup(signal)
+        // The client can change its group. Its owned PID remains a safe fallback.
+        if !didExit { _ = Darwin.kill(processIdentifier, signal) }
+    }
+
+    /// Only called while the lifecycle lock reserves the leader's PID.
+    private func signalGroup(_ signal: Int32) {
+        guard processGroupIdentifier > 1,
+              processGroupIdentifier != getpid(),
+              processGroupIdentifier != getpgrp() else { return }
+        _ = Darwin.kill(-processGroupIdentifier, signal)
+    }
+
+    private func startReaper() {
+        let thread = Thread { [self] in
+            var info = siginfo_t()
+            var result: Int32
+            repeat {
+                result = waitid(P_PID, id_t(processIdentifier), &info, WEXITED | WNOWAIT)
+            } while result == -1 && errno == EINTR
+            lifecycleLock.lock()
+            didExit = true
+            // If waitid lost child ownership, never signal this PID again.
+            if result != 0 { didReap = true }
+            lifecycleLock.unlock()
+            let status = result == 0
+                ? (info.si_code == CLD_EXITED ? info.si_status : 128 + info.si_status)
+                : -1
+            exit.resolve(status)
+        }
+        thread.name = "cmux-cloud-link-reaper"
+        thread.stackSize = 1 << 20
+        thread.start()
+    }
+
+    /// WNOWAIT reserves the exited leader until the final descendant signal.
+    /// Signaling and waitpid share one lock, making all later cleanup a no-op.
+    func killDescendantsAndReap() {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard didExit, !didReap else { return }
+        signalGroup(SIGKILL)
+        var status: Int32 = 0
+        var result: Int32
+        repeat {
+            result = waitpid(processIdentifier, &status, 0)
+        } while result == -1 && errno == EINTR
+        if result == processIdentifier || (result == -1 && errno == ECHILD) {
+            didReap = true
+        }
+    }
+
+    private let lifecycleLock = NSLock()
+    private var didExit = false
+    private var didReap = false
+
+    private static func withCStringArray<T>(
+        _ strings: [String],
+        _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> T
+    ) -> T {
+        var pointers = strings.map { strdup($0) }
+        pointers.append(nil)
+        defer { pointers.forEach { free($0) } }
+        return pointers.withUnsafeMutableBufferPointer { body($0.baseAddress!) }
+    }
 }
 
 /// GCD-driven reading of the link's child-process pipes. `FileHandle.bytes.lines` and
