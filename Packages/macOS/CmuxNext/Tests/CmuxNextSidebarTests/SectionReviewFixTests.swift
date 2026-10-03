@@ -81,4 +81,12 @@ import Testing
         let chipWithBadge = SidebarItemRowView.chipWidth(title: "Notifications", font: SidebarStyle.titleFont, badge: 3)
         #expect(chipWithBadge > SidebarItemRowView.chipWidth(title: "Notifications", font: SidebarStyle.titleFont, badge: nil))
     }
+
+    @Test func accessibilityPressUsesModifierAwareActivation() {
+        let view = SidebarItemRowView()
+        var received: NSEvent.ModifierFlags?
+        view.onPressWithModifiers = { received = $0 }
+        #expect(view.accessibilityPerformPress())
+        #expect(received == [])
+    }
 }

@@ -11,6 +11,12 @@ import Testing
         #expect(runs.map(\.0) == ["newTab.sameKind"])
         #expect(runs.first?.1.target == ActionTargetRef(kind: .pane, id: "pane_a"))
     }
+
+    @Test func optionPlusCarriesTheOneShotWorkspaceOverride() {
+        var runs: [ActionInvocation] = []
+        StripNewTab.request(pane: "pane_a", opensWorkspace: true) { _, invocation in runs.append(invocation) }
+        #expect(runs.first?["toggleWorkspace"]?.boolValue == true)
+    }
 }
 
 /// The tab group editor's New Tab follows Cmd-T (coordinator decision
@@ -39,5 +45,13 @@ import Testing
         let runs = run(selected: nil, group: [])
         #expect(runs.map(\.0) == ["newSurface"])
         #expect(runs.first?.1 == ActionTargetRef(kind: .pane, id: "pane_a"))
+    }
+
+    @Test func optionNewTabInGroupCarriesTheOneShotWorkspaceOverride() {
+        var runs: [ActionInvocation] = []
+        StripNewTab.requestInGroup(selected: "tab_a", groupTabs: ["tab_a"], pane: "pane_a", opensWorkspace: true) {
+            runs.append($1)
+        }
+        #expect(runs.first?["toggleWorkspace"]?.boolValue == true)
     }
 }

@@ -59,11 +59,43 @@ public nonisolated struct AgentProjectScan: Sendable {
                 byFolder[path] = project
             }
         }
+        // A project may have no surviving agent transcript yet. Repositories
+        // under the conventional Projects roots are safe, useful fallbacks
+        // for the first chat and keep project picking from opening a panel.
+        for folder in gitRepositories() {
+            let path = folder.standardizedFileURL.path
+            if byFolder[path] == nil {
+                byFolder[path] = AgentProject(folder: folder, sessions: 0, lastActive: Self.modified(folder), apps: [])
+            }
+        }
         return byFolder.values
             .filter(keeps)
             .map { var p = $0; p.apps.sort(); return p }
-            .sorted { Self.score($0, now: now) == Self.score($1, now: now) ? $0.folder.path < $1.folder.path
-                : Self.score($0, now: now) > Self.score($1, now: now) }
+            .sorted {
+                if ($0.sessions > 0) != ($1.sessions > 0) { return $0.sessions > 0 }
+                return Self.score($0, now: now) == Self.score($1, now: now) ? $0.folder.path < $1.folder.path
+                    : Self.score($0, now: now) > Self.score($1, now: now)
+            }
+    }
+
+    /// Finds git repositories below the user's Projects-style roots without
+    /// walking arbitrary home directories or privacy-protected locations.
+    private func gitRepositories() -> [URL] {
+        let roots = [home.appending(path: "Projects"), home.appending(path: "projects")]
+        let manager = FileManager.default
+        var found: [URL] = []
+        for root in roots where manager.fileExists(atPath: root.path) {
+            guard let enumerator = manager.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: []) else { continue }
+            for case let url as URL in enumerator {
+                guard url.lastPathComponent == ".git" else { continue }
+                guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+                let repository = url.deletingLastPathComponent().standardizedFileURL
+                if !found.contains(repository) { found.append(repository) }
+                enumerator.skipDescendants()
+                if found.count >= 200 { break }
+            }
+        }
+        return found
     }
 
     /// Recency first, with session count as weight: a project used daily

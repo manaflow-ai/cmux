@@ -15,7 +15,9 @@ extension SidebarView {
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none
             scroll.documentView = region
-            region.onActivate = { [weak self] id in self?.model.send(.activateItem(id)) }
+            region.onActivateWithModifiers = { [weak self] id, flags in
+                self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
+            }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
         }
         aboveFade = ScrollEdgeFadeView(scrollView: aboveScroll)

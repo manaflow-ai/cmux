@@ -7,12 +7,12 @@ import Testing
 /// The new tab page (#16620): which kind it starts on, what a terminal
 /// choice types, and that every entry point comes from one action.
 @Suite struct NewTabPageTests {
-    @Test func itStartsOnTheKindOfTheTabItOpensFrom() {
-        #expect(NewTabPage.kind(selectedID: "surface-1", selectedKind: .pty) == .terminal)
-        #expect(NewTabPage.kind(selectedID: "surface-2", selectedKind: .browser) == .browser)
-        #expect(NewTabPage.kind(selectedID: LocalBrowserTab.prefix + "a", selectedKind: nil) == .browser)
+    @Test func itStartsReadyForAgentChatRegardlessOfTheOpeningTab() {
+        #expect(NewTabPage.kind(selectedID: "surface-1", selectedKind: .pty) == .agent)
+        #expect(NewTabPage.kind(selectedID: "surface-2", selectedKind: .browser) == .agent)
+        #expect(NewTabPage.kind(selectedID: LocalBrowserTab.prefix + "a", selectedKind: nil) == .agent)
         #expect(NewTabPage.kind(selectedID: LocalAgentTab.prefix + "a", selectedKind: nil) == .agent)
-        #expect(NewTabPage.kind(selectedID: nil, selectedKind: nil) == .terminal)
+        #expect(NewTabPage.kind(selectedID: nil, selectedKind: nil) == .agent)
     }
 
     @Test func aTerminalChoiceRunsOneTrimmedCommandOrNothing() {

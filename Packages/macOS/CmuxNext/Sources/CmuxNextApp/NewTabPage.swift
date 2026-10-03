@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextOnboarding
 import CmuxNextPalette
 import CmuxNextSettings
 import CmuxNextTabs
@@ -35,13 +36,8 @@ enum NewTabPage {
         .terminal: "newSurface", .browser: "openBrowser", .agent: "palette.newAgentChat",
     ]
 
-    /// The page's initially selected kind: the kind of the tab it opens
-    /// from, a terminal in an empty pane.
-    static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind {
-        if selectedID?.hasPrefix(LocalAgentTab.prefix) == true { return .agent }
-        if selectedID?.hasPrefix(LocalBrowserTab.prefix) == true || selectedKind == .browser { return .browser }
-        return .terminal
-    }
+    /// The page's initially selected kind: Agent chat, ready for the first prompt.
+    static func kind(selectedID: String?, selectedKind: TabKind?) -> AgentPaneTabKind { .agent }
 
     /// `~/code/app` for a folder under the home folder, as the bar shows it.
     static func abbreviated(_ path: String) -> String {
@@ -79,7 +75,10 @@ enum NewTabPage {
         let history = services.cache.history(for: .default).entries.prefix(AgentPaneOmnibar.maximumEntries).map {
             AgentPaneOmnibar.Page(url: $0.url.absoluteString, title: $0.title)
         }
-        return AgentPaneOmnibar(tabs: tabs, workspaces: workspaces, folders: folders, history: Array(history))
+        let commands = services.history.commands.entries().prefix(AgentPaneOmnibar.maximumEntries).compactMap(\.title)
+        return AgentPaneOmnibar(
+            tabs: tabs, workspaces: workspaces, folders: folders, commands: Array(commands), history: Array(history)
+        )
     }
 
     /// `vite.dev/guide` for `https://vite.dev/guide/`.
@@ -110,9 +109,14 @@ enum NewTabPage {
             hotkeys: hotkeys, cwd: selected?.cwd,
             location: selected.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(abbreviated) },
             omnibar: omnibar(services, excluding: selectedID),
+            projects: projects(services),
             defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue
         )
     }
+
+    /// Projects discovered off the main actor during app startup. The current
+    /// session cwd still arrives immediately from the pane handshake.
+    static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
