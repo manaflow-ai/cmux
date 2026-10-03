@@ -2,12 +2,9 @@ import AppKit
 import CmuxNextWakeups
 import CmuxNextDesign
 import QuartzCore
-
 // Internal drag reorder: lift, live gap, drop, cancel, auto-scroll.
-
 extension SidebarListView {
     // MARK: - Drag
-
     final class Drag {
         let payload: DragPayload
         let grabbedKey: SidebarRowKey
@@ -21,7 +18,6 @@ extension SidebarListView {
         let lift: DragLiftView
         var target: DropTarget?
         var lastWindowPoint: NSPoint = .zero
-
         init(payload: DragPayload, grabbedKey: SidebarRowKey, hiddenKeys: Set<SidebarRowKey>, grabOffsetY: CGFloat, gapHeight: CGFloat, lift: DragLiftView, target: DropTarget?) {
             self.payload = payload
             self.grabbedKey = grabbedKey
@@ -31,7 +27,6 @@ extension SidebarListView {
             self.lift = lift
             self.target = target
         }
-
         @MainActor func isValid(in model: SidebarModel) -> Bool {
             switch payload {
             case let .workspaces(ids): ids.allSatisfy { model.workspace($0) != nil }
@@ -39,7 +34,6 @@ extension SidebarListView {
             }
         }
     }
-
     func beginDrag(_ press: Press) {
         hoverCards.dismiss(.click)
         guard let row = displayed.row(for: press.key) else { return }
@@ -60,10 +54,9 @@ extension SidebarListView {
             hidden = [.group(group)]
             for ws in groups[group]?.workspaces ?? [] { hidden.insert(.workspace(ws.id)) }
             origin = .position(DropPosition(section: model.sections[s].id, index: n))
-        case .section, .emptySection:
+        case .tab, .section, .emptySection:
             return
         }
-
         let rowFrame = frame(for: row)
         let count: Int
         if case let .workspaces(ids) = payload { count = ids.count } else { count = 1 }
@@ -74,7 +67,6 @@ extension SidebarListView {
         let lift = DragLiftView(content: content, count: count)
         lift.frame = rowFrame
         addSubview(lift)
-
         let drag = Drag(
             payload: payload,
             grabbedKey: press.key,
@@ -92,13 +84,11 @@ extension SidebarListView {
         reload(animated: true)
         lift.setLifted(true, animated: true)
     }
-
     func updateDrag(windowPoint: NSPoint) {
         guard let drag else { return }
         if offerHandoff(drag, windowPoint: windowPoint) { return }
         drag.lastWindowPoint = windowPoint
         let point = convert(windowPoint, from: nil)
-
         // The lifted row follows the pointer vertically; x stays locked.
         var liftFrame = drag.lift.frame
         let visible = visibleRect
@@ -108,7 +98,6 @@ extension SidebarListView {
         drag.lift.frame = liftFrame
         CATransaction.commit()
         autoscroll.update(windowPoint: windowPoint)
-
         guard let baseY = DropResolver.baseY(forDisplayY: point.y, gapY: displayed.gapY, gapHeight: displayed.gapShift) else { return }
         let base = SidebarLayout.make(sections: model.sections, metrics: metrics, options: options(includeGap: false))
         let target = DropResolver.resolve(y: baseY, payload: drag.payload, base: base, sections: model.sections,
@@ -118,7 +107,6 @@ extension SidebarListView {
         drag.lift.setRefused(target == nil)
         reload(animated: true)
     }
-
     func finishDrag() {
         guard let drag else { return }
         autoscroll.stop()
@@ -139,7 +127,6 @@ extension SidebarListView {
         reload(animated: true)
         land(drag)
     }
-
     func cancelDrag() {
         guard let drag else { return }
         autoscroll.stop()
@@ -149,7 +136,6 @@ extension SidebarListView {
         reload(animated: true)
         land(drag)
     }
-
     /// Flies the lifted view to its row's current frame, then swaps it out.
     func land(_ drag: Drag) {
         let destination = displayed.row(for: drag.grabbedKey).map(frame(for:)) ?? drag.lift.frame

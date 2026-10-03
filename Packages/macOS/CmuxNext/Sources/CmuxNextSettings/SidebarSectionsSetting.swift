@@ -7,6 +7,15 @@ public nonisolated enum SidebarSectionsSetting {
     public static let topSharePath = ["sidebar", "topBandMaxShare"]
     public static let bottomSharePath = ["sidebar", "bottomBandMaxShare"]
     public static let scrollPath = ["sidebar", "stickyBandsScroll"]
+    public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
+
+    static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
+                          help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showWorkspaceTabs),
+                          keywords: ["sidebar", "workspace", "tabs"])
+    }
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
     public static let looks = ["quiet", "card", "tray", "lines", "linesIcons"]
 
@@ -36,6 +45,13 @@ public nonisolated enum SidebarSectionsSetting {
                 result.stickyBandsScroll = flag
             } else {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.stickyBandsScroll", message: "expected true or false"))
+            }
+        }
+        if let value = root.value(at: showWorkspaceTabsPath) {
+            if let flag = value.boolValue {
+                result.showWorkspaceTabs = flag
+            } else {
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
         return result

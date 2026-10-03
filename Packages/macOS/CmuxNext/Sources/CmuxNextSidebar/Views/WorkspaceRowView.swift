@@ -10,6 +10,8 @@ final class WorkspaceRowView: SidebarRowView {
     private let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     private let activity = StatusIndicatorView()
     private let badge = UnreadBadgeView()
+    /// A single colored segment connects grouped workspace rows.
+    private let groupRail = CALayer()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
 
     /// Progress under the row (`SidebarWorkspace.progress`): a track and a
@@ -19,6 +21,7 @@ final class WorkspaceRowView: SidebarRowView {
     private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
+    private var groupColor: GroupColor?
     private var iconKind: WorkspaceIcon?
     /// Selected but not active (the active row sits on the shared pill).
     var isSecondarySelected = false { didSet { if isSecondarySelected != oldValue { needsDisplay = true } } }
@@ -40,6 +43,7 @@ final class WorkspaceRowView: SidebarRowView {
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
+        layer?.addSublayer(groupRail)
         closeButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
@@ -60,17 +64,19 @@ final class WorkspaceRowView: SidebarRowView {
     private struct Content: Hashable {
         var ws: SidebarWorkspace
         var group: GroupID?
+        var groupColor: GroupColor?
         var fontSize: CGFloat
         var iconSize: CGFloat
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow) {
         let content = Content(
-            ws: ws, group: row.group,
+            ws: ws, group: row.group, groupColor: row.groupColor,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: Metrics.smallIconSize
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
+        groupColor = row.groupColor
         isShowingPlaceholder = ws.rowState == .placeholder
         placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         icon.configure(icon: ws.icon)
@@ -157,7 +163,22 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let indent: CGFloat = grouped ? SidebarStyle.groupIndent : 0
+        // The group rail sits at the shared leading edge. Kind icons provide
+        // the only visual inset for grouped project rows.
+        let indent: CGFloat = 0
+        let railWidth = max(Metrics.dividerThickness * 2, 2)
+        groupRail.frame = NSRect(
+            x: SidebarStyle.horizontalInset - Metrics.space2,
+            y: Metrics.space1,
+            width: railWidth,
+            height: max(0, b.height - Metrics.space2)
+        )
+        groupRail.isHidden = !grouped
+        performWithTheme {
+            let color = groupColor.flatMap { $0.swatch.blended(withFraction: 0.25, of: Palette.accent) }
+            groupRail.backgroundColor = color?.cgColor
+            groupRail.cornerRadius = railWidth / 2
+        }
         // Text-first: the title starts at the inset unless the user chose
         // an icon (a color is a small dot, a symbol a glyph).
         let leading = SidebarStyle.horizontalInset + indent
