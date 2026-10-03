@@ -2,7 +2,9 @@
 //! (plans/cmux-next/chief-mac.md section 4). Each case starts a core from a
 //! durable state, feeds inputs with their time, and expects the exact
 //! effects (`log` effects are not compared: their text is diagnostics) and
-//! the durable state after. Memory cases call one pure memory function.
+//! the durable state after. Expected effects and states stay JSON values and
+//! are compared with `serde_json::to_value` of the result, so a missing,
+//! extra or unknown field fails. Memory cases call one pure memory function.
 //! The TypeScript core runs the same file, so both brains stay equal.
 
 use serde::{Deserialize, Serialize};
@@ -29,7 +31,7 @@ pub struct Case {
     #[serde(default)]
     pub state: HostState,
     pub steps: Vec<Step>,
-    pub state_after: HostState,
+    pub state_after: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,7 +39,7 @@ pub struct Step {
     /// Milliseconds since the epoch.
     pub now: u64,
     pub input: Input,
-    pub effects: Vec<Effect>,
+    pub effects: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -53,15 +55,21 @@ pub struct MemoryCase {
 /// Runs one case; the error names the first step that differs.
 pub fn run_case(case: &Case) -> Result<(), String> {
     let mut core = Core::new(case.state.clone());
+    let log = json!("log");
     for (index, step) in case.steps.iter().enumerate() {
         let got: Vec<Effect> = core
             .step(step.input.clone(), step.now)
             .into_iter()
             .filter(|effect| !matches!(effect, Effect::Log { .. }))
             .collect();
-        let want: Vec<&Effect> =
-            step.effects.iter().filter(|effect| !matches!(effect, Effect::Log { .. })).collect();
-        let (got_json, want_json) = (json!(got), json!(want));
+        let got_json = serde_json::to_value(&got).map_err(|e| e.to_string())?;
+        let want_json = Value::Array(
+            step.effects
+                .iter()
+                .filter(|effect| effect.get("kind") != Some(&log))
+                .cloned()
+                .collect(),
+        );
         if got_json != want_json {
             return Err(format!(
                 "{}: step {index}: effects differ\n  want {want_json}\n  got  {got_json}",
@@ -69,8 +77,9 @@ pub fn run_case(case: &Case) -> Result<(), String> {
             ));
         }
     }
-    let (got, want) = (json!(core.state), json!(case.state_after));
-    if got != want {
+    let got = serde_json::to_value(&core.state).map_err(|e| e.to_string())?;
+    if got != case.state_after {
+        let want = &case.state_after;
         return Err(format!("{}: state_after differs\n  want {want}\n  got  {got}", case.name));
     }
     Ok(())
