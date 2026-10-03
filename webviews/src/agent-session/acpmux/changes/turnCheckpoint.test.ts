@@ -158,6 +158,82 @@ describe("turn checkpoint", () => {
     expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
   });
 
+  test("a checkpoint hunk with fewer duplicate lines does not map to the whole tool hunk", () => {
+    const repeated = turnFiles([
+      {
+        id: "activity-4",
+        version: 1,
+        at: 4,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t3",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "~/code/a.ts", oldText: "a\na\n", newText: "b\nb\n" }],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      repeated,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          root: "/Users/me/code",
+          files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("a matching patch at another location stays read-only", () => {
+    const tool = turnFiles([
+      {
+        id: "activity-5",
+        version: 1,
+        at: 5,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t4",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "~/code/a.ts", oldText: "x\na\n", newText: "x\nb\n" }],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      tool,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          root: "/Users/me/code",
+          files: [
+            { path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -9,2 +9,2 @@\n x\n-a\n+b\n" },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
   test("every case without a usable checkpoint shows the tool calls' edits, with a note when one was expected", () => {
     const cases: [TurnCheckpointLoad, boolean][] = [
       [{ state: "unsupported" }, false],
