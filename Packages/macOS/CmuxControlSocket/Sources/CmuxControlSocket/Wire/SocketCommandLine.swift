@@ -9,6 +9,7 @@
 /// ``isSingleTokenArgument(_:)`` or ``agentHookPIDKeyArgument(statusKey:sessionId:)``
 /// before composing a command, and every writer frames the finished line
 /// through ``framedLine(for:)``, which refuses CR, LF, and NUL outright.
+/// lint:allow namespace-type — stateless wire framing helpers; the static API is intentionally dependency-free.
 public struct SocketCommandLine {
     private init() {}
     /// Maximum UTF-8 length accepted for a machine identifier embedded in a

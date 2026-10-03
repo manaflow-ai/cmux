@@ -17,6 +17,7 @@ public import Foundation
 /// The templates are kept free of Swift interpolation so the
 /// `tests/react_grab_bridge.test.mjs` harness can extract and execute the
 /// exact shipped sources between the begin/end markers.
+/// lint:allow namespace-type — stateless JavaScript source templates; the static API is intentionally dependency-free.
 public struct ReactGrabBridgeScripts {
     private init() {}
     public static let handlerNamePlaceholder = "__CMUX_RG_HANDLER__"
