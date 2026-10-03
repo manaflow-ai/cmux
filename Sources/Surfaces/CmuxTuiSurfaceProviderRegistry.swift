@@ -91,6 +91,10 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var machineTeardowns: [String: Task<Void, Never>] = [:]
     private var featureResumeTask: Task<Void, Never>?
     private var featureSuspensionTask: Task<Void, Never>?
+    /// The account-level carrier preparation started by activation policy.
+    /// Keep ownership here so sign-out or a disabled Cloud gate can cancel the
+    /// caller before it reaches the WireGuard hub actor after teardown.
+    private var activationPreparationTask: Task<Void, Never>?
     private var isFeatureSuspended = false
     init(
         links: CloudMachineLinkManager,
@@ -208,6 +212,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight?.cancel()
         discoveryInFlight?.cancel()
         featureSuspensionTask?.cancel()
+        activationPreparationTask?.cancel()
     }
 
     /// Live headless links, for the Cloud tunnel's idle policy.
@@ -287,6 +292,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard !isRetired else {
             pollTask?.cancel()
             pollTask = nil
+            activationPreparationTask?.cancel()
+            activationPreparationTask = nil
             return
         }
         guard isCloudEnabled() else {
@@ -299,6 +306,8 @@ final class CmuxTuiSurfaceProviderRegistry {
             refreshInFlight = nil
             discoveryInFlight?.cancel()
             discoveryInFlight = nil
+            activationPreparationTask?.cancel()
+            activationPreparationTask = nil
             suspendCloudTransportsIfNeeded()
             return
         }
@@ -318,9 +327,20 @@ final class CmuxTuiSurfaceProviderRegistry {
         guard allowsBackgroundWork() else {
             pollTask?.cancel()
             pollTask = nil
+            activationPreparationTask?.cancel()
+            activationPreparationTask = nil
             return
         }
-        if hasCloudSession() { Task { await wireGuardHub?.prepareForCloudUse() } }
+        let hasSession = hasCloudSession()
+        if hasSession, activationPreparationTask == nil {
+            activationPreparationTask = Task { [weak self] in
+                guard !Task.isCancelled else { return }
+                await self?.wireGuardHub?.prepareForCloudUse()
+            }
+        } else if !hasSession {
+            activationPreparationTask?.cancel()
+            activationPreparationTask = nil
+        }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -794,6 +814,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         refreshInFlight = nil
         featureResumeTask?.cancel()
         featureResumeTask = nil
+        activationPreparationTask?.cancel()
+        activationPreparationTask = nil
         // Suspend before unregistering so terminal callbacks cannot race a
         // catalog removal during account teardown.
         for provider in providers.values { provider.suspendForFeatureFlag(stopReason: .signedOut) }
