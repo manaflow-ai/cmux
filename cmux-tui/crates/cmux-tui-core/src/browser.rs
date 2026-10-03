@@ -5086,14 +5086,6 @@ impl BrowserSurface {
         Err(error)
     }
 
-    pub fn back(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Back)
-    }
-
-    pub fn forward(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Forward)
-    }
-
     fn back_blocking(&self) -> anyhow::Result<()> {
         self.navigate_history_blocking(-1)
     }
@@ -5134,10 +5126,6 @@ impl BrowserSurface {
             session.runtime.client.navigate_to_history_entry(&session.session_id, entry.id),
         )?;
         Ok(())
-    }
-
-    pub fn reload(&self) -> anyhow::Result<()> {
-        self.enqueue_control(BrowserCommand::Reload)
     }
 
     fn reload_blocking(&self) -> anyhow::Result<()> {
