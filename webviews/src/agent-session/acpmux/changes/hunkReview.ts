@@ -11,7 +11,7 @@ export type HunkReview = {
 };
 /// `label` names the hunk for its buttons, so a screen reader can tell one hunk's Reject from
 /// another's.
-export type HunkAnchor = { key: string; label: string };
+export type HunkAnchor = { key: string; label: string; keys: readonly string[] };
 /// The hunk whose action the reader just took; its next button takes focus, since the one
 /// pressed is replaced.
 export type FocusAfter = { current: string | undefined };
@@ -25,8 +25,16 @@ export function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered
   const line = first.newLine ?? first.oldLine;
   const label = numbered && line !== undefined ? `${file.displayPath} line ${line}` : file.displayPath;
   return last.type === "add"
-    ? { side: "additions" as const, lineNumber: last.newLine!, metadata: { key, label } }
-    : { side: "deletions" as const, lineNumber: last.oldLine!, metadata: { key, label } };
+    ? {
+        side: "additions" as const,
+        lineNumber: last.newLine!,
+        metadata: { key, label, keys: hunk.reviewKeys ?? [key] },
+      }
+    : {
+        side: "deletions" as const,
+        lineNumber: last.oldLine!,
+        metadata: { key, label, keys: hunk.reviewKeys ?? [key] },
+      };
 }
 
 /// Every hunk of a turn's files, each with its key and patch, in file order.

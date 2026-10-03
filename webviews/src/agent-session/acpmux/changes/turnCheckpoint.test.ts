@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { turnFiles } from "../diff";
+import { checkpointHunkKey, hunkKey, turnFiles } from "../diff";
 import type { AcpmuxRow } from "../model";
 import { readTurnCheckpoint, turnCounts, turnDisplay, type TurnCheckpointLoad } from "./turnCheckpoint";
 
@@ -55,6 +55,80 @@ describe("turn checkpoint", () => {
       ["src/a.generated.ts", true],
     ]);
     expect(display.files[0]!.edits[0]!.toolId).toBe("checkpoint:cp-7");
+    const checkpointHunk = display.files[0]!.edits[0]!.hunks[0]!;
+    expect(checkpointHunk.reviewKeys).toEqual([hunkKey(toolFiles[0]!, 0, 0)]);
+    expect(checkpointHunk.checkpoint?.key).toBe(checkpointHunkKey("cp-7", display.files[0]!.path, checkpointHunk));
+    expect(display.files[1]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("line ranges choose one tool hunk when identical changed text occurs twice", () => {
+    const files = turnFiles([
+      {
+        id: "activity-3",
+        version: 1,
+        at: 3,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "",
+            tool: {
+              id: "t2",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [
+                { path: "~/code/relay/src/a.ts", oldText: "a\nx\nz\n", newText: "a\nX\nz\n", line: 2 },
+                { path: "~/code/relay/src/a.ts", oldText: "a\nx\nz\n", newText: "a\nx\nX\n", line: 3 },
+              ],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      files,
+      readTurnCheckpoint({
+        checkpoint_id: "cp-range",
+        complete: true,
+        diff: {
+          files: [
+            {
+              path: "src/a.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -2,1 +2,1 @@\n-x\n+X\n",
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    const keys = display.files[0]!.edits[0]!.hunks[0]!.reviewKeys;
+    expect(keys).toEqual([hunkKey(files[0]!, 0, 0)]);
+  });
+
+  test("a checkpoint hunk with different changed lines remains read-only", () => {
+    const display = turnDisplay(
+      toolFiles,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          files: [
+            {
+              path: "src/a.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n a\n-b\n+elsewhere\n",
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
   });
 
   test("every case without a usable checkpoint shows the tool calls' edits, with a note when one was expected", () => {

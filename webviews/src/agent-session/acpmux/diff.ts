@@ -3,7 +3,20 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type DiffLine = { type: "context" | "add" | "del"; text: string; oldLine?: number; newLine?: number };
-export type DiffHunk = { lines: DiffLine[] };
+export type DiffRange = {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+};
+export type DiffHunk = {
+  lines: DiffLine[];
+  /// A checkpoint hunk can carry the tool hunk identities that produced its net change. An empty
+  /// array means the checkpoint hunk is read-only because no tool change can safely own it.
+  reviewKeys?: string[];
+  /// The checkpoint identity remains available for diagnostics and file-level actions.
+  checkpoint?: { id: string; path: string; range: DiffRange; key: string };
+};
 /// One tool call's change to a file. Line numbers are known for a new file, a file the agent
 /// sent whole, or an edit whose tool call located its first line; a bare fragment has none.
 export type DiffEdit = { toolId: string; hunks: DiffHunk[]; numbered: boolean };
@@ -143,6 +156,27 @@ export function diffHunks(ops: Op[], firstLine = 1, context = CONTEXT_LINES): Di
   }
   if (start >= 0) hunks.push({ lines: numbered.slice(start, end + 1) });
   return hunks;
+}
+
+/// The unified range represented by a rendered hunk, including its context lines.
+export function hunkRange(hunk: DiffHunk): DiffRange {
+  const oldLines = hunk.lines.filter((line) => line.oldLine !== undefined);
+  const newLines = hunk.lines.filter((line) => line.newLine !== undefined);
+  const oldStart = oldLines[0]?.oldLine ?? newLines[0]?.newLine ?? 0;
+  const newStart = newLines[0]?.newLine ?? oldLines[0]?.oldLine ?? 0;
+  return {
+    oldStart,
+    oldCount: oldLines.length,
+    newStart,
+    newCount: newLines.length,
+  };
+}
+
+/// A stable identity for a checkpoint hunk. It is deliberately file-level addressable even when
+/// the checkpoint's net hunk cannot be attributed to one tool call.
+export function checkpointHunkKey(id: string, path: string, hunk: DiffHunk): string {
+  const range = hunkRange(hunk);
+  return `checkpoint:${id}\u0000${path}\u0000-${range.oldStart},${range.oldCount}+${range.newStart},${range.newCount}`;
 }
 
 /// The rows of the turn `rowId` belongs to: from its user message up to the next one.

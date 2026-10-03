@@ -59,6 +59,7 @@ export function DiffPanel({
   checkpointAction,
   checkpointReview,
   review,
+  reviewFiles,
   turn,
 }: {
   files: TurnFile[];
@@ -70,6 +71,8 @@ export function DiffPanel({
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
   review?: HunkReview;
+  /// Tool-call files remain the source of revert patches when Last turn is showing a checkpoint.
+  reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
 }) {
@@ -94,9 +97,9 @@ export function DiffPanel({
   const body = useRef<HTMLDivElement>(null);
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
-  // Decisions are keyed by the turn's tool calls, so only the tool-call view of the last turn
-  // offers them; a checkpoint's hunks are read-only until they map onto those keys.
-  const hunkReview = scope === "lastTurn" && turn?.source !== "checkpoint" ? review : undefined;
+  // Decisions are keyed by the turn's tool calls. Checkpoint hunks carry matching keys when the
+  // net diff still contains a tool change; formatter-only and outside files remain read-only.
+  const hunkReview = scope === "lastTurn" ? review : undefined;
   const turnNote = scope === "lastTurn" ? turn?.note : undefined;
   const totals = useMemo(
     () =>
@@ -349,7 +352,9 @@ export function DiffPanel({
           </nav>
         )}
       </div>
-      {hunkReview && <RevertBar files={files} review={hunkReview} onSent={() => back.current?.focus()} />}
+      {hunkReview && (
+        <RevertBar files={reviewFiles ?? files} review={hunkReview} onSent={() => back.current?.focus()} />
+      )}
       {files.length > 0 && !scopeState && <DiffKeyHints />}
     </section>
   );

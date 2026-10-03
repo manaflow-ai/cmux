@@ -2,7 +2,7 @@
 // else as the turn's tool calls report them. The checkpoint diff is the truth on disk: it holds
 // a file once with its net change, and it holds changes no tool call made (a shell command, a
 // formatter). Those are shown read-only; Keep and Undo stay on the files the tool calls changed.
-import type { TurnFile } from "../diff";
+import { checkpointHunkKey, hunkKey, hunkRange, type DiffHunk, type TurnFile } from "../diff";
 import { t } from "../i18n";
 import { changeSetFiles, readChangeSet, type ChangeSet } from "./model";
 
@@ -47,6 +47,70 @@ export function changedByTools(file: TurnFile, toolFiles: readonly TurnFile[]) {
   return toolFiles.some((tool) => tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`));
 }
 
+type ReviewCandidate = { key: string; hunk: DiffHunk; changed: Set<string> };
+
+function changedTokens(hunk: DiffHunk): Set<string> {
+  return new Set(hunk.lines.filter((line) => line.type !== "context").map((line) => `${line.type}\u0000${line.text}`));
+}
+
+function changedLines(hunk: DiffHunk, side: "old" | "new"): number[] {
+  const key = side === "old" ? "oldLine" : "newLine";
+  return hunk.lines.flatMap((line) => (line.type !== "context" && line[key] !== undefined ? [line[key]!] : []));
+}
+
+function overlap(a: readonly number[], b: readonly number[]): number {
+  if (!a.length || !b.length) return 0;
+  const wanted = new Set(b);
+  return a.filter((line) => wanted.has(line)).length;
+}
+
+/// Finds the tool hunks that still own a checkpoint hunk. Line overlap disambiguates repeated
+/// edits with identical text; changed-line tokens keep bare tool fragments attributable when the
+/// tool did not report locations. A checkpoint hunk with no match stays read-only.
+function checkpointReviewKeys(file: TurnFile, hunk: DiffHunk, toolFile: TurnFile | undefined): string[] {
+  if (!toolFile) return [];
+  const wanted = changedTokens(hunk);
+  if (!wanted.size) return [];
+  const oldLines = changedLines(hunk, "old");
+  const newLines = changedLines(hunk, "new");
+  const candidates: ReviewCandidate[] = toolFile.edits.flatMap((edit, editIndex) =>
+    edit.hunks.map((toolHunk, hunkIndex) => ({
+      key: hunkKey(toolFile, editIndex, hunkIndex),
+      hunk: toolHunk,
+      changed: changedTokens(toolHunk),
+    })),
+  );
+  const scored = candidates.map((candidate) => {
+    const tokens = [...wanted].filter((token) => candidate.changed.has(token)).length;
+    const lines =
+      overlap(newLines, changedLines(candidate.hunk, "new")) + overlap(oldLines, changedLines(candidate.hunk, "old"));
+    const contentMatches = tokens === candidate.changed.size || tokens === wanted.size;
+    return { candidate, score: contentMatches ? tokens * 100 + lines * 10 : 0 };
+  });
+  const best = Math.max(0, ...scored.map(({ score }) => score));
+  return best ? scored.filter(({ score }) => score === best).map(({ candidate }) => candidate.key) : [];
+}
+
+function checkpointReviewFile(file: TurnFile, checkpointId: string, toolFiles: readonly TurnFile[]): TurnFile {
+  const toolFile = toolFiles.find((candidate) => changedByTools(file, [candidate]));
+  return {
+    ...file,
+    edits: file.edits.map((edit) => ({
+      ...edit,
+      hunks: edit.hunks.map((hunk) => ({
+        ...hunk,
+        reviewKeys: checkpointReviewKeys(file, hunk, toolFile),
+        checkpoint: {
+          id: checkpointId,
+          path: file.path,
+          range: hunkRange(hunk),
+          key: checkpointHunkKey(checkpointId, file.path, hunk),
+        },
+      })),
+    })),
+  };
+}
+
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
 /// Keep or Undo choices on those edits are still unsent: the view switches once they are sent
 /// or cleared, so no choice moves under the reader's hand.
@@ -64,11 +128,26 @@ export function turnDisplay(toolFiles: TurnFile[], load: TurnCheckpointLoad, pen
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
-      const files = changeSetFiles(load.changeSet).map((file) => ({
-        ...file,
-        edits: file.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-        ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
-      }));
+      const files = changeSetFiles(load.changeSet).map((file) => {
+        const reviewFile = checkpointReviewFile(file, load.checkpointId, toolFiles);
+        return {
+          ...reviewFile,
+          edits: reviewFile.edits.map((edit) => ({
+            ...edit,
+            toolId: `checkpoint:${load.checkpointId}`,
+            hunks: edit.hunks.map((hunk) => ({
+              ...hunk,
+              checkpoint: {
+                id: load.checkpointId,
+                path: file.path,
+                range: hunkRange(hunk),
+                key: checkpointHunkKey(load.checkpointId, file.path, hunk),
+              },
+            })),
+          })),
+          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+        };
+      });
       return { files, source: "checkpoint" };
     }
   }
