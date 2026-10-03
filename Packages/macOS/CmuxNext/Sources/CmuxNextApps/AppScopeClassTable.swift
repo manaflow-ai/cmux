@@ -25,7 +25,21 @@ public nonisolated struct AppScopeClassTable: Sendable {
         public var serverOnly: Bool
     }
 
+    /// Compiling an ``NSRegularExpression`` is comparatively expensive and
+    /// scope checks run on every app operation. Keep the immutable compiled
+    /// form beside the public rule instead of rebuilding it per lookup.
+    private final class CompiledRule: @unchecked Sendable {
+        let rule: Rule
+        let expression: NSRegularExpression?
+
+        init(rule: Rule) {
+            self.rule = rule
+            self.expression = try? NSRegularExpression(pattern: rule.pattern)
+        }
+    }
+
     public let rules: [Rule]
+    private let compiledRules: [CompiledRule]
 
     /// The table bundled with this build; empty when the resource is missing
     /// or unreadable, so every scope is unclassified (and treated as
@@ -34,6 +48,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
 
     public init(rules: [Rule]) {
         self.rules = rules
+        self.compiledRules = rules.map(CompiledRule.init(rule:))
     }
 
     public init(contentsOf url: URL) {
@@ -43,19 +58,20 @@ public nonisolated struct AppScopeClassTable: Sendable {
     public init(data: Data) {
         let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         let rows = object?["rules"] as? [[String: Any]] ?? []
-        rules = rows.compactMap { row in
+        let rules = rows.compactMap { row in
             guard let pattern = row["pattern"] as? String,
                   let raw = row["class"] as? String, let scopeClass = ScopeClass(rawValue: raw) else { return nil }
             return Rule(pattern: pattern, scopeClass: scopeClass, serverOnly: row["serverOnly"] as? Bool ?? false)
         }
+        self.init(rules: rules)
     }
 
     /// The first rule that matches `scope`, or nil when no rule knows it.
     public func rule(for scope: String) -> Rule? {
         let range = NSRange(scope.startIndex..., in: scope)
-        return rules.first { rule in
-            (try? NSRegularExpression(pattern: rule.pattern))?.firstMatch(in: scope, range: range) != nil
-        }
+        return compiledRules.first { rule in
+            rule.expression?.firstMatch(in: scope, range: range) != nil
+        }?.rule
     }
 
     /// The class of `scope`; nil when no rule knows it.
