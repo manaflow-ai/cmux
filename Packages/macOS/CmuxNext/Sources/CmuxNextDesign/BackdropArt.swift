@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 
 /// A bundled public-domain painting available behind the window material.
 /// Game art is never part of this catalog.
