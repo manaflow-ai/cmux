@@ -51,21 +51,21 @@ public nonisolated enum PaletteScopeEntryStyle: String, Sendable, CaseIterable, 
 }
 
 /// Debug Settings declarations of palette scopes.
-public nonisolated enum PaletteScopeTunables {
-    public static let chipStyle = Tunable<PaletteScopeChipStyle>.choice(
+nonisolated extension PaletteTunables {
+    public static let scopeChip = Tunable<PaletteScopeChipStyle>.choice(
         "palette.scopeChip", .palette, "Scope chip",
         help: "Prototype look of the current palette scope. Applies the next time the palette opens.",
-        default: .token, code: "PaletteScopeTunables.chipStyle")
+        default: .token, code: "PaletteTunables.scopeChip")
 
-    public static let entryStyle = Tunable<PaletteScopeEntryStyle>.choice(
+    public static let scopeEntry = Tunable<PaletteScopeEntryStyle>.choice(
         "palette.scopeEntry", .palette, "Scope entry",
         help: "Prototype gestures that enter a palette scope. Applies the next time the palette opens.",
-        default: .all, code: "PaletteScopeTunables.entryStyle")
+        default: .all, code: "PaletteTunables.scopeEntry")
 
     public static let itemActions = Tunable<PaletteItemActionsStyle>.choice(
         "palette.itemActions", .palette, "Tab on a row",
         help: "Prototype: Tab on a row opens the Actions menu, or its actions as a scope.",
-        default: .menu, code: "PaletteScopeTunables.itemActions")
+        default: .menu, code: "PaletteTunables.itemActions")
 
-    public static var all: [TunableDescriptor] { [chipStyle.descriptor, entryStyle.descriptor, itemActions.descriptor] }
+    static var scopeDescriptors: [TunableDescriptor] { [scopeChip.descriptor, scopeEntry.descriptor, itemActions.descriptor] }
 }

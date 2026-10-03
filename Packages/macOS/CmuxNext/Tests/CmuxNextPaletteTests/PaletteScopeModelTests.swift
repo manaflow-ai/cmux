@@ -25,7 +25,7 @@ import Testing
         let model = PaletteModel(persistence: InMemoryFrecencyPersistence())
         model.onDismiss = { log.events.append("dismiss") }
         model.navigation = PaletteNavReducer(graph: PaletteScopeGraph(
-            root: PaletteScopeCatalog.root,
+            root: PaletteScopeDescriptor.paletteRoot,
             scopes: [
                 PaletteScopeDescriptor(id: Self.tabs, title: "Tabs", symbol: "rectangle.on.rectangle", placeholder: "Search tabs…",
                                        prefix: "@", keywords: ["tabs"], emptyQuerySelection: 1),

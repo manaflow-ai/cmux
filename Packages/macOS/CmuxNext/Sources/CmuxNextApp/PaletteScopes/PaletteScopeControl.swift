@@ -20,7 +20,7 @@ enum PaletteScopeControl {
             .async("palette.query") { [weak services] call in
                 let (scope, query, limit) = try parameters(call.params)
                 guard let rows = await rows(services: services, scope: scope, query: query, limit: limit) else {
-                    throw ControlError.invalidParams(PaletteScopeMessages.unknownScope(scope))
+                    throw ControlError.invalidParams(PaletteOpenRefusal.unknownScope(scope).message)
                 }
                 return .object(["scope": .string(scope), "query": .string(query), "complete": .bool(true), "items": .array(rows.map(json))])
             },

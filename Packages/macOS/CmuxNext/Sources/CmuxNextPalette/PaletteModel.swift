@@ -152,7 +152,7 @@ public final class PaletteModel {
         let graph = navigation.graph
         let hints = graph.children(of: .root).compactMap { scope -> String? in
             guard let prefix = scope.prefix else { return nil }
-            return scope.id == PaletteScopeCatalog.scopes ? "\(prefix) \(PaletteStrings.allScopes)" : "\(prefix) \(scope.title)"
+            return scope.id == PaletteScopeID.scopes ? "\(prefix) \(PaletteStrings.allScopes)" : "\(prefix) \(scope.title)"
         }
         return hints.isEmpty ? nil : hints.joined(separator: "   ")
     }

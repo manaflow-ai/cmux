@@ -32,13 +32,20 @@ nonisolated extension PaletteStrings {
     }
 }
 
-/// Refusals of `palette.open` for the App's handler.
-public nonisolated enum PaletteScopeMessages {
-    public static var needsFocus: String {
-        String(localized: "palette.scope.refusal.needsFocus",
-               defaultValue: "A palette scope opens only when focus is requested; read rows with palette.query", bundle: .module)
-    }
-    public static func unknownScope(_ id: String) -> String {
-        String(localized: "palette.scope.refusal.unknown", defaultValue: "No palette scope \(id)", bundle: .module)
+/// Why `palette.open` refused, with the text the App reports.
+public nonisolated enum PaletteOpenRefusal: Error, Sendable, Equatable {
+    /// A CLI or MCP run without `focus: true` (the palette takes the keyboard).
+    case needsFocus
+    /// The scope id is not in the scope graph.
+    case unknownScope(String)
+
+    public var message: String {
+        switch self {
+        case .needsFocus:
+            String(localized: "palette.scope.refusal.needsFocus",
+                   defaultValue: "A palette scope opens only when focus is requested; read rows with palette.query", bundle: .module)
+        case .unknownScope(let id):
+            String(localized: "palette.scope.refusal.unknown", defaultValue: "No palette scope \(id)", bundle: .module)
+        }
     }
 }

@@ -39,7 +39,7 @@ extension PaletteController {
     /// Scope `commands` (`>`): catalog actions only.
     func commandsOnlyPage() -> PalettePageSpec {
         PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
-                        symbol: "command", providers: [makeRegistryProvider()], showsRecent: true, scope: PaletteScopeCatalog.commands)
+                        symbol: "command", providers: [makeRegistryProvider()], showsRecent: true, scope: PaletteScopeID.commands)
     }
 
     /// Scope `scopes` (`?`): every scope, with its prefix and keyword.
@@ -47,8 +47,8 @@ extension PaletteController {
         PalettePageSpec(id: "scopes", title: PaletteStrings.scopesTitle, placeholder: PaletteStrings.scopesPlaceholder,
                         symbol: "square.grid.2x2",
                         providers: [PaletteScopeListProvider(graph: model.navigation.graph, config: model.navigation.config,
-                                                             from: PaletteScopeCatalog.scopes, showsItemsForEmptyQuery: true)],
-                        scope: PaletteScopeCatalog.scopes)
+                                                             from: PaletteScopeID.scopes, showsItemsForEmptyQuery: true)],
+                        scope: PaletteScopeID.scopes)
     }
 
     /// The page of a graph scope (`PaletteModel.scopePage`); `context` is
@@ -57,12 +57,12 @@ extension PaletteController {
         var page: PalettePageSpec?
         switch id {
         case .root: page = commandsPage()
-        case PaletteScopeCatalog.commands: page = commandsOnlyPage()
-        case PaletteScopeCatalog.tabs: page = sources.actionPages["tab.search"]?() ?? tabsPage()
-        case PaletteScopeCatalog.workspaces: page = workspacesPage()
-        case PaletteScopeCatalog.settings: page = settingsPage()
-        case PaletteScopeCatalog.shortcuts: page = keyboardShortcutsPage()
-        case PaletteScopeCatalog.scopes: page = scopeListPage()
+        case PaletteScopeID.commands: page = commandsOnlyPage()
+        case PaletteScopeID.tabs: page = sources.actionPages["tab.search"]?() ?? tabsPage()
+        case PaletteScopeID.workspaces: page = workspacesPage()
+        case PaletteScopeID.settings: page = settingsPage()
+        case PaletteScopeID.shortcuts: page = keyboardShortcutsPage()
+        case PaletteScopeID.scopes: page = scopeListPage()
         default: page = sources.scopes.first { $0.descriptor.id == id }?.page(context)
         }
         page?.scope = id
@@ -185,8 +185,8 @@ extension PaletteController {
     func page(for mode: PaletteMode) -> PalettePageSpec {
         switch mode {
         case .commands: return commandsPage()
-        case .keyboardShortcuts: return page(forScope: PaletteScopeCatalog.shortcuts, context: nil) ?? commandsPage()
-        case .workspaces: return page(forScope: PaletteScopeCatalog.workspaces, context: nil) ?? commandsPage()
+        case .keyboardShortcuts: return page(forScope: PaletteScopeID.shortcuts, context: nil) ?? commandsPage()
+        case .workspaces: return page(forScope: PaletteScopeID.workspaces, context: nil) ?? commandsPage()
         case .tabs: return tabsPage() ?? commandsPage()
         }
     }

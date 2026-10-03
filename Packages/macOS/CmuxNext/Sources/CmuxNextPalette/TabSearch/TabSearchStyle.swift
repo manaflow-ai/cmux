@@ -29,5 +29,5 @@ public nonisolated enum PaletteTunables {
         help: "Prototype layout of Search Tabs (Cmd-Shift-A). Applies the next time it opens.",
         default: .recent, code: "PaletteTunables.tabSearchStyle")
 
-    public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor] + PaletteScopeTunables.all }
+    public static var all: [TunableDescriptor] { [tabSearchStyle.descriptor] + scopeDescriptors }
 }

@@ -9,7 +9,7 @@ enum PaletteScopeHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("palette.open", run: { invocation in
-            guard invocation.allowsViewChange else { throw ActionFailure(message: PaletteScopeMessages.needsFocus) }
+            guard invocation.allowsViewChange else { throw ActionFailure(message: PaletteOpenRefusal.needsFocus.message) }
             let query = invocation["query"]?.stringValue ?? ""
             let window = context.activeWindow?.window
             guard let scope = invocation["scope"]?.stringValue, !scope.isEmpty, scope != PaletteScopeID.root.rawValue else {
@@ -18,7 +18,7 @@ enum PaletteScopeHandlers {
                 return
             }
             guard services.palette.show(scope: PaletteScopeID(scope), query: query, relativeTo: window) else {
-                throw ActionFailure(message: PaletteScopeMessages.unknownScope(scope))
+                throw ActionFailure(message: PaletteOpenRefusal.unknownScope(scope).message)
             }
         })
     }
