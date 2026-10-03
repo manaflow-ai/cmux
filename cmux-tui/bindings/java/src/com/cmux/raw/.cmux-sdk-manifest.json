@@ -1252,7 +1252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "c4a6d4dfed339c661cb1c820a4cdb102b0c5990ab7e54267ce2232507b20092c",
+      "sha256": "4c2fffe928c5028f1590ec826169bb20d2a4dc014c24574199e9fd6f9c63a672",
       "size": 4943
     },
     {
@@ -1492,8 +1492,8 @@
     },
     {
       "path": "RestartTabRequest.java",
-      "sha256": "8384529e62d832ddea2bd454f3f38ce674a0100a8a72608f43d7d77f3a33a7dc",
-      "size": 4841
+      "sha256": "7cb46b0481eb183c56237880858a53f85c7491e11e2909d9834d3e79d1591c25",
+      "size": 5478
     },
     {
       "path": "RunRequest.java",
@@ -2272,7 +2272,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "7cfe840aa856aac1a13af47a9015e55bc0ef445eea7a304e6ae2a896231e6770",
+  "ir_sha256": "e5fb3b346e5726407b55fae7a7ff981f53f00f5b17bc9085715d0d34b0c63f9e",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

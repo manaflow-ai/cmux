@@ -2657,7 +2657,8 @@ and group stay, and the tab's keep-layout record is dropped. The layout
 reducer checks the commit as `RestartTab` (tab conservation). A retry with
 the same `idempotency_key` returns the first result with `replayed: true`
 and starts nothing; the key is shared by every client, so a key derived from
-the dead terminal's id restarts a tab once across clients.
+the dead terminal's id restarts a tab once across clients. With `only_lost` (the app's automatic
+restart) the daemon restarts only a host loss, as it classifies it.
 
 Params:
 
@@ -2667,6 +2668,7 @@ Params:
 | `idempotency_key` | `string` | optional | Exactly-once key, 1-128 identifier characters |
 | `cwd` | `string` | optional | Used only when the daemon knows no directory for the dead terminal |
 | `env` | `object<string,string>` | optional | Extra environment for the new shell, as on `new-tab` |
+| `only_lost` | `bool` | default `false` | Restart only a host loss (the host died, or a signal ended it during a session shutdown); a process that ended on its own is rejected |
 | `transaction` | `string` | optional | Client id echoed in the result and the `tab-changed` delta; 1-128 printable ASCII |
 
 Result:
@@ -2682,6 +2684,7 @@ Errors:
 | `tab-restart-unknown-tab` | `surface` is not a live tab placement |
 | `tab-restart-not-terminal` | The tab shows a browser |
 | `tab-restart-not-dead` | The tab's terminal has not ended |
+| `tab-restart-not-lost` | `only_lost` and the terminal's process ended on its own |
 
 CLI mapping: none in the daemon CLI; the app action `tab.restart` (`cmux tab <id> restart`) sends it.
 
