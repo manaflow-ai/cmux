@@ -8,5 +8,8 @@ nonisolated final class PolicyBlock: Sendable {
 
     var isBlocked: Bool { state.withLock { $0 } }
 
+    /// `isBlocked` as a closure for attachments.
+    var check: @Sendable () -> Bool { { [self] in isBlocked } }
+
     func set(_ blocked: Bool) { state.withLock { $0 = blocked } }
 }

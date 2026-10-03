@@ -136,8 +136,7 @@ final class TabContentCache {
         )
         // Paused (and not claiming geometry) until a visible pane presents it.
         let render = ledger.isRendering(tab.id)
-        let io = DaemonTerminalIO(target: target, visible: render, policyBlocked: { [policyBlock = daemon.policyBlock] in policyBlock.isBlocked },
-                                  endpoint: { try await daemon.endpoint() })
+        let io = DaemonTerminalIO(target: target, visible: render, policyBlocked: daemon.policyBlock.check, endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface)
