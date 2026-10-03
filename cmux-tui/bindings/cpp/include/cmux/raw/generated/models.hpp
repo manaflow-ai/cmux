@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "afe299d1209c108b0f99f5cdc8be4b34b7cd17992d4b64b2615cc1a8df3dca17";
+inline constexpr std::string_view kProtocolIrSha256 = "a16b47a7c9727a3a99bf179c57b23df1914985b16f536890eb562c4b1b3cfe7d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -77,6 +77,7 @@ struct MachineUsage;
 struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
+struct NewRowResult;
 struct NoteSizeActivityResult;
 enum class NotificationLevel;
 struct NotificationMarker;
@@ -105,6 +106,7 @@ struct ReportAgentResult;
 struct ResizeSurfaceResult;
 struct ResolveTerminalResult;
 struct ResourceSelectors;
+struct RowHeight;
 struct RowMarkerPoint;
 struct RunResult;
 struct Screen;
@@ -284,6 +286,7 @@ struct NewConversationTabRequest;
 struct NewFrontendBrowserTabRequest;
 struct NewPaneRequest;
 struct NewPaneRightRequest;
+struct NewRowRequest;
 struct NewScreenRequest;
 struct NewTabRequest;
 struct NewWorkspaceRequest;
@@ -340,6 +343,7 @@ struct SetPersonalTerminalRequest;
 struct SetPersonalWorkspaceRequest;
 struct SetProfileFollowsRequest;
 struct SetRatioRequest;
+struct SetRowHeightsRequest;
 struct SetScreenMetadataRequest;
 struct SetScreenPinnedRequest;
 struct SetSizeCountsRequest;
@@ -2436,6 +2440,27 @@ struct NewPaneRightRequest {
     friend bool operator==(const NewPaneRightRequest&, const NewPaneRightRequest&) = default;
 };
 
+struct NewRowRequest {
+    Field<std::uint16_t> cols{};
+    Field<std::string> cwd{};
+    Field<std::map<std::string, std::string, std::less<>>> env{};
+    std::uint64_t height_permille{};
+    std::optional<bool> keep{};
+    Id pane{};
+    Field<std::uint16_t> rows{};
+    Field<std::vector<std::string>> shell_args{};
+    Field<std::string> terminal_id{};
+    friend bool operator==(const NewRowRequest&, const NewRowRequest&) = default;
+};
+
+struct NewRowResult {
+    Id pane{};
+    Id surface{};
+    Field<std::string> terminal_id{};
+    Field<std::string> terminal_incarnation{};
+    friend bool operator==(const NewRowResult&, const NewRowResult&) = default;
+};
+
 struct NewScreenRequest {
     Field<std::string> color{};
     Field<std::uint16_t> cols{};
@@ -3004,6 +3029,12 @@ struct ResolveTerminalResult {
     friend bool operator==(const ResolveTerminalResult&, const ResolveTerminalResult&) = default;
 };
 
+struct RowHeight {
+    std::uint64_t height{};
+    Id row{};
+    friend bool operator==(const RowHeight&, const RowHeight&) = default;
+};
+
 struct RowMarkerPoint {
     std::uint16_t col{};
     std::uint64_t row_marker{};
@@ -3311,6 +3342,14 @@ struct SetRatioRequest {
     Id pane{};
     float ratio{};
     friend bool operator==(const SetRatioRequest&, const SetRatioRequest&) = default;
+};
+
+struct SetRowHeightsRequest {
+    Id column{};
+    std::optional<bool> fit{};
+    std::vector<RowHeight> heights{};
+    Field<std::uint64_t> transaction{};
+    friend bool operator==(const SetRowHeightsRequest&, const SetRowHeightsRequest&) = default;
 };
 
 struct SetScreenMetadataRequest {
@@ -4414,6 +4453,12 @@ struct Codec<MoveTerminalResult> {
 };
 
 template <>
+struct Codec<NewRowResult> {
+    static Result<Json> encode(const NewRowResult& value);
+    static Result<NewRowResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<NoteSizeActivityResult> {
     static Result<Json> encode(const NoteSizeActivityResult& value);
     static Result<NoteSizeActivityResult> decode(const Json& value);
@@ -4579,6 +4624,12 @@ template <>
 struct Codec<ResourceSelectors> {
     static Result<Json> encode(const ResourceSelectors& value);
     static Result<ResourceSelectors> decode(const Json& value);
+};
+
+template <>
+struct Codec<RowHeight> {
+    static Result<Json> encode(const RowHeight& value);
+    static Result<RowHeight> decode(const Json& value);
 };
 
 template <>
@@ -5656,6 +5707,12 @@ struct Codec<NewPaneRightRequest> {
 };
 
 template <>
+struct Codec<NewRowRequest> {
+    static Result<Json> encode(const NewRowRequest& value);
+    static Result<NewRowRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<NewScreenRequest> {
     static Result<Json> encode(const NewScreenRequest& value);
     static Result<NewScreenRequest> decode(const Json& value);
@@ -5989,6 +6046,12 @@ template <>
 struct Codec<SetRatioRequest> {
     static Result<Json> encode(const SetRatioRequest& value);
     static Result<SetRatioRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetRowHeightsRequest> {
+    static Result<Json> encode(const SetRowHeightsRequest& value);
+    static Result<SetRowHeightsRequest> decode(const Json& value);
 };
 
 template <>
