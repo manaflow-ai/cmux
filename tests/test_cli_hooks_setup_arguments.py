@@ -35,8 +35,9 @@ class HooksSetupArgumentTests(unittest.TestCase):
             'CMUX_CLI_SENTRY_DISABLED': '1',
             'CMUX_SOCKET_PATH': str(Path(self.temp.name) / 'no-socket.sock'),
         }
-        return subprocess.run([self.cli, *args], env=env, capture_output=True,
-                              text=True, timeout=30, check=False)
+        # No stdin, so a confirmation prompt can't wait on the test runner.
+        return subprocess.run([self.cli, *args], env=env, stdin=subprocess.DEVNULL,
+                              capture_output=True, text=True, timeout=30, check=False)
 
     def written_files(self):
         return sorted(str(p.relative_to(self.home)) for p in self.home.rglob('*') if p.is_file())
