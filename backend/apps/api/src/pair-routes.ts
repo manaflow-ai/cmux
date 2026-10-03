@@ -5,6 +5,7 @@ import { verifyInstallSignature } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, sha256Hex } from "./domains/pairing.ts"
 import { jwkThumbprint } from "./domains/user.ts"
+import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import type { PairingRecord, PairingResult } from "./pairing-do.ts"
 
 /**
@@ -13,7 +14,9 @@ import type { PairingRecord, PairingResult } from "./pairing-do.ts"
  * - `POST /v1/pair/begin` (no account): a server proves it holds its install key
  *   and gets a code plus a collect secret. Rate-limited per client IP.
  * - `GET /v1/pair/wait` (WebSocket, subprotocols `cmux.pair.v1, collect.<secret>`):
- *   the server waits for approval; the result is pushed, never polled.
+ *   the server waits for approval; the result is pushed, never polled. The
+ *   Worker checks the secret (an HMAC over the code, pair-collect.ts) before
+ *   any PairingDO wakes.
  * - `server.pair.preview` / `server.pair.approve` run through `/v1/ops` with a
  *   signed-in session (see http.ts), never an install token or an agent.
  */
@@ -29,8 +32,6 @@ const BeginBody = Schema.Struct({
 })
 
 const pairingStub = (env: Env, code: string) => env.PAIRING_DO.get(env.PAIRING_DO.idFromName(code))
-
-const b64u = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 export const handlePairBegin = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
@@ -53,12 +54,12 @@ export const handlePairBegin = async (request: Request, env: Env): Promise<Respo
   const thumbprint = jwkThumbprint(body.public_jwk)
   const proof = beginProofMessage(env.ENVIRONMENT, thumbprint, body.wg_public_key, body.issued_at)
   if (!(await verifyInstallSignature(body.public_jwk, proof, body.signature))) return json({ error: "proof of possession failed" }, 403)
-  const collect = b64u(crypto.getRandomValues(new Uint8Array(32)))
-  const collectHash = await sha256Hex(collect)
   const country = ((request as unknown as { cf?: { country?: string } }).cf?.country ?? null) || null
   // 40-bit codes: a collision with a live code is rare; try a few fresh codes.
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = codeFromRandom(crypto.getRandomValues(new Uint8Array(5)))
+    const collect = await collectSecret(env, code)
+    const collectHash = await sha256Hex(collect)
     const r = await pairingStub(env, code).begin({ code, public_jwk: body.public_jwk, thumbprint, wg_public_key: body.wg_public_key, info: body.info, country, collect_hash: collectHash, now })
     if (r.ok) {
       const origin = (env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")
@@ -74,6 +75,8 @@ export const handlePairWait = async (request: Request, env: Env): Promise<Respon
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const secret = protocols.find((p) => p.startsWith("collect."))?.slice("collect.".length)
   if (!code || !secret) return json({ error: "code and collect secret required" }, 400)
+  // Stateless check before any PairingDO wakes: a forged code or secret creates no object.
+  if (!(await collectSecretValid(env, code, secret))) return json({ error: "not found" }, 404)
   const headers = new Headers(request.headers)
   headers.set("x-cmux-collect-hash", await sha256Hex(secret))
   return pairingStub(env, code).fetch(new Request(request.url, { headers, method: "GET" }))

@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest"
 import { codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { userDomain, type UserState } from "../src/domains/user.ts"
-import { pairApprove } from "../src/pair-routes.ts"
-import { b64u, beginPairing, call, op, read, sessionToken, waitFor } from "./pairing-harness.ts"
+import { handlePairWait, pairApprove } from "../src/pair-routes.ts"
+import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 
 const OWNER = "user_00000000000000000001"
 const MEMBER = "user_00000000000000000002"
@@ -238,4 +238,35 @@ describe("server pairing over the API (workerd)", () => {
     expect((await read(owner, "server.pair.preview", { code: "ZZZZ-ZZZZ" })).status).toBe(400)
   })
 
+
+  it("refuses a forged code or collect secret on wait before any PairingDO wakes; the issued secret works", async () => {
+    const { res } = await beginPairing(Date.now(), false, "203.0.113.15")
+    const code = res.json.code as string
+    const secret = res.json.collect_secret as string
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{22}\.[0-9a-f]{64}$/)
+    let gets = 0
+    const counting = {
+      ENVIRONMENT: testEnv.ENVIRONMENT,
+      JWT_PRIVATE_JWK: testEnv.JWT_PRIVATE_JWK,
+      PAIRING_DO: { idFromName: (n: string) => testEnv.PAIRING_DO.idFromName(n), get: (id: DurableObjectId) => ((gets += 1), testEnv.PAIRING_DO.get(id)) }
+    } as never
+    const wait = (c: string, s: string) =>
+      handlePairWait(new Request(`https://api.test/v1/pair/wait?code=${c}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.pair.v1, collect.${s}` } }), counting)
+    const [nonce, mac] = secret.split(".") as [string, string]
+    const otherCode = code === "00000000" ? "11111111" : "00000000"
+    const forged = [
+      [otherCode, secret], // another code with a real secret
+      [code, "forged"],
+      [code, `${nonce}.${"0".repeat(64)}`],
+      [code, `${"A".repeat(22)}.${mac}`], // the MAC under another nonce
+      [code, `${nonce}.${mac}.x`]
+    ]
+    for (const [c, s] of forged) expect((await wait(c!, s!)).status).toBe(404)
+    expect(gets).toBe(0)
+    const ok = await wait(code, secret)
+    expect(ok.status).toBe(101)
+    expect(gets).toBe(1)
+    ok.webSocket?.accept()
+    ok.webSocket?.close()
+  })
 })

@@ -4,7 +4,7 @@ import { runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { beginProofMessage } from "../src/domains/pairing.ts"
 
-export const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; ENVIRONMENT: string; TEAM_DO: DurableObjectNamespace; USER_DO: DurableObjectNamespace; PAIRING_DO: DurableObjectNamespace }
+export const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; ENVIRONMENT: string; JWT_PRIVATE_JWK: string; TEAM_DO: DurableObjectNamespace; USER_DO: DurableObjectNamespace; PAIRING_DO: DurableObjectNamespace }
 export const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<void>) => Promise<void>
 export const runAlarm = runDurableObjectAlarm as unknown as (stub: unknown) => Promise<boolean>
 export const worker = (exports as unknown as { default: Fetcher }).default
