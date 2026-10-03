@@ -567,7 +567,9 @@ final class MacTimestampRowView: MacFlippedView {
 
 final class MacSpinnerRowView: MacFlippedView {
     let spinner = NSProgressIndicator()
-    static let height: CGFloat = 36
+    /// Tall enough that the spinner clears the toolbar's soft scroll edge
+    /// when the reader reaches the top while a page loads.
+    static let height: CGFloat = 56
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -584,7 +586,7 @@ final class MacSpinnerRowView: MacFlippedView {
 
     override func layout() {
         super.layout()
-        spinner.frame = CGRect(x: bounds.midX - 8, y: bounds.midY - 8, width: 16, height: 16)
+        spinner.frame = CGRect(x: bounds.midX - 8, y: bounds.height - 16 - 12, width: 16, height: 16)
     }
 
     override func viewDidMoveToWindow() {

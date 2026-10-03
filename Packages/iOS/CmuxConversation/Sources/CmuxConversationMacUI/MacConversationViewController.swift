@@ -649,6 +649,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     }
 
     func composerDidSubmit(_ composer: MacComposerView) {
+        tapbackPopover?.close()
         if let messageID = editingMessageID {
             store.edit(messageID: messageID, text: composer.text)
             exitReplyOrEdit()
@@ -708,6 +709,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
     // MARK: Reply / edit
 
     func enterReply(_ message: ConversationMessage) {
+        tapbackPopover?.close()
         editingMessageID = nil
         replyTarget = message
         composer.isReplyMode = true
@@ -878,7 +880,10 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         showTapbackBar(model, in: rowView)
     }
 
+    private weak var tapbackPopover: NSPopover?
+
     func showTapbackBar(_ model: MacMessageRowModel, in rowView: MacMessageRowView) {
+        tapbackPopover?.close()
         let popover = NSPopover()
         popover.behavior = .transient
         let mine = model.message.reactions.first { $0.participantID == store.meID }?.reaction
@@ -886,7 +891,17 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             popover?.close()
             self?.store.react(messageID: model.message.id, reaction: mine == reaction ? nil : reaction)
         }
-        popover.show(relativeTo: rowView.contentFrame, of: rowView, preferredEdge: rowView.isFlipped ? .minY : .maxY)
+        // Anchored at the bubble's leading (incoming) or trailing (outgoing)
+        // top corner, like Messages, so it never spills over the sidebar or
+        // centers over the rows above.
+        let content = rowView.contentFrame
+        // Popovers center on their anchor; offset by half the bar's width so
+        // the bar starts at the bubble's edge.
+        let half = (popover.contentViewController?.view.fittingSize.width ?? 200) / 2
+        let anchorX = model.isOutgoing ? content.maxX - half : content.minX + half
+        let anchor = CGRect(x: anchorX - 1, y: content.minY, width: 2, height: content.height)
+        popover.show(relativeTo: anchor, of: rowView, preferredEdge: rowView.isFlipped ? .minY : .maxY)
+        tapbackPopover = popover
     }
 
     func contextMenu(for event: NSEvent, in table: NSTableView) -> NSMenu? {
@@ -1037,6 +1052,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             store.react(messageID: model.message.id, reaction: reaction)
             return "ok"
         case "escape":
+            tapbackPopover?.close()
             exitReplyOrEdit()
             return "ok"
         #if DEBUG
