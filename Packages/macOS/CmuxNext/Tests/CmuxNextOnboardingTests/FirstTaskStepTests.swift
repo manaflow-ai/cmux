@@ -21,7 +21,7 @@ import Testing
     @Test func theStepFollowsRoleOnlyWhenTheAppCanRunAChat() {
         #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.firstTask))
         let model = OnboardingModel(services: services())
-        #expect(model.steps == [.role, .firstTask, .defaultBrowser, .importData, .theme])
+        #expect(model.steps == [.role, .firstTask, .projects, .defaultBrowser, .importData, .theme])
         model.next()
         #expect(model.step == .firstTask)
     }
@@ -74,7 +74,7 @@ import Testing
     @Test func theNoteTaskWritesNothingAndSkipCreatesNoFolder() async {
         let skipped = OnboardingModel(services: services(), start: .firstTask)
         skipped.skipStep()
-        #expect(skipped.step == .defaultBrowser)
+        #expect(skipped.step == .projects)
         #expect(!FileManager.default.fileExists(atPath: skipped.firstTask.folder.url.path))
 
         let model = OnboardingModel(services: services(), start: .firstTask)

@@ -13,7 +13,7 @@ import Testing
         model.role.select(.engineering)
         model.role.suggestTasks = true
         model.next()
-        #expect(model.step == .defaultBrowser)
+        #expect(model.step == .projects)
         #expect(services.savedProfile == OnboardingProfile(role: .engineering, suggestTasks: true))
     }
 
@@ -35,12 +35,12 @@ import Testing
         let model = OnboardingModel(services: skipping)
         model.role.select(.sales)
         model.skipStep()
-        #expect(skipping.savedProfile == nil && model.step == .defaultBrowser)
+        #expect(skipping.savedProfile == nil && model.step == .projects)
 
         let empty = MockOnboardingServices()
         let blank = OnboardingModel(services: empty)
         blank.next()
-        #expect(empty.savedProfile == nil && blank.step == .defaultBrowser)
+        #expect(empty.savedProfile == nil && blank.step == .projects)
     }
 
     /// "Onboarding…" opens the step with the earlier answer.
