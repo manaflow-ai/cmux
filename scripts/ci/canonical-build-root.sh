@@ -14,8 +14,7 @@
 #
 # This removes the disagreement at the source: the build runs from
 # $CMUX_CI_CANONICAL_ROOT/src, a stable path for the runner. On a glaeda Mac
-# the runner hook holds one root per job and exports it; a self-hosted job
-# without one derives its root from RUNNER_NAME. Either way concurrent runners
+# the runner hook holds one root per job and exports it, so concurrent runners
 # on one Mac do not delete each other's source tree, DerivedData, or
 # compilation CAS. The
 # cache fingerprint includes a non-default root, so a seed from another
@@ -31,17 +30,12 @@ set -euo pipefail
 
 default_root=/private/tmp/cmux-ci
 # On a glaeda Mac the runner hook holds a root for a compile job and exports
-# it (root 1 is the default path), so an exported root always wins: deriving
-# another would leave the root glaeda holds. A self-hosted job with no
-# exported root gets its own per-runner root.
-if [ -n "${CMUX_CI_CANONICAL_ROOT:-}" ]; then
-  root="$CMUX_CI_CANONICAL_ROOT"
-elif [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -n "${RUNNER_NAME:-}" ]; then
-  runner_key="$(printf '%s' "$RUNNER_NAME" | tr -c 'A-Za-z0-9_.-' '_')"
-  root="$default_root-$runner_key"
-else
-  root="$default_root"
-fi
+# it (root 1 is the default path, root N is /private/tmp/cmux-ci-N), so an
+# exported root always wins. Every other job builds at the shared root: main's
+# DerivedData seeds and the owned build state are keyed to it, and a
+# per-runner root never matched them, so each new runner compiled cold past
+# the admission limit.
+root="${CMUX_CI_CANONICAL_ROOT:-$default_root}"
 
 if [ "${1:-}" = --print-root ]; then
   printf '%s\n' "$root"
