@@ -37,7 +37,7 @@ public final class AppStoreWindowController: NSWindowController, NSWindowDelegat
         self.scope = scope
         guard let window else { return }
         scope.adopt(window)
-        (window.contentView as? AppStoreContentView)?.resolveColors()
+        (window.installedContent as? AppStoreContentView)?.resolveColors()
     }
 
     /// Shows the window; `appID` opens that listing, `installed` the Installed tab.

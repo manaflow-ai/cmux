@@ -109,7 +109,7 @@ struct WindowKindMatrixTests {
 
     /// Each kind through the window kit: a visible close button above the
     /// content, a `debug.window_snapshot` PNG, and a background pixel equal
-    /// to the surface token (clear for onboarding, whose steps draw glass).
+    /// to the surface token (the app theme is opaque here).
     @Test func everyKindShowsACloseButtonAndSnapshotsItsSurface() throws {
         _ = NSApplication.shared
         let services = ActionBindingCoverageTests.boundServices()
@@ -129,11 +129,7 @@ struct WindowKindMatrixTests {
             let rep = try #require(NSBitmapImageRep(data: data))
             // Bottom-right, inside the content: the window background.
             let pixel = Self.pixel(rep, fromBottomRight: 40)
-            if kind.traits.surface == .clear {
-                #expect(pixel.count == 4 && pixel[3] < 0.05, "\(kind): \(pixel)")
-            } else {
-                #expect(Self.matches(pixel, token), "\(kind): \(pixel) vs \(token)")
-            }
+            #expect(Self.matches(pixel, token), "\(kind): \(pixel) vs \(token)")
             window.close()
         }
     }

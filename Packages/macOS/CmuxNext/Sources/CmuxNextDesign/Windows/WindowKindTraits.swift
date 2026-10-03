@@ -8,18 +8,14 @@ public nonisolated enum WindowCloseSemantics: Equatable, Sendable {
 }
 
 /// The background a window of a kind gets from ``NSWindow/install(kind:content:scope:)``.
+/// Every kind has the one backdrop of the main window (the material and
+/// the tint at the theme's opacity); only who draws it differs.
 public nonisolated enum WindowSurface: Equatable, Sendable {
-    /// The one surface token (``ThemeTokens/surfaceBackground``) of the
-    /// window's theme scope, opaque: a window of its own has no material
-    /// behind it, and a see-through Settings window was hard to read. The
-    /// main window's root paints the token over its material itself
-    /// (``WindowSurfacePainting``).
-    case token
-    /// Clear: the content draws its own surface (onboarding glass).
-    case clear
-    /// The content view paints the window background itself, the token
-    /// over the window's material (the main window's root,
-    /// ``WindowSurfacePainting``).
+    /// The window kit wraps the content in a ``WindowSurfaceView`` that
+    /// draws the backdrop under it.
+    case backdrop
+    /// The content view draws the backdrop itself (the main window's
+    /// root, ``WindowSurfacePainting``).
     case content
 }
 

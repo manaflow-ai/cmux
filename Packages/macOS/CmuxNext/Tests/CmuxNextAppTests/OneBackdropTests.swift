@@ -1,7 +1,11 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextApps
 import CmuxNextDesign
+import CmuxNextOnboarding
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import Testing
 
 /// One backdrop per window (plans/cmux-next/windows.md, Lawrence R31): with
@@ -88,5 +92,65 @@ struct OneBackdropTests {
         }
         walk(root)
         #expect(offenders.isEmpty, "surfaces that are neither the token nor clear: \(offenders)")
+    }
+
+    /// The real windows of their own that tests can build, plus every other
+    /// kind through the window kit.
+    private func ownWindows() async throws -> [(WindowKind, NSWindow)] {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-one-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let registry = ActionRegistry(catalog: [])
+        let settings = SettingsController(registry: registry, design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(.empty), managedWatchFiles: [])
+        await settings.reload()
+        var windows: [(WindowKind, NSWindow)] = []
+        let settingsWindow = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: registry, host: nil))
+        windows.append((.settings, try #require(settingsWindow.window)))
+        let debug = DebugSettingsWindowController(model: DebugSettingsModel(store: TunableStore(), descriptors: []))
+        windows.append((.debugSettings, try #require(debug.window)))
+        let appRoot = directory.appending(path: "apps")
+        let apps = AppRegistry(directory: appRoot, firstPartyRoot: appRoot.appending(path: "none"))
+        let store = AppStoreWindowController(model: AppStoreModel(catalog: RegistryAppStoreCatalog(registry: apps), registry: apps,
+                                                                  host: AppHost(sink: AppPreviewSink()), previewHost: AppHost(sink: AppPreviewSink())))
+        windows.append((.appStore, try #require(store.window)))
+        let onboardingServices = MockOnboardingServices()
+        onboardingServices.accountsView = NSView()
+        onboardingServices.firstTaskView = NSView()
+        let onboarding = OnboardingWindowController(model: OnboardingModel(services: onboardingServices, start: .role))
+        windows.append((.onboarding, try #require(onboarding.window)))
+        for kind in WindowKind.allCases where kind != .main && !windows.contains(where: { $0.0 == kind }) {
+            let window = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 480, height: 320),
+                                  styleMask: [.resizable], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.install(kind: kind, content: NSView(), scope: .app)
+            windows.append((kind, window))
+        }
+        return windows
+    }
+
+    /// Every kind, see-through: the window kit's one backdrop (the tint at
+    /// the theme's opacity over a clear window) and no surface above it
+    /// with a fill of its own.
+    @Test func everyWindowKindHasExactlyOneBackdrop() async throws {
+        _ = NSApplication.shared
+        var input = ThemeScope.app.input
+        input.backgroundOpacity = 0.6
+        input.backgroundBlur = 20
+        let room = ThemeScope(level: .room)
+        room.setOverride(ThemeSpec("Catppuccin Mocha")!, input: input, animated: false)
+        let windows = try await ownWindows()
+        #expect(Set(windows.map(\.0)) == Set(WindowKind.allCases).subtracting([.main]))
+        for (kind, window) in windows {
+            room.adopt(window)
+            window.contentView?.layoutSubtreeIfNeeded()
+            let surface = try #require(window.contentView as? WindowSurfaceView, "\(kind)")
+            #expect(!window.isOpaque && (window.backgroundColor?.alphaComponent ?? 1) < 0.01, "\(kind)")
+            #expect(surface.backdropView.tintColor != nil, "\(kind): the one backdrop")
+            #expect(surface.layer?.backgroundColor == nil, "\(kind)")
+            let filled = Self.filledSurfaces(surface, in: window, skipping: surface.backdropView)
+            #expect(filled.isEmpty, "\(kind): surfaces with their own fill over the backdrop: \(filled)")
+        }
     }
 }
