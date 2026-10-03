@@ -74,10 +74,12 @@
 				coderouter-cli.json,
 				feed-tui,
 				ghostty,
+				ghostty/terminfo/78/xterm-ghostty,
 				markdown-viewer,
 				opencode-plugin.js,
 				shell-integration,
 				terminfo-overlay,
+				terminfo-overlay/78/xterm-ghostty,
 			);
 			target = CE7A00000000000000000005 /* cmux-next */;
 		};
