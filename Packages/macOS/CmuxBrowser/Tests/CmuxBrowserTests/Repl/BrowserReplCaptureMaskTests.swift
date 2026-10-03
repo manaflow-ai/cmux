@@ -94,4 +94,66 @@ struct BrowserReplCaptureMaskTests {
         #expect(during.inner == "disc", "the value in a closed shadow root rendered unmasked")
         #expect(try await security("window.__closed.getElementById('inner')", in: webView) == "none")
     }
+
+    /// The page drops the mask while the capture runs (a framework that
+    /// re-renders the field's style, or page script): the capture may have
+    /// drawn the value, so it is refused.
+    @Test func aMaskThePageRemovesDuringTheCaptureRefusesIt() async throws {
+        let webView = await load("<input id=field value=\"\(Self.value)\">\(Self.post)", posting: ["main"])
+        let main = try #require(frames.infos["main"])
+        var captured = false
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await mask.run(in: webView, frames: { [main] }) {
+                try await page("document.getElementById('field').style.removeProperty('\(Self.prop)')", in: webView)
+                captured = true
+            }
+        }
+        #expect(captured)
+        #expect(try await security("document.getElementById('field')", in: webView) == "none")
+    }
+
+    /// A value in an element that has no inline style (an element of another
+    /// namespace) is masked through its nearest styled ancestor, and does
+    /// not stop the scan from masking the elements after it.
+    @Test func aValueInAnElementWithoutStyleIsMasked() async throws {
+        let webView = await load("""
+            <p id=odd></p>
+            <p id=after>\(Self.value)</p>
+            <script>
+            const odd = document.createElementNS('urn:x', 'y');
+            odd.textContent = '\(Self.value)';
+            document.getElementById('odd').append(odd);
+            </script>
+            \(Self.post)
+            """, posting: ["main"])
+        let main = try #require(frames.infos["main"])
+        let during = try await mask.run(in: webView, frames: { [main] }) {
+            (
+                odd: try await security("document.getElementById('odd').firstChild", in: webView),
+                after: try await security("document.getElementById('after')", in: webView)
+            )
+        }
+        #expect(during.odd == "disc")
+        #expect(during.after == "disc")
+    }
+
+    /// The mask step fails in a frame on the secret's domain (here the frame
+    /// went away after the frame list was read): the capture is refused
+    /// rather than taken with that frame unmasked.
+    @Test func aMaskStepThatFailsRefusesTheCapture() async throws {
+        let webView = await load("""
+            <p>\(Self.value)</p>
+            <iframe id=child srcdoc="<p>\(Self.value)</p><script>webkit.messageHandlers.frame.postMessage('child')</script>"></iframe>
+            \(Self.post)
+            """, posting: ["main", "child"])
+        let main = try #require(frames.infos["main"])
+        let child = try #require(frames.infos["child"])
+        try await page("document.getElementById('child').remove()", in: webView)
+        var captured = false
+        await #expect(throws: BrowserReplDriverError.self) {
+            try await mask.run(in: webView, frames: { [main, child] }) { captured = true }
+        }
+        #expect(!captured)
+        #expect(try await security("document.querySelector('p')", in: webView) == "none")
+    }
 }
