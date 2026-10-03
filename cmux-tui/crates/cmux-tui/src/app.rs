@@ -13420,7 +13420,7 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
-        let previous_active = self.active_pane();
+        let (previous_active, focus_before) = (self.active_pane(), self.current_client_focus());
         let selected_workspace = self
             .tree
             .workspaces()
@@ -13488,6 +13488,7 @@ impl App {
         if first_adoption {
             self.restore_client_focus_from_session();
         }
+        self.absorb_server_focus_change(focus_before);
         self.rebuild_tab_locations();
         self.reapply_mux_titles();
     }
@@ -17003,10 +17004,9 @@ impl App {
         self.reported_focus = Some(crate::session::ClientFocus { pane: pane_id, tab: tab_index });
     }
 
-    /// Report the client's focus (pane and tab; the server derives workspace and screen at
-    /// restore time) to the server's focus memory. The first observation after adopting a tree
-    /// is the baseline and is not sent, so attaching never mutates the server; later user
-    /// navigation does (and acknowledges the newly focused tab, app/feed_dismissal.rs).
+    /// Report the client's focus (pane and tab) to the server's focus memory. The first
+    /// observation after adopting a tree is the baseline and is not sent; later user navigation
+    /// is sent and acknowledges the newly focused tab (app/feed_dismissal.rs).
     fn current_client_focus(&self) -> Option<crate::session::ClientFocus> {
         let screen = self.tree.active_screen()?;
         let pane = screen.panes.iter().find(|pane| pane.id == screen.active_pane)?;

@@ -7,6 +7,14 @@
 //! the commit succeeds, so memory never shows an item the store lost.
 //!
 //! Lock order: `feed_local` before `workspace_registry` before `state`.
+//! Every function here that locks `feed_local` holds neither of the others
+//! when it does; it releases its own `state` and registry reads (`feed_notice`,
+//! the tab lookup in `ack_notifications_and_feed`) before it locks
+//! `feed_local`. Its callers (`create_durable_notification`, the v2
+//! `notification.create` effect, `acknowledge_tab_notifications`,
+//! `clear_surface_notification`, the `feed-local-*` commands) hold no registry
+//! or state lock, because each of them already called a registry or state
+//! locker of its own before this change.
 
 use cmux_feed_core::{
     Actor, Changes, Context as FeedContext, Feed, FeedError, Item, ListFilter, Notice,
@@ -67,13 +75,18 @@ impl Mux {
         notification: &ResourceNotification,
     ) -> anyhow::Result<u64> {
         let notice = self.feed_notice(notification);
+        let item_id = notice.id.clone();
         let mut feed = self.feed_local.lock().unwrap();
         let mut next = (*feed).clone();
         let changes = match next.post(notice) {
             Ok((_, changes)) => changes,
             Err(error) => {
                 // The notification still commits; the feed keeps its old copy.
-                self.report_internal_diagnostic(format!("local feed post refused: {error}"));
+                eprintln!("cmux-tui: local feed post of item {item_id} refused: {error}");
+                self.report_internal_diagnostic(format!(
+                    "local feed post of item {item_id} refused: {}",
+                    error.code()
+                ));
                 next = (*feed).clone();
                 Changes::default()
             }
