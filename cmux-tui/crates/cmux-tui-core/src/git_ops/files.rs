@@ -24,6 +24,9 @@ const MAX_LISTING_BYTES: usize = 32 * 1024 * 1024;
 /// Longer paths are listed but never ranked: a quick-open never needs them,
 /// and the scorer's table grows with the path.
 const MAX_RANKED_PATH_CHARS: usize = 1024;
+/// Score-table cells one search may fill: about a second of work. Past it
+/// the remaining candidates go unranked and the reply is marked truncated.
+const MAX_SCORED_CELLS: usize = 64 * 1024 * 1024;
 pub(super) const DEFAULT_LIMIT: usize = 50;
 pub(super) const MAX_LIMIT: usize = 200;
 
@@ -55,13 +58,20 @@ pub(super) fn search(
     if query.is_empty() {
         return Ok(reply);
     }
-    let (candidates, cut) = candidates(repository, directory)?;
-    let mut ranked: Vec<Ranked> = candidates
-        .iter()
-        .filter_map(|path| {
-            score(path, &query).map(|(score, matches)| Ranked { path, score, matches })
-        })
-        .collect();
+    let (candidates, mut cut) = candidates(repository, directory)?;
+    let mut scorer = Scorer::new(&query, MAX_SCORED_CELLS);
+    let mut ranked = Vec::new();
+    for path in &candidates {
+        match scorer.score(path) {
+            Scored::Match(score, matches) => ranked.push(Ranked { path, score, matches }),
+            Scored::NoMatch => {}
+            Scored::OutOfBudget => {
+                // The rest are unranked; say the results are partial.
+                cut = true;
+                break;
+            }
+        }
+    }
     let total = ranked.len();
     ranked.sort_by(|left, right| {
         right
@@ -70,11 +80,17 @@ pub(super) fn search(
             .then_with(|| left.path.len().cmp(&right.path.len()))
             .then_with(|| left.path.cmp(right.path))
     });
-    ranked.truncate(limit);
-    reply["results"] = ranked
+    // A submodule is listed as one path, but it is a folder: never a result.
+    let search_folder = Path::new(&search_root);
+    let results: Vec<Value> = ranked
         .iter()
-        .map(|entry| json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)}))
+        .filter(|entry| !search_folder.join(entry.path).is_dir())
+        .take(limit)
+        .map(|entry| {
+            json!({"path": entry.path, "matches": utf16_offsets(entry.path, &entry.matches)})
+        })
         .collect();
+    reply["results"] = Value::Array(results);
     reply["truncated"] = json!(cut || total > limit);
     reply["total_matches"] = json!(u32::try_from(total).unwrap_or(u32::MAX));
     Ok(reply)
@@ -134,109 +150,162 @@ fn candidates(
     Ok((files, listed.truncated))
 }
 
-/// The best alignment of `query` in `path`: its score and the matched
-/// character indexes, or `None` when `path` does not contain every query
-/// character in order (case-insensitively).
-pub(super) fn score(path: &str, query: &[char]) -> Option<(i32, Vec<usize>)> {
-    const MATCH: i32 = 16;
-    const BOUNDARY: i32 = 8;
-    const AFTER_SLASH: i32 = 10;
-    const CONSECUTIVE: i32 = 8;
-    const IN_NAME: i32 = 6;
-    const GAP_START: i32 = 3;
-    const GAP_EXTEND: i32 = 1;
-    const NONE: i32 = i32::MIN / 2;
+/// What scoring one path found.
+pub(super) enum Scored {
+    /// The score and the matched character indexes, ascending.
+    Match(i32, Vec<usize>),
+    NoMatch,
+    /// The search's work budget is spent; this path was not scored.
+    OutOfBudget,
+}
 
-    let original: Vec<char> = path.chars().collect();
-    if query.is_empty() || original.len() > MAX_RANKED_PATH_CHARS || query.len() > original.len() {
-        return None;
-    }
-    let lower: Vec<char> = original.iter().map(|character| fold(*character)).collect();
-    let wanted: Vec<char> = query.iter().map(|character| fold(*character)).collect();
-    // Cheap rejection before the table.
-    let mut next = 0;
-    for character in &lower {
-        if next < wanted.len() && *character == wanted[next] {
-            next += 1;
+/// Scores paths against one query, reusing its tables across paths and
+/// stopping when a whole search has filled its budget of table cells.
+pub(super) struct Scorer {
+    wanted: Vec<char>,
+    original: Vec<char>,
+    lower: Vec<char>,
+    /// Row-major `wanted.len()` x columns: the best score of query[..=i]
+    /// with query[i] at path[j].
+    scores: Vec<i32>,
+    /// Where query[i - 1] sat on that best alignment.
+    from: Vec<usize>,
+    cells_left: usize,
+}
+
+const MATCH: i32 = 16;
+const BOUNDARY: i32 = 8;
+const AFTER_SLASH: i32 = 10;
+const CONSECUTIVE: i32 = 8;
+const IN_NAME: i32 = 6;
+const GAP_START: i32 = 3;
+const GAP_EXTEND: i32 = 1;
+const NONE: i32 = i32::MIN / 2;
+
+impl Scorer {
+    pub(super) fn new(query: &[char], budget: usize) -> Self {
+        Self {
+            wanted: query.iter().map(|character| fold(*character)).collect(),
+            original: Vec::new(),
+            lower: Vec::new(),
+            scores: Vec::new(),
+            from: Vec::new(),
+            cells_left: budget,
         }
     }
-    if next < wanted.len() {
-        return None;
-    }
-    let name_start =
-        original.iter().rposition(|character| *character == '/').map_or(0, |at| at + 1);
-    let bonus = |at: usize| -> i32 {
-        let mut bonus = MATCH;
-        if at >= name_start {
-            bonus += IN_NAME;
+
+    /// The best alignment of the query in `path`, or `NoMatch` when `path`
+    /// does not contain every query character in order (case-insensitively).
+    pub(super) fn score(&mut self, path: &str) -> Scored {
+        let rows = self.wanted.len();
+        self.original.clear();
+        self.original.extend(path.chars());
+        let columns = self.original.len();
+        if rows == 0 || columns > MAX_RANKED_PATH_CHARS || rows > columns {
+            return Scored::NoMatch;
         }
-        bonus += match at.checked_sub(1).map(|before| original[before]) {
-            None => AFTER_SLASH,
-            Some('/') => AFTER_SLASH,
-            Some('_' | '-' | '.' | ' ') => BOUNDARY,
-            Some(before) if before.is_lowercase() && original[at].is_uppercase() => BOUNDARY,
-            Some(before) if !before.is_alphanumeric() => BOUNDARY,
-            _ => 0,
+        self.lower.clear();
+        self.lower.extend(self.original.iter().map(|character| fold(*character)));
+        // Cheap rejection before the table.
+        let mut next = 0;
+        for character in &self.lower {
+            if next < rows && *character == self.wanted[next] {
+                next += 1;
+            }
+        }
+        if next < rows {
+            return Scored::NoMatch;
+        }
+        let cells = rows * columns;
+        if cells > self.cells_left {
+            return Scored::OutOfBudget;
+        }
+        self.cells_left -= cells;
+        self.scores.clear();
+        self.scores.resize(cells, NONE);
+        self.from.clear();
+        self.from.resize(cells, usize::MAX);
+        let (original, lower, wanted) = (&self.original, &self.lower, &self.wanted);
+        let (scores, from) = (&mut self.scores, &mut self.from);
+        let name_start =
+            original.iter().rposition(|character| *character == '/').map_or(0, |at| at + 1);
+        let bonus = |at: usize| -> i32 {
+            let mut bonus = MATCH;
+            if at >= name_start {
+                bonus += IN_NAME;
+            }
+            bonus += match at.checked_sub(1).map(|before| original[before]) {
+                None | Some('/') => AFTER_SLASH,
+                Some('_' | '-' | '.' | ' ') => BOUNDARY,
+                Some(before) if before.is_lowercase() && original[at].is_uppercase() => BOUNDARY,
+                Some(before) if !before.is_alphanumeric() => BOUNDARY,
+                _ => 0,
+            };
+            bonus
         };
-        bonus
-    };
-
-    let columns = original.len();
-    // scores[i][j]: the best score of query[..=i] with query[i] at path[j].
-    // from[i][j]: where query[i - 1] sat on that best alignment.
-    let mut scores = vec![vec![NONE; columns]; wanted.len()];
-    let mut from = vec![vec![usize::MAX; columns]; wanted.len()];
-    for (j, character) in lower.iter().enumerate() {
-        if *character == wanted[0] {
-            scores[0][j] = bonus(j);
+        let at = |row: usize, column: usize| row * columns + column;
+        for (j, character) in lower.iter().enumerate() {
+            if *character == wanted[0] {
+                scores[at(0, j)] = bonus(j);
+            }
         }
-    }
-    for i in 1..wanted.len() {
-        // The best previous-row score that leaves a gap before column j, with
-        // its gap penalty already taken, and its column.
-        let mut gap_best = NONE;
-        let mut gap_from = usize::MAX;
-        for j in 1..columns {
-            if j >= 2 && scores[i - 1][j - 2] > NONE {
-                let opened = scores[i - 1][j - 2] - GAP_START;
-                let extended = gap_best - GAP_EXTEND;
-                if opened >= extended {
-                    gap_best = opened;
-                    gap_from = j - 2;
-                } else {
-                    gap_best = extended;
+        for i in 1..rows {
+            // The best previous-row score that leaves a gap before column j,
+            // with its gap penalty already taken, and its column.
+            let mut gap_best = NONE;
+            let mut gap_from = usize::MAX;
+            for j in 1..columns {
+                if j >= 2 && scores[at(i - 1, j - 2)] > NONE {
+                    let opened = scores[at(i - 1, j - 2)] - GAP_START;
+                    let extended = gap_best - GAP_EXTEND;
+                    if opened >= extended {
+                        gap_best = opened;
+                        gap_from = j - 2;
+                    } else {
+                        gap_best = extended;
+                    }
+                } else if gap_best > NONE {
+                    gap_best -= GAP_EXTEND;
                 }
-            } else if gap_best > NONE {
-                gap_best -= GAP_EXTEND;
-            }
-            if lower[j] != wanted[i] {
-                continue;
-            }
-            let run =
-                if scores[i - 1][j - 1] > NONE { scores[i - 1][j - 1] + CONSECUTIVE } else { NONE };
-            let (best, previous) =
-                if run >= gap_best { (run, j - 1) } else { (gap_best, gap_from) };
-            if best > NONE {
-                scores[i][j] = best + bonus(j);
-                from[i][j] = previous;
+                if lower[j] != wanted[i] {
+                    continue;
+                }
+                let diagonal = scores[at(i - 1, j - 1)];
+                let run = if diagonal > NONE { diagonal + CONSECUTIVE } else { NONE };
+                let (best, previous) =
+                    if run >= gap_best { (run, j - 1) } else { (gap_best, gap_from) };
+                if best > NONE {
+                    scores[at(i, j)] = best + bonus(j);
+                    from[at(i, j)] = previous;
+                }
             }
         }
-    }
-    let last = wanted.len() - 1;
-    let (mut column, best) = scores[last]
-        .iter()
-        .enumerate()
-        .filter(|(_, score)| **score > NONE)
-        .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(&left.0)))
-        .map(|(column, score)| (column, *score))?;
-    let mut matches = vec![0; wanted.len()];
-    for i in (0..wanted.len()).rev() {
-        matches[i] = column;
-        if i > 0 {
-            column = from[i][column];
+        let last = rows - 1;
+        let Some((mut column, best)) = (0..columns)
+            .map(|j| (j, scores[at(last, j)]))
+            .filter(|(_, score)| *score > NONE)
+            .max_by(|left, right| left.1.cmp(&right.1).then_with(|| right.0.cmp(&left.0)))
+        else {
+            return Scored::NoMatch;
+        };
+        let mut matches = vec![0; rows];
+        for i in (0..rows).rev() {
+            matches[i] = column;
+            if i > 0 {
+                column = from[at(i, column)];
+            }
         }
+        Scored::Match(best, matches)
     }
-    Some((best, matches))
+}
+
+/// One path's score with a fresh scorer; for tests.
+#[cfg(test)]
+pub(super) fn score(path: &str, query: &[char]) -> Option<(i32, Vec<usize>)> {
+    match Scorer::new(query, usize::MAX).score(path) {
+        Scored::Match(score, matches) => Some((score, matches)),
+        Scored::NoMatch | Scored::OutOfBudget => None,
+    }
 }
 
 fn fold(character: char) -> char {

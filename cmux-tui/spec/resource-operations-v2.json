@@ -10276,7 +10276,7 @@
               "name": "string",
               "min_length": 1
             },
-            "description": "An absolute path to a folder inside a repository; only files under it are searched. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+            "description": "An absolute path to a folder inside a repository; only files under it are searched. A file path searches the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
           },
           "query": {
             "required": true,
@@ -10285,7 +10285,7 @@
               "name": "string",
               "max_length": 256
             },
-            "description": "Matched case-insensitively as a subsequence of each file's path; whitespace is ignored. An empty query returns no results."
+            "description": "Matched case-insensitively as a subsequence of each file's path; whitespace is ignored. At most 256 bytes of UTF-8. An empty query returns no results."
           },
           "limit": {
             "required": false,
@@ -10315,6 +10315,7 @@
       "constraints": [
         "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the searched folder.",
         "Results are best first: matches in the file name, at word starts and in runs rank higher, then shorter paths, then path order.",
+        "Submodules are folders and never results. Paths over 1024 characters are listed by git but not ranked. A search that would fill more than its scoring budget ranks part of the candidates and sets truncated.",
         "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
       ]
     },

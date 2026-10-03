@@ -5,7 +5,7 @@ use std::path::Path;
 
 use serde_json::{Value, json};
 
-use super::super::files::score;
+use super::super::files::{Scored, Scorer, score};
 use super::{call, commit_all, failure, git, mux, ok, repository, write};
 
 fn search(
@@ -155,4 +155,41 @@ fn score_rejects_missing_characters_and_prefers_runs_and_word_starts() {
     let (in_name, _) = score("x/y/readme.md", &chars("rd")).unwrap();
     let (in_folder, _) = score("readers/y/a.md", &chars("rd")).unwrap();
     assert!(in_name > in_folder, "{in_name} {in_folder}");
+}
+
+#[test]
+fn a_submodule_is_a_folder_and_never_a_result() {
+    let mux = mux();
+    let inner = repository("files-submodule-inner");
+    write(&inner, "lib.rs", b"x");
+    commit_all(&inner, "inner");
+    let outer = repository("files-submodule-outer");
+    write(&outer, "libmain.rs", b"x");
+    commit_all(&outer, "outer");
+    git(
+        &outer,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            inner.to_str().unwrap(),
+            "lib",
+        ],
+    );
+    commit_all(&outer, "add submodule");
+    let result = search(&mux, &outer, "lib", None);
+    assert_eq!(paths(&result), vec!["libmain.rs"]);
+}
+
+#[test]
+fn the_work_budget_stops_ranking_and_says_so() {
+    let query = chars("ab");
+    let mut scorer = Scorer::new(&query, 10);
+    // "ab.rs": 2 x 5 cells fits the budget exactly; the next path does not.
+    assert!(matches!(scorer.score("ab.rs"), Scored::Match(_, _)));
+    assert!(matches!(scorer.score("xab.rs"), Scored::OutOfBudget));
+    // A path that cannot match costs nothing.
+    assert!(matches!(scorer.score("zzz"), Scored::NoMatch));
 }
