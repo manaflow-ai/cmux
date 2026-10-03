@@ -206,7 +206,8 @@ sh -c 'while IFS= read -r line; do printf "received=%s\n" "$line"; done'
 During the outage, wait until the wrapper visibly reports **input discarded**
 and has entered retry/backoff before typing `cmux-smoke-queued-input` and Enter.
 Input entered before disconnect detection is outside this check. After recovery, type
-`cmux-smoke-fresh-input` and Enter. Only the fresh text may produce a `received=`
+`cmux-smoke-fresh-input` and Enter. Require a
+`received=cmux-smoke-fresh-input` line; queued input must not produce a `received=`
 line. Check before pressing Ctrl-C, which could itself flush queued input and
 hide a failure. The receiver never executes the text. Mark this legacy-wrapper
 case not applicable for the cmux-tui routes instead of assuming identical input
