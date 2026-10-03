@@ -257,6 +257,11 @@ describe("OIDC sign-in (workerd)", () => {
     expect((await op(outsider, "user.ensure", {})).ok).toBe(true)
     expect((await op(s.admin, "user.ensure", {})).ok).toBe(true)
 
+    // Bound by email domain only while a connection serves that very domain: a user of an unserved domain could never sign in.
+    const rules = s.stub as unknown as { signInRules(e: string, u: string, d?: string): Promise<{ sso_required: boolean }> }
+    expect((await rules.signInRules(s.team, "user_someone", DOMAIN)).sso_required).toBe(true)
+    expect((await rules.signInRules(s.team, "user_someone", `unserved-${DOMAIN}`)).sso_required).toBe(false)
+
     // A recommended (default) value never locks anyone out.
     const dflt = await op(s.admin, "team.policy.update", { changes: [{ key: "sso.enforce", value: { value: true, mode: "default" } }], expected_version: 1, reason: "test" })
     expect(dflt.error).toBeUndefined()
