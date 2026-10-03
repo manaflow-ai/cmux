@@ -1,8 +1,9 @@
 // A turn's changes as its before/after checkpoint pair records them, when the host has one, or
 // else as the turn's tool calls report them. The checkpoint diff is the truth on disk: it holds
 // a file once with its net change, and it holds changes no tool call made (a shell command, a
-// formatter). Those are shown read-only; Keep and Undo stay on the files the tool calls changed.
-import type { TurnFile } from "../diff";
+// formatter). Those are shown read-only; hunks that still match a tool edit carry its review key
+// so Keep and Undo stay connected to the tool call that produced them.
+import { hunkKey, type DiffHunk, type TurnFile } from "../diff";
 import { t } from "../i18n";
 import { changeSetFiles, readChangeSet, type ChangeSet } from "./model";
 
@@ -41,6 +42,83 @@ export type TurnDisplay = {
   note?: string;
 };
 
+type ReviewCandidate = { key: string; changed: Map<string, number>; lines: Set<number> };
+
+function changedTokens(hunk: DiffHunk): Map<string, number> {
+  const tokens = new Map<string, number>();
+  for (const line of hunk.lines) {
+    if (line.type === "context") continue;
+    const token = line.type + "\u0000" + line.text;
+    tokens.set(token, (tokens.get(token) ?? 0) + 1);
+  }
+  return tokens;
+}
+
+function sameTokens(left: ReadonlyMap<string, number>, right: ReadonlyMap<string, number>): boolean {
+  if (left.size !== right.size) return false;
+  return [...left].every(([token, count]) => right.get(token) === count);
+}
+
+function changedLines(hunk: DiffHunk): Set<number> {
+  return new Set(
+    hunk.lines.flatMap((line) => {
+      if (line.type === "context") return [];
+      const number = line.type === "add" ? line.newLine : line.oldLine;
+      return number === undefined ? [] : [number];
+    }),
+  );
+}
+
+function checkpointReviewKeys(file: TurnFile, hunk: DiffHunk, toolFile: TurnFile | undefined): string[] {
+  if (!toolFile || file.patchTruncated) return [];
+  const wanted = changedTokens(hunk);
+  if (wanted.size === 0) return [];
+  const wantedLines = changedLines(hunk);
+  const candidates: ReviewCandidate[] = toolFile.edits.flatMap((edit, editIndex) =>
+    edit.hunks.map((toolHunk, hunkIndex) => ({
+      key: hunkKey(toolFile, editIndex, hunkIndex),
+      changed: changedTokens(toolHunk),
+      lines: changedLines(toolHunk),
+    })),
+  );
+  const chosen = new Set<string>();
+  for (const [token, count] of wanted) {
+    const matches = candidates.filter(
+      (candidate) =>
+        (candidate.changed.get(token) ?? 0) >= count &&
+        (wantedLines.size === 0 ||
+          candidate.lines.size === 0 ||
+          [...wantedLines].some((line) => candidate.lines.has(line))),
+    );
+    // Every changed token must identify one tool hunk. If a repeated token is shared by hunks,
+    // or its numbered location differs, leave the checkpoint hunk read-only.
+    if (matches.length !== 1) return [];
+    chosen.add(matches[0]!.key);
+  }
+  const covered = new Map<string, number>();
+  for (const candidate of candidates.filter((candidate) => chosen.has(candidate.key))) {
+    for (const [token, count] of candidate.changed) covered.set(token, (covered.get(token) ?? 0) + count);
+  }
+  return sameTokens(wanted, covered) ? [...chosen] : [];
+}
+
+function checkpointReviewFile(file: TurnFile, toolFiles: readonly TurnFile[]): TurnFile {
+  const matchingToolFiles = toolFiles.filter((candidate) => changedByTools(file, [candidate]));
+  // A suffix match can represent two path aliases for one physical file. Without a canonical
+  // identity, mapping to the first one could leave the other tool edit unreviewed.
+  const toolFile = matchingToolFiles.length === 1 ? matchingToolFiles[0] : undefined;
+  return {
+    ...file,
+    edits: file.edits.map((edit) => ({
+      ...edit,
+      hunks: edit.hunks.map((hunk) => ({
+        ...hunk,
+        reviewKeys: checkpointReviewKeys(file, hunk, toolFile),
+      })),
+    })),
+  };
+}
+
 /// A checkpoint file is one a tool call changed when a tool call's path is it, or ends with its
 /// path under the repository: tool calls report paths as the agent wrote them (`~/code/x/a.ts`).
 export function changedByTools(file: TurnFile, toolFiles: readonly TurnFile[]) {
@@ -64,11 +142,14 @@ export function turnDisplay(toolFiles: TurnFile[], load: TurnCheckpointLoad, pen
       return tools(t("turn.checkpoint.incomplete"));
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
-      const files = changeSetFiles(load.changeSet).map((file) => ({
-        ...file,
-        edits: file.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
-        ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
-      }));
+      const files = changeSetFiles(load.changeSet).map((file) => {
+        const reviewFile = checkpointReviewFile(file, toolFiles);
+        return {
+          ...reviewFile,
+          edits: reviewFile.edits.map((edit) => ({ ...edit, toolId: `checkpoint:${load.checkpointId}` })),
+          ...(changedByTools(file, toolFiles) ? {} : { outside: true }),
+        };
+      });
       return { files, source: "checkpoint" };
     }
   }
