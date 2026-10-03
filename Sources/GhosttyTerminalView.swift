@@ -5526,7 +5526,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         layer?.masksToBounds = true
         let didChangeDrawable = applyDrawableGeometry(geometry)
         let surfaceSizeChanged = terminalSurface.commitPaneGeometry(geometry)
-        return didChangeDrawable || surfaceSizeChanged
+        return synchronizeCellMetrics() || didChangeDrawable || surfaceSizeChanged
     }
 
     /// Re-applies the current pane size: the committed geometry for a
@@ -5540,7 +5540,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             guard let geometry = terminalSurface.committedPaneGeometry else { return false }
             let didChangeDrawable = applyDrawableGeometry(geometry)
             let surfaceSizeChanged = terminalSurface.reapplyCommittedPaneGeometry()
-            return didChangeDrawable || surfaceSizeChanged
+            return synchronizeCellMetrics() || didChangeDrawable || surfaceSizeChanged
         }
         return commitOwnBounds()
     }
@@ -13765,7 +13765,7 @@ final class GhosttySurfaceScrollView: NSView {
         // publishes its inner frame here.
         if surfaceView.paneGeometryIsPortalOwned {
             paneGeometryPortal?.requestPaneGeometryCommit(for: self)
-            return false
+            return surfaceView.synchronizeCellMetrics()
         }
         return surfaceView.commitPaneGeometry(
             size: CGSize(width: width, height: height),
