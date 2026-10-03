@@ -323,8 +323,10 @@ impl Core {
                     Some(value) => match crate::acp::lenient_count_value(&value) {
                         Some(id) => Some(id),
                         None => {
+                            // JavaScript String(value), as the TypeScript log writes it.
+                            let shown = crate::acp::js_string(&value);
                             self.log(format!(
-                                "ignoring log_id {value}: not a non-negative integer"
+                                "ignoring log_id {shown}: not a non-negative integer"
                             ));
                             None
                         }
@@ -825,7 +827,8 @@ impl Core {
             .keys()
             .filter(|id| {
                 id.starts_with("perm:")
-                    && !waiting.iter().any(|s| id.starts_with(&format!("perm:{}:", s.session_id)))
+                    && !permission_session(id)
+                        .is_some_and(|session| waiting.iter().any(|s| s.session_id == session))
             })
             .cloned()
             .collect();
@@ -1315,4 +1318,11 @@ impl Core {
         }
         self.flush_outbox();
     }
+}
+
+/// The session of a `perm:<session>:<permission>` prompt id: the permission
+/// id is after the last ':'.
+pub fn permission_session(prompt_id: &str) -> Option<&str> {
+    let rest = prompt_id.strip_prefix("perm:")?;
+    rest.rfind(':').map(|last| &rest[..last])
 }
