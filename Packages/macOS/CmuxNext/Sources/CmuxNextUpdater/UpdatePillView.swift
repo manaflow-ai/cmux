@@ -16,7 +16,8 @@ public final class UpdatePillView: NSView {
         surface.autoresizingMask = [.width, .height]
         addSubview(surface)
         label.font = Typography.bodyEmphasized
-        label.lineBreakMode = .byTruncatingTail
+        label.alignment = .center
+        label.lineBreakMode = .byClipping
         // Above the material, not in its content view: glass lays that view
         // out (inset) itself, which truncated the label.
         addSubview(label)
@@ -38,10 +39,14 @@ public final class UpdatePillView: NSView {
         }
     }
 
-    /// The capsule's width for `text` at `height`: the label and a
-    /// half-height cap at each end.
+    /// The capsule's width for `text` at `height`: the text measured in the
+    /// label's font (the field's intrinsic width fell about 10 pt short in
+    /// window snapshots, ending in an ellipsis), the field's cell padding,
+    /// and a half-height cap at each end.
     public func fittingWidth(height: CGFloat) -> CGFloat {
-        (label.intrinsicContentSize.width + height).rounded(.up)
+        let font = label.font ?? Typography.bodyEmphasized
+        let text = (label.stringValue as NSString).size(withAttributes: [.font: font]).width
+        return (max(text, label.intrinsicContentSize.width) + Metrics.space2 * 2 + height).rounded(.up)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -53,10 +58,9 @@ public final class UpdatePillView: NSView {
         super.layout()
         surface.frame = bounds
         surface.cornerRadius = bounds.height / 2
-        let size = label.intrinsicContentSize
-        let width = size.width.rounded(.up)
-        label.frame = CGRect(x: ((bounds.width - width) / 2).rounded(), y: ((bounds.height - size.height) / 2).rounded(),
-                             width: width, height: size.height)
+        // The full width, text centered: the capsule already fits the text.
+        let height = label.intrinsicContentSize.height
+        label.frame = CGRect(x: 0, y: ((bounds.height - height) / 2).rounded(), width: bounds.width, height: height)
         performWithTheme { label.textColor = Palette.textPrimary }
     }
 }

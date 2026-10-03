@@ -77,6 +77,8 @@ final class WindowUpdateIndicator {
         let width = pill.fittingWidth(height: height)
         pill.frame = CGRect(x: rail.maxX + Metrics.space2, y: (anchor.midY - height / 2).rounded(), width: width, height: height)
         pill.autoresizingMask = content.isFlipped ? [.maxXMargin, .minYMargin] : [.maxXMargin, .maxYMargin]
+        pill.needsLayout = true
+        pill.layoutSubtreeIfNeeded()
         pill.isHidden = false
     }
 
