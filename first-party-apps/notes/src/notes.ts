@@ -1,5 +1,5 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// The notes server's wire shapes (catalog fragment catalog/notes-catalog.json,
+// The notes server's wire shapes (catalog fragment proposed/notes-server-catalog.json,
 // owner app:cmux/notes). Notes are documents owned by the notes server
 // (`cmux-notes serve`, one instance per user, durable data): it keeps every
 // note's text, revision, title, pin and workspace, derives titles and
