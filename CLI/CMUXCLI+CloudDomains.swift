@@ -92,24 +92,32 @@ extension CMUXCLI {
                   let port = Int(remaining[1]), (1...65_535).contains(port) else {
                 throw CLIError(message: Self.cloudDomainsUsage)
             }
-            let access = try Self.validatedPublicationAccess(
-                accessRaw ?? CloudDomainAccessMode.personal.rawValue,
-                teamID: teamID
-            )
+            // Let the server choose the safe scope-aware default when the user
+            // omits --access: team-owned VMs default to team access, while
+            // personal VMs remain owner-only. Explicit modes still validate here.
+            let access = try accessRaw.map {
+                try Self.validatedPublicationAccess($0, teamID: teamID)
+            }
+            if accessRaw == nil, teamID != nil {
+                throw CLIError(message: String(
+                    localized: "cli.cloud.domains.teamOnly",
+                    defaultValue: "`--team` can only be used with team access."
+                ))
+            }
             var params: [String: Any] = [
                 "vmId": remaining[0],
                 "port": port,
             ]
-            if accessRaw != nil && access.mode != .public { params["accessMode"] = access.mode.rawValue }
+            if let access, access.mode != .public { params["accessMode"] = access.mode.rawValue }
+            if let access, let teamID = access.teamID { params["teamId"] = teamID }
             if let orgSlug { params["organizationSlug"] = orgSlug }
             if let domain = Self.nonempty(domain) { params["hostname"] = domain }
-            if let teamID = access.teamID { params["teamId"] = teamID }
             var response = try client.sendV2(
                 method: "vm.publication_create",
                 params: params,
                 responseTimeout: 120
             )
-            if access.mode == .public {
+            if access?.mode == .public {
                 guard let publication = response["publication"] as? [String: Any],
                       let publicationID = Self.nonempty(publication["id"] as? String) else {
                     throw CLIError(message: String(

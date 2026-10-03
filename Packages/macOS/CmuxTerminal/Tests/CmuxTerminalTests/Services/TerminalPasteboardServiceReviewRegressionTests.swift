@@ -6,7 +6,11 @@ import Testing
 
 // On the main actor, not the cooperative pool: see PasteboardTextContentsTests.
 @MainActor
-@Suite("Terminal pasteboard service review regressions", .serialized)
+@Suite(
+    "Terminal pasteboard service review regressions",
+    .serialized,
+    .enabled(if: cmuxPasteboardTestsEnabled)
+)
 struct TerminalPasteboardServiceReviewRegressionTests {
     @Test("cancelled caller observes an admitted clipboard write")
     func cancelledCallerObservesAdmittedClipboardWrite() async throws {

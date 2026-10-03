@@ -214,6 +214,7 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeNotice: viewModel.treeNoticeDescription,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -410,56 +411,8 @@ struct MachinesPanelView: View {
     }
     /// Binds the shared Cloud and Devices tree above the outline's snapshot boundary.
     private var machinesList: some View {
-        var machineActions = MachineRowActions.bound(
-            onDidMutate: { [weak viewModel] in
-                viewModel?.endOperation()
-                viewModel?.refresh(tree: true)
-            }
-        )
-        // The list endpoint is authoritative for the caller's plan-sized
-        // memory ladder. Feed it into the menu so Pro users do not select a
-        // Max-only size and wait for a server rejection.
-        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
-        machineActions.resizeMemoryOptionsGiB = planMemoryGiB
-        // The image ladder pairs one vCPU with every 2 GB (8 GB = 4 vCPU).
-        machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
-        viewModel.bindMachineOrdering(to: &machineActions)
-        machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
-        var nodeActions = CloudTreeNodeActions.bound(
-            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
-            catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { tabManager?.selectedTabId },
-            selectLocalWorkspace: { workspaceID in
-                tabManager?.selectedTabId = workspaceID
-            },
-            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
-            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            refresh: { refreshMachines() },
-            refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
-            workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
-        )
-        nodeActions.needsDevicePairing = { [weak devicesModel] machine in
-            devicesModel?.needsPairing(machine) ?? false
-        }
-        nodeActions.hideDevice = { [weak devicesModel] machine in
-            guard let instance = machine.deviceInstance else { return }
-            Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
-        }
-        nodeActions.setDeviceDiscovery = { [weak devicesModel] enabled in
-            Task { await devicesModel?.preferences?.setDiscoveryEnabled(enabled) }
-        }
-        nodeActions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
-            Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
-        }
-        // The header "+" is Cmd-Y from this window: same gates, sheet, optimistic create, and no workspace until the sheet completes.
-        nodeActions.newMachine = { [weak tabManager] in
-            _ = AppDelegate.shared?.performNewCloudMachineAction(
-                tabManager: tabManager,
-                preferredWindow: tabManager?.window,
-                debugSource: "cloudTree.cloudMachinesSection"
-            )
-        }
-        nodeActions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
+        let machineActions = makeMachineActions()
+        let nodeActions = makeNodeActions()
         return CloudTreeOutlineView(
             machines: includesCloud ? viewModel.sidebarMachines : [], pendingMachineDeletions: MachineDeleteCoordinator.shared.pendingMachineIDs,
             pendingCreates: includesCloud ? viewModel.pendingCreates : [],
@@ -486,6 +439,60 @@ struct MachinesPanelView: View {
             creationReveal: SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: tabManager)
         )
         .accessibilityIdentifier("CloudMachinesTree")
+    }
+
+    @MainActor
+    private func makeMachineActions() -> MachineRowActions {
+        var actions: MachineRowActions = MachineRowActions.bound(
+            onDidMutate: { [weak viewModel] in
+                viewModel?.endOperation()
+                viewModel?.refresh(tree: true)
+            }
+        )
+        let planMemoryGiB = viewModel.memoryOptionsMb.map { $0 / 1024 }.filter { $0 > 0 }
+        actions.resizeMemoryOptionsGiB = planMemoryGiB
+        actions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
+        viewModel.bindMachineOrdering(to: &actions)
+        actions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
+        return actions
+    }
+
+    @MainActor
+    private func makeNodeActions() -> CloudTreeNodeActions {
+        var actions: CloudTreeNodeActions = CloudTreeNodeActions.bound(
+            navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
+            catalog: { SurfaceCatalog.shared },
+            selectedWorkspaceID: { self.tabManager?.selectedTabId },
+            selectLocalWorkspace: { [weak tabManager] workspaceID in
+                tabManager?.selectedTabId = workspaceID
+            },
+            onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
+            onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onNotice: { [weak viewModel] description in viewModel?.noteTreeNotice(description) },
+            refresh: { refreshMachines() },
+            refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
+            workspaceCreationHost: { [weak tabManager] in tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
+        )
+        actions.needsDevicePairing = { [weak devicesModel] machine in devicesModel?.needsPairing(machine) ?? false }
+        actions.hideDevice = { [weak devicesModel] machine in
+            guard let instance = machine.deviceInstance else { return }
+            Task { await devicesModel?.preferences?.setHidden(instance, hidden: true) }
+        }
+        actions.setDeviceDiscovery = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setDiscoveryEnabled(enabled) }
+        }
+        actions.setDeviceIncomingAccess = { [weak devicesModel] enabled in
+            Task { await devicesModel?.preferences?.setIncomingAccessEnabled(enabled) }
+        }
+        actions.newMachine = { [weak tabManager] in
+            _ = AppDelegate.shared?.performNewCloudMachineAction(
+                tabManager: tabManager,
+                preferredWindow: tabManager?.window,
+                debugSource: "cloudTree.cloudMachinesSection"
+            )
+        }
+        actions.newWorkspaceOnResolvedMachine = CloudTreeNodeActions.resolvedWorkspaceCreationAction(tabManager: tabManager)
+        return actions
     }
 
     @ViewBuilder

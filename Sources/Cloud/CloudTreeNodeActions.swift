@@ -62,6 +62,9 @@ struct CloudTreeNodeActions {
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.
     let copyPortLink: @MainActor (_ resource: SurfaceResourceID) -> Void
+    /// Create or reuse the authenticated HTTPS publication for a machine port
+    /// and copy its shareable URL.
+    var sharePort: @MainActor (_ resource: SurfaceResourceID) -> Void = { _ in }
     let refresh: @MainActor () -> Void
     var discoverPorts: @MainActor (SurfaceMachineID) -> Void = { _ in }
     var setDeviceDiscovery: @MainActor (Bool) -> Void = { _ in }
@@ -104,6 +107,7 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
+        onNotice: @escaping @MainActor (String) -> Void = { _ in },
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
         workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
@@ -517,6 +521,34 @@ struct CloudTreeNodeActions {
                     Self.copyToPasteboard(try await provider.portLinkURL(port: port))
                 }
             },
+            sharePort: { resource in
+                guard let port = resource.forwardedPort else { return }
+                let label = String(localized: "cloudTree.operation.sharePort", defaultValue: "Preparing the share URL…")
+                let key = "share-port-\(resource.machine.rawValue)-\(port)"
+                _ = runKeyed(key, label) { _ in
+                    guard let client = VMClient.shared else {
+                        throw VMClientError.notSignedIn
+                    }
+                    do {
+                        let publication = try await CloudPortShareService().prepare(
+                            client: client,
+                            vmID: resource.machine.rawValue,
+                            port: port
+                        )
+                        guard Self.copyToPasteboardResult(publication.url) else {
+                            throw CloudTreeSharePortError.copyFailed
+                        }
+                        onNotice(String(localized: "cloudTree.operation.sharePort.copied", defaultValue: "Share URL copied to clipboard."))
+                    } catch let error as CloudPortShareError {
+                        switch error {
+                        case .publicPublication(let hostname):
+                            throw CloudTreeSharePortError.publicPublication(hostname: hostname)
+                        case .provisioning(let state):
+                            throw CloudTreeSharePortError.provisioning(state: state)
+                        }
+                    }
+                }
+            },
             refresh: refresh
         )
         actions.openWorkspace = { machine, workspace, group in
@@ -599,11 +631,34 @@ struct CloudTreeNodeActions {
     }
     @MainActor
     private static func copyToPasteboard(_ text: String) {
+        _ = copyToPasteboardResult(text)
+    }
+
+    @MainActor
+    private static func copyToPasteboardResult(_ text: String) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let ok = pasteboard.setString(text, forType: .string)
         #if DEBUG
         cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
         #endif
+        return ok
+    }
+}
+
+private enum CloudTreeSharePortError: LocalizedError {
+    case provisioning(state: String)
+    case publicPublication(hostname: String)
+    case copyFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .provisioning(let state):
+            return String(format: String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned (state: %@). Try again in a moment."), state)
+        case .publicPublication(let hostname):
+            return String(format: String(localized: "cloudTree.operation.sharePort.publicMismatch", defaultValue: "An unprotected publication already uses %@. Remove it or create a protected share first."), hostname)
+        case .copyFailed:
+            return String(localized: "cloudTree.operation.sharePort.copyFailed", defaultValue: "The share URL was ready, but cmux could not copy it. Try again or use the context menu.")
+        }
     }
 }

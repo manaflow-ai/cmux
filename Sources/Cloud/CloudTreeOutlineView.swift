@@ -888,6 +888,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             items.append(.separator())
             if resource.id.isForwardedPort, !isLocal {
+                items.append(item(String(localized: "cloudTree.menu.copyShareURL", defaultValue: "Copy Share URL")) { [nodeActions] in nodeActions.sharePort(resource.id) })
                 // Copying the private URL never creates a forward.
                 items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
             } else if let portURL {

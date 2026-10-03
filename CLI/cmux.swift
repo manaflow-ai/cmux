@@ -4171,6 +4171,7 @@ struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    let codexMonitorOwner: CodexMonitorOwner
 
     private enum NotifyTargetResolution {
         case surface(
@@ -4407,11 +4408,15 @@ struct CMUXCLI {
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
         simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+            SimulatorOwnedCommandRunner(),
+        codexMonitorOwner: CodexMonitorOwner = CodexMonitorOwner(
+            environment: ProcessInfo.processInfo.environment
+        )
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.codexMonitorOwner = codexMonitorOwner
     }
 
     /// Sends transport failures and structured protocol failures through the
@@ -31819,7 +31824,7 @@ struct CMUXCLI {
         // the owner process for the child rollout and publish the child hook
         // binding. Without this, the first fork may render, but a fork of that
         // child has no durable parent association to discover.
-        monitorArgs += Self.codexForkMonitorArguments(environment: env)
+        monitorArgs += codexMonitorOwner.forkMonitorArguments()
         if let surfaceId, !surfaceId.isEmpty {
             monitorArgs += ["--surface", surfaceId]
         }
@@ -42880,7 +42885,10 @@ struct CMUXTermMain {
         configureCLIStdioNoSIGPIPE()
         let cli = CMUXCLI(
             args: CommandLine.arguments,
-            initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
+            initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload,
+            codexMonitorOwner: CodexMonitorOwner(
+                environment: ProcessInfo.processInfo.environment
+            )
         )
         do {
             try await cli.run()

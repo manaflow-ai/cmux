@@ -19,7 +19,7 @@ export const maxDuration = 120;
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedPublicationApiRoute(request, (context) =>
-    handlePublicationList(context));
+    handlePublicationList(context, new URL(request.url).searchParams));
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -29,9 +29,15 @@ export async function POST(request: Request): Promise<Response> {
 
 export async function handlePublicationList(
   context: Pick<AuthedPublicationRouteContext, "principal" | "run">,
+  searchParams: URLSearchParams = new URLSearchParams(),
 ): Promise<Response> {
+  const vmId = searchParams.get("vmId") || undefined;
+  const rawPort = searchParams.get("port");
+  const port = rawPort === null ? undefined : Number(rawPort);
   const publications = await context.run(listPublications({
     principal: context.principal,
+    vmId,
+    port: Number.isInteger(port) ? port : undefined,
   }));
   return jsonResponse({ publications });
 }

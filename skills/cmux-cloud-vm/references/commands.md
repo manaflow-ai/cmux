@@ -288,7 +288,7 @@ their publications; `--json` returns `{domains: [...]}`.
 reserve a generated cmux hostname; it needs no customer DNS proof. Supplying a
 custom hostname requires that its base zone has been verified first (the zone
 itself or one immediate child is accepted). `port` must be 1–65535. Access
-defaults to `personal`; `team` requires `--team <id>` and checks current team
+defaults to `team` for team-owned VMs and `personal` for personal VMs; `team` requires `--team <id>` and checks current team
 membership; `public` allows anyone who has the URL. The command returns the
 publication object, including `verification.dnsInstructions` when setup is not
 complete.

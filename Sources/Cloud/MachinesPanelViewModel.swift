@@ -34,6 +34,8 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Last failure from a tree verb (open, new terminal, …); shown in the
     /// control bar's help text, cleared by the next successful refresh.
     @Published private(set) var treeErrorDescription: String?
+    /// Last user-visible success from a tree action, such as copying a share URL.
+    @Published private(set) var treeNoticeDescription: String?
     /// In-flight and failed creates appear above the fleet; the shared
     /// coordinator keeps them visible across panels and panel closure.
     var pendingCreates: [MachineCreateOperation] { createCoordinator.operations }
@@ -71,7 +73,13 @@ final class MachinesPanelViewModel: ObservableObject {
     }
 
     func noteTreeFailure(_ description: String) {
+        treeNoticeDescription = nil
         treeErrorDescription = description
+    }
+
+    func noteTreeNotice(_ description: String) {
+        treeErrorDescription = nil
+        treeNoticeDescription = description
     }
 
     /// Projects the coordinator's typed reachability event into this panel's

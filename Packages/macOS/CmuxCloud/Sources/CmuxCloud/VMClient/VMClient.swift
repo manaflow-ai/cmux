@@ -1146,9 +1146,14 @@ public actor VMClient {
         try await listPage(allowWhenCloudDisabled: false, expectedTeamScope: nil)
     }
 
-    public func listPublications() async throws -> [VMPublication] {
+    public func listPublications(vmID: String? = nil, port: Int? = nil) async throws -> [VMPublication] {
         return try await withOperation(.publication, foreground: true) {
-            let (data, http) = try await request("GET", path: "/api/vm/publications")
+            var path = "/api/vm/publications"
+            var query: [String] = []
+            if let vmID { query.append("vmId=\(try pathSegment(vmID, fieldName: "vm id"))") }
+            if let port { query.append("port=\(port)") }
+            if !query.isEmpty { path += "?" + query.joined(separator: "&") }
+            let (data, http) = try await request("GET", path: path)
             try ensureOK(http, data: data)
             let object = try decodeJSONObject(data)
             guard let items = (object["publications"] as? [[String: Any]])

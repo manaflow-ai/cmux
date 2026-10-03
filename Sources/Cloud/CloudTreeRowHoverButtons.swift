@@ -112,6 +112,16 @@ struct CloudTreeRowHoverButtons: View {
                     nodeActions.closeTerminal(row.resource.id)
                 }
             }
+        case .port(let resource, _, _):
+            if resource.id.isForwardedPort, !resource.machine.isLocal {
+                MachinesChromeLabelButton(
+                    symbolName: "square.and.arrow.up",
+                    title: String(localized: "cloudTree.menu.share", defaultValue: "Share"),
+                    accessibilityLabel: String(localized: "cloudTree.menu.share", defaultValue: "Share")
+                ) {
+                    nodeActions.sharePort(resource.id)
+                }
+            }
         default:
             EmptyView()
         }
@@ -130,6 +140,8 @@ struct CloudTreeRowHoverButtons: View {
             return row.canCreateWorkspacesAndTerminals
         case .terminal(let row):
             return !row.resource.machine.isLocal
+        case .port(let resource, _, _):
+            return resource.id.isForwardedPort && !resource.machine.isLocal
         default:
             return false
         }
@@ -139,6 +151,7 @@ struct CloudTreeRowHoverButtons: View {
     /// keep + and ⋯ on screen so their actions are discoverable at rest.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
         if case .machine = kind { return true }
+        if case .port(let resource, _, _) = kind { return resource.id.isForwardedPort && !resource.machine.isLocal }
         return false
     }
 

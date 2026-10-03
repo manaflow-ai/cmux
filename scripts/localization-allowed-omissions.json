@@ -4447,5 +4447,281 @@
       "ko": "The concurrent machine count is a numeric plan limit and is invariant across locales.",
       "ja": "The concurrent machine count is a numeric plan limit and is invariant across locales."
     }
+  },
+  "cloudTree.menu.copyShareURL": {
+    "source": "Copy Share URL",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort": {
+    "source": "Preparing the share URL…",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.provisioning": {
+    "source": "The share URL is still being provisioned (state: %@). Try again in a moment.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.publicMismatch": {
+    "source": "An unprotected publication already uses %@. Remove it or create a protected share first.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.menu.share": {
+    "source": "Share",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.copied": {
+    "source": "Share URL copied to clipboard.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "cloudTree.operation.sharePort.copyFailed": {
+    "source": "The share URL was ready, but cmux could not copy it. Try again or use the context menu.",
+    "identityLocales": {
+      "ar": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "bs": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "da": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "de": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "es": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "fr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "it": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ja": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "km": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ko": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "nb": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pl": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "pt-BR": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "ru": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "th": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "tr": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "uk": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hans": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale.",
+      "zh-Hant": "Temporary technical copy pending professional translation; catalog entry is present for every supported locale."
+    }
+  },
+  "account.callbackApproval.cancel": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Don’t Sign In"
+  },
+  "account.callbackApproval.confirm": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Sign In"
+  },
+  "account.callbackApproval.replace.confirm": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Switch Account"
+  },
+  "account.callbackApproval.title": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Sign in to cmux from a link?"
+  },
+  "account.callbackApproval.replace.title": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "Switch cmux to another account?"
+  },
+  "account.callbackApproval.message.email": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "A link is asking cmux to sign in as %@. Continue only if you just signed in to cmux in your browser."
+  },
+  "account.callbackApproval.message.unknown": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "A link is asking cmux to sign in to an account. Continue only if you just signed in to cmux in your browser."
+  },
+  "account.callbackApproval.replace.current": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "You’re signed in as %@. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
+  },
+  "account.callbackApproval.replace.generic": {
+    "identityLocales": {
+      "de": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "fr": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ar": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "es": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hant": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "zh-Hans": "Callback approval copy is awaiting professional translation; English is the reviewed fallback.",
+      "ko": "Callback approval copy is awaiting professional translation; English is the reviewed fallback."
+    },
+    "source": "You’re already signed in. Continuing replaces that session, and new cmux activity will belong to the account in the link. If you didn’t just choose this account yourself, click Don’t Sign In."
   }
 }
