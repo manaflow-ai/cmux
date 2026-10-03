@@ -15,6 +15,9 @@ enum WindowHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let keepAwake = KeepAwake()
+        // Settings and Debug Settings open as internal page tabs.
+        context.services.pages.register(context.services.settingsWindow)
+        context.services.pages.register(context.services.debugSettings)
         registry.bind("openSettings", run: { invocation in
             let link = SettingsDeepLink(invocation)
             try context.services.settingsWindow.show(section: link.section, setting: link.setting)

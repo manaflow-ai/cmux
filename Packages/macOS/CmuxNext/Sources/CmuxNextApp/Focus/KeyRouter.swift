@@ -110,6 +110,11 @@ final class KeyRouter: BrowserKeyRouting {
     /// goes (the key window). Returns whether the key was consumed.
     func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard event.type == .keyDown else { return false }
+        // A shortcut recording in a Settings tab takes every key first.
+        if let window, services?.windows.owner(of: window) != nil, services?.settingsWindow.handlePaneRecorderKey(event) == true {
+            chords.cancel()
+            return true
+        }
         // A popup panel (or its Chromium page window) has the keyboard:
         // Cmd-W closes the popup, never the opener's tab.
         if services?.popups.interceptKeyDown(event, in: window) == true {

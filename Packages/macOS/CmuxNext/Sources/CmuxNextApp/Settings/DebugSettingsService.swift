@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextApps
+import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextPalette
@@ -24,14 +25,17 @@ enum TunableCatalog {
 }
 
 /// Owns Debug Settings (DEV and NIGHTLY builds, `DevTools`): activates the
-/// tunable store at launch with this build's override file, and opens the
-/// window (palette "Open Debug Settings", `action.run openDebugSettings`,
-/// `debug.tunables`). In Release and RC nothing here runs: the store stays
-/// inert, so every tunable keeps its code default and no file is read.
+/// tunable store at launch with this build's override file, and opens it
+/// (palette "Open Debug Settings", `action.run openDebugSettings`,
+/// `debug.tunables`) as an internal page tab, or as its own window like
+/// Settings (`settings.presentation`). In Release and RC nothing here runs:
+/// the store stays inert, so every tunable keeps its code default and no
+/// file is read.
 @MainActor
-final class DebugSettingsService {
+final class DebugSettingsService: InternalPageProvider {
     unowned let services: AppServices
     private var controller: DebugSettingsWindowController?
+    private var sharedModel: DebugSettingsModel?
     /// Where overrides persist (nil before launch or without dev tools).
     private(set) var fileURL: URL?
 
@@ -43,8 +47,10 @@ final class DebugSettingsService {
     }
 
     var isAvailable: Bool { DevTools.isEnabled }
-    var model: DebugSettingsModel? { controller?.model }
-    var window: NSWindow? { controller?.window }
+    var model: DebugSettingsModel? { sharedModel }
+    var window: NSWindow? {
+        controller?.window ?? services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
+    }
 
     /// Registers the catalog and activates the store (dev tools only).
     func start() {
@@ -73,17 +79,52 @@ final class DebugSettingsService {
     /// developer tools.
     func show(query: String? = nil, selection: DebugSettingsSelection? = nil) throws {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
+        let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
+        sharedModel = model
+        if SettingsWindowLayout.presentation.value == .pane, let window = services.windows.active {
+            if let query { model.query = query }
+            if let selection { model.selection = selection }
+            SettingsPane.follow(window.themeScope)
+            if services.pages.show(.debugSettings, in: window, focus: services.viewChangeAllowed) != nil { return }
+        }
         if controller == nil {
-            let model = DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
             let controller = DebugSettingsWindowController(model: model)
-            controller.onClose = { [weak self] in self?.controller = nil }
+            controller.onClose = { [weak self] in
+                self?.controller = nil
+                self?.dropModelWhenUnused()
+            }
             self.controller = controller
         }
         controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
         controller?.present(query: query, selection: selection)
     }
 
+    /// Closes the window and every Debug Settings tab.
     func close() {
         controller?.window?.performClose(nil)
+        for key in services.pages.keys(of: .debugSettings) {
+            services.paneController(showingTab: key)?.close([StripTabID(key)])
+        }
+    }
+
+    private func dropModelWhenUnused() {
+        guard controller == nil, services.pages.keys(of: .debugSettings).isEmpty else { return }
+        sharedModel = nil
+    }
+
+    // MARK: InternalPageProvider
+
+    var page: InternalPageID { .debugSettings }
+    var title: String { SettingsPane.debugTitle }
+    var symbol: String { "slider.horizontal.3" }
+
+    func makeView(for key: String, in window: WindowController?) -> NSView {
+        let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
+        sharedModel = model
+        return SettingsPane.makeDebugView(model: model, scope: window?.themeScope ?? .app)
+    }
+
+    func tabClosed(_ key: String) {
+        dropModelWhenUnused()
     }
 }
