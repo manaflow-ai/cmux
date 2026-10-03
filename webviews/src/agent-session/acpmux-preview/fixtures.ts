@@ -18,12 +18,14 @@ const catalog = [
 
 export type PreviewFixture = { id: string; label: string; snapshot: AcpmuxSnapshot; replay?: AcpmuxRow[] };
 
+const previewStartedAt = Date.now() - 5 * 60_000;
+
 function baseSnapshot(title: string, harness = "codex"): AcpmuxSnapshot {
   return {
     type: "snapshot",
     protocolVersion: 1,
     rows: [],
-    sessions: [{ sessionId: "preview-session", title }],
+    sessions: [sessionEntry({ sessionId: "preview-session", title, harness })],
     summary: {
       sessionId: "preview-session",
       title,
@@ -152,7 +154,7 @@ function syntheticSnapshot(): AcpmuxSnapshot {
     return {
       id: `seed-${index}`,
       version: 1,
-      at: index,
+      at: previewStartedAt + index,
       kind,
       text:
         kind === "activity"
@@ -181,13 +183,19 @@ function syntheticSnapshot(): AcpmuxSnapshot {
 }
 
 function permissionSnapshot(): AcpmuxSnapshot {
-  const snapshot = baseSnapshot("Permission and queue", "codex");
+  const snapshot = baseSnapshot("Update project dependencies", "codex");
   snapshot.rows = [
-    { id: "permission-user", version: 1, at: 1, kind: "user", text: "Please update the project dependencies." },
+    {
+      id: "permission-user",
+      version: 1,
+      at: previewStartedAt,
+      kind: "user",
+      text: "Please update the project dependencies.",
+    },
     {
       id: "permission-plan",
       version: 1,
-      at: 2,
+      at: previewStartedAt + 1000,
       kind: "plan",
       text: "I need to edit package files and run the test suite.",
     },

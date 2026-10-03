@@ -162,8 +162,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
@@ -455,6 +453,98 @@ jobs:
           SHARD_RESULT: ${{ needs.valgrind-leak-check-shard.result }}
         run: test "$SHARD_RESULT" = success
 
+  macos:
+    name: macOS lint and tests
+    needs: validate-inputs
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.commit }}
+
+      - name: Require exact checkout
+        env:
+          EXACT_COMMIT: ${{ inputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXACT_COMMIT"
+
+      - name: Use short temporary directory for macOS socket tests
+        run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
+
+      - name: Init ghostty submodule
+        run: git submodule update --init --depth 1 ghostty
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        id: cargo-cache
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-macos
+
+      - name: Report cargo cache hit rate
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
+        run: |
+          hit_rate=0
+          if [[ "$CACHE_HIT" == "true" ]]; then
+            hit_rate=100
+          fi
+          {
+            echo "### Rust compile cache"
+            echo
+            echo "- scope: \`macos\`"
+            echo "- exact cache hit: \`$CACHE_HIT\`"
+            echo "- hit rate: \`${hit_rate}%\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: cargo fmt
+        working-directory: cmux-tui
+        run: cargo fmt --check
+
+      # Clippy builds every workspace target with macOS cfgs. Keep this before
+      # the focused tests so a macOS-only compile break cannot hide behind the
+      # reduced test list.
+      - name: cargo clippy (macOS targets)
+        working-directory: cmux-tui
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Mac discovery and socket tests
+        working-directory: cmux-tui
+        # The platform module contains the macOS discovery, socket and cwd
+        # checks. Run its one test binary once instead of rebuilding it for
+        # each selector.
+        run: 'cargo test -p cmux-tui-core --lib platform::tests:: -- --test-threads=2'
+
+      - name: Mac process and PTY tests
+        working-directory: cmux-tui
+        run: |
+          cargo test -p cmux-tui-core --lib \
+            unix_process_scope::tests::mac_process_scope_launcher_stops_before_the_requested_program \
+            -- --exact
+          cargo test -p cmux-tui-core --lib \
+            unix_process_scope::tests::mac_process_scope_runs_the_requested_program \
+            -- --exact
+          cargo test -p cmux-remote --lib workspace::process::tests::macos_pty_ \
+            -- --test-threads=1
+
+      - name: Mac theme, layout and launchd tests
+        working-directory: cmux-tui
+        run: |
+          cargo test -p cmux-theme-tokens --test load \
+            macos_app_support_loads_after_xdg -- --exact
+          cargo test -p cmux-server-core --test layout_ports \
+            macos_headless_and_app_layouts -- --exact
+          cargo test -p cmux-server-core --test units_golden launch_ \
+            -- --test-threads=1
+
   test:
     name: test (${{ matrix.os }})
     needs: validate-inputs
@@ -464,8 +554,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos
-            runner: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","schedule","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER || 'blacksmith-6vcpu-macos-15' }}
           - os: linux
             runner: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     steps:
@@ -939,6 +1027,7 @@ jobs:
     needs:
       - validate-inputs
       - lint
+      - macos
       - msrv-check
       - web-frontend
       - valgrind-leak-check
@@ -953,6 +1042,7 @@ jobs:
       MODE: ${{ inputs.mode }}
       VALIDATE_RESULT: ${{ needs.validate-inputs.result }}
       LINT_RESULT: ${{ needs.lint.result }}
+      MACOS_RESULT: ${{ needs.macos.result }}
       MSRV_RESULT: ${{ needs.msrv-check.result }}
       WEB_RESULT: ${{ needs.web-frontend.result }}
       VALGRIND_RESULT: ${{ needs.valgrind-leak-check.result }}
@@ -976,6 +1066,7 @@ jobs:
 
           require_success "input validation" "$VALIDATE_RESULT"
           require_success "lint" "$LINT_RESULT"
+          require_success "macOS lint and tests" "$MACOS_RESULT"
           require_success "Rust MSRV check" "$MSRV_RESULT"
           require_success "Rust tests" "$TEST_RESULT"
           if [[ "$MODE" == "full" ]]; then

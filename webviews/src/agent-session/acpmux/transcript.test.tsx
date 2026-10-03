@@ -2737,6 +2737,32 @@ describe("acpmux shell calls", () => {
 });
 
 describe("acpmux timestamp lines", () => {
+  test("unknown turn times and replayed date rows leave the prompt visible without an epoch date", async () => {
+    const restore = fakeViewport({ width: 760, height: 600 });
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    try {
+      for (const at of [undefined, 0, NaN, Infinity]) {
+        const user: AcpmuxRow = { id: "u", version: 1, at: 0, kind: "user", text: "Update dependencies" };
+        if (at === undefined) delete (user as Partial<AcpmuxRow>).at;
+        else user.at = at;
+        await act(async () =>
+          root.render(
+            createElement(VirtualTranscript, {
+              rows: [...turnView([user], new Set()), { ...user, id: "date-replay", kind: "date" }],
+              onToggleActivity: () => {},
+              expanded: new Set<string>(),
+            }),
+          ),
+        );
+        expect(dom.window.document.querySelector("time.cv-date-line")).toBeNull();
+        expect(dom.window.document.body.textContent).toContain("Update dependencies");
+      }
+    } finally {
+      await act(async () => root.unmount());
+      restore();
+    }
+  });
+
   /// A turn that starts over an hour after the last answer gets a date; the pane showed no
   /// date at all.
   test("a turn over an hour after the previous answer draws its time above it", async () => {
