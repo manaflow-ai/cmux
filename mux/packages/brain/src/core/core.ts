@@ -588,7 +588,8 @@ export class Core {
     for (const promptId of Object.keys(this.state.prompts).sort((a, b) => order(a) - order(b) || compare(a, b)))
       this.sendPrompt(promptId);
     // Permissions that waited for a session list (a failed fetch, or the last connection's loss).
-    if (this.pendingPermissions.length > 0) this.sessions(sessions);
+    // One whose session is no longer waiting was answered meanwhile: dropped.
+    if (this.pendingPermissions.length > 0) this.sessions(sessions.filter((s) => s.status === "waiting"));
     this.reconcileChildren();
     if (this.daemonUp) this.inbox.push({ type: "catch_up_all" });
   }
