@@ -2,7 +2,7 @@ public import CmuxNextActions
 public import CmuxNextDesign
 public import SwiftUI
 
-/// What the Settings window needs from the App that cmux.json does not hold:
+/// What the Settings window needs from the App that cmux-next.json does not hold:
 /// live rooms and machines (daemon state), the Ghostty config and shell
 /// integration, and the shortcut writer. Reads happen in SwiftUI bodies, so
 /// an observable App store behind them updates the window.
@@ -16,7 +16,7 @@ public import SwiftUI
     var ghosttyConfigPath: String { get }
     /// How shell integration runs, for the Terminal section (nil: unknown).
     var shellIntegration: String? { get }
-    /// Writes recorded shortcuts to cmux.json (the palette's writer).
+    /// Writes recorded shortcuts to cmux-next.json (the palette's writer).
     var shortcutEditor: (any ShortcutRecorderEditing)? { get }
     /// Browser profiles in order (edited through the registry's
     /// `browserProfile.*` actions, so every entrypoint shares one path).
@@ -37,7 +37,7 @@ public import SwiftUI
     /// Accounts: provider sign-ins and CodeRouter accounts, drawn in the
     /// window's theme `tokens` (nil hides the section's content).
     func accountsView(tokens: ThemeTokens) -> AnyView?
-    /// The value a number setting at `path` resolves to while cmux.json
+    /// The value a number setting at `path` resolves to while cmux-next.json
     /// leaves it unset (the window opacity from the Ghostty config), shown
     /// by its slider; nil uses the descriptor's placeholder.
     func derivedNumber(at path: [String]) -> Double?

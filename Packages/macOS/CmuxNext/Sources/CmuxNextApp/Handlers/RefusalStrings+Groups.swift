@@ -35,14 +35,14 @@ nonisolated extension RefusalStrings {
     static var workspaceNotInGroup: String { text("handlers.refusal.workspaceNotInGroup", "the workspace is not in a group") }
     static func noWindow(_ id: String) -> String { format("handlers.refusal.noWindow", "no window %@", id) }
     static func couldNotOpen(_ url: String) -> String { format("handlers.refusal.couldNotOpen", "could not open %@", url) }
-    static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux.json is not loaded yet") }
+    static var settingsNotLoaded: String { text("handlers.refusal.settingsNotLoaded", "cmux-next.json is not loaded yet") }
     static var debugSettingsUnavailable: String {
         text("handlers.refusal.debugSettingsUnavailable", "Debug Settings exist only in DEV and NIGHTLY builds")
     }
     static func noSuchSettingsEntry(_ key: String) -> String {
         format("handlers.refusal.noSuchSettingsEntry", "no setting %@ in Settings", key)
     }
-    static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux.json path)") }
+    static var settingArgumentRequired: String { text("handlers.refusal.settingArgumentRequired", "setting is required (a dotted cmux-next.json path)") }
     static func settingManaged(_ key: String) -> String {
         format("handlers.refusal.settingManaged", "%@ is managed by your organization", key)
     }

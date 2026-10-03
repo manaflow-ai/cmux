@@ -55,4 +55,26 @@ import Testing
         #expect(root.value(at: ["shortcuts", "showModifierHoldHints"]) == false)
         #expect(root["actions"] != nil)
     }
+
+    @Test func keymapImportExportUsesTheShortcutsObjectAndPreservesOtherKeys() async throws {
+        let (settings, url) = try controller("""
+        {
+          // Keep this comment while a keymap is imported.
+          "shortcuts": { "bindings": { "newTab": "cmd+t" } },
+          "actions": { "hello": { "command": "echo hi" } }
+        }
+        """)
+        #expect(try await settings.shortcutKeymap() == ["bindings": ["newTab": "cmd+t"]])
+
+        try await settings.importShortcutKeymap(["shortcuts": [
+            "bindings": ["newTab": "cmd+n", "closeTab": "cmd+w"],
+            "tiers": ["newTab": "global"],
+        ]])
+        let root = try document(url)
+        #expect(root.value(at: ["shortcuts", "bindings", "newTab"]) == "cmd+n")
+        #expect(root.value(at: ["shortcuts", "bindings", "closeTab"]) == "cmd+w")
+        #expect(root.value(at: ["shortcuts", "tiers", "newTab"]) == "global")
+        #expect(root.value(at: ["actions", "hello", "command"]) == "echo hi")
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("Keep this comment"))
+    }
 }
