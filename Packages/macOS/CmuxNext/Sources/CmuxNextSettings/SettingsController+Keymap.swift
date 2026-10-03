@@ -1,7 +1,38 @@
 import Foundation
 
 extension SettingsController {
-    /// The edits that switch cmux.json to `preset`, from the file as it is.
+    /// Returns the complete `shortcuts` object for the next keymap export.
+    /// The value includes binding, tier and context overrides so an export
+    /// can round-trip every keymap concern without touching other settings.
+    public func shortcutKeymap() async throws -> JSONValue {
+        try await file.value(at: ["shortcuts"]) ?? .object([:])
+    }
+
+    /// Imports a keymap object into `shortcuts` in one atomic publish.
+    /// Files exported by ``shortcutKeymap()`` contain a top-level
+    /// `shortcuts` object; a bare object is accepted as a convenience for
+    /// hand-authored keymaps. Existing comments, unknown top-level keys and
+    /// settings outside `shortcuts` remain untouched.
+    public func importShortcutKeymap(_ value: JSONValue) async throws {
+        guard case .object(let root) = value else {
+            throw CmuxConfigFile.Failure.invalidPath("keymap must be a JSON object")
+        }
+        let shortcuts: [String: JSONValue]
+        if case .object(let nested)? = root["shortcuts"] {
+            shortcuts = nested
+        } else if root.keys.contains(where: { ["bindings", "tiers", "when"].contains($0) }) {
+            shortcuts = root
+        } else {
+            shortcuts = ["bindings": .object(root)]
+        }
+        let edits = shortcuts.map { key, value in
+            (path: ["shortcuts", key], value: Optional(value))
+        }
+        guard !edits.isEmpty else { return }
+        try await file.apply(edits)
+    }
+
+    /// The edits that switch cmux-next.json to `preset`, from the file as it is.
     public func keymapPlan(_ preset: ShortcutKeymapPreset) async throws -> ShortcutKeymapPlan {
         preset.plan(from: try await shortcutBindings())
     }

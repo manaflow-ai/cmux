@@ -10,6 +10,7 @@ struct KeyboardSectionView: View {
     let model: SettingsWindowModel
 
     var body: some View {
+        KeymapFileActions(model: model)
         Text(SettingsWindowStrings.keyboardHint).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
         KeyboardShortcutList(model: model, sections: model.shortcutSections(), prefix: nil)
     }

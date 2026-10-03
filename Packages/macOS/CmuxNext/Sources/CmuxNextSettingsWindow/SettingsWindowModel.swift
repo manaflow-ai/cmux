@@ -4,7 +4,7 @@ public import CmuxNextSettings
 public import Observation
 
 /// The Settings window's state. Values come from `SettingsController`
-/// (cmux.json, reloaded by the file watcher, so an edit in another editor
+/// (cmux-next.json, reloaded by the file watcher, so an edit in another editor
 /// shows here at once); an edit writes the file and shows the new value
 /// optimistically until the watcher's reload confirms it.
 @MainActor

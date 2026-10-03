@@ -21,10 +21,10 @@ public enum SettingsWindowLayout: String, Sendable, CaseIterable, TunableChoice 
     }
 }
 
-/// Where Settings… opens (`settings.presentation`, DEV and NIGHTLY): a tab
-/// in the active window's focused pane (lane 20, Lawrence 2026-10-02), or
-/// the separate window it used to be. Debug Settings follows the same
-/// choice. Release builds open the tab.
+/// Where Settings… opens (`settings.presentation`, DEV and NIGHTLY): a
+/// separate desktop window or a tab in the active window's focused pane.
+/// Debug Settings follows the same choice. Release builds use the desktop
+/// window default.
 public enum SettingsPresentation: String, Sendable, CaseIterable, TunableChoice {
     case pane
     case window
@@ -48,7 +48,7 @@ extension SettingsWindowLayout {
     public static let presentation = Tunable<SettingsPresentation>.choice(
         "settings.presentation", tunableSection, "Opens as",
         help: "Settings and Debug Settings open as a tab in the focused pane or as a separate window.",
-        default: .pane, code: "SettingsWindowLayout.presentation")
+        default: .window, code: "SettingsWindowLayout.presentation")
 
     public static var tunables: [TunableDescriptor] { [tunable.descriptor, presentation.descriptor] }
 }
