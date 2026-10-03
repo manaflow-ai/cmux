@@ -28954,10 +28954,8 @@ struct CMUXCLI {
                 let hasPendingBackgroundWork = hasActiveClaudeBackgroundWork(parsedInput)
                 // Claude sets stop_hook_active on a re-entry after a Stop hook
                 // blocked once. That flag describes hook recursion, not pending
-                // work: it must not mark the turn pending, but it does keep the
-                // sidebar pill in Running. Only authoritative background-work
-                // signals mark the turn pending and show Waiting.
-                let isReentrantStop = parsedInput.rawObject?["stop_hook_active"] as? Bool == true
+                // work: it must not mark the turn pending. Only authoritative
+                // background-work signals keep the turn out of Idle.
                 let hasUnsettledWork = stopFailure == nil && hasPendingBackgroundWork
 
                 // Update session with transcript summary and send completion notification.
@@ -29026,8 +29024,8 @@ struct CMUXCLI {
                     //
                     // A background task or cron is a deterministic wakeup the pane
                     // is parked on, which reads as Waiting. A re-entrant Stop
-                    // (`stop_hook_active`) keeps the pill on Running separately
-                    // because it does not represent pending background work.
+                    // (`stop_hook_active`) does not change this decision because
+                    // it is not pending background work.
                     try? setClaudeStatus(
                         client: client,
                         workspaceId: workspaceId,
@@ -29036,16 +29034,6 @@ struct CMUXCLI {
                         icon: "hourglass",
                         color: "#8E8E93",
                         workState: .waiting
-                    )
-                } else if isReentrantStop {
-                    try? setClaudeStatus(
-                        client: client,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        value: String(localized: "agent.generic.status.running", defaultValue: "Running"),
-                        icon: "bolt.fill",
-                        color: "#4C8DFF",
-                        workState: .running
                     )
                 } else {
                     try? setClaudeStatus(
