@@ -112,6 +112,9 @@ url: http://localhost:8765/
 
 Rules, and how they improve on the references:
 
+- **Header** lines (title, URL, a pending dialog or file chooser) are the
+  page's text, so terminal escape sequences and C0/C1 control characters
+  are removed and a line longer than 500 characters is cut with its length.
 - **Refs** go on interactive elements, iframes, scrollable regions and named
   landmarks, dialogs and lists (so a region can be scoped with
   `snapshot("e1")`). A ref is bound to its DOM node for the node's life and is

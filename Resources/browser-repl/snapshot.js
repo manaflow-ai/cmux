@@ -782,10 +782,25 @@
     return out;
   }
 
+  // The longest header line printed (the title, URL and dialog lines are the page's).
+  const HEADER_LINE_MAX = 500;
+  // Header text comes from the page and reaches the caller's terminal, so
+  // escape sequences (CSI, and OSC, DCS, SOS, PM and APC up to their
+  // terminator, in 7- and 8-bit forms) and every other C0 or C1 control go,
+  // and a long line is cut with its length.
+  function headerLine(text) {
+    const clean = String(text)
+      .replace(/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]?/g, "")
+      .replace(/(?:\u001b[\]PX^_]|[\u0090\u0098\u009d\u009e\u009f])[\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, "")
+      .replace(/[\t\n\r]/g, " ")
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+    if (clean.length <= HEADER_LINE_MAX) return clean;
+    return `${clean.slice(0, HEADER_LINE_MAX)}… (${commas(clean.length - HEADER_LINE_MAX)} more characters)`;
+  }
 
   class Snapshot {
     constructor({ header, body, nodes, trailer, previous, maxChars, extraChanges }) {
-      this._header = header;
+      this._header = header.map(headerLine);
       this._body = body;
       this._nodes = nodes || null;
       this._trailer = trailer || [];
