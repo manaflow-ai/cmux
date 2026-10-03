@@ -895,8 +895,11 @@ jobs:
               "$CMUX_COMPILE_ADMISSION_CAS" \
               "$compile_log"
           }
-          compile_once
-          status=$?
+          if compile_once; then
+            status=0
+          else
+            status=$?
+          fi
           if [ "$status" -ne 0 ] && grep -Fq "unable to open dependencies file" "$compile_log"; then
             # An adopted DerivedData tree can retain an incomplete Swift
             # dependency graph after a cancelled or interrupted compile. Xcode
@@ -905,8 +908,11 @@ jobs:
             # real compiler errors still fail without a retry.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
             scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
-            compile_once
-            status=$?
+            if compile_once; then
+              status=0
+            else
+              status=$?
+            fi
           fi
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
