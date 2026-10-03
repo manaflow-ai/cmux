@@ -31,6 +31,8 @@ struct MacReplyQuote: Hashable {
     var isOutgoing: Bool
     var senderInitials: String
     var senderColorHex: String?
+    /// The quoted message's first image, shown as a thumbnail in the pill.
+    var thumbnail: ConversationAttachment? = nil
 }
 
 enum MacMessageFooter: Hashable {
@@ -86,7 +88,8 @@ enum MacConversationRowBuilder {
                     text: $0.text.isEmpty ? String(localized: "conversation.quote.photo", defaultValue: "Photo", bundle: .module) : $0.text,
                     isOutgoing: $0.senderID == meID,
                     senderInitials: info.participant($0.senderID)?.initials ?? "",
-                    senderColorHex: info.participant($0.senderID)?.colorHex
+                    senderColorHex: info.participant($0.senderID)?.colorHex,
+                    thumbnail: $0.attachments.first { $0.kind == .image }
                 )
             }
             rows.append(.message(MacMessageRowModel(
@@ -154,6 +157,7 @@ struct MacMessageLayout {
     var quoteFrame: CGRect?
     var quoteTextFrame: CGRect?
     var quoteAvatarFrame: CGRect?
+    var quoteThumbFrame: CGRect?
     var threadPath: CGPath?
     var imageFrames: [CGRect]
     var bubbleFrame: CGRect?
@@ -246,20 +250,24 @@ extension MacMessageLayout {
         var y: CGFloat = 0
         var quoteFrame: CGRect?
         var quoteTextFrame: CGRect?
+        var quoteThumbFrame: CGRect?
         if let quote = model.replyQuote {
             // Measured against Messages: 10 pt text on a 13 pt pitch, up to two
             // lines, 8 pt side and 7 pt vertical insets in an outlined pill.
+            let thumb: CGFloat = quote.thumbnail == nil ? 0 : 28
+            let thumbGap: CGFloat = thumb > 0 ? 6 : 0
             let quoteText = NSAttributedString(string: quote.text, attributes: MacConversationTheme.quoteAttributes)
-            let size = measure(quoteText, maxWidth: maxBubble - 16)
+            let size = measure(quoteText, maxWidth: maxBubble - 16 - thumb - thumbGap)
             let textHeight = min(size.height, MacConversationTheme.quoteLineHeight * 2)
-            let bodyWidth = min(maxBubble, size.width + 16)
-            let h = textHeight + 14
+            let bodyWidth = min(maxBubble, size.width + 16 + thumb + thumbGap)
+            let h = max(textHeight, thumb) + 14
             let frame = quote.isOutgoing
                 ? CGRect(x: width - t.outgoingMargin - bodyWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
                 : CGRect(x: incomingLeading - t.tailWidth, y: y, width: bodyWidth + t.tailWidth, height: h)
             quoteFrame = frame
             let bodyMinX = quote.isOutgoing ? frame.minX : frame.minX + t.tailWidth
-            quoteTextFrame = CGRect(x: bodyMinX + 8, y: y + 7, width: bodyWidth - 16, height: textHeight)
+            if thumb > 0 { quoteThumbFrame = CGRect(x: bodyMinX + 7, y: y + 7, width: thumb, height: thumb) }
+            quoteTextFrame = CGRect(x: bodyMinX + 8 + thumb + thumbGap, y: y + 7 + (max(textHeight, thumb) - textHeight) / 2, width: bodyWidth - 16 - thumb - thumbGap, height: textHeight)
             y += h + 4
         }
 
@@ -392,6 +400,7 @@ extension MacMessageLayout {
             quoteFrame: quoteFrame,
             quoteTextFrame: quoteTextFrame,
             quoteAvatarFrame: quoteAvatarFrame,
+            quoteThumbFrame: quoteThumbFrame,
             threadPath: threadPath,
             imageFrames: imageFrames,
             bubbleFrame: bubbleFrame,

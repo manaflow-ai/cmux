@@ -167,6 +167,8 @@ final class MacMessageRowView: MacFlippedView {
     let threadLine = CAShapeLayer()
     let avatar = MacAvatarView()
     let quoteAvatar = MacAvatarView()
+    let quoteThumb = NSImageView()
+    private var quoteThumbTask: Task<Void, Never>?
     let badge = MacFlippedView()
     private var badgeCircles: [MacFlippedView] = []
     let editedLabel = makeMacLabel()
@@ -205,6 +207,12 @@ final class MacMessageRowView: MacFlippedView {
         emojiLabel.font = .systemFont(ofSize: MacConversationTheme.emojiOnlyFontSize)
         addSubview(avatar)
         addSubview(quoteAvatar)
+        quoteThumb.imageScaling = .scaleProportionallyUpOrDown
+        quoteThumb.wantsLayer = true
+        quoteThumb.layer?.cornerRadius = 5
+        quoteThumb.layer?.masksToBounds = true
+        quoteThumb.layer?.backgroundColor = NSColor.quaternaryLabelColor.cgColor
+        addSubview(quoteThumb)
         addSubview(badge)
         failedBadge.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
         failedBadge.contentTintColor = .systemRed
@@ -270,6 +278,21 @@ final class MacMessageRowView: MacFlippedView {
         } else {
             quoteBubble.isHidden = true
             quoteLabel.isHidden = true
+        }
+        quoteThumbTask?.cancel()
+        quoteThumb.isHidden = layout.quoteThumbFrame == nil
+        if let frame = layout.quoteThumbFrame, let attachment = model.replyQuote?.thumbnail {
+            quoteThumb.frame = frame
+            if let cached = MacImageLoader.shared.cached(attachment) {
+                quoteThumb.image = cached
+            } else {
+                quoteThumb.image = nil
+                quoteThumbTask = Task { @MainActor [weak self] in
+                    let image = await MacImageLoader.shared.image(for: attachment)
+                    guard !Task.isCancelled else { return }
+                    self?.quoteThumb.image = image
+                }
+            }
         }
         quoteAvatar.isHidden = layout.quoteAvatarFrame == nil
         if let frame = layout.quoteAvatarFrame, let quote = model.replyQuote {

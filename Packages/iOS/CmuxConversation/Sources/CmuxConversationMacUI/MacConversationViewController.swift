@@ -1089,6 +1089,7 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
             guard let model = messageModel(at: index) else { return false }
             switch query {
             case "mine": return model.isOutgoing && model.message.seq != nil
+            case "photo": return !model.message.attachments.isEmpty && model.message.seq != nil
             case "last", "": return true
             default: return model.message.text.contains(query)
             }
