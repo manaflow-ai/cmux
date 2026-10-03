@@ -5738,9 +5738,106 @@
         "text" : "Show Preview Features"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.githubInbox",
+        "text" : "GitHub Inbox"
+      },
+      "help" : {
+        "key" : "settings.feed.github.enabled.help",
+        "text" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.github.enabled",
+      "keywords" : [
+        "github",
+        "inbox",
+        "review",
+        "pull request",
+        "connection",
+        "gh"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "feed",
+        "github",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.feed.github.enabled",
+        "text" : "Connect GitHub"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        900,
+        480
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : 120,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.githubInbox",
+        "text" : "GitHub Inbox"
+      },
+      "help" : {
+        "key" : "settings.feed.github.pollInterval.help",
+        "text" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.github.pollIntervalSeconds",
+      "keywords" : [
+        "github",
+        "inbox",
+        "poll",
+        "refresh",
+        "interval"
+      ],
+      "kind" : "number",
+      "path" : [
+        "feed",
+        "github",
+        "pollIntervalSeconds"
+      ],
+      "range" : {
+        "max" : 900,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 30,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -780,
+        1740,
+        "1"
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.feed.github.pollInterval",
+        "text" : "Refresh Interval"
+      },
+      "validation" : "portable"
     }
   ],
-  "schema_hash" : "f2a1811425bb5040a531e0a4195162c6aeb1caa5cf64adb5b41cb16e3f475a60",
+  "schema_hash" : "ae6264b3b682ce65e360ba0abed0b740824081c0a2b12cb8845c4d6a1519cf38",
   "sections" : [
     {
       "id" : "general",

@@ -4,7 +4,7 @@ public import Foundation
 /// the owner's lifecycle rules (first answer wins, `feed.closed` for a late
 /// answer), and intents committed on the next main-actor turn (no timers).
 @MainActor
-public final class MockFeedSource: FeedSource {
+public final class InMemoryFeedSource: FeedPostingSource {
     private var sink: (@MainActor (FeedSourceEvent) -> Void)?
     private var items: [String: FeedItem]
     private var revision: UInt64
@@ -69,6 +69,18 @@ public final class MockFeedSource: FeedSource {
 
     /// The poster posts or updates an item.
     public func post(_ item: FeedItem) {
+        if let key = item.dedupeKey,
+           let existing = items.values.first(where: { $0.dedupeKey == key && $0.state == .open && $0.archivedAt == nil }) {
+            if item.isRequest { return }
+            var updated = item
+            updated.id = existing.id
+            updated.count = existing.count + 1
+            updated.revision = existing.revision
+            updated.createdAt = existing.createdAt
+            updated.readAt = nil
+            publish([updated], tx: nil)
+            return
+        }
         publish([item], tx: nil)
     }
 
@@ -107,3 +119,6 @@ public final class MockFeedSource: FeedSource {
         sink?(.event(FeedEvent(revision: revision, tx: tx, change: .items(stamped))))
     }
 }
+
+/// Compatibility name for fixtures that use the feed demo owner.
+public typealias MockFeedSource = InMemoryFeedSource

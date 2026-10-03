@@ -16,6 +16,55 @@ nonisolated enum FeedWireEncode {
 
     static func ms(_ date: Date) -> Int { Int((date.timeIntervalSince1970 * 1000).rounded()) }
 
+    /// Encodes an integration item for the same `feed.post` owner operation
+    /// used by hooks and notifications. It intentionally includes only the
+    /// item fields that the owner accepts from a poster.
+    static func post(_ item: FeedItem) -> (params: [String: Any], key: String) {
+        var params: [String: Any] = [
+            "type": item.isRequest ? "request" : "notice",
+            "kind": item.kind,
+            "title": String(item.title.prefix(200)),
+            "body": String(item.body.prefix(4096)),
+            "priority": item.priority.rawValue,
+            "poster": ["kind": item.poster.kind.rawValue, "label": String(item.poster.label.prefix(80))],
+        ]
+        if let dedupeKey = item.dedupeKey { params["dedupe_key"] = String(dedupeKey.prefix(200)) }
+        if let thread = item.thread { params["thread"] = String(thread.prefix(200)) }
+        if let context = context(item.context) { params["context"] = context }
+        if let expiresAt = item.expiresAt {
+            params["expires_in_ms"] = max(0, Int((expiresAt.timeIntervalSinceNow * 1000).rounded()))
+        }
+        if case let .review(review) = item.prompt {
+            params["prompt"] = [
+                "subject": review.subject.rawValue,
+                "ref": review.ref,
+                "checklist": review.checklist,
+            ]
+        }
+        if !item.actions.isEmpty {
+            params["actions"] = item.actions.map { action in
+                var value: [String: Any] = ["id": action.id, "label": action.label, "style": action.style.rawValue]
+                if let answer = action.answer { value["answer"] = any(answer) }
+                return value
+            }
+        }
+        let key = "github:\(item.dedupeKey ?? item.id)"
+        return (params, String(key.prefix(200)))
+    }
+
+    private static func context(_ context: FeedContext) -> [String: Any]? {
+        var value: [String: Any] = [:]
+        if let host = context.host { value["host"] = host }
+        if let workspace = context.workspace { value["workspace"] = workspace }
+        if let tab = context.tab { value["tab"] = tab }
+        if let terminal = context.terminal { value["terminal"] = terminal }
+        if let browserTab = context.browserTab { value["browser_tab"] = browserTab }
+        if let acpSession = context.acpSession { value["acp_session"] = acpSession }
+        if let task = context.task { value["task"] = task }
+        if let url = context.url { value["url"] = url.absoluteString }
+        return value.isEmpty ? nil : value
+    }
+
     /// The owner's answer value for a kind (the kind's answer schema).
     static func answer(_ value: FeedAnswerValue) -> Any {
         func compact(_ pairs: [(String, Any?)]) -> [String: Any] {
