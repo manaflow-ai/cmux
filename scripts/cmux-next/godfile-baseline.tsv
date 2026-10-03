@@ -63,7 +63,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2820	83
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1940	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource.rs	1756	59
-rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	28021	803
+rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	28007	803
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	11073	455
 rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_host_protocol.rs	1234	54
@@ -75,7 +75,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions.rs	3479	74
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store.rs	1362	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/public_projection_store.rs	1154	32
-rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs	5491	108
+rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs	5424	107
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/session_journal.rs	2190	58
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/tests.rs	6316	154
 rust-file	cmux-tui/crates/cmux-tui-core/tests/browser_runtime.rs	1947	24

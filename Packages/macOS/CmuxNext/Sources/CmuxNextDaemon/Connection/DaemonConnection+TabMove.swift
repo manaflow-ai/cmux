@@ -32,9 +32,9 @@ extension DaemonConnection {
 
     @discardableResult
     public func moveTabToColumn(_ surface: SurfaceID, target: ColumnDropTarget, afterColumn: ColumnID? = nil, width: Double? = nil,
-                                transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
+                                sticky: StickySnapshot? = nil, transaction: ClientTransactionID? = nil) async throws -> TabMoveResult {
         try await requestNew(MoveTabToColumnRequest(surface: surface, target: target, afterColumn: afterColumn,
-                                                    width: width, transaction: transaction))
+                                                    width: width, sticky: sticky, transaction: transaction))
     }
 
     /// New workspace holding the tab. On daemons without `tab-drag-v1` it

@@ -107,6 +107,7 @@ mod responses;
 mod screen_json;
 mod session_stream;
 mod split_respawn;
+mod tab_column;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -1987,21 +1988,7 @@ enum Command {
         transaction: Option<String>,
     },
     /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn {
-        surface: SurfaceId,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        screen: Option<ScreenId>,
-        #[serde(default)]
-        after_column: Option<SplitId>,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        sticky: Option<crate::model::ColumnSticky>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
+    MoveTabToColumn(tab_column::MoveTabToColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -14647,22 +14634,7 @@ fn handle_command_with_cancellation(
             let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn {
-            surface,
-            pane,
-            screen,
-            after_column,
-            width,
-            sticky,
-            transaction,
-        } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let anchor = column_anchor(mux, pane, screen)?;
-            let outcome =
-                mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?;
-            Ok(tab_drag_outcome_json(&outcome))
-        }
+        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;

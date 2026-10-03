@@ -29,6 +29,12 @@ enum LayoutStrings {
     static var dropSplitDown: String {
         String(localized: "layout.drop.splitDown", defaultValue: "Split Down", bundle: .module)
     }
+    static var dropDockTop: String {
+        String(localized: "layout.drop.dockTop", defaultValue: "Dock at Top", bundle: .module)
+    }
+    static var dropDockBottom: String {
+        String(localized: "layout.drop.dockBottom", defaultValue: "Dock at Bottom", bundle: .module)
+    }
     static var dropMoveHere: String {
         String(localized: "layout.drop.moveHere", defaultValue: "Move Here", bundle: .module)
     }
@@ -36,6 +42,7 @@ enum LayoutStrings {
     static func label(for target: DropTarget) -> String {
         switch target {
         case .newColumn: dropNewColumn
+        case let .newDock(_, edge): edge == .top ? dropDockTop : dropDockBottom
         case let .pane(_, zone):
             switch zone {
             case .left: dropSplitLeft

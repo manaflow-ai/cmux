@@ -35,6 +35,9 @@ public final class LayoutModel {
     /// Pins the strip scrollbar mode (tests, the demo); nil follows
     /// cmux.json `layout.stripScrollbar`.
     public var stripScrollbarOverride: StripScrollbarMode?
+    /// The daemon serves edge-docks-v1: drops on a screen's top or bottom
+    /// edge band open a dock (DropZoneGeometry.dockTarget).
+    public var acceptsEdgeDockDrops = false
     /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {

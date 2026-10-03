@@ -143,6 +143,11 @@ extension WorkspaceContentController {
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
                   let paneModel = daemon.store.pane(handle) else { return }
             TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)
+        case .newDock(let screen, let edge):
+            // The anchor names the screen only; the daemon places the band.
+            guard let anchor = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes.first,
+                  let handle = handles.panes[anchor], let paneModel = daemon.store.pane(handle) else { return restore(false) }
+            TabMoves.toNewStickyColumn(tab, anchor: paneModel, edge: edge, services: services, completion: restore)
         }
     }
 }

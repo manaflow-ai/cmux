@@ -75,6 +75,9 @@ public final class MockLayoutSource {
                 split(pane, axis: axis, newPane: new, newFirst: zone == .left || zone == .top)
             case let .newColumn(screen, after):
                 insertColumn(LayoutColumn(id: ColumnID(makeID("c")), root: .leaf(new)), inScreen: screen, after: after)
+            case let .newDock(screen, edge):
+                insertColumn(LayoutColumn(id: ColumnID(makeID("c")), width: 0.3, root: .leaf(new),
+                                          sticky: StickyColumn(edge: edge, mode: .docked)), inScreen: screen, after: nil)
             }
             push()
             model.focus(new)

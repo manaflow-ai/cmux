@@ -124,6 +124,12 @@ import Testing
         #expect(column["pane"] == nil)
         let byPane = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7)))
         #expect(byPane["pane"] == .number(7))
+        #expect(byPane["sticky"] == nil)
+        // A pinned new column (edge-docks-v1) carries the pin as {edge, mode}.
+        let docked = try object(MoveTabToColumnRequest(surface: 3, target: .pane(7), width: 0.3,
+                                                       sticky: StickySnapshot(edge: .bottom, mode: .overlay)))
+        #expect(docked["sticky"]?["edge"] == .string("bottom"))
+        #expect(docked["sticky"]?["mode"] == .string("overlay"))
         let workspace = try object(MoveTabToNewWorkspaceRequest(surface: 3, group: "g", index: 2))
         #expect(workspace["cmd"] == .string("move-tab-to-new-workspace"))
         #expect(workspace["group"] == .string("g"))
