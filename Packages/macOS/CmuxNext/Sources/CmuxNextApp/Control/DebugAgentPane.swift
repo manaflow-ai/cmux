@@ -12,7 +12,8 @@ import WebKit
 /// one). Never changes app or window focus; `open_menu` moves focus inside
 /// the page to the menu's button, as a click does.
 ///
-/// `action`: `seed_rows` (`count`, default 5000), `fling` (`seconds`,
+/// `action`: `seed_rows` (`count`, default 5000; `fixture: "worked-turn"`
+/// seeds a turn that edits three files instead, for the changes view), `fling` (`seconds`,
 /// default 3; `nominal_ms`; `wait` returns the stats when the fling ends),
 /// `fling_stats`, `perf_stats` (`raw` adds every frame), `typing_stats`,
 /// `reset_typing`, `open_menu` (`label`: opens that composer menu, such as
@@ -101,7 +102,7 @@ enum DebugAgentPane {
     private static func arguments(_ action: String, _ params: [String: JSONValue]) -> [Any] {
         switch action {
         case "seed_rows":
-            return [params["count"]?.intValue ?? 5000]
+            return [params["count"]?.intValue ?? 5000, params["fixture"]?.stringValue.map { $0 as Any } ?? NSNull()]
         case "fling":
             var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
             if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }

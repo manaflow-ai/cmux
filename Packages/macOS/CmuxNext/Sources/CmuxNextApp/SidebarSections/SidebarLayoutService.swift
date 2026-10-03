@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextSidebar
 import Foundation
 import Observation
@@ -13,7 +14,8 @@ import Observation
 /// disconnect keeps it, and it is resent with its key on reconnect. While
 /// the owner is unreachable, edits are refused (nothing queues), except in
 /// DEV with Debug Settings `sidebar.sections.localPrototype`, which edits an
-/// in-memory copy that is never saved.
+/// in-memory copy that is never saved. A stored layout that still equals
+/// the pre-rail default migrates to the rail default once per session.
 @Observable @MainActor
 final class SidebarLayoutService {
     /// The capability the store serves the layout under.
@@ -26,17 +28,24 @@ final class SidebarLayoutService {
     @ObservationIgnored private(set) var pending: [(key: String, op: SidebarLayoutOp, inFlight: Bool)] = []
     @ObservationIgnored private var prototype = SidebarLayoutMemoryOwner()
     @ObservationIgnored private let prototypeEnabled: @MainActor () -> Bool
+    /// The window rail shows the top sections (`window.rail` is not off).
+    @ObservationIgnored private let railShown: @MainActor () -> Bool
     @ObservationIgnored private let remote: (any SidebarLayoutRemote)?
     @ObservationIgnored private let onRefused: @MainActor (String) -> Void
     @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The pre-rail migration went out this session (at most once, so an
+    /// owner that refuses it is not asked again on every fetch).
+    @ObservationIgnored private var migrationSent = false
 
     init(remote: (any SidebarLayoutRemote)? = nil, onRefused: @escaping @MainActor (String) -> Void = { _ in },
          prototypeEnabled: @escaping @MainActor () -> Bool = {
              DevTools.isEnabled && SidebarSectionTunables.localPrototype.override == true
-         }) {
+         },
+         railShown: @escaping @MainActor () -> Bool = { DesignSettings.shared.rail != .off }) {
         self.remote = remote
         self.onRefused = onRefused
         self.prototypeEnabled = prototypeEnabled
+        self.railShown = railShown
     }
 
     isolated deinit {
@@ -135,6 +144,25 @@ final class SidebarLayoutService {
             guard let confirmed = try? await remote.get() else { return }
             self?.adopt(confirmed)
             self?.recompute()
+            self?.migrateIfNeeded()
+        }
+    }
+
+    /// A stored layout that still equals the pre-rail default moves to the
+    /// rail default (`SidebarLayoutDocument.railMigrationOps`) through
+    /// ordinary intents, so the owner applies and syncs it like any edit. A
+    /// layout the user changed is never touched. Waits for a quiet log, so
+    /// it reads the owner's layout rather than one with the user's edits in
+    /// flight.
+    private func migrateIfNeeded() {
+        // With the rail off the sidebar shows the sections itself, where the
+        // pre-rail layout is the better one.
+        guard !migrationSent, pending.isEmpty, railShown() else { return }
+        let ops = mirror.railMigrationOps
+        guard !ops.isEmpty else { return }
+        migrationSent = true
+        for op in ops {
+            do { try send(op) } catch { return }
         }
     }
 

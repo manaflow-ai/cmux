@@ -20,13 +20,26 @@ import Testing
 
     // MARK: Defaults
 
-    @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .app("cmux/coderouter")])
+    /// The rail layout (Leo, 2026-10-03; `window.rail` defaults to
+    /// "leading"): the top section holds the destinations, the first four
+    /// (Home, the App Store, History, Notifications) as buttons and the rest
+    /// (Settings, Customize Appearance, CodeRouter) under the rail's More
+    /// button (`maxRows` 4); the bottom section holds only the account; the
+    /// sidebar keeps the workspace list.
+    @Test func defaultsPutTheDestinationsInTheRailAndTheAccountAtTheBottom() {
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [
+            .builtIn(.home), .builtIn(.appStore), .builtIn(.history), .builtIn(.notifications),
+            .builtIn(.settings), .builtIn(.customize), .app("cmux/coderouter"),
+        ])
+        #expect(defaults.section(SidebarLayoutDocument.topSectionID)?.maxRows == 4)
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
-        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.account)])
         #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
         #expect(defaults.sections.allSatisfy { $0.content != .app })
         #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
+        // Every id is fixed, so a never-written layout is the same everywhere.
+        #expect(Self.itemIDs(defaults).map(\.rawValue) == ["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_settings",
+                                                           "itm_customize", "itm_app_coderouter", "itm_account"])
     }
 
     // MARK: Items
@@ -41,7 +54,8 @@ import Testing
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter"), ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs([home.rawValue, "itm_app_store", "itm_history", "itm_notifications",
+                                                                                                  "itm_settings", "itm_customize", "itm_app_coderouter"]) + [ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
@@ -71,14 +85,16 @@ import Testing
 
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), home])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs(["itm_app_store", "itm_history", "itm_notifications",
+                                                                                                  "itm_settings", "itm_customize", "itm_app_coderouter"]))
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
-        let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), settings])
+        let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.topSectionID, index: 1))
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == Self.topIDs([home.rawValue, settings.rawValue, "itm_app_store", "itm_history",
+                                                                                                  "itm_notifications", "itm_customize", "itm_app_coderouter"]))
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {
@@ -119,7 +135,7 @@ import Testing
 
     @Test func removingASectionDeletesItsItems() throws {
         let doc = try reduce(defaults, .sectionRemove(SidebarLayoutDocument.bottomSectionID))
-        #expect(doc.item(settings) == nil)
+        #expect(doc.item(LayoutItemID("itm_account")) == nil)
         #expect(doc.sections(in: .bottom, room: nil).isEmpty)
     }
 
@@ -252,7 +268,7 @@ import Testing
     @Test func plannerRemove() throws {
         let op = try #require(SidebarLayoutPlanner.remove(.builtIn(.home), in: defaults))
         #expect(op == .itemRemoveRef(.builtIn(.home)))
-        #expect(SidebarLayoutPlanner.remove(.builtIn(.history), in: defaults) == nil)
+        #expect(SidebarLayoutPlanner.remove(.builtIn(.bookmarks), in: defaults) == nil)
     }
 
     // MARK: Idempotency
@@ -338,6 +354,8 @@ import Testing
     }
 
     static func itemIDs(_ doc: SidebarLayoutDocument) -> [LayoutItemID] { doc.sections.flatMap { $0.items.map(\.id) } }
+
+    static func topIDs(_ raw: [String]) -> [LayoutItemID] { raw.map(LayoutItemID.init) }
 
     private static func randomOp(_ doc: SidebarLayoutDocument, step: Int, rng: inout SeededGenerator) -> SidebarLayoutOp {
         let sections = doc.sections.map(\.id) + [LayoutSectionID("sec_ghost")]
