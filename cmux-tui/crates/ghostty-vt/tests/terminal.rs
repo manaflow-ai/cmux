@@ -1079,8 +1079,14 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
     );
     let revision_before_ris = term.color_revision();
     let reapply_before_ris = term.color_reapply_revision();
+    let default_four = {
+        let mut fresh = Terminal::new(80, 2, 0, Callbacks::default()).unwrap();
+        let mut fresh_state = RenderState::new().unwrap();
+        fresh_state.update(&mut fresh).unwrap();
+        fresh_state.palette_color(4)
+    };
     term.vt_write(b"\x1bc");
-    assert!(term.palette_overridden(4), "Ghostty RIS preserves palette overrides");
+    assert!(!term.palette_overridden(4), "RIS resets palette overrides (ghostty-next)");
     assert_ne!(term.color_revision(), revision_before_ris, "RIS must trigger frontend reapply");
     assert_ne!(
         term.color_reapply_revision(),
@@ -1088,7 +1094,7 @@ fn terminal_tracks_same_valued_osc_palette_overrides_and_resets() {
         "RIS must advance the forced palette-reapply revision"
     );
     state.update(&mut term).unwrap();
-    assert_eq!(state.palette_color(4), Rgb { r: 1, g: 2, b: 3 });
+    assert_eq!(state.palette_color(4), default_four);
 }
 
 #[test]
