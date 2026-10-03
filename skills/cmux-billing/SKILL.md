@@ -49,7 +49,7 @@ New annual checkout requests return `annual_unavailable` before creating Stripe 
 
 Run `web/scripts/stripe/provision-live.sh` with an operator key, add the two Vercel envs, deploy, validate live with a 100-percent-off promotion code purchase, then cancel.
 
-DB migrations: `bun run cloud-vm:preflight`, `bun run cloud-vm:migrate -- staging`, staging deploy, then `bun run cloud-vm:migrate -- production`. Never run migrations from builds. See the Cloud VM ops flow.
+DB migrations: `bun run cloud-vm:preflight`, then staging and production before the pull request merges, because the merge deploys production. Follow [the migration order](../cmux-backend/references/cloud-vm-control-plane.md#migrations). Never run migrations from builds.
 
 ## Gotchas
 

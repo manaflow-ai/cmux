@@ -302,11 +302,12 @@ Local development keeps using Docker Postgres through `DATABASE_URL`, derived fr
 
 Use `bun run cloud-vm:migrate -- staging --check` to verify access without changing schema. Operator jobs use the branch's direct port (5432) and verify its TLS certificate. `DIRECT_DATABASE_URL` takes precedence when set. With process-provided credentials, set `CMUX_CLOUD_VM_ENV_SOURCE=process`; otherwise the command pulls the selected Vercel project.
 
-Run production/staging migrations explicitly, never during Vercel build or route startup. The local operator path pulls the selected Vercel project `DATABASE_URL`. The GitHub Actions path reads the protected `DATABASE_URL` secret and applies Drizzle migrations:
+Run production/staging migrations explicitly, never during Vercel build or route startup. Merging `main` deploys production at once, so a pull request's migration is applied to staging and then production before it merges; the required `Migration ledger` check fails until production's ledger records every migration being merged. The order and the check are in [the control-plane reference](../../../skills/cmux-backend/references/cloud-vm-control-plane.md#migrations). The GitHub Actions path (`cloud-vm-migrate.yml`, dispatched from `main` with `source_ref=<PR head SHA>`) reads the protected `DATABASE_URL` secret. The local operator path pulls the selected Vercel project `DATABASE_URL`:
 
 ```bash
 bun run cloud-vm:migrate -- staging
 bun run cloud-vm:migrate -- production
+bun run cloud-vm:ledger -- production   # read only: does production have every migration here?
 ```
 
 For local Docker Postgres, keep using:
