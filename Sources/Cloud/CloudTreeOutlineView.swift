@@ -891,7 +891,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // Copying the private URL never creates a forward.
                 items.append(item(String(localized: "cloudTree.menu.copyPrivateURL", defaultValue: "Copy Private Address URL")) { [nodeActions] in nodeActions.copyPortLink(resource.id) })
                 if CloudTreeRowHoverButtons.shareablePort(resource) != nil {
-                    items.append(item(String(localized: "cloudTree.menu.copyTeamLink", defaultValue: "Copy Team Link")) { [nodeActions] in nodeActions.sharePort(resource.id) })
+                    items.append(item(String(localized: "cloudTree.menu.copyShareLink", defaultValue: "Copy Share Link")) { [nodeActions] in nodeActions.sharePort(resource.id) })
                 }
             } else if let portURL {
                 items.append(item(String(localized: "cloudTree.menu.copyLink", defaultValue: "Copy Link")) { [nodeActions] in nodeActions.copyToPasteboard(portURL) })

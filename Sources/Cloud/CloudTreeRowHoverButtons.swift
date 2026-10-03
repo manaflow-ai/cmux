@@ -196,10 +196,15 @@ private struct CloudPortShareButton: View {
         let phase = store.phase(for: key)
         HStack(spacing: 2) {
             if let status = status(phase) {
+                // The row's content keeps its trailing edge at just below
+                // required priority, so the controls host shrinks to its
+                // minimum width; a fixed-size note keeps that minimum honest
+                // instead of truncating to nothing.
                 Text(status)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
+                    .fixedSize()
                     .transition(.opacity)
             }
             MachinesChromeIconButton(
@@ -248,7 +253,7 @@ private struct CloudPortShareButton: View {
         case .failed:
             return String(localized: "cloudTree.port.share.failed", defaultValue: "Couldn't create link")
         case nil:
-            return String(localized: "cloudTree.port.share", defaultValue: "Share with Team")
+            return String(localized: "cloudTree.port.shareLink", defaultValue: "Share Link")
         }
     }
 }
