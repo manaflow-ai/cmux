@@ -1,6 +1,6 @@
 > RESUME NOTE (updated 2026-10-03, Rust lane of the app platform)
 > State: branch feat-cmux-next-apps-routing (pushed, no base push) on top of #17008 (no actor commit). Done: provider channel + review fixes + registration gate; `coderouter` family; apps-list `commands`; default apps from the shipped first-party directory (CMUX_APPS_FIRST_PARTY_DIR). Testbox 54/54.
-> BLOCKER (needs the first-party apps lead): first-party manifests do not pass the manifest v2 validator (coderouter has only a v1 cmux-app.json; the cmux-app.v2.json files use an inline catalog and keys the schema rejects), so the supervisor loads none of them yet.
+> Gate: every_bundled_first_party_app_loads_and_is_installed_by_default must pass on the real tree before this branch lands (CodeRouter passes with 21a0be05f06 + its BUNDLED marker; lane 3 fixes the other cmux-app.v2.json files and marks them BUNDLED). The loader prefers cmux-app.v2.json in the first-party directory.
 > Next: landing window (after lane 13 sizing and 17112): first commit regenerates cmux-app-host/generated (chief.*, closed.*, column.update, calendar.*, mail.* ...), then #16872, #17008, routing; exact-head gates incl. check-app-platform; push with .cmux-scratch/nx-worker/safe-push.sh. When the identity lane's Actor/dispatch API lands: set the `app` actor explicitly; gate on terminal/acp_session agent actors.
 > Later queue: build-time scopes, then power assertions.
 
