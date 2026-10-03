@@ -1139,6 +1139,27 @@ function childCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("children: on acpmux connect an outstanding permission prompt whose session is not waiting is dropped, not resent", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      prompts: {
+        "perm:s_w:p1": { conversation: "conv_a", text: "still asking", order: 1 },
+        "perm:s_x:p2": { conversation: "conv_a", text: "answered meanwhile", order: 2 },
+        "perm:s_gone:p3": { conversation: "conv_a", text: "session gone", order: 3 },
+      },
+    } as Partial<HostStateData>);
+    c.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [session("s_w", "writer", "waiting"), session("s_x", "other", "running")], events: [] },
+      ["persist", "prompt"],
+      (e) => {
+        c.check(c.get(e, "prompt").prompt_id === "perm:s_w:p1", "only the waiting session's prompt is resent");
+        c.check(Object.keys(c.persisted(e).prompts).join() === "perm:s_w:p1", "the stale ones are dropped");
+      },
+    );
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("children: a pending permission survives a failed sessions fetch and an acpmux reconnect, then is answered");
     boot(c);
     c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request: {} }, ["fetch_sessions"]);
