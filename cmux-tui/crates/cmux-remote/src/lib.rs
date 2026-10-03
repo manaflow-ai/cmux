@@ -13,6 +13,7 @@ pub(crate) fn test_observation_timeout(timeout: std::time::Duration) -> std::tim
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;
+mod bridge_mark;
 pub mod client;
 pub mod connection;
 pub mod crypto;
