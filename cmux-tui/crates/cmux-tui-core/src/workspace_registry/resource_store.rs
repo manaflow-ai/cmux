@@ -292,7 +292,7 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
-    super::mutation::ensure_resource_mutation_actor_column(transaction)?;
+    mutation::ensure_resource_mutation_actor_column(transaction)?;
     migrate_tab_name_authority(transaction)
 }
 

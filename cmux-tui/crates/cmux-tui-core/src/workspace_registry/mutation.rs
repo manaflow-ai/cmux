@@ -39,7 +39,7 @@ impl WorkspaceMutation {
 /// beside its origin (plans/cmux-next/identity.md section 3); the actor is
 /// never part of the fingerprint.
 pub(crate) fn insert_resource_mutation(
-    tx: &rusqlite::Connection,
+    tx: &Connection,
     mutation: &WorkspaceMutation,
     operation: &dyn ToSql,
     fingerprint: &dyn ToSql,
@@ -51,7 +51,7 @@ pub(crate) fn insert_resource_mutation(
            origin, idempotency_key, operation, fingerprint, result_json, committed_revision,
            actor_json
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        rusqlite::params![
+        params![
             mutation.origin,
             mutation.id,
             operation,
