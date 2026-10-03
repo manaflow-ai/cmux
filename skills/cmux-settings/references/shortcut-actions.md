@@ -52,6 +52,7 @@ Values for `shortcuts.bindings.<action>`:
 - `shortcuts.bindings.saveLayoutTemplate`
 - `shortcuts.bindings.selectWorkspaceByNumber`
 - `shortcuts.bindings.toggleFocusedWorkspaceGroupCollapsed`
+- `shortcuts.bindings.togglePinnedWorkspace`
 
 ## Panes and surfaces
 

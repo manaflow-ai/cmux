@@ -24,7 +24,7 @@ extension ShortcutAction {
              .focusHistoryBack, .focusHistoryForward, .focusHistoryLast, .selectWorkspaceByNumber,
              .renameTab, .renameWorkspace, .editWorkspaceDescription,
              .markWorkspaceDone, .cycleWorkspaceStatus, .toggleChecklistItemComplete,
-             .closeTab, .closeOtherTabsInPane, .closeWorkspace,
+             .closeTab, .closeOtherTabsInPane, .closeWorkspace, .togglePinnedWorkspace,
              .newWorkspaceGroup, .groupSelectedWorkspaces,
              .toggleFocusedWorkspaceGroupCollapsed, .reopenClosedBrowserPanel,
              .newSurface, .toggleTerminalCopyMode, .focusTextBoxInput,
