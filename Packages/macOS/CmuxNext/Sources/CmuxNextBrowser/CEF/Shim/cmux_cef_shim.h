@@ -83,8 +83,10 @@ typedef enum {
   // a = 1 for a redirect. The host re-creates the tab in the other store.
   CMUX_SHIM_NAVIGATION_REROUTE = 27,
   // The page did not handle a key down (CefKeyboardHandler::OnKeyEvent
-  // after the renderer). Only Escape without modifiers is reported;
-  // a = Windows key code (0x1B). A popup panel closes on it.
+  // after the renderer): Escape without modifiers (a popup panel closes on
+  // it), or a letter A-Z without Command, Control or Option while no
+  // editable field has focus (single-key page shortcuts). a = Windows key
+  // code (0x1B, or 0x41-0x5A), b = 1 when Shift was down.
   CMUX_SHIM_KEY_UNHANDLED = 28,
   // An extension install or permission prompt (fork API 12): request =
   // prompt id (0 = "installed" notice, no reply), s1 = JSON (cef_cmux.h,

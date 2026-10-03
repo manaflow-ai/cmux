@@ -162,7 +162,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openCmuxSettingsFile", "palette.openGhosttySettings", "palette.searchShortcuts",
             "palette.pro.upgrade", "palette.welcomeChecklist", "sendFeedback", "help.featureFlags",
             "help.documentation", "recentlyFocused", "recentlyClosed", "history.commands", "browserShowHistory",
-            "history.search", "bookmark.toggleBar", "bookmark.manager",
+            "history.search", "bookmark.toggleBar", "bookmark.manager", "browserLinkHints", "browserLinkHintsNewSplit",
         ],
         .liveInput: [
             "palette.toggleDictation", "agentPane.searchChats",

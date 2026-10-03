@@ -2562,6 +2562,11 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    // The owner's loop ended (a termination signal, shutdown-daemon or the
+    // last client): record the session shutdown before any teardown, so a
+    // shell that dies of the same logout signal is a host loss
+    // (`session-shutdown`), not a real end.
+    mux.begin_session_shutdown();
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
         reaper.stop();

@@ -23,6 +23,11 @@ enum TabContent {
         }
     }
 
+    /// A Ghostty terminal (it is ready on its first frame, not when shown).
+    var isTerminal: Bool {
+        if case .terminal = self { true } else { false }
+    }
+
     /// The view that should become first responder when the pane is focused.
     var focusTarget: NSView {
         switch self {

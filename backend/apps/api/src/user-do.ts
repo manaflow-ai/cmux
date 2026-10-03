@@ -99,6 +99,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
+    // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
+    if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }
@@ -109,10 +111,23 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    if (op !== "install.revoke") return
+    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
     if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+  }
+
+  /**
+   * RPC from TeamDO only (plans/cmux-next/server.md 6.5): the team revoked a
+   * server whose install is bound to it. Revokes the grant and closes the
+   * install's sockets in the same commit; refuses an install not bound to `team`.
+   */
+  async revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "selector.not_found", message: "unknown user" }
+    const res = this.submitSystem("install.revoke_by_team", { install, team, by }, idempotencyKey, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

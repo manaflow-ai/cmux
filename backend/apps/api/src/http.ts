@@ -27,6 +27,7 @@ import { providers } from "./integrations/providers.ts"
 import { signState, verifyState } from "./integrations/state.ts"
 import type { ReadResult, SubmitResult } from "./owner-do.ts"
 import type { RedeemResult } from "./user-do.ts"
+import { pairApprove, pairPreview } from "./pair-routes.ts"
 
 /** DO RPC stubs erase union result types; the DO methods define them. */
 const rpc = <T>(p: unknown) => p as Promise<T>
@@ -191,6 +192,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const p = yield* principalFor("cloud:TeamDO", principal)
           return yield* Effect.tryPromise({ try: () => rpc<DomainReply>(env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team!)).ssoOp(p.team!, p, frame)), catch: unreachable })
         }
+        // cmux server pairing: several owners in order (UserDO install, TeamDO host, PairingDO), each keyed by the code.
+        if (payload.op === "server.pair.approve") {
+          return yield* Effect.tryPromise({
+            try: () => pairApprove(env, principal, frame, (owner, p, f) => Effect.runPromise(submitTo(owner, p, f))),
+            catch: unreachable
+          })
+        }
         if (payload.op === "integration.connect") {
           const provider = (payload.params as { provider?: string } | null)?.provider
           const impl = provider === "github" || provider === "linear" || provider === "slack" ? providers[provider] : undefined
@@ -206,6 +214,13 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
           const state = yield* Effect.promise(() => signState(env, { conn: c.id, team: c.owner, user: c.created_by, provider: c.provider }))
           const scopes = c.scopes_requested.length > 0 ? c.scopes_requested : impl.defaultScopes
           return { ...response, value: { connection: c, authorize_url: impl.authorizeUrl(env, state, scopes, callbackUrl()) } }
+        }
+        // A revoked server also loses its install key: TeamDO pushes the revocation to the owner's UserDO now and retries until it lands.
+        if (payload.op === "server.revoke" && response.ok) {
+          const v = response.value as { host: string; install: string }
+          const team = principal.team!
+          const flushed = yield* Effect.tryPromise({ try: () => rpc<{ revoked: Array<string> }>(env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).flushServerRevocations(team)), catch: unreachable })
+          return { ...response, value: { host: v.host, install_revoked: flushed.revoked.includes(v.install) } }
         }
         // The personal team exists once the user exists (a team of one, identity spec section 2).
         if (payload.op === "user.ensure" && response.ok) {
@@ -229,6 +244,14 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (!def || def.class !== "read") return yield* new BadRequest({ code: "validation.invalid", message: `unknown read ${payload.op}` })
         // Reads honor the op's principal kinds too (automation.webhook.get is session-only: its secret starts runs).
         if (!def.principals.includes(principal.kind === "session" ? "session" : "install")) return yield* new Forbidden({ code: "auth.forbidden", message: `${payload.op} is not allowed for ${principal.kind} principals` })
+        if (payload.op === "server.pair.preview") {
+          const r = yield* Effect.tryPromise({ try: () => pairPreview(env, principal, payload.params), catch: unreachable })
+          if (!r.ok) {
+            if (r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })
+            return yield* new BadRequest({ code: r.code === "selector.not_found" ? "selector.not_found" : "validation.invalid", message: r.message })
+          }
+          return { op: payload.op, value: r.value, stream: "pairing", revision: "0" }
+        }
         const reader = yield* principalFor(def.owner, principal)
         if (providerReadOpNames.has(payload.op)) {
           const stub = env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(reader.team!))
