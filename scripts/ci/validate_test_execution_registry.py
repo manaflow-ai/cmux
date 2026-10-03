@@ -54,7 +54,7 @@ RUNNER_LANE_RE = re.compile(r"--lane[=\s]+([A-Za-z0-9_.-]+)")
 TEST_PATH_RE = re.compile(r"^tests/test_[A-Za-z0-9_.-]+\.py$")
 ALLOWED_FIELDS = {"path", "lane", "requirements", "reason", "serial"}
 INVENTORY_LANES = {"legacy", "manual"}
-SUPPORTED_REQUIREMENTS = {"cmux-cli", "fish"}
+SUPPORTED_REQUIREMENTS = {"fish"}
 # A workflow that names a test file in a `run:` step executes it directly,
 # which is exactly what the linux-guard lane means.
 DIRECT_RUN_LANE = "linux-guard"

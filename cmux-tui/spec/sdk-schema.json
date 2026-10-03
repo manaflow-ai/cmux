@@ -1407,7 +1407,8 @@
       "kind": "enum",
       "values": [
        "pty",
-       "browser"
+       "browser",
+       "conversation"
       ]
      },
      "presence": "required",
@@ -13164,6 +13165,95 @@
     "Only explicit input or focus is activity, never hover or visibility."
    ]
   },
+  "new-conversation-tab": {
+   "authority": "control",
+   "since": 12,
+   "capability": "conversation-tabs-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "conversation": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "owner": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "pane": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "workspace": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "mutation_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "cols": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "owner is local or cloud; pane and workspace are exclusive (workspace: its active pane, or its first pane when empty); conversation is a conv_ id. origin and mutation_id are sent together; a retry with the same pair returns the first tab with replayed:true. See spec/commands.md for the result object."
+   ]
+  },
   "new-frontend-browser-tab": {
    "authority": "control",
    "since": 12,
@@ -13240,6 +13330,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "owner": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -13287,6 +13386,15 @@
       "default": null
      },
      "favicon_url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     },
+     "owner": {
       "type": {
        "kind": "scalar",
        "name": "string"

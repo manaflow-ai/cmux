@@ -19,7 +19,7 @@ public final class TerminalSurfaceView: NSView {
     private(set) var surface: ghostty_surface_t?
     /// The light/dark scheme last given to this surface (diagnostics).
     var colorSchemeIsDark = false
-    private let bridge: Unmanaged<SurfaceBridge>
+    let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
     weak var session: TerminalSession?
@@ -124,8 +124,8 @@ public final class TerminalSurfaceView: NSView {
             return
         }
         self.surface = surface
-        // Light/dark themes (the default Apple System Colors) follow the
-        // app's appearance on every live surface.
+        TerminalFontScale.installCallback(on: self)
+        // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
         lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
         registerForDraggedTypes([.fileURL, .URL, .string])

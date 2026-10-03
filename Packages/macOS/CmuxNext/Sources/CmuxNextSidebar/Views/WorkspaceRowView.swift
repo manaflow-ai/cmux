@@ -12,6 +12,11 @@ final class WorkspaceRowView: SidebarRowView {
     private let badge = UnreadBadgeView()
     let closeButton = SidebarIconButton(symbol: "xmark", pointSize: { Metrics.smallIconSize - Metrics.space2 }, weight: .bold, label: Strings.closeButton)
 
+    /// Progress under the row (`SidebarWorkspace.progress`): a track and a
+    /// fill; an indeterminate one fills the whole track, dimmed.
+    private let progressTrack = CALayer()
+    private let progressFill = CALayer()
+    private var progress: SidebarProgress?
     private var hasSubtitle = false
     private var grouped = false
     private var iconKind: WorkspaceIcon?
@@ -20,22 +25,15 @@ final class WorkspaceRowView: SidebarRowView {
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
-    /// The row draws a placeholder bar instead of a title.
-    private(set) var isShowingPlaceholder = false
-    /// A static tonal bar where the title goes (no shimmer).
-    private let placeholderBar = NSView()
-    /// The bar's share of the text width, varied per row so a column of
-    /// placeholders does not read as one block.
-    private var placeholderFraction: CGFloat = 0.6
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         title.font = SidebarStyle.titleFont
-        [icon, title, subtitle, activity, badge, closeButton, placeholderBar].forEach(addSubview)
+        [icon, title, subtitle, activity, badge, closeButton].forEach(addSubview)
+        progressTrack.addSublayer(progressFill)
+        progressTrack.isHidden = true
+        layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
-        placeholderBar.wantsLayer = true
-        placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
-        placeholderBar.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
     }
 
@@ -63,8 +61,6 @@ final class WorkspaceRowView: SidebarRowView {
         )
         guard needsConfigure(content) else { return }
         grouped = row.group != nil
-        isShowingPlaceholder = ws.rowState == .placeholder
-        placeholderFraction = SidebarStyle.placeholderFractions[ws.id.rawValue.utf8.reduce(0) { $0 &+ Int($1) } % SidebarStyle.placeholderFractions.count]
         icon.configure(icon: ws.icon)
         iconKind = ws.icon
         title.stringValue = ws.title
@@ -75,10 +71,10 @@ final class WorkspaceRowView: SidebarRowView {
         hasSubtitle = ws.liveDetail != nil
         activity.configure(ws.activity, style: ws.activityStyle)
         badge.configure(ws.unread)
+        progress = ws.progress
         // The workspace hover card shows the cwd (and CPU and memory).
         toolTip = nil
-        // A placeholder says nothing; its section header says it connects.
-        setAccessibilityElement(!isShowingPlaceholder)
+        setAccessibilityElement(true)
         setAccessibilityRole(.row)
         setAccessibilityLabel(accessibilityText(ws))
         needsLayout = true
@@ -89,6 +85,7 @@ final class WorkspaceRowView: SidebarRowView {
         var parts = [ws.title]
         if let s = ws.liveDetail { parts.append(s) }
         if let s = ws.subtitle, !s.isEmpty { parts.append(s) }
+        if let value = ws.progress?.value { parts.append(Strings.progressPercent(Int((value * 100).rounded()))) }
         switch ws.unread {
         case let .count(n) where n > 0: parts.append(Strings.unreadCount(n))
         case .dot: parts.append(Strings.unreadDot)
@@ -116,7 +113,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func hoverChanged() {
         super.hoverChanged()
         needsLayout = true
-        guard isHovered, !renaming, !isShowingPlaceholder else {
+        guard isHovered, !renaming else {
             title.stopMarquee()
             return
         }
@@ -134,9 +131,7 @@ final class WorkspaceRowView: SidebarRowView {
             // Fills only, no borders: drop target, multi-selection, hover.
             paintFill(isDropTarget ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
-                : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
-            // The sidebar's own tonal step, once more: a bar a step apart.
-            placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
+                : isHovered ? Palette.hoverFill : nil)
         }
     }
 
@@ -161,7 +156,7 @@ final class WorkspaceRowView: SidebarRowView {
 
         // Trailing cluster, right to left: close-or-badge, then activity.
         var trailing = b.width - Metrics.space3
-        let showClose = isHovered && !isShowingPlaceholder
+        let showClose = isHovered
         closeButton.isHidden = !showClose
         let control = SidebarStyle.controlSize
         if showClose {
@@ -183,11 +178,7 @@ final class WorkspaceRowView: SidebarRowView {
 
         let textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
         let textW = max(0, trailing - textX)
-        title.isHidden = renaming || isShowingPlaceholder
-        placeholderBar.isHidden = !isShowingPlaceholder
-        let barHeight = SidebarStyle.placeholderBarHeight
-        placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: (b.height - barHeight) / 2,
-                                      width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
+        title.isHidden = renaming
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
@@ -205,7 +196,26 @@ final class WorkspaceRowView: SidebarRowView {
             title.frame = NSRect(x: textX + inset, y: (b.height - th) / 2, width: titleWidth, height: th)
             subtitle.isHidden = true
         }
+        layoutProgress(x: textX, width: max(0, b.width - Metrics.space3 - textX), bottom: b.maxY)
         needsDisplay = true
+    }
+
+    private func layoutProgress(x: CGFloat, width: CGFloat, bottom: CGFloat) {
+        guard let progress else {
+            progressTrack.isHidden = true
+            return
+        }
+        let height: CGFloat = 2
+        progressTrack.isHidden = false
+        progressTrack.frame = CGRect(x: x, y: isFlipped ? bottom - height - 1 : 1, width: width, height: height)
+        progressTrack.cornerRadius = height / 2
+        progressFill.frame = CGRect(x: 0, y: 0, width: width * (progress.value ?? 1), height: height)
+        progressFill.cornerRadius = height / 2
+        performWithTheme {
+            progressTrack.backgroundColor = Palette.textTertiary.withAlphaComponent(0.25).cgColor
+            let color = progress.isError ? Palette.danger : Palette.accent
+            progressFill.backgroundColor = (progress.value == nil ? color.withAlphaComponent(0.4) : color).cgColor
+        }
     }
 }
 

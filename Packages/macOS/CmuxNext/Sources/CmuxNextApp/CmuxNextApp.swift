@@ -26,7 +26,6 @@ public struct CmuxNextApp {
         LaunchWarmup.start()
         var environment = AppEnvironment.current()
         environment.marksRun = true
-        environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
                                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider())

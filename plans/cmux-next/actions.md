@@ -31,9 +31,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 
 <!-- generated: action surfaces -->
 
-## Counts (745 actions)
+## Counts (746 actions)
 
-Palette 742, CLI verbs 434, right-click 422, MCP tools 380.
+Palette 743, CLI verbs 426, right-click 422, MCP tools 372.
 
 ## Menus
 
@@ -85,13 +85,15 @@ Palette 742, CLI verbs 434, right-click 422, MCP tools 380.
 
 **unimplemented** (10): `palette.openFilesPane`, `palette.openFindPane`, `palette.openVaultPane`, `palette.openCloudPane`, `toggleTabAudioMute`, `disconnectRemoteTab`, `palette.enableBrowser`, `palette.disableBrowser`, `openDiffViewer`, `palette.openDirectoryDiffViewer`
 
+**ownerVerb** (9): `newTab`, `closeWorkspace`, `space.new`, `closeTab`, `screen.new`, `screen.close`, `browserBack`, `browserForward`, `closePane`
+
 ## Exemptions: contextMenu
 
 **paletteInternal** (2): `commandPaletteNext`, `commandPalettePrevious`
 
 **devOnly** (2): `openDebugSettings`, `palette.onboardingGallery`
 
-**focusMove** (44): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`
+**focusMove** (45): `showHideAllWindows`, `goToWorkspace`, `showMainWindow`, `nextSidebarTab`, `prevSidebarTab`, `nextSidebarTabInGroup`, `prevSidebarTabInGroup`, `selectWorkspaceByNumber`, `workspace.selectFirst`, `workspace.selectLast`, `workspace.selectLastUsed`, `space.next`, `space.previous`, `space.selectByNumber`, `space.switch`, `focusLeft`, `focusRight`, `focusUp`, `focusDown`, `focusPreviousPane`, `focusNextPane`, `canvasRevealFocusedPane`, `focusLocation`, `tab.focus`, `nextSurface`, `prevSurface`, `selectSurfaceByNumber`, `tab.search`, `screen.next`, `screen.previous`, `screen.select`, `screen.selectLast`, `focusTextBoxInput`, `focusBrowserAddressBar`, `focusRightSidebar`, `vaultFocusSession`, `jumpToUnread`, `markOldestUnreadAndJumpNext`, `computerUseFocus`, `computerUseFocusCallingTerminal`, `column.focusLeft`, `column.focusRight`, `focusHistoryBack`, `focusHistoryForward`, `focusHistoryLast`
 
 **stepAdjust** (28): `resizePaneLeft`, `resizePaneRight`, `resizePaneUp`, `resizePaneDown`, `increaseWorkspaceTerminalFontSize`, `decreaseWorkspaceTerminalFontSize`, `resetWorkspaceTerminalFontSize`, `canvasZoomIn`, `canvasZoomOut`, `canvasZoomReset`, `browserZoomIn`, `browserZoomOut`, `browserZoomReset`, `markdownZoomIn`, `markdownZoomOut`, `markdownZoomReset`, `appearance.interfaceSize.increase`, `appearance.interfaceSize.decrease`, `appearance.interfaceSize.reset`, `column.cycleWidth`, `column.cycleWidthBack`, `terminal.increaseFontSize`, `terminal.decreaseFontSize`, `terminal.resetFontSize`, `terminal.scrollPageUp`, `terminal.scrollPageDown`, `terminal.scrollToTop`, `terminal.scrollToBottom`
 

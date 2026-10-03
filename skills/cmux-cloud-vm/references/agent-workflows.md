@@ -2,291 +2,113 @@
 
 Use the matching recipe after target and capacity authorization in [the skill](../SKILL.md).
 
-## 0. Decide and route (every task starts here)
+The Mac-side `cmux vm` verbs these recipes used (route, run, exec, agent, dev, push,
+pull, tree, open, fork with flags, `cloud domains`) were removed with the Swift CLI.
+Every recipe below starts a terminal on the machine through the app, then works
+inside the machine with its own `cmux`.
+
+## 0. Get a terminal on the machine
 
 ```bash
-cmux vm route --json                  # {machine, created, reason, would_provision}
-cmux vm tree                          # what is already running where (terminals, agents, open panes)
+cmux action list --category cloud --available
+cmux cloud open-machine --target machine:vm-…              # a shell on the machine
+cmux cloud new-terminal-on-machine --target machine:vm-…   # another terminal there
 ```
 
-- Reuse the routed machine when `would_provision` is false — its checkout and deps are warm.
-- `would_provision: true` means a new machine slot; check `cmux vm ls` (current plan meter and limits) and prefer Base or an idle machine before creating.
-- Long-running or interactive work → `vm agent` / a session terminal, not `exec`.
+Creating a machine (`cmux cloud new-machine`) opens the app's sheet and needs the
+user's authorization. Prefer an existing machine and another workspace on it.
 
-## 1. Cloud dev box from the local repo ("set it up like magic")
+Everything after this runs in that machine terminal.
 
-One verb does the whole thing when the project has a recognizable dev command:
-
-```bash
-cmux vm dev <id>                       # route → optional push → detect command/port → layout apply --name → open geometry on the Mac
-cmux vm dev <id> --port 3000 --name app   # override the detected port and workspace name
-cmux vm dev <id> --no-open                # stage the workspace; print `vm workspace open` instead of opening a local pane
-cmux vm dev <id> --dry-run --json         # inspect the plan without socket traffic
-cmux vm push <id> . work/app --watch   # in a second terminal: keep the machine in sync while you edit locally
-```
-
-By hand, the same steps as separate primitives (use these when the dev command needs a pidfile, a database, or a seed step). For a layout, use `vm layout apply --name`; do not create a starter-shell workspace with `vm workspace new --no-open` and then expect it to be empty:
+## 1. Set up a project workspace
 
 ```bash
-cmux vm run --sync -- bun install                                # --sync runs inside the synced work/<dir>
-# idempotent dev server with a workspace-scoped pidfile/log
-cmux vm run --sync -- sh -c 'pid=$(cat .cmux-dev.pid 2>/dev/null); if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && netstat -tlnp 2>/dev/null | grep -q ":3000 .*[ /]$pid/"; then echo "dev server already up (pid $pid owns :3000)"; else rm -f .cmux-dev.pid .cmux-dev.log; if netstat -tln 2>/dev/null | grep -q ":3000 "; then echo "port 3000 is owned by another process" >&2; exit 1; fi; nohup bun run dev > .cmux-dev.log 2>&1 & echo $! > .cmux-dev.pid; fi'
-cmux vm run --sync -- sh -c 'for i in $(seq 1 60); do wget -qO- http://localhost:3000 >/dev/null 2>&1 && exit 0; sleep 1; done; tail -n 20 .cmux-dev.log; exit 1'
-id=$(cmux vm route --json | jq -r '.machine')                    # the machine the router bound
-cmux vm open "$id":port/3000 --print                             # private preview URL; viewer needs the private tunnel
-```
-
-Sticky binding means every `vm run` from this directory lands on the same machine. The explicit reuse-or-create spelling still works when you want full control:
-
-```bash
-# After provisioning is authorized, use the router-owned pool.
-id=$(cmux vm route --provision --json | jq -er '.machine')
-cmux vm wait "$id" --wake
-cmux vm push "$id" . work/app
-cmux vm exec "$id" -- sh -c 'cd work/app && bun install'
-```
-
-Finish with `cmux notify --title "Cloud dev server up" --body "<url>"`.
-
-## 1b. Stage a finished workspace for the human (layout + env + code)
-
-The person wants to open one workspace and find everything in place: the checkout, the secrets, an agent pane, a test watcher, the app in a browser pane. Build it headlessly, verify, then open.
-
-```bash
-id=$(cmux vm route --json | jq -r '.machine')
-cmux vm push "$id" . work/app                                         # code (or a git bundle, §3)
-cmux vm env set "$id" --from-file .env.cloud                          # secrets: on the machine, never in the layout
+cmux env set --from-file .env.cloud               # secrets stay on the machine, out of the layout
 cat > /tmp/app-layout.json <<'JSON'
 {"name":"app","cwd":"work/app","layout":{"direction":"horizontal","split":0.6,"children":[
-  {"pane":{"surfaces":[{"type":"terminal","name":"claude","command":"claude","focus":true}]}},
-  {"direction":"vertical","split":0.5,"children":[
-    {"pane":{"surfaces":[{"type":"terminal","name":"tests","command":"bun test --watch"},{"type":"terminal","name":"shell"}]}},
-    {"pane":{"surfaces":[{"type":"terminal","name":"dev","command":"bun run dev"},{"type":"browser","url":"http://localhost:3000"}]}}]}]}}
+  {"pane":{"surfaces":[{"type":"terminal","name":"claude","command":"claude"}]}},
+  {"pane":{"surfaces":[{"type":"terminal","name":"dev","command":"bun run dev"},{"type":"browser","url":"http://localhost:3000"}]}}]}}
 JSON
-ws=$(cmux vm layout apply "$id" /tmp/app-layout.json --json | jq -r '.workspace_id')
-cmux vm tree "$id"                                                     # the panes exist; agents/tests show their state
-cmux vm terminal wait "$id" "$(cmux vm tree "$id" --json | jq -r '.resources[] | select(.title=="dev") | .key')" --pattern 'localhost:3000' --timeout 120
-cmux vm workspace open "$id" "$ws"                                     # same geometry on the Mac (or: layout apply … --open)
-cmux notify --title "Workspace ready: app" --body "cmux vm open $id/$ws"
+cmux layout apply --name app /tmp/app-layout.json --json
+cmux terminal list
+cmux terminal term_… screen wait --pattern 'localhost:3000' --timeout-ms 120000
+cmux notify --title "Workspace ready: app" --body "open the app workspace on this machine"
 ```
 
-Reuse a human's arrangement: `cmux vm layout export <id> <ws> > team-layout.json`, commit it next to the repo, and `cmux vm layout apply <fork> team-layout.json` on every fork. A layout the person saved on the Mac (`cmux layout save dev`) applies in the cloud with `--from-saved dev`.
+`cmux layout export --workspace <ws>` prints the same document for reuse. `layout apply`
+builds a new or empty workspace; it does not rearrange an occupied one.
 
-## 2. Hand a task to an agent on the machine
+Getting code onto the machine has no cmux verb now: clone on the machine
+(`git clone https://github.com/org/repo work/repo`) or use git over its own
+credentials. `vm push` and `git bundle` transfer through cmux were removed.
+
+## 2. Run a command or agent and read the result
 
 ```bash
-term=$(cmux vm agent --agent claude --sync --json -- "run the test suite, fix failures, commit on a branch" )
-echo "$term" | jq -r '.reattach'                                  # cmux vm open <machine>/<ws>/<term>
-cmux vm tree "$(echo "$term" | jq -r '.machine')"                 # [agent claude running] … (open: surface:N)
+cmux workspace current run --name tests -- sh -c 'cd work/app && make test'
+cmux terminal list                                      # find the new term_… id
+cmux terminal term_… process wait --timeout-ms 900000   # exits 1 on timeout
+cmux terminal term_… output read > test.log             # the full output, not just the screen
 ```
 
-The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §5) and watch them all in `cmux vm tree`.
+`process wait` returns the exit status. Report the real outcome from it and the log;
+a finished wait is not a passed test. `cmux agent claude --timeout 600 "fix the tests"`
+runs an agent in the calling terminal until it exits (guest adapter verb).
 
-When you need the result, not the terminal, block until the agent is done and take its output in one call:
+## 3. Drive an interactive program headlessly
 
 ```bash
-cmux vm agent --agent claude --machine <id> --sync --wait --output --timeout 1800 -- "run the suite, fix failures, commit on a branch" > agent.log; echo "exit=$?"
-# fan-out: start each without --wait, then wait on the terminals
-for t in $t1 $t2 $t3; do cmux vm terminal wait-exit <id> "$t" --timeout 1800; cmux vm terminal output <id> "$t" > "$t.log"; done
+cmux terminal term_… write --text $'run the failing test again\n'
+cmux terminal term_… screen wait --pattern 'passed|failed' --timeout-ms 300000
+cmux terminal term_… screen read
+cmux terminal term_… keys ctrl+c
 ```
 
-`--wait` polls the process (Ctrl-C stops your wait, not the agent), `--output` pages the full scrollback after exit, and the agent's exit code becomes yours (1 on a timeout or signal, with a line saying which).
+No pane is attached and no Mac focus moves. `screen wait` exits 1 on timeout with its
+result, so branch on it rather than sleeping.
 
-Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under the remote `$HOME`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
+## 4. Agents on other machines
 
-## 2b. Drive an interactive program headlessly (REPL, TUI, watch mode, another agent)
+Inside a machine, `cmux self peers` lists the owner's other machines and their
+routes, and `cmux vm ls` lists them where the guest supports it. Peer verbs such as
+`vm exec`, `vm terminal …` and `vm push` toward another machine are not available;
+open a terminal on that machine from the Mac instead.
+
+## 5. Checkpoints and forks
 
 ```bash
-out=$(cmux surface new-terminal --machine <id> --no-open --json -- sh -lc 'cd "$HOME/work/app" && exec bun test --watch')
-term=$(echo "$out" | jq -r '.terminal_id')
-cleanup() {
-  [ -n "$term" ] || return 0
-  cmux vm terminal send <id> "$term" --keys ctrl+c >/dev/null 2>&1 || true
-  cmux vm terminal close <id> "$term" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-if ! cmux vm terminal wait <id> "$term" --pattern 'Waiting for file changes|passed|failed' --timeout 300; then
-  echo "terminal did not become ready" >&2
-  exit 1
-fi
-cmux vm terminal read <id> "$term"                                # the screen a person would see
-# `cleanup` stops and closes the task-created watch terminal on every exit path.
+cmux cloud snapshot-machine --target machine:vm-…
+cmux cloud fork-machine --target machine:vm-…
+cmux cloud restore-machine --target machine:vm-… --snapshot <snapshot-id>
 ```
 
-No pane is attached and no focus moves; a pane the user already has on that terminal shows the same input. `terminal wait` exits 1 on timeout with the screen tail, so branch on it rather than sleeping.
+These drive the app's actions and need authorization. Naming a fork at creation,
+`--detach`, and JSON output of the new machine id were removed with `vm fork`.
 
-## 2c. Agents talking to agents (same machine, and across machines)
+## 6. Desktop, browser and services
 
-On one machine, an agent drives a sibling terminal headlessly — from the Mac or from inside the machine with the same verbs:
-
-```bash
-# from the Mac
-cmux vm terminal send <id> <term> 'run the failing test again' --keys enter
-cmux vm terminal wait <id> <term> --pattern '❯|\$ $' --timeout 600 && cmux vm terminal read <id> <term>
-# from inside the machine (an agent's own hooks/scripts); default target = its own terminal
-cmux send-key --terminal <term> enter
-cmux terminal read <term>
-```
-
-Across machines, discover the owner's available peer routes with `cmux self peers`
-or the legacy `cmux vm ls` fallback when the guest's help exposes it, then use the guest's supported verbs. There is no current Mac
-enrollment/grant command; older peer-route files remain compatible. See
-[guest operations](guest.md) for the host/guest boundary.
-
-```bash
-# inside <builder>:
-cmux vm agent --machine reviewer --agent codex --name "review" --cwd work/app -- "review the diff on branch feat/x and write REVIEW.md"
-cmux vm terminal wait-exit reviewer <term> --timeout 1800                     # the agent's process ended
-cmux vm terminal output reviewer <term> | tail -n 40                          # what it said
-cmux vm exec reviewer -- cat work/app/REVIEW.md
-cmux vm env set reviewer GITHUB_REPO=org/app                       # settings for the peer's shells
-cmux vm push reviewer ./deploy_key ~/.ssh/deploy_key --mode 600    # one file over the link into the peer's `cmux file receive`; never through exec
-cmux vm agent reviewer --agent codex --wait --output -- "summarize REVIEW.md in three lines"   # until-done on the peer
-cmux vm layout apply reviewer review-layout.json --name review     # a workspace on the peer, ready for the human
-```
-
-A machine holds no control-plane credential and reaches peers through its owner's
-private routes. The earlier Mac enrollment broker is no longer implemented.
-
-### Queue a message into a Codex session
-
-`codex queue` talks to the Codex app-server session store. Run it as the same
-user on the target machine that owns the session, with that user's original
-`CODEX_HOME`; do not run it from a copied home directory. The queue is local to
-that app-server instance, so a successful enqueue in another home does not
-reach the visible session.
-
-Use the session's exact UUID (or an exact session name) and quote the message:
-
-```bash
-cmux vm exec <id> -- codex queue \
-  --thread <codex-thread-uuid> \
-  --message 'Please re-check the failing test and report the result.'
-```
-
-For a session on the current machine, the equivalent is:
-
-```bash
-codex queue --thread <codex-thread-uuid> --message 'Continue with the next step.'
-```
-
-`Queued` only means the app-server accepted an item into its queue database; it
-does not mean that the agent has read, started, or completed the message. Verify
-delivery by inspecting the target session's next turn and visible terminal
-state, then read its output through `cmux vm terminal read`/`output` or the
-session's normal UI. If the target is currently busy, the message waits for the
-session's queue semantics rather than interrupting an in-flight turn.
-If the target thread is not loaded, the message remains queued until you open or
-resume that thread.
-
-Do not copy `CODEX_HOME`, manually edit `queue_*.sqlite`, or treat a copied
-database's `Queued` response as delivery evidence. Those operations enqueue for
-the copy only and can race the app-server's writer. If the local control socket
-is inaccessible (for example, a cloud container may report `Operation not
-permitted` for `/home/<user>/.codex/app-server-control/app-server-control.sock`),
-use cmux's terminal path instead:
-
-```bash
-cmux vm terminal send <id> <term> 'Continue with the next step.' --keys enter
-cmux vm terminal read <id> <term>
-```
-
-When a remote app-server endpoint is intentionally exposed, use the installed
-CLI's `--remote <wss://…>` together with
-`--remote-auth-token-env <ENV_VAR>` and the endpoint's authenticated token. Do
-not put an app-server token in a terminal command, prompt, or repository file.
-Use `ws://` only for loopback endpoints.
-
-## 3. Repo with history (private repos, no credentials on the machine)
-
-```bash
-git bundle create /tmp/repo.bundle --all
-cmux vm push <id> /tmp/repo.bundle work/repo.bundle
-cmux vm exec <id> -- sh -c 'cd work && git clone repo.bundle app && cd app && git checkout main'
-```
-
-Public repos can just clone on the machine: `cmux vm exec <id> -- git clone https://github.com/org/repo work/repo`.
-
-## 4. Builds and tests in the cloud instead of the local Mac
-
-```bash
-t=$(cmux surface new-terminal --machine <id> --no-open --json -- sh -c 'cd work/app && make test' | jq -r .terminal_id)
-cmux vm terminal wait-exit <id> "$t" --timeout 900        # exited code=<n> | exited signal=<s> | pending (exit 1)
-cmux vm terminal output <id> "$t" > test.log              # everything the run printed, not just the visible screen
-cmux vm pull <id> work/app/dist ./dist-from-cloud
-```
-
-A durable terminal outlives the CLI call and the Mac; `wait-exit` returns the exit code and `output` the full log (`--json` gives `next_offset`, so a long run can be read incrementally with `--after`). For a quick command that finishes in seconds, `cmux vm exec <id> --timeout 300 -- <cmd>` is enough. Report the real outcome from the exit code and the log — a finished wait is not a passed test.
-
-## 5. Parallel experiments with checkpoints and forks
-
-```bash
-cmux vm snapshot <id> --name pre-experiment
-fork_a=$(cmux vm fork <id> --name try-approach-a --detach --json | jq -r '.id')
-fork_b=$(cmux vm fork <id> --name try-approach-b --detach --json | jq -r '.id')
-cmux vm agent --agent codex --machine "$fork_a" --no-open -- exec "try approach A in work/app"
-cmux vm agent --agent codex --machine "$fork_b" --no-open -- exec "try approach B in work/app"
-cmux vm tree                                           # both agents, side by side
-cmux vm rm "$fork_a"; cmux vm rm "$fork_b"             # only the forks you created
-```
-
-## 6. Desktop and browser tasks
-
-New machines (`cmux vm new`) include TigerVNC with an openbox session and noVNC on 6901; shells get `DISPLAY=:1` while the desktop is up. Drive it from inside the machine (`vm agent` with a computer-use-capable agent — `cua-driver` is preinstalled) and show the human the screen. Historical shell-only machines still have no screen; inspect `vm status` before opening one:
-
-```bash
-cmux vm open <id>:desktop              # the screen as a browser pane beside the shell
-cmux vm exec <id> -- sh -c 'DISPLAY=:1 xdotool key ctrl+l'   # quick desktop pokes
-```
-
-## 6b. Publish a service for a person to open
-
-Use a domain publication when the result must be reachable over HTTPS outside the
-owner's private tunnel. Keep `vm open <id>:port/<n>` for private previews; it is
-not a shareable public URL.
-
-```bash
-# 1. Confirm the VM and port, then create a generated cmux hostname.
-cmux vm status <id>
-cmux vm ports <id>
-publication=$(cmux cloud domains publish <id> 3000 --access personal --json)
-echo "$publication" | jq -r '.publication.url'
-
-# 2. For a custom zone, start/continue verification and follow every record shown.
-cmux cloud domains verify example.com
-# Add the ownership TXT, apex/wildcard routing, and _acme-challenge NS records,
-# wait for DNS propagation, then run the same verify command again.
-cmux cloud domains publish <id> 3000 --domain app.example.com --access team --team <team-id>
-
-# 3. Check activation and hand off only the URL and intended policy.
-cmux cloud domains list --json | jq '.publications[] | {url,hostname,accessMode,state,verification}'
-cmux notify --title "Cloud preview ready" --body "Open the URL from cmux cloud domains list"
-```
-
-`personal` is the default and requires the publication owner to sign in; `team`
-requires a current member of the selected team and a `--team` id; `public` permits
-anyone with the URL. `cmux cloud domains access` changes that policy and `rm`
-unpublishes it. A custom zone is verified once and can then serve its apex or a
-single-label child; a generated cmux hostname needs no customer DNS records. Do
-not paste a public URL into logs or agent prompts unless the user intentionally
-chose `public`.
+Shells on desktop machines get `DISPLAY=:1`. Drive the desktop from inside the
+machine (for example `DISPLAY=:1 xdotool key ctrl+l`). `vm open <id>:desktop`,
+`vm open <id>:port/<n>` and `cloud domains publish|verify|access|rm` were removed;
+`cmux cloud machine-ports --target machine:vm-…` shows the ports in the app and
+`cmux cloud copy-machine-link --target machine:vm-… --port 3000` copies a private
+preview link. Publishing a public HTTPS domain has no CLI path now.
 
 ## 7. Showing the human
 
 ```bash
-cmux vm tree <id>                      # the map: which terminal is which, what is already open
-cmux vm open <id>/<ws>/<term>          # one terminal as a pane (reuses an open pane)
-cmux vm open <id>                      # shell (+ screen on desktop machines)
-cmux vm open <id>:desktop              # the screen
-cmux vm open <id>:port/3000            # the app they should look at
-cmux vm handoff <id>                   # attach block another human/agent can follow
+cmux cloud open-machine --target machine:vm-…
+cmux notify --title "Review ready" --body "tests tab has the results"
 ```
 
-Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--detach`/`--no-open` until the moment you intend the user to look; open commands run from an agent never steal focus unless you pass `--focus`; the pane appears in the background marked unread.
+`cmux notify` from a machine terminal appears on the Mac pane that shows that
+terminal. `cmux cloud hand-off-machine --target machine:vm-…` shows the app's handoff
+details.
 
 ## 8. Cleanup etiquette
 
-- New cmux-created machines normally remain available until explicitly paused or stopped; older/provider-managed machines may sleep. Opening or running a command wakes a sleeper, so leaving one for the user to inspect is fine (say so in your handoff).
-- If you only opened an existing workspace, close your local view. `vm workspace close` changes the remote workspace: it closes the workspace but leaves its terminals running in the Terminals pool.
-- `vm terminal close` ends a terminal; `vm workspace rm` kills every terminal in the workspace. Limit these to resources created for this task, confirm the affected terminals all belong to it, and stay within the authorized cleanup. The same ownership rule applies to deleting scratch machines and forks.
-- Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — `vm rm` deletes it permanently; `vm base reset` creates a new Base generation and retains the old machine.
+- Leaving a machine running for the user to inspect is fine; say so in your handoff.
+- `cmux terminal term_… close` ends a terminal; `cmux workspace ws_… close` closes a
+  workspace. Limit these to resources created for this task.
+- Never run `cmux cloud kill-machine` on a machine you didn't create without explicit
+  user confirmation.

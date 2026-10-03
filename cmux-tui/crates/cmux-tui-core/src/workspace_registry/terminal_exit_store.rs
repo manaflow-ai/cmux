@@ -3,12 +3,11 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::resource_store::validate_resource_patch;
+use super::resource_store::{apply_resource_patch_unrecorded, validate_resource_patch};
 use super::{
     RegistryTerminal, ResourcePatch, TerminalLifecycle, WorkspaceMutation, WorkspaceRegistry,
-    apply_resource_patch, canonical_json, read_terminal,
-    session_journal::append_resource_journal_record, transaction_resource_revision,
-    transaction_terminal_revision, validate_terminal_transition,
+    canonical_json, read_terminal, session_journal::append_resource_journal_record,
+    transaction_resource_revision, transaction_terminal_revision, validate_terminal_transition,
 };
 use crate::resource::WireDecimal;
 use crate::terminal_host_protocol::{TerminalExit, TerminalExitOutcome};
@@ -224,7 +223,7 @@ impl WorkspaceRegistry {
         let result_json = canonical_json(&result)?;
 
         if let Some((patch, _)) = topology {
-            apply_resource_patch(&tx, patch, sqlite_resource_revision)?;
+            apply_resource_patch_unrecorded(&tx, patch, sqlite_resource_revision)?;
         }
 
         tx.execute(

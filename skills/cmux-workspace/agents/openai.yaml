@@ -1,4 +1,4 @@
 interface:
   display_name: "cmux Workspace"
-  short_description: "Scope cmux automation to the current workspace, caller terminal, panes, and surfaces."
-  default_prompt: "Use this skill to identify the current cmux caller workspace and surface, then keep workspace, pane, surface, browser, sidebar, and socket actions scoped to that context unless the user explicitly names another target."
+  short_description: "Scope cmux automation to the current workspace, caller terminal, panes, and tabs."
+  default_prompt: "Use this skill to find the caller terminal from CMUX_TUI_TERMINAL_ID, then keep workspace, pane, tab, terminal, and browser actions scoped to its workspace unless the user explicitly names another target."

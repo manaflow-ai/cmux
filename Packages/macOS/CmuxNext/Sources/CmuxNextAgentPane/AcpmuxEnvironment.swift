@@ -66,12 +66,12 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     }
 
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
-    /// `/tmp/acpmux-<uid>-<fnv1a64(home)>.sock` when that is too long for
-    /// `sun_path` (96 bytes or more).
+    /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
+    /// when that is too long for `sun_path` (96 bytes or more).
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
         let preferred = home.appendingPathComponent("acpmux.sock").path
         if preferred.utf8.count < 96 { return preferred }
-        return "/tmp/acpmux-\(uid)-\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
+        return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
     }
 
     static func fnv1a64(_ text: String) -> UInt64 {

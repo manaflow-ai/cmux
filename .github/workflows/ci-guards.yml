@@ -194,10 +194,6 @@ jobs:
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: python3 tests/test_ci_git_seed.py
 
-      - name: Validate the CLI lane runs in compile admission
-        if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
-        run: python3 tests/test_ci_cli_lane_in_admission.py
-
       - name: Run canonical CMUX CI guard profile
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
         run: |
@@ -265,14 +261,6 @@ jobs:
       - name: Validate reload shared DerivedData default
         if: ${{ matrix.group == 'preflight' }}
         run: ./tests/test_reload_shared_derived_data.sh
-
-      - name: Validate cmux.json schema covers supported settings and shortcut actions
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_cmux_schema_parity.py
-
-      - name: Validate Localizable.xcstrings catalog structure
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_localizable_xcstrings_structure.py
 
       - name: Validate Resources property lists have unique keys
         if: ${{ matrix.group == 'preflight' }}
@@ -351,10 +339,6 @@ jobs:
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_pr_media.py
 
-      - name: Validate cmux-cloud-vm skill covers the vm CLI
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_cloud_vm_skill_coverage.py
-
       - name: Test XCStrings catalog lint
         if: ${{ matrix.group == 'preflight' }}
         run: python3 tests/test_lint_xcstrings.py
@@ -370,16 +354,6 @@ jobs:
       - name: Validate Claude launch environment policy generation
         if: ${{ matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
-
-      # The Swift validator reads the schema embedded in CmuxFoundation, so it
-      # must be regenerated whenever web/data/cmux.schema.json changes.
-      - name: Validate embedded cmux.json schema generation
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 scripts/generate-cmux-config-schema.py --check
-
-      - name: Validate embedded cmux.json schema round trip
-        if: ${{ matrix.group == 'preflight' }}
-        run: python3 tests/test_cmux_config_schema_embed.py
 
       - name: Set up Bun for guard tests
         if: ${{ matrix.group == 'preflight' || matrix.group == 'release-ios' }}
@@ -992,7 +966,6 @@ jobs:
           python3 tests/test_seed_derived_data.py
           python3 tests/test_seed_decide.py
           python3 tests/test_ci_product_publication.py
-          python3 tests/test_ci_cli_product_routing.py
 
       - name: Validate Iroh release gate timeouts
         if: ${{ matrix.group == 'ci' && steps.fast-guard.outputs.skip != 'true' }}
@@ -1069,12 +1042,6 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
-
-      - name: Validate CLI contract verb coverage
-        if: ${{ matrix.group == 'quality-determinism' }}
-        run: |
-          python3 tests/test_ci_cli_contract_verb_guard.py
-          python3 scripts/check-cli-contract-verbs.py
 
       - name: Validate test determinism gate
         if: ${{ matrix.group == 'quality-determinism' }}

@@ -5,7 +5,11 @@ import os
 /// (never in the daemon's personal state), so a run that ends without
 /// closing them (a crash, a kill) cannot bring their pages back in a normal
 /// window: the next launch closes them. Only workspace ids are written, no
-/// URL or title. A clean close or quit closes the workspaces itself.
+/// URL or title. A clean close or quit closes the workspaces itself. On a
+/// daemon with state resources incognito workspaces are ephemeral and the
+/// daemon's flag replaces this file (`WindowManager+Ephemeral`); it keeps
+/// only incognito workspaces the daemon does not know as such (a tab torn
+/// off into a new workspace).
 final class IncognitoWorkspaceLedger {
     private let url: URL
     private var written: Set<String>?
@@ -28,10 +32,6 @@ final class IncognitoWorkspaceLedger {
     nonisolated private struct Document: Codable, Sendable {
         var workspaces: [String]
     }
-
-    /// True when the last run left incognito workspaces: the file exists
-    /// only while it lists some (an existence check, no read).
-    var hasLeftovers: Bool { FileManager.default.fileExists(atPath: url.path) }
 
     /// The ids the last run left (read off the main thread).
     func load() async -> [String] {

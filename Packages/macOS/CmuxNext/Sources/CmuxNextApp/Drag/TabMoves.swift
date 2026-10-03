@@ -118,24 +118,25 @@ enum TabMoves {
         })
     }
 
-    /// Moves the tab into a new workspace at root `index` (in `group` when
-    /// set). Returns the new workspace key, or nil on failure. Daemons
-    /// without `tab-drag-v1` create it unplaced; it is then moved into place.
-    static func toNewWorkspace(_ tab: TabModel, group: WorkspaceGroupID? = nil, index: Int? = nil, services: AppServices,
+    /// Moves the tab into a new workspace at root `index`. Returns the new
+    /// workspace key, or nil on failure. Daemons without `tab-drag-v1`
+    /// create it unplaced; it is then moved into place. Workspace groups are
+    /// personal, so the new workspace never joins a shared group.
+    static func toNewWorkspace(_ tab: TabModel, index: Int? = nil, services: AppServices,
                                transaction: ClientTransactionID = .generate()) async -> WorkspaceKey? {
         let daemon = services.machines.daemon(forTab: tab)
         let surface = tab.surface
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
-            let result = try await connection.moveTabToNewWorkspace(surface, group: group, index: index, transaction: echoes ? transaction : nil)
+            let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
             if let resultKey = result.key {
                 created = resultKey
             } else {
                 created = try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
             }
-            if !echoes, let created { try await place(created, group: group, index: index, connection: connection) }
+            if !echoes, let created, let index { _ = try await connection.moveWorkspace(created, to: index) }
             return created
         }
         return key ?? nil
@@ -216,14 +217,5 @@ enum TabMoves {
             throw DaemonError.malformedResponse("pane for surface \(surface) not found")
         }
         return pane.id
-    }
-
-    /// Places a new workspace the daemon created unplaced.
-    static func place(_ key: WorkspaceKey, group: WorkspaceGroupID?, index: Int?, connection: DaemonConnection) async throws {
-        if let group {
-            _ = try await connection.moveWorkspace(key, toGroup: group, index: index)
-        } else if let index {
-            _ = try await connection.moveWorkspace(key, to: index)
-        }
     }
 }

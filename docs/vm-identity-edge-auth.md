@@ -1,5 +1,9 @@
 # VM identity at the TLS edge: automatic auth for machines, and machines talking to machines
 
+> **CLI note (2026-09-30):** the Mac-side `cmux vm …` verbs in this proposal were
+> removed in the Rust CLI cutover. The guest verbs (`cmux self`, `cmux vm ls`,
+> `cmux auth status`) still ship in the in-VM adapter.
+
 Status: the identity table and peer-grant broker below are NOT implemented; instead,
 **machine identity + reflection shipped on `freestyle-vm-agent-primitives` (2026-09-06)**
 on top of the VM-bound route token — see "What shipped" below. Owner: cloud VM control plane.

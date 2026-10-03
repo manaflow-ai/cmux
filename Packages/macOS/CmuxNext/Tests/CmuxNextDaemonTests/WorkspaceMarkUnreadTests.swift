@@ -44,9 +44,10 @@ import Testing
         #expect(store.workspace(key: key)?.markedUnread == true)
     }
 
-    @Test func markWaitsForTheHostedDaemon() {
-        #expect(!DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.notificationMarkUnread))
+    /// The cmux-tui tree serves it (the pin built from it must too).
+    @Test func markIsAnOptionalCapability() {
         #expect(DaemonCapabilities.shared.optional.contains(DaemonCapabilities.shared.notificationMarkUnread))
+        #expect(!DaemonCapabilities.shared.awaitingPin.contains(DaemonCapabilities.shared.notificationMarkUnread))
         #expect(DaemonCapabilities.shared.advertised.contains("notification-mark-unread-v1"))
     }
 }

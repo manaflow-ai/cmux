@@ -99,6 +99,62 @@ enum NewTabPage {
         if trimmed.contains(where: \.isNewline) { return .none }
         return .some(trimmed.isEmpty ? nil : trimmed + "\n")
     }
+
+    /// The page a new tab shows beside `selected`: that tab's kind
+    /// selected, its folder inherited, and the location bar's suggestions.
+    static func page(_ services: AppServices, selected: TabModel?) -> AgentPaneNewTab {
+        let selectedID = selected?.id
+        let hotkeys = newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
+        return AgentPaneNewTab(
+            kind: kind(selectedID: selectedID, selectedKind: selected?.kind),
+            hotkeys: hotkeys, cwd: selected?.cwd,
+            location: selected.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(abbreviated) },
+            omnibar: omnibar(services, excluding: selectedID),
+            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue
+        )
+    }
+
+    /// The page's handler: `open` is the pane's (it replaces the page with
+    /// a tab); the location bar's jumps, the shortcut and default-kind edits
+    /// and the chat record go through `services`.
+    static func handler(_ services: AppServices, cwd: String?,
+                        open: @escaping (String, AgentPaneTabKind, String, String?) -> Void) -> NewTabPageHandler {
+        NewTabPageHandler(
+            open: open,
+            jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
+            editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
+            setDefaultKind: { [weak services] kind in if let services { setDefaultKind(kind, services: services) } },
+            becameChat: { [weak services] in services?.newTabKinds.record(.agent, folder: cwd) }
+        )
+    }
+
+    /// Through the palette's switchers, the one path that reveals a tab's or
+    /// workspace's window and selects it.
+    static func jump(_ target: AgentPaneJumpTarget, id: String, services: AppServices) {
+        switch target {
+        case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
+        case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
+        }
+    }
+
+    /// Through the schema, as the Settings window writes it; an unknown
+    /// value from the page is ignored.
+    static func setDefaultKind(_ value: String, services: AppServices) {
+        guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
+              let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
+        Task {
+            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
+                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
+                    .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    static func editShortcut(_ kind: AgentPaneTabKind, services: AppServices) {
+        guard let id = newActions[kind] else { return }
+        services.palette.show(.keyboardShortcuts)
+        services.palette.shortcutRecorder.begin(id)
+    }
 }
 
 extension PaneController {
@@ -107,23 +163,10 @@ extension PaneController {
     func newTabPage() {
         let selectedID = stripModel.selectedID?.rawValue
         let cwd = selectedTab?.cwd
-        let hotkeys = NewTabPage.newActions.compactMapValues { services.registry.shortcutDisplay(for: $0) }
-        let page = AgentPaneNewTab(
-            kind: NewTabPage.kind(selectedID: selectedID, selectedKind: selectedTab?.kind),
-            hotkeys: hotkeys, cwd: cwd,
-            location: selectedTab.flatMap { $0.kind == .browser ? $0.url : $0.cwd.map(NewTabPage.abbreviated) },
-            omnibar: NewTabPage.omnibar(services, excluding: selectedID),
-            defaultKind: (services.settings?.snapshot.newTabKind ?? NewTabDefaultKind.fallback).rawValue
-        )
-        let handler = NewTabPageHandler(
-            open: { [weak self] key, kind, text, folder in
-                self?.replaceNewTabPage(key, with: kind, text: text, cwd: folder ?? cwd)
-            },
-            jump: { [weak self] target, id in self?.jumpFromNewTabPage(target, id: id) },
-            editShortcut: { [weak self] kind in self?.editNewTabShortcut(kind) },
-            setDefaultKind: { [weak self] kind in self?.setNewTabDefaultKind(kind) },
-            becameChat: { [weak self] in self?.services.newTabKinds.record(.agent, folder: cwd) }
-        )
+        let page = NewTabPage.page(services, selected: selectedTab)
+        let handler = NewTabPage.handler(services, cwd: cwd) { [weak self] key, kind, text, folder in
+            self?.replaceNewTabPage(key, with: kind, text: text, cwd: folder ?? cwd)
+        }
         let after = selectedID?.hasPrefix(LocalAgentTab.prefix) == true ? selectedID : nil
         showAgentTab(services.agentTabs.open(in: paneKey, of: daemon.store, after: after, newTab: (page, handler)))
     }
@@ -166,33 +209,5 @@ extension PaneController {
         case .agent:
             return
         }
-    }
-
-    /// Through the palette's switchers, the one path that reveals a tab's or
-    /// workspace's window and selects it.
-    private func jumpFromNewTabPage(_ target: AgentPaneJumpTarget, id: String) {
-        switch target {
-        case .tab: PaletteSourcesBridge.TabSource(services: services).selectTab(id: id)
-        case .workspace: PaletteSourcesBridge.WorkspaceSource(services: services).selectWorkspace(id: id)
-        }
-    }
-
-    /// Through the schema, as the Settings window writes it; an unknown
-    /// value from the page is ignored.
-    private func setNewTabDefaultKind(_ value: String) {
-        guard let kind = NewTabDefaultKind(rawValue: value), let settings = services.settings,
-              let descriptor = SettingsSchema.descriptor(for: NewTabDefaultKind.configPath) else { return }
-        Task {
-            do { try await settings.setSetting(descriptor, to: .string(kind.rawValue)) } catch {
-                Logger(subsystem: "com.cmuxterm.app.next", category: "newtab")
-                    .error("new tab kind write failed: \(String(describing: error), privacy: .public)")
-            }
-        }
-    }
-
-    private func editNewTabShortcut(_ kind: AgentPaneTabKind) {
-        guard let id = NewTabPage.newActions[kind] else { return }
-        services.palette.show(.keyboardShortcuts)
-        services.palette.shortcutRecorder.begin(id)
     }
 }

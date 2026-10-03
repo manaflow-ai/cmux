@@ -43,9 +43,9 @@ extension WorkspaceContentController {
             // pane), through the coordinator so history and the window's
             // remembered focus move too.
             focusRememberedPane(on: screen)
-            services.windows.stateDidChange(state)
+            services.windows.recordSaver.stateDidChange(state)
         case .scrollTo:
-            services.windows.stateDidChange(state)
+            services.windows.recordSaver.stateDidChange(state)
         case .dropTab(let tabID, let target):
             drop(tabID, on: target)
         case .newColumn(let after, let width):

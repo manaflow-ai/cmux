@@ -29,10 +29,6 @@ struct AppEnvironment: Sendable {
     /// integration (`GhosttyShellIntegration`). Resolved once per launch.
     var ghosttyResources: String?
     var ghosttyBinary: String?
-    /// The saved sidebars the first frame draws (`SidebarSnapshotStore`):
-    /// only the real app process sets it; without it nothing is read or
-    /// written (tests that build `AppServices`).
-    var sidebarSnapshotFile: SidebarSnapshotFile?
 
     var tag: String? { launch.tag }
 

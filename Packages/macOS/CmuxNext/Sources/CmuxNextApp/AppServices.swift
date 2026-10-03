@@ -15,10 +15,6 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
-    /// Each window's last sidebar, drawn before the daemon answers.
-    let sidebarSnapshots: SidebarSnapshotStore
-    /// Launch load-in by region; tests inject one with their own clock.
-    var launchReveal = LaunchReveal.shared
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -28,10 +24,6 @@ final class AppServices {
     /// The machine of the action being run, while its handler runs
     /// (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
-    /// Whether the action running now may change this client's focus,
-    /// selection, shown workspace or key window (true outside action runs:
-    /// direct UI gestures are the user's). Set by `ActionRouting`.
-    var viewChangeAllowed = true
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
@@ -55,8 +47,6 @@ final class AppServices {
     private(set) var previews: TabPreviewSource!
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
     private(set) var resources: AppResourceSource!
-    /// App side of the cmux CLI compat layer (window/focus state, intents).
-    private(set) var compat: AppCompatFrontend!
     let presentation = ContentPresentationScheduler()
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
@@ -66,8 +56,6 @@ final class AppServices {
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
     var keyboardGuardObservers: [any NSObjectProtocol] = []
-    /// Hook statuses shown in sidebar rows (`set_status`).
-    let statusBoard = WorkspaceStatusBoard()
     private(set) var emptyWorkspaces: EmptyWorkspaceRepair!
     /// Reopen Closed Tab history; set when the tab handlers bind.
     var closedTabs: ClosedTabTracker?
@@ -156,7 +144,6 @@ final class AppServices {
     private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
-        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)
@@ -246,7 +233,6 @@ final class AppServices {
         }
         dragSession = TabDragSession(services: self)
         previews = TabPreviewSource(cache: cache)
-        compat = AppCompatFrontend(services: self)
         remoteTerminals = RemoteTerminalService(services: self)
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }

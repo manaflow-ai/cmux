@@ -14,4 +14,8 @@ extension ActionRegistry {
         }
         return keys
     }
+
+    /// True while a shortcut recorder is open: the system-wide hot keys are
+    /// released, so pressing one records it instead of running its action.
+    public var globalHotKeysSuspended: Bool { context.contains(.recordingShortcut) }
 }

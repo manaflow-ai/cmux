@@ -1,0 +1,55 @@
+//! Help for the session-state scopes `closed` and `git`, kept out of
+//! `cli.rs` for its line budget.
+
+pub(super) const CLOSED_HELP: &str = "\
+USAGE
+  cmux closed list
+  cmux closed <closed> reopen
+
+The session keeps recently closed tabs, screens and workspaces. A tab reopens
+in its pane, a screen in its workspace, a workspace as a new workspace.
+";
+
+pub(super) const GIT_HELP: &str = "\
+USAGE
+  cmux git status [TARGET]
+  cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
+    [--max-files <n>] [<path>...]
+  cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
+    [--exclude <path,...>] [--reason manual|handoff] [--max-bytes <n>]
+    [--max-files <n>] [--expected-repository <id>] [--expected-worktree <id>]
+  cmux git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
+  cmux git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
+  cmux git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
+  cmux git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
+
+TARGET
+  --path <path>          A file or folder in the repository
+  --workspace <selector> The working directory of the workspace's current terminal
+  --screen <selector>    ... of the screen's current terminal
+  --pane <selector>      ... of the pane's current terminal
+  --tab <selector>       ... of the tab's terminal
+  --terminal <selector>  ... of the terminal
+  Without one, the current directory.
+
+SCOPES
+  uncommitted  The working tree against HEAD, with untracked files (default)
+  unstaged     The working tree against the index, with untracked files
+  staged       The index against HEAD
+  committed    HEAD against its first parent
+  branch       The working tree against the merge base with origin's default
+               branch (else main or master), with untracked files
+
+status prints the branch, upstream, how far it is ahead and behind, and the
+base branch. diff prints each changed file's status and line counts; --patch
+adds each file's patch from its first @@ line, cut at --max-patch-bytes
+(262144 by default). At most --max-files files (500) are listed; the rest are
+counted. Paths are relative to the repository root and taken literally.
+
+checkpoint create stores the index, the tracked worktree files and the named
+untracked files (or every eligible one) under refs/cmux/checkpoints/ without
+changing HEAD, the index or the worktree. Ignored, credential-like and
+oversized files are skipped and reported. A reused --idempotency-key replays
+the first result; get --key recovers it. Checkpoints expire after 7 days unless
+pinned; pins beginning handoff: or restore: belong to cmux.
+";

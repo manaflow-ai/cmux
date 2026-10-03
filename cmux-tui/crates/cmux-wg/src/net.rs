@@ -42,6 +42,7 @@ use crate::probing;
 use crate::stream::{Outbound, WgStream};
 use crate::timers::TimerSchedule;
 use crate::underlay::{Origin, SocketPath, Underlay, is_transient};
+use crate::watchdog::Watchdog;
 use crate::wire::{ip_address, packet_source, socket_addr};
 
 /// Per-socket receive and transmit buffers. Terminal traffic is small; the
@@ -366,6 +367,7 @@ struct Driver {
     /// a queued packet leave.
     pacer: Pacer,
     pace_deadline: Option<Instant>,
+    watchdog: Watchdog,
     wakeups: Arc<AtomicU64>,
     next_port: u16,
     scratch: Vec<u8>,
@@ -446,6 +448,7 @@ impl Driver {
             probe_deadline: None,
             pacer: Pacer::default(),
             pace_deadline: None,
+            watchdog: Watchdog::default(),
             wakeups: Arc::new(AtomicU64::new(0)),
             next_port: random_ephemeral_port(),
             scratch: vec![0u8; BUFFER_BYTES + 32],
@@ -477,10 +480,12 @@ impl Driver {
                     None => std::future::pending::<()>().await,
                 }
             };
-            let next_tick = [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline]
-                .into_iter()
-                .flatten()
-                .min();
+            let watchdog = self.watchdog.deadline(self.pacer.srtt());
+            let next_tick =
+                [self.schedule.next_tick(), self.probe_deadline, self.pace_deadline, watchdog]
+                    .into_iter()
+                    .flatten()
+                    .min();
             let timers = async {
                 match next_tick {
                     Some(at) => tokio::time::sleep_until(at).await,
@@ -508,6 +513,7 @@ impl Driver {
             };
             self.wakeups.fetch_add(1, Ordering::Relaxed);
             self.catch_up_timers();
+            self.run_watchdog();
             match event {
                 Event::Datagram(count, origin) => self.handle_datagram(&datagram[..count], origin),
                 Event::DatagramError(error) => {
@@ -535,6 +541,11 @@ impl Driver {
     fn handle_datagram(&mut self, datagram: &[u8], origin: Origin) {
         let mut input = datagram;
         let source = origin.addr.map(|addr| addr.ip());
+        let handshake = matches!(
+            classify(datagram),
+            DatagramClass::WireGuardInitiation | DatagramClass::WireGuardResponse
+        );
+        let mut replay = Vec::new();
         loop {
             match self.tunn.decapsulate(source, input, &mut self.scratch) {
                 TunnResult::Done => {
@@ -543,6 +554,7 @@ impl Driver {
                     // (Done for other messages, a cookie reply, proves less.)
                     if !input.is_empty() && classify(input) == DatagramClass::WireGuardData {
                         self.underlay.authenticated(origin);
+                        self.watchdog.on_inbound_data();
                     }
                     break;
                 }
@@ -557,10 +569,15 @@ impl Driver {
                         self.schedule.on_activity(Instant::now());
                     }
                     self.underlay.send(packet);
+                    // An answered handshake message begins a new session.
+                    if handshake && !input.is_empty() {
+                        replay = self.watchdog.on_new_session();
+                    }
                     input = &[];
                 }
                 TunnResult::WriteToTunnelV4(packet, _) | TunnResult::WriteToTunnelV6(packet, _) => {
                     self.underlay.authenticated(origin);
+                    self.watchdog.on_inbound_data();
                     let allowed = packet_source(packet)
                         .is_some_and(|source| self.config.routes_contain(source));
                     // A probe is answered here and is not activity.
@@ -578,6 +595,7 @@ impl Driver {
                 }
             }
         }
+        self.replay(replay);
     }
 
     /// Move what smoltcp emitted into the pacer, then encrypt and send what
@@ -612,6 +630,7 @@ impl Driver {
             {
                 self.underlay.send(encrypted);
             }
+            self.watchdog.on_data_sent(now, &packet);
         }
         if fresh {
             self.schedule.on_activity(now);
@@ -692,125 +711,6 @@ impl Driver {
             }
             Command::Shutdown => {}
         }
-    }
-
-    fn allocate_port(&mut self) -> u16 {
-        for _ in 0..EPHEMERAL_PORT_COUNT {
-            let port = self.next_port;
-            self.next_port = if self.next_port >= u16::MAX - 1 {
-                FIRST_EPHEMERAL_PORT
-            } else {
-                self.next_port + 1
-            };
-            let in_use = self.conns.iter().any(|conn| {
-                self.sockets
-                    .get::<tcp::Socket>(conn.handle)
-                    .local_endpoint()
-                    .is_some_and(|endpoint| endpoint.port == port)
-            });
-            if !in_use {
-                return port;
-            }
-        }
-        self.next_port
-    }
-
-    fn new_socket() -> tcp::Socket<'static> {
-        let mut socket = tcp::Socket::new(
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
-        );
-        // Keystrokes are latency-bound; the OS dial path disables Nagle too.
-        socket.set_nagle_enabled(false);
-        socket.set_congestion_control(tcp::CongestionControl::Cubic);
-        socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
-            u64::try_from(TCP_TIMEOUT.as_micros()).unwrap_or(u64::MAX),
-        )));
-        socket.set_keep_alive(Some(smoltcp::time::Duration::from_micros(
-            u64::try_from(TCP_KEEP_ALIVE.as_micros()).unwrap_or(u64::MAX),
-        )));
-        socket
-    }
-
-    fn begin_connect(
-        &mut self,
-        remote: SocketAddr,
-        reply: oneshot::Sender<Result<WgStream, WgError>>,
-    ) {
-        if reply.is_closed() {
-            return;
-        }
-        let Some(local_ip) = self.config.local_address_for(remote.ip()) else {
-            let _ = reply.send(Err(WgError::NoTunnelAddress(remote.ip())));
-            return;
-        };
-        let port = self.allocate_port();
-        let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket();
-        let result = socket.connect(
-            self.iface.context(),
-            IpEndpoint::new(ip_address(remote.ip()), remote.port()),
-            IpListenEndpoint::from(IpEndpoint::new(ip_address(local.ip()), local.port())),
-        );
-        if let Err(error) = result {
-            let _ = reply.send(Err(WgError::Stack(format!("{error}"))));
-            return;
-        }
-        let handle = self.sockets.add(socket);
-        let (conn, stream) = self.bridge(handle, local, remote);
-        self.conns.push(Conn { pending_stream: Some((Handoff::Connect(reply), stream)), ..conn });
-    }
-
-    fn begin_listen(&mut self, port: u16) -> Result<WgListener, WgError> {
-        if self.listeners.iter().any(|listener| listener.port == port) {
-            return Err(WgError::ListenerBusy(port));
-        }
-        let mut handles = Vec::with_capacity(LISTEN_SPARES);
-        for _ in 0..LISTEN_SPARES {
-            handles.push(self.listening_socket(port)?);
-        }
-        let (accept_tx, accept_rx) = mpsc::channel(LISTENER_BACKLOG);
-        self.listeners.push(Listener { port, handles, accept: accept_tx });
-        Ok(WgListener { port, incoming: accept_rx })
-    }
-
-    fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket();
-        socket
-            .listen(IpListenEndpoint::from(port))
-            .map_err(|error| WgError::Stack(format!("{error}")))?;
-        Ok(self.sockets.add(socket))
-    }
-
-    /// Build the channel pair for a socket: the driver-side [`Conn`] and the
-    /// owner-side [`WgStream`].
-    fn bridge(
-        &self,
-        handle: SocketHandle,
-        local: SocketAddr,
-        remote: SocketAddr,
-    ) -> (Conn, WgStream) {
-        let (inbound_tx, inbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
-        let (outbound_tx, outbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
-        let stream = WgStream {
-            local,
-            remote,
-            inbound: inbound_rx,
-            leftover: Bytes::new(),
-            outbound: PollSender::new(outbound_tx),
-            wake: Arc::clone(&self.wake),
-            shutdown_sent: false,
-        };
-        let conn = Conn {
-            handle,
-            remote,
-            pending_stream: None,
-            inbound: Some(inbound_tx),
-            outbound: outbound_rx,
-            pending_write: None,
-            outbound_closed: false,
-        };
-        (conn, stream)
     }
 
     fn process_listeners(&mut self) {
@@ -1015,6 +915,9 @@ impl Driver {
 
 #[path = "net_timers.rs"]
 mod timer_ops;
+
+#[path = "net_sockets.rs"]
+mod socket_ops;
 
 #[cfg(test)]
 #[path = "net_tests.rs"]

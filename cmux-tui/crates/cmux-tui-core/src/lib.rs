@@ -16,6 +16,7 @@ mod conversation_search;
 mod conversation_store;
 pub mod diagnostics;
 mod event_bus;
+mod git_ops;
 #[cfg(unix)]
 mod image_paste;
 #[cfg(unix)]
@@ -53,6 +54,7 @@ mod shell_integration;
 mod short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+mod state;
 mod stream_interrupt;
 mod surface;
 mod terminal_end;

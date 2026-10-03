@@ -13,8 +13,10 @@ struct GlobalHotKeyServiceTests {
         var onPress: ((UInt32) -> Void)?
         var held: [UInt32: CarbonHotKey] = [:]
         var refused: Set<CarbonHotKey> = []
+        var attempts = 0
 
         func register(_ hotKey: CarbonHotKey, number: UInt32) -> Bool {
+            attempts += 1
             guard !refused.contains(hotKey) else { return false }
             held[number] = hotKey
             return true
@@ -119,6 +121,52 @@ struct GlobalHotKeyServiceTests {
         #expect(Array(registrar.held.values) == [hotKey])
         registrar.press(hotKey)
         #expect(runs == 1)
+    }
+
+    @Test func aKeyRefusedToTheFirstActionIsStillTriedForALaterOne() {
+        func global(_ id: ActionID) -> ActionDescriptor {
+            var descriptor = ActionDescriptor(id: id, title: id.rawValue, defaultShortcut: Shortcut("k", modifiers: [.control, .option]), category: .window)
+            descriptor.isGlobalHotKey = true
+            return descriptor
+        }
+        let registry = ActionRegistry(catalog: [global("first"), global("second")])
+        registry.bind("first") {}
+        registry.bind("second") {}
+        let registrar = FakeRegistrar()
+        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_ANSI_K), modifiers: UInt32(controlKey | optionKey))
+        registrar.refused = [hotKey]
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        service.start()
+        defer { service.stop() }
+        // Another app holds the key: the refusal is not mistaken for the first action holding it.
+        #expect(registrar.attempts == 2)
+        #expect(service.conflicts == ["first", "second"])
+
+        registrar.refused = []
+        service.apply()
+        #expect(Array(registrar.held.values) == [hotKey])
+        #expect(service.conflicts == ["second"])
+    }
+
+    @Test func anOpenShortcutRecorderReleasesEveryHotKeyUntilItCloses() {
+        let (registry, registrar, service, _) = makeService()
+        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_ANSI_Period), modifiers: controlOptionCommand)
+        registrar.refused = [hotKey]
+        service.start()
+        defer { service.stop() }
+        #expect(service.conflicts == ["showHideAllWindows"])
+
+        registry.context.insert(.recordingShortcut)
+        service.apply()
+        #expect(registrar.held.isEmpty)
+        // The Settings warning stays while the recorder is open.
+        #expect(service.conflicts == ["showHideAllWindows"])
+
+        registrar.refused = []
+        registry.context.remove(.recordingShortcut)
+        service.apply()
+        #expect(Array(registrar.held.values) == [hotKey])
+        #expect(service.conflicts.isEmpty)
     }
 
     @Test func anUnboundActionRegistersNothing() {
