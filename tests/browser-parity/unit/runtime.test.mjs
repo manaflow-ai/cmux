@@ -228,15 +228,29 @@ test("rewrite: bindings persist across cells, including closures", async () => {
   assert.equal(err.error, "TypeError: boom");
 });
 
+// A promise the test settles, and timers that fire only when the test says,
+// so the cells below interleave in one fixed order on any machine.
+function deferred() {
+  let resolve;
+  const promise = new Promise((r) => { resolve = r; });
+  return { promise, resolve };
+}
+function manualTimers() {
+  const pending = [];
+  return { setTimeout: (fn) => pending.push(fn), fire: () => pending.splice(0).forEach((fn) => fn()) };
+}
+
 test("cancel: a cancel for an earlier cell id never ends the cell running now", async () => {
   const host = { setTimeout, clearTimeout, now: Date.now };
-  const repl = createReplSession({ host, globals: [] });
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ gate: gate.promise }] });
   const first = repl.evaluate("await new Promise(() => {})", { id: 1 });
   assert.equal(repl.cancel("timed out", 1), true);
   assert.equal((await first).ok, false);
   // A late cancel for cell 1 arrives while cell 2 runs.
-  const second = repl.evaluate("await new Promise((r) => setTimeout(() => r(42), 50))", { id: 2 });
+  const second = repl.evaluate("await gate", { id: 2 });
   repl.cancel("timed out", 1);
+  gate.resolve(42);
   const r = await second;
   assert.equal(r.ok, true, r.error);
   assert.equal(r.value, 42);
@@ -246,11 +260,17 @@ test("cancel: output a cancelled cell prints later does not reach the next cell"
   const printed = [];
   const host = { setTimeout, clearTimeout, now: Date.now };
   const console = { log: (...a) => printed.push(a.join(" ")) };
-  const repl = createReplSession({ host, globals: [{ console, setTimeout }] });
+  const timers = manualTimers();
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ console, setTimeout: timers.setTimeout, gate: gate.promise }] });
   const hung = repl.evaluate("setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
   repl.cancel("timed out", 1);
   await hung;
-  const next = await repl.evaluate("await new Promise((r) => setTimeout(r, 80)); console.log('cell 2')", { id: 2 });
+  // Cell 1's timer fires while cell 2 runs.
+  const running = repl.evaluate("await gate; console.log('cell 2')", { id: 2 });
+  timers.fire();
+  gate.resolve();
+  const next = await running;
   assert.equal(next.ok, true, next.error);
   assert.deepEqual(printed, ["cell 2"]);
 });
@@ -279,6 +299,17 @@ function fakeSession() {
   return { session, calls, fire };
 }
 
+// How a call stands once the event loop has nothing left to run: the fake
+// driver answers at once and the host's timers fire only on fire(), so a
+// call still "pending" after the queue drains is waiting on something
+// that will never come, with no wall clock involved.
+async function settledState(promise) {
+  const probe = { state: "pending" };
+  promise.then(() => { probe.state = "answered"; }, (e) => { probe.state = "failed: " + e.message; });
+  for (let turn = 0; turn < 100 && probe.state === "pending"; turn++) await new Promise((r) => setImmediate(r));
+  return probe.state;
+}
+
 test("handled events: a tab update that never settles holds later calls at most until the bound", async () => {
   const { session, calls, fire } = fakeSession();
   const page = session.pageFor("t1");
@@ -286,11 +317,9 @@ test("handled events: a tab update that never settles holds later calls at most 
   const first = session.call("tab.info", { targetId: "t1" });
   await new Promise((r) => setImmediate(r));
   fire();
-  const r = await Promise.race([first.then(() => "answered", (e) => "failed: " + e.message), new Promise((res) => setTimeout(() => res("still waiting"), 500))]);
-  assert.equal(r, "answered");
+  assert.equal(await settledState(first), "answered");
   // The tab is not locked: the next call goes straight through.
-  const second = await Promise.race([session.call("tab.info", { targetId: "t1" }).then(() => "answered", (e) => "failed: " + e.message), new Promise((res) => setTimeout(() => res("still waiting"), 500))]);
-  assert.equal(second, "answered");
+  assert.equal(await settledState(session.call("tab.info", { targetId: "t1" })), "answered");
   assert.equal(calls.filter((c) => c.method === "tab.info").length, 2);
 });
 
@@ -306,8 +335,7 @@ test("handled events: after a dropped update removing the last listener, the emp
   const call = session.call("tab.info", { targetId: "t1" });
   await new Promise((r) => setImmediate(r));
   fire();
-  await Promise.race([call, new Promise((res) => setTimeout(res, 500))]).catch(() => {});
-  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(await settledState(call), "answered");
   const updates = calls.filter((c) => c.method === "tab.handleEvents").map((c) => c.params.events);
   assert.deepEqual(updates.at(-1), [], JSON.stringify(updates));
 });
@@ -316,11 +344,17 @@ test("cancel: a function a cancelled cell defined still prints when a later cell
   const printed = [];
   const host = { setTimeout, clearTimeout, now: Date.now };
   const console = { log: (...a) => printed.push(a.join(" ")) };
-  const repl = createReplSession({ host, globals: [{ console, setTimeout }] });
+  const timers = manualTimers();
+  const gate = deferred();
+  const repl = createReplSession({ host, globals: [{ console, setTimeout: timers.setTimeout, gate: gate.promise }] });
   const hung = repl.evaluate("function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 30); await new Promise(() => {})", { id: 1 });
   repl.cancel("timed out", 1);
   await hung;
-  const next = await repl.evaluate("hello(); await new Promise((r) => setTimeout(r, 80)); console.log('cell 2')", { id: 2 });
+  // Cell 1's timer fires while cell 2 runs.
+  const running = repl.evaluate("hello(); await gate; console.log('cell 2')", { id: 2 });
+  timers.fire();
+  gate.resolve();
+  const next = await running;
   assert.equal(next.ok, true, next.error);
   assert.deepEqual(printed, ["hello", "cell 2"]);
 });

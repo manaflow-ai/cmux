@@ -144,13 +144,14 @@ struct BrowserReplSessionLifecycleTests {
         defer { session.close() }
         let hung = await browserReplWithDeadline(seconds: 30) {
             await session.evaluate(
-                code: "function hello() { console.log('hello'); } setTimeout(() => console.log('late from cell 1'), 400); await new Promise(() => {})",
+                code: "function hello() { console.log('hello'); } globalThis.lateDone = new Promise((done) => setTimeout(() => { console.log('late from cell 1'); done(); }, 400)); await new Promise(() => {})",
                 timeout: .milliseconds(200)
             )
         }
         #expect(hung?.error?.contains("timed out") == true)
         let next = await browserReplWithDeadline(seconds: 30) {
-            await session.evaluate(code: "hello(); await sleep(800); console.log('cell 2')", timeout: .seconds(10))
+            // Cell 2 runs until cell 1's timer has printed.
+            await session.evaluate(code: "hello(); await lateDone; console.log('cell 2')", timeout: .seconds(10))
         }
         #expect(next?.error == nil)
         #expect(next?.lines.map(\.text) == ["hello", "cell 2"])
