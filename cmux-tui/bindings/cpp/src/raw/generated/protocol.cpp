@@ -18056,6 +18056,11 @@ Result<Json> Codec<RestartTabRequest>::encode(const RestartTabRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("idempotency_key", std::move(encoded).value());
     }
+    if (value.only_lost) {
+        auto encoded = encode_value(*value.only_lost);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("only_lost", std::move(encoded).value());
+    }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
     object.emplace("surface", std::move(encoded_surface).value());
@@ -18100,6 +18105,12 @@ Result<RestartTabRequest> Codec<RestartTabRequest>::decode(const Json& value) {
             if (!decoded) return std::move(decoded).error();
             result.idempotency_key = Field<std::string>(std::move(decoded).value());
         }
+    }
+    const Json* field_only_lost = value.find("only_lost");
+    if (field_only_lost) {
+        auto decoded = decode_value<bool>(*field_only_lost);
+        if (!decoded) return std::move(decoded).error();
+        result.only_lost = std::move(decoded).value();
     }
     const Json* field_surface = value.find("surface");
     if (!field_surface) {

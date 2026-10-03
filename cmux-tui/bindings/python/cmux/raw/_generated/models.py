@@ -2742,6 +2742,7 @@ class RestartTabRequest:
     cwd: Union[str, None, MissingType] = field(default=MISSING)
     env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
     idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
+    only_lost: Union[bool, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 

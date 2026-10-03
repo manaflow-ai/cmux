@@ -14166,6 +14166,15 @@
       "nullable": true,
       "default": null
      },
+     "only_lost": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false
+     },
      "transaction": {
       "type": {
        "kind": "scalar",

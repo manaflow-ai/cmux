@@ -15,6 +15,7 @@ public final class RestartTabRequest implements WireValue {
     private final Field<String> cwd;
     private final Field<Map<String, String>> env;
     private final Field<String> idempotencyKey;
+    private final Field<Boolean> onlyLost;
     private final Object surface;
     private final Field<String> transaction;
 
@@ -22,6 +23,7 @@ public final class RestartTabRequest implements WireValue {
         this.cwd = builder.cwd;
         this.env = builder.env.map(value -> Collections.unmodifiableMap(new LinkedHashMap<>(value)));
         this.idempotencyKey = builder.idempotencyKey;
+        this.onlyLost = builder.onlyLost;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.transaction = builder.transaction;
@@ -32,6 +34,7 @@ public final class RestartTabRequest implements WireValue {
     public Field<String> cwd() { return cwd; }
     public Field<Map<String, String>> env() { return env; }
     public Field<String> idempotencyKey() { return idempotencyKey; }
+    public Field<Boolean> onlyLost() { return onlyLost; }
     public Object surface() { return surface; }
     public Field<String> transaction() { return transaction; }
 
@@ -50,6 +53,10 @@ public final class RestartTabRequest implements WireValue {
         if (!Wire.isMissing(rawIdempotencyKey)) {
             builder.idempotencyKey(rawIdempotencyKey == null ? null : Wire.string(rawIdempotencyKey, "RestartTabRequest.idempotency_key"));
         }
+        Object rawOnlyLost = Wire.optional(object, "only_lost");
+        if (!Wire.isMissing(rawOnlyLost)) {
+            builder.onlyLost(Wire.bool(rawOnlyLost, "RestartTabRequest.only_lost"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.immutableJson(rawSurface));
         Object rawTransaction = Wire.optional(object, "transaction");
@@ -65,6 +72,7 @@ public final class RestartTabRequest implements WireValue {
         Wire.put(object, "cwd", cwd);
         Wire.put(object, "env", env);
         Wire.put(object, "idempotency_key", idempotencyKey);
+        Wire.put(object, "only_lost", onlyLost);
         Wire.put(object, "surface", surface);
         Wire.put(object, "transaction", transaction);
         return Collections.unmodifiableMap(object);
@@ -73,11 +81,11 @@ public final class RestartTabRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof RestartTabRequest that)) return false;
-        return Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(cwd, that.cwd) && Objects.equals(env, that.env) && Objects.equals(idempotencyKey, that.idempotencyKey) && Objects.equals(onlyLost, that.onlyLost) && Objects.equals(surface, that.surface) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cwd, env, idempotencyKey, surface, transaction); }
+    public int hashCode() { return Objects.hash(cwd, env, idempotencyKey, onlyLost, surface, transaction); }
 
     @Override
     public String toString() { return "RestartTabRequest" + toWire(); }
@@ -86,6 +94,7 @@ public final class RestartTabRequest implements WireValue {
         private Field<String> cwd = Field.omitted();
         private Field<Map<String, String>> env = Field.omitted();
         private Field<String> idempotencyKey = Field.omitted();
+        private Field<Boolean> onlyLost = Field.omitted();
         private Object surface;
         private boolean surfaceSet;
         private Field<String> transaction = Field.omitted();
@@ -100,6 +109,10 @@ public final class RestartTabRequest implements WireValue {
         }
         public Builder idempotencyKey(String value) {
             this.idempotencyKey = Field.ofNullable(value);
+            return this;
+        }
+        public Builder onlyLost(Boolean value) {
+            this.onlyLost = Field.of(value);
             return this;
         }
         public Builder surface(Object value) {

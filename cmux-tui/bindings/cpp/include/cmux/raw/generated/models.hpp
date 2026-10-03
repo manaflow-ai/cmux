@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "db07b222dd8d6211552d7f5f209a31ef1f8245159335bd7854317a9319622f8a";
+inline constexpr std::string_view kProtocolIrSha256 = "699e17fed0393b0877f5d7fc9158cf830717adfc0775448b5bd472f024cd30d7";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2987,6 +2987,7 @@ struct RestartTabRequest {
     Field<std::string> cwd{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
     Field<std::string> idempotency_key{};
+    std::optional<bool> only_lost{};
     TabRef surface{};
     Field<std::string> transaction{};
     friend bool operator==(const RestartTabRequest&, const RestartTabRequest&) = default;
