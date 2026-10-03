@@ -176,7 +176,14 @@ native (`BrowserReplBoundary` in the session, and the driver):
   window remains. Captures get `secretMasks
   [{ value, domains }]`; the driver masks only in frames on those domains.
   Results, events, fetch responses, output, errors and written text are
-  redacted by the session.
+  redacted by the session. Another session that drives the same tab
+  (`tabs.use`) does not hold the secret, so the driver remembers each value
+  it typed, by tab, until the tab closes, and masks it in every result,
+  event and error it returns to any other session, and in their captures;
+  once the typing session ends, also for a later session of the same name.
+  This masks the value as typed and in the encodings the session's
+  redaction knows; page script that copies it elsewhere or transforms it
+  is outside it, as it is within one session.
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
