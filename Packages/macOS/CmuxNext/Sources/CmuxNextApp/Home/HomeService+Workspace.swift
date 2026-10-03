@@ -107,6 +107,13 @@ extension HomeService {
 
     func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
 
+    /// The strip title of conversation tab `tab`: its conversation's title.
+    func tabTitle(for tab: TabModel) -> String {
+        let id = tab.snapshot.conversation?.conversation
+        let title = conversations.first { $0.id == id }?.title ?? ""
+        return title.isEmpty ? HomeStrings.title : title
+    }
+
     /// The tab closed: its view goes with it.
     func releaseTabView(_ key: String) {
         tabViews.removeValue(forKey: key)
