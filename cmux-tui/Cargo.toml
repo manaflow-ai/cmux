@@ -28,6 +28,7 @@ members = [
     "crates/cmux-browser-host",
     "crates/cmux-tui-core",
     "crates/cmux-layout-reducer",
+    "crates/cmux-unix-socket",
     "crates/cmux-pty",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote",
@@ -105,6 +106,7 @@ ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
+cmux-unix-socket = { path = "crates/cmux-unix-socket" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }

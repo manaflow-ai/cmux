@@ -73,6 +73,9 @@ pub async fn listen_unix(hub: Arc<Hub>, path: PathBuf) -> Result<()> {
 
 /// Bind the daemon socket (mode 0600), refusing to steal a live one.
 pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
+    // A configured path longer than sun_path fails here with the path and
+    // the limit, never as a bare bind error.
+    cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
         use std::os::unix::fs::DirBuilderExt;

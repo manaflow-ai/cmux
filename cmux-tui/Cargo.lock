@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-unix-socket",
  "crossterm",
  "dirs",
  "futures",
@@ -1045,6 +1046,7 @@ dependencies = [
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
  "cmux-tui-machine-protocol",
+ "cmux-unix-socket",
  "cmux-wg",
  "crossbeam-channel",
  "crossterm",
@@ -1098,6 +1100,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-tui-cdp",
+ "cmux-unix-socket",
  "flate2",
  "fs4",
  "getrandom 0.3.4",
@@ -1142,6 +1145,14 @@ dependencies = [
 [[package]]
 name = "cmux-tui-source-watch"
 version = "0.0.0"
+
+[[package]]
+name = "cmux-unix-socket"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "tempfile",
+]
 
 [[package]]
 name = "cmux-wg"

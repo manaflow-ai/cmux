@@ -854,13 +854,7 @@ fn default_socket_path_in_runtime_dir(session: &str, runtime_dir: PathBuf) -> Pa
 
 #[cfg(unix)]
 fn unix_socket_path_fits(path: &Path) -> bool {
-    use std::os::unix::ffi::OsStrExt;
-
-    // Filesystem Unix sockets require a trailing NUL in sun_path, so the
-    // encoded pathname itself must be strictly shorter than the field.
-    const SUN_PATH_CAPACITY: usize =
-        size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
-    path.as_os_str().as_bytes().len() < SUN_PATH_CAPACITY
+    cmux_unix_socket::fits(path)
 }
 
 #[derive(Deserialize)]
@@ -6698,6 +6692,8 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         Some(path) => (path, false),
         None => (try_default_socket_path(&mux.session)?, true),
     };
+    // Refuse a path longer than sun_path before creating its parent or lock.
+    cmux_unix_socket::check_path(&path)?;
     // Only harden directories selected by the daemon. An explicit socket path
     // is authoritative, so its parent may be a shared or pre-configured path
     // such as /tmp and must not be chmod'ed or ownership-checked.
@@ -16451,8 +16447,6 @@ mod tests {
     use std::sync::mpsc::TryRecvError;
     use std::time::Duration;
 
-    static NEXT_TEST_SOCKET_DIR: AtomicU64 = AtomicU64::new(1);
-
     #[test]
     fn json_line_limit_excludes_the_newline_delimiter() {
         let exact_payload = "x".repeat(MAX_JSON_LINE_BYTES);
@@ -16470,43 +16464,18 @@ mod tests {
         assert!(json_line_payload_len(&oversized_line) > MAX_JSON_LINE_BYTES);
     }
 
-    struct TestSocketDir(PathBuf);
-
-    /// `/tmp` resolved (`/private/tmp` on macOS) on Unix, so derived-socket
-    /// checks that refuse symlinked directories accept it; elsewhere the
-    /// system temp directory.
-    fn short_socket_root() -> PathBuf {
-        #[cfg(unix)]
-        if let Ok(root) = std::fs::canonicalize("/tmp") {
-            return root;
-        }
-        std::env::temp_dir()
-    }
+    /// A test socket directory: a short directory under the canonical
+    /// `/tmp` from the shared helper, so socket paths fit sun_path whatever
+    /// `$TMPDIR` is (cmux_unix_socket::short_test_dir).
+    struct TestSocketDir(cmux_unix_socket::TestDir);
 
     impl TestSocketDir {
-        /// A fresh directory for test sockets. A Unix socket path must fit
-        /// `sun_path` (104 bytes on macOS), and a macOS `$TMPDIR` under
-        /// `/var/folders` already uses about half of it, so the directory is
-        /// under the canonical `/tmp` with a short name whatever `$TMPDIR` is.
         fn create(name: &str) -> Self {
-            let tag: String = name.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
-            let path = short_socket_root().join(format!(
-                "cts-{tag}-{}-{}",
-                std::process::id(),
-                NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
+            Self(cmux_unix_socket::short_test_dir(&format!("cts-{name}")))
         }
 
         fn path(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for TestSocketDir {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+            self.0.path()
         }
     }
 
@@ -16821,6 +16790,23 @@ mod tests {
         let pending = serve_paused(test_mux(), Some(directory.join("mux.sock"))).unwrap();
         drop(pending);
         assert_eq!(std::fs::metadata(&directory).unwrap().permissions().mode() & 0o777, 0o755);
+    }
+
+    /// A configured socket path longer than sun_path is refused with the
+    /// path and the limit, never a bare bind error.
+    #[cfg(unix)]
+    #[test]
+    fn serve_paused_names_a_socket_path_longer_than_sun_path() {
+        let root = TestSocketDir::create("long");
+        let directory = root.path().join("d".repeat(cmux_unix_socket::MAX_PATH_BYTES));
+        let socket = directory.join("mux.sock");
+        let Err(error) = serve_paused(test_mux(), Some(socket.clone())) else {
+            panic!("a socket path longer than sun_path must be refused");
+        };
+        let message = format!("{error:#}");
+        assert!(message.contains(&socket.display().to_string()), "{message}");
+        assert!(message.contains("Unix socket limit"), "{message}");
+        assert!(!directory.exists(), "nothing is created for a refused path");
     }
 
     #[test]
