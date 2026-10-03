@@ -195,7 +195,7 @@ struct CloudVPNSetupTests {
                 projectInLocalWorkspace: { _, _ in }, projectRemoteViewInLocalWorkspace: { _, _, _ in },
                 newTerminal: { _, _ in }, openGroup: { _, _, _, _ in }, openGroupAsWorkspace: { _, _, _ in },
                 newWorkspace: { _ in }, closeTerminal: { _ in }, closeWorkspace: { _, _ in }, renameWorkspace: { _, _ in },
-                renameTerminal: { _, _ in }, selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in },
+                renameTerminal: { _, _ in }, renameRemoteView: { _, _ in }, selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in },
                 copyPortLink: { _ in }, refresh: {}),
             expansionStore: CloudTreeExpansionStore(
                 defaults: try #require(UserDefaults(suiteName: "vpn-setup-\(UUID())"))),

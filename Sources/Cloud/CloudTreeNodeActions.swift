@@ -57,7 +57,7 @@ struct CloudTreeNodeActions {
     /// is not optional: a row without one exact tab does not offer the verb
     /// rather than falling back to an all-views rename the way a terminal pool
     /// row does. A display open in two workspaces is exactly that case.
-    var renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void = { _, _ in }
+    let renameRemoteView: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView) -> Void
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
     /// Copy the machine port's private URL without changing network state.

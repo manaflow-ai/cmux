@@ -490,6 +490,7 @@ private enum CloudSidebarDebugFixture {
         closeWorkspace: { _, _ in },
         renameWorkspace: { _, _ in },
         renameTerminal: { _, _ in },
+        renameRemoteView: { _, _ in },
         selectLocalWorkspace: { _ in },
         copyToPasteboard: { _ in },
         copyPortLink: { _ in },

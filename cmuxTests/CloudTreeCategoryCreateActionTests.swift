@@ -142,6 +142,7 @@ struct CloudTreeCategoryCreateActionTests {
                 newWorkspace: { eventBox.workspaceMachine = $0 },
                 closeTerminal: { _ in }, closeWorkspace: { _, _ in },
                 renameWorkspace: { _, _ in }, renameTerminal: { _, _ in },
+                renameRemoteView: { _, _ in },
                 selectLocalWorkspace: { _ in }, copyToPasteboard: { _ in }, copyPortLink: { _ in }, refresh: {},
                 newMachine: { eventBox.cloudVMActionCalled = true }
             )
