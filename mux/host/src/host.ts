@@ -52,7 +52,8 @@ export class HostAlreadyRunningError extends Error {}
 
 export class MuxHost {
   private readonly stateFile: HostStateFile;
-  private readonly core: Core;
+  /** Created in start(), after the MUX_HOME lock, so the state is read by its only writer. */
+  private core!: Core;
   private readonly log: (line: string) => void;
   private releaseLock?: () => void;
   private stopped = false;
@@ -75,7 +76,6 @@ export class MuxHost {
   constructor(private readonly options: HostOptions) {
     this.log = options.log ?? ((line) => console.error(`${new Date().toISOString()} mux host: ${line}`));
     this.stateFile = new HostStateFile(options.paths.hostState);
-    this.core = new Core(this.stateFile.load());
     this.ready = new Promise((resolve) => (this.readyResolve = resolve));
     this.stoppedSignal = new Promise((resolve) => (this.signalStop = resolve));
     this.fatal = new Promise<never>((_, reject) => (this.fail = reject));
@@ -92,6 +92,7 @@ export class MuxHost {
     const release = takeLock(this.options.paths.hostLock);
     if (!release) throw new HostAlreadyRunningError(`another mux host holds ${this.options.paths.hostLock}`);
     this.releaseLock = release;
+    this.core = new Core(this.stateFile.load());
     writeSessionDir(this.options.paths, this.options.self, this.options.sessionEnv, {
       mcp: this.options.mcpServers.length > 0,
     });
@@ -356,8 +357,11 @@ export class MuxHost {
     });
     try {
       const sessionId = await this.ensureMuxSession(acpmux);
-      const sessions = await acpmux.sessions();
-      await acpmux.watch(true);
+      // The session list from the watch call itself has no gap to the change
+      // notifications; an acpmux that does not return one is listed after watch.
+      const watched = (await acpmux.watch(true)) as { sessions?: unknown } | undefined;
+      const listed = watched?.sessions;
+      const sessions = Array.isArray(listed) ? (listed as SessionSummary[]) : await acpmux.sessions();
       const after = this.core.state.muxSessionId === sessionId ? this.core.state.acpmuxSeq : 0;
       const { events, cursorReset } = await this.attach(acpmux, sessionId, after);
       this.acpmux = acpmux;

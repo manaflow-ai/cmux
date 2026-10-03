@@ -544,6 +544,27 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("turns: an event without seq or msg folds as seq 0 and {}; an empty default conversation is none");
+    boot(c);
+    c.step(mux(ev(1, "turn_started")), ["typing"]);
+    const noSeq = { sessionId: MUX_SESSION, dir: "agent", kind: "agent_message_chunk", msg: { params: { update: { content: { type: "text", text: "unnumbered" } } } } };
+    c.step(mux(noSeq as unknown as AcpmuxEvent), []);
+    c.step(mux({ sessionId: MUX_SESSION, seq: 2, dir: "mux", kind: "queued" } as unknown as AcpmuxEvent), []);
+    c.step(mux(ev(3, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "unnumbered", "the unnumbered chunk counts");
+    });
+    cases.push(c.end());
+    const empty = new CaseBuilder("turns: with an empty default conversation a turn without a prompt posts nothing", { defaultConversation: "" });
+    empty.step(
+      { kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [ev(1, "turn_started"), chunk(2, "nowhere"), ev(3, "turn_end")] },
+      ["persist"],
+      (e) => empty.check(empty.persisted(e).outbox.length === 0, "no reply"),
+    );
+    cases.push(empty.end());
+  }
+
+  {
     const c = new CaseBuilder("turns: an attach replay at or below the saved cursor is ignored; newer events fold", {
       defaultConversation: "conv_a",
       muxSessionId: MUX_SESSION,
@@ -769,6 +790,47 @@ function outboxCases(): CorpusCase[] {
 
 function childCases(): CorpusCase[] {
   const cases: CorpusCase[] = [];
+
+  {
+    const c = new CaseBuilder("children: on reconnect a child in waiting whose session is ready finishes", {
+      defaultConversation: "conv_a",
+      muxSessionId: MUX_SESSION,
+      children: { s_w: { conversation: "conv_a", name: "writer", status: "waiting", messageId: "m_w", edits: 1 } },
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    const ready = session("s_w", "writer", "ready", { turnCount: 2, lastSeq: 8 });
+    c.step({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [ready], events: [] }, ["fetch_child_events", "list_conversations"]);
+    c.step({ kind: "child_events", session_id: "s_w", events: [] }, ["persist", "prompt", "conversation_op"], (e) => {
+      c.check(c.get(e, "prompt").prompt_id === "child:s_w:2", "finished");
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.edit" && op.op.message_id === "m_w" && op.op.parts[0].type === "work" && op.op.parts[0].status === "done", "card done");
+    });
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("children: a child first seen ready gets a done card");
+    boot(c);
+    c.step({ kind: "session_changed", session: session("s_n", "late", "ready", { turnCount: 1 }) }, ["persist", "conversation_op"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "work" && op.op.parts[0].status === "done", "done card");
+      c.check(c.persisted(e).children.s_n.status === "done", "record done");
+    });
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("children: a session without stateSeq or turnCount finishes as child:<id>:0");
+    boot(c);
+    const { stateSeq: _drop, ...noSeq } = session("s_q", "quiet", "running");
+    void _drop;
+    c.step({ kind: "session_changed", session: noSeq as SessionSummary }, ["persist", "conversation_op"]);
+    c.step({ kind: "session_changed", session: { ...noSeq, status: "idle" } as SessionSummary }, ["fetch_child_events"]);
+    c.step({ kind: "child_events", session_id: "s_q", events: [] }, ["persist", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").prompt_id === "child:s_q:0", `got ${c.get(e, "prompt").prompt_id}`),
+    );
+    cases.push(c.end());
+  }
 
   {
     const c = new CaseBuilder("children: changes of a child whose finish waits for its events are held and replayed in order");

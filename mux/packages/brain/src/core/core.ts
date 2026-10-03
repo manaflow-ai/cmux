@@ -651,7 +651,9 @@ export class Core {
     const existing = this.state.children[session.sessionId];
     if (existing) return { ...existing };
     const conversation = this.conversationFor(this.folder.running?.promptId) ?? "";
-    const child: ChildRecord = { conversation, name: session.name, status: "running", edits: 0 };
+    // A child first seen ready or idle gets a done card (closed: failed, waiting: waiting).
+    const status = workStatus(session.status);
+    const child: ChildRecord = { conversation, name: session.name, status, edits: 0 };
     this.state.children[session.sessionId] = child;
     if (conversation) {
       const key = `work:${session.sessionId}`;
@@ -659,7 +661,7 @@ export class Core {
         conversation,
         idempotency_key: key,
         child: session.sessionId,
-        op: { kind: "message.send", client_msg_id: key, parts: [workPart(session.name, "running", session.lastPrompt)] },
+        op: { kind: "message.send", client_msg_id: key, parts: [workPart(session.name, status, session.lastPrompt)] },
       });
     }
     this.dirty = true;
@@ -709,7 +711,7 @@ export class Core {
   private finishChild(session: SessionSummary, reply: string): void {
     this.childTurnFloor.set(session.sessionId, session.lastSeq ?? 0);
     this.editWork(session.sessionId, session.name, workStatus(session.status), excerpt(reply, 200) || session.preview);
-    const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq}`;
+    const promptId = `child:${session.sessionId}:${session.turnCount ?? session.stateSeq ?? 0}`;
     this.state.prompts[promptId] = {
       conversation: this.childConversation(session.sessionId),
       text: childFinishedPrompt(session, reply),
@@ -774,7 +776,8 @@ export class Core {
         if (child.status === "running" || child.status === "waiting") this.editWork(sessionId, child.name, "failed");
         continue;
       }
-      if (child.status === "running" && (session.status === "ready" || session.status === "idle"))
+      // A turn (or a permission wait) that ended while the host was away.
+      if ((child.status === "running" || child.status === "waiting") && (session.status === "ready" || session.status === "idle"))
         this.childFinished(session);
     }
     this.flushOutbox();

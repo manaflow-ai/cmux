@@ -17,6 +17,7 @@ export interface SessionSummary {
   cwd: string;
   status: SessionStatus;
   pendingPermissions: number;
+  /** Missing reads as 0. */
   stateSeq: number;
   lastSeq?: number;
   turnCount?: number;
@@ -88,10 +89,14 @@ export class TurnFolder {
   }
 
   apply(event: AcpmuxEvent): TurnOutput[] {
-    if (event.seq > 0) {
-      if (event.seq <= this.lastSeq) return [];
-      this.lastSeq = event.seq;
+    // A missing seq, msg, dir or kind reads as 0, {}, "" or "" (the Rust core's serde defaults).
+    const seq = typeof event.seq === "number" ? event.seq : 0;
+    const msg = event.msg ?? {};
+    if (seq > 0) {
+      if (seq <= this.lastSeq) return [];
+      this.lastSeq = seq;
     }
+    event = { ...event, seq, msg };
     const out: TurnOutput[] = [];
     if (event.dir === "mux" && event.kind === "user_message") {
       const promptId = promptIdOf(event.msg);
