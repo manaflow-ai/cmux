@@ -37,13 +37,19 @@ export interface TeamSshState {
 export const MAX_CERT_MS = 60 * 60_000
 export const FIRST_UID = 20_000
 export const UID_BLOCK = 4
-/** Bound on live revocations (each expires within an hour); a full list refuses, never drops. */
+/** Bound on live revocations that members make (each expires within an hour); a full list refuses, never drops. */
 export const MAX_REVOKED = 10_000
+/** Owners and admins may revoke past MAX_REVOKED up to this hard bound, so members cannot block an admin's revoke. */
+export const MAX_REVOKED_ADMIN = 20_000
+/** A revoked serial stays in the KRL this long past its expiry, for a team VM whose clock is behind. */
+export const KRL_GRACE_MS = 5 * 60_000
+/** UIDs stay below 60000 (65534 is nobody); the next block past it is refused. */
+export const MAX_UID = 60_000
 const MAX_REVOKED_CA_KEYS = 16
 
 /** System users and names the team VM's image or reconciler use (no member may take them). */
 const RESERVED = new Set(
-  "root daemon bin sys sync games man lp mail news uucp proxy backup list irc gnats nobody sshd systemd messagebus syslog ubuntu admin administrator gate cmux team teams app apps run runs mux muxes agent agents postgres www tss uuidd lxd dnsmasq landscape pollinate fwupd polkitd usbmux tcpdump operator halt shutdown ftp guest user users staff wheel sudo adm audit".split(
+  "root daemon bin sys sync games man lp mail news uucp proxy backup list irc gnats nobody nogroup sshd systemd messagebus syslog ubuntu debian admin administrator gate cmux team teams app apps run runs mux muxes agent agents postgres mysql mariadb redis mongodb memcache memcached rabbitmq elasticsearch www nginx apache httpd caddy git gitlab docker containerd podman node npm ntp chrony chronyd juicefs freestyle cups lpadmin avahi colord rtkit pulse saned geoclue gdm lightdm dhcp dhcpcd named bind unbound tss uuidd lxd dnsmasq landscape pollinate fwupd polkitd usbmux tcpdump operator halt shutdown ftp guest user users staff wheel sudo adm audit kmem tty disk dialout cdrom floppy video plugdev netdev input render kvm ssl crontab".split(
     " "
   )
 )
@@ -85,7 +91,7 @@ export const trustedCaKeys = (s: TeamSshState, now: number): Array<string> => {
 /** The KRL for the current state (deterministic: same state, same bytes). */
 export const krlFor = (s: TeamSshState, now: number): Uint8Array => {
   const cas = [s.ssh_ca, s.ssh_ca?.previous].filter((c): c is SshCaKey => Boolean(c))
-  const live = Object.entries(s.ssh_revoked ?? {}).filter(([, r]) => r.valid_before > now)
+  const live = Object.entries(s.ssh_revoked ?? {}).filter(([, r]) => r.valid_before + KRL_GRACE_MS > now)
   return buildKrl({
     version: s.ssh_krl?.version ?? 0,
     generatedAt: Math.floor((s.ssh_krl?.at ?? 0) / 1000),
@@ -117,7 +123,9 @@ export const reduceCaInstalled = <S extends TeamSshState & AuditState>(state: S,
   if (p.generation !== (cur?.generation ?? 0) + 1) return reject("revision.conflict", "the CA generation moved; retry")
   if (!/^ssh-ed25519 [A-Za-z0-9+/]+={0,2} /.test(p.public_key)) return reject("validation.invalid", "CA public key must be an ssh-ed25519 line")
   const previous = cur ? { generation: cur.generation, public_key: cur.public_key, created_at: cur.created_at, trusted_until: p.compromised ? ctx.now : ctx.now + MAX_CERT_MS } : undefined
-  const revokedCa = cur && p.compromised ? [...(state.ssh_revoked_ca_keys ?? []), cur.public_key].slice(-MAX_REVOKED_CA_KEYS) : state.ssh_revoked_ca_keys
+  // A compromised rotation also revokes a CA that a plain rotation left trusted (both may be known to an attacker).
+  const graced = cur?.previous && cur.previous.trusted_until > ctx.now ? [cur.previous.public_key] : []
+  const revokedCa = cur && p.compromised ? [...(state.ssh_revoked_ca_keys ?? []), ...graced, cur.public_key].slice(-MAX_REVOKED_CA_KEYS) : state.ssh_revoked_ca_keys
   const next: S = {
     ...state,
     ssh_ca: { generation: p.generation, public_key: p.public_key, created_at: ctx.now, ...(previous ? { previous } : {}) },
@@ -134,11 +142,11 @@ export const reduceCaInstalled = <S extends TeamSshState & AuditState>(state: S,
 }
 
 export const reduceCertsRevoked = <S extends TeamSshState & AuditState>(state: S, team: string, params: unknown, ctx: ReduceContext): Out<S> => {
-  const p = params as { serials: ReadonlyArray<{ serial: number; valid_before: number; generation: number }>; by: string; reason: string }
-  const kept = Object.fromEntries(Object.entries(state.ssh_revoked ?? {}).filter(([, r]) => r.valid_before > ctx.now))
-  const added = p.serials.filter((s) => s.valid_before > ctx.now && !kept[String(s.serial)])
+  const p = params as { serials: ReadonlyArray<{ serial: number; valid_before: number; generation: number }>; by: string; admin?: boolean; reason: string }
+  const kept = Object.fromEntries(Object.entries(state.ssh_revoked ?? {}).filter(([, r]) => r.valid_before + KRL_GRACE_MS > ctx.now))
+  const added = p.serials.filter((s) => s.valid_before + KRL_GRACE_MS > ctx.now && !kept[String(s.serial)])
   if (added.length === 0) return { ok: true, state, value: { revoked: [], krl_version: state.ssh_krl?.version ?? 0 }, changed: false }
-  if (Object.keys(kept).length + added.length > MAX_REVOKED) return reject("team_vm.ssh_revocations_full", "too many live revocations; rotate the CA with compromised = true instead")
+  if (Object.keys(kept).length + added.length > (p.admin ? MAX_REVOKED_ADMIN : MAX_REVOKED)) return reject("team_vm.ssh_revocations_full", "too many live revocations; rotate the CA with compromised = true instead")
   for (const s of added) kept[String(s.serial)] = { valid_before: s.valid_before, generation: s.generation }
   const version = (state.ssh_krl?.version ?? 0) + 1
   const next: S = { ...state, ssh_revoked: kept, ssh_krl: { version, at: ctx.now } }
@@ -154,5 +162,6 @@ export const reduceAccountAllocated = <S extends TeamSshState & { readonly membe
   if (existing) return { ok: true, state, value: existing, changed: false }
   const taken = new Set(Object.values(state.vm_accounts ?? {}).map((a) => a.name))
   const account: VmAccount = { name: allocateLinuxName(member.display_name, taken), uid: state.vm_next_uid ?? FIRST_UID }
+  if (account.uid + UID_BLOCK > MAX_UID) return reject("team_vm.ssh_accounts_full", "this team has used every Linux UID block")
   return { ok: true, state: { ...state, vm_accounts: { ...state.vm_accounts, [user]: account }, vm_next_uid: account.uid + UID_BLOCK }, value: account }
 }

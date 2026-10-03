@@ -150,6 +150,8 @@ export const teamSshInternalOps: ReadonlyArray<CloudOpDef> = [
     Schema.Struct({
       serials: Schema.Array(Schema.Struct({ serial: Schema.Int, valid_before: Schema.Int, generation: Schema.Int })),
       by: Schema.String,
+      /** An owner or admin revoked (may pass the members' bound on live revocations). */
+      admin: Schema.optionalKey(Schema.Boolean),
       reason: Schema.String
     }),
     "Internal: certificates found in the issued log were revoked."

@@ -4,7 +4,7 @@ import type { Principal, ReduceContext } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
-import { allocateLinuxName, linuxNameBase, MAX_CERT_MS } from "../src/domains/team-ssh.ts"
+import { allocateLinuxName, KRL_GRACE_MS, linuxNameBase, MAX_CERT_MS } from "../src/domains/team-ssh.ts"
 import { sshExternal } from "../src/team-ssh-ca.ts"
 import { parseUserKey } from "../src/team-ssh-wire.ts"
 
@@ -194,6 +194,9 @@ describe("team SSH CA (TeamDO reducer)", () => {
     const again = ok(sys(b.state, "team_vm.ssh_account_allocated", { user: OWNER }))
     expect(again.changed).toBe(false)
     expect(sys(b.state, "team_vm.ssh_account_allocated", { user: "user_00000000000000000099" })).toMatchObject({ ok: false, code: "auth.forbidden" })
+    // UIDs stop before the system range at the top (65534 is nobody).
+    expect(sys({ ...a.state, vm_next_uid: 59_997 }, "team_vm.ssh_account_allocated", { user: MEMBER })).toMatchObject({ ok: false, code: "team_vm.ssh_accounts_full" })
+    expect(allocateLinuxName("Git Lab", new Set())).toBe("git2")
   })
 
   it("internal SSH ops refuse people; the signing ops never enter the reducer or the wire", () => {
@@ -219,12 +222,22 @@ describe("team SSH CA (TeamDO reducer)", () => {
 
   it("revocations bump the KRL version, drop expired entries and ignore repeats", () => {
     const s1 = ok(sys(base(), "team_vm.ssh_ca_installed", { generation: 1, public_key: CA1, compromised: false, by: OWNER }, 1_000)).state
-    const r = ok(sys(s1, "team_vm.ssh_certs_revoked", { serials: [{ serial: 4, valid_before: 9_000, generation: 1 }, { serial: 5, valid_before: 2_000, generation: 1 }], by: OWNER, reason: "" }, 3_000))
+    const r = ok(sys(s1, "team_vm.ssh_certs_revoked", { serials: [{ serial: 4, valid_before: 9_000, generation: 1 }, { serial: 5, valid_before: 2_000, generation: 1 }], by: OWNER, reason: "" }, 2_000 + KRL_GRACE_MS))
     expect(r.value).toEqual({ revoked: [4], krl_version: 2 })
     expect(Object.keys(r.state.ssh_revoked!)).toEqual(["4"])
-    expect(ok(sys(r.state, "team_vm.ssh_certs_revoked", { serials: [{ serial: 4, valid_before: 9_000, generation: 1 }], by: OWNER, reason: "" }, 3_500)).changed).toBe(false)
-    const later = ok(sys(r.state, "team_vm.ssh_certs_revoked", { serials: [{ serial: 6, valid_before: 20_000, generation: 1 }], by: OWNER, reason: "" }, 10_000)).state
-    expect(Object.keys(later.ssh_revoked!)).toEqual(["6"])
+    expect(ok(sys(r.state, "team_vm.ssh_certs_revoked", { serials: [{ serial: 4, valid_before: 9_000, generation: 1 }], by: OWNER, reason: "" }, 2_500 + KRL_GRACE_MS)).changed).toBe(false)
+    // A revoked serial stays listed for KRL_GRACE_MS past expiry (a team VM clock that runs behind).
+    const graced = ok(sys(r.state, "team_vm.ssh_certs_revoked", { serials: [{ serial: 6, valid_before: 400_000, generation: 1 }], by: OWNER, reason: "" }, 9_000 + KRL_GRACE_MS - 1)).state
+    expect(Object.keys(graced.ssh_revoked!).sort()).toEqual(["4", "6"])
+    const later = ok(sys(graced, "team_vm.ssh_certs_revoked", { serials: [{ serial: 7, valid_before: 9e9, generation: 1 }], by: OWNER, reason: "" }, 400_000 + KRL_GRACE_MS)).state
+    expect(Object.keys(later.ssh_revoked!)).toEqual(["7"])
+  })
+
+  it("a compromised rotation inside another rotation's grace window revokes both older CA keys", () => {
+    const s1 = ok(sys(base(), "team_vm.ssh_ca_installed", { generation: 1, public_key: CA1, compromised: false, by: OWNER }, 1_000)).state
+    const s2 = ok(sys(s1, "team_vm.ssh_ca_installed", { generation: 2, public_key: CA2, compromised: false, by: OWNER }, 2_000)).state
+    const s3 = ok(sys(s2, "team_vm.ssh_ca_installed", { generation: 3, public_key: CA1.replace("ca-1", "ca-3"), compromised: true, by: OWNER }, 3_000)).state
+    expect(s3.ssh_revoked_ca_keys).toEqual([CA1, CA2])
   })
 })
 
@@ -356,6 +369,14 @@ describe("team SSH CA (TeamDO, workerd)", () => {
       engine.state = { ...engine.currentState, hosts: { ...engine.currentState.hosts, [host.id]: host } }
     })
     expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "mac", "inst_00000000000000000099"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
+    // A removed server whose install revocation is still pending is refused too.
+    await inDO(t.stub, async (instance) => {
+      const engine = instance.boundEngine
+      engine.state = { ...engine.currentState, server_revocations: { inst_00000000000000000098: { install: "inst_00000000000000000098", owner_user: t.owner, by: t.owner, at: 1 } } }
+    })
+    expect((await t.op(t.install(t.owner, ["read", "mutate-own", "execute"], "mac", "inst_00000000000000000098"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
+    // execute alone does not give the agent class (it needs mutate-own).
+    expect((await t.op(t.install(t.owner, ["read", "execute"]), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_class_refused")
   })
 
   it("revocation lists serials in the KRL; members revoke only their own; owners revoke anyone's", async () => {
@@ -366,7 +387,8 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: owners })).error!.code).toBe("auth.forbidden")
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { user: t.owner })).error!.code).toBe("auth.forbidden")
     expect((await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: mine, user: t.member })).error!.code).toBe("validation.invalid")
-    const r = await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: mine, reason: "lost laptop" })
+    // A long client idempotency key still fits the owner's ledger key (it is hashed).
+    const r = await t.op(t.memberP, "team_vm.ssh_cert.revoke", { serial: mine, reason: "lost laptop" }, "k".repeat(120))
     expect(r.value.revoked).toEqual([mine])
     let krl = readKrl((await t.ca()).value.krl)
     expect(krl.serials).toEqual([mine])
@@ -394,10 +416,19 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     expect(hard.value.generation).toBe(3)
     const view = (await t.ca()).value
     expect(view.trusted_ca_keys).toEqual([hard.value.ca_public_key])
-    expect(readKrl(view.krl).keys).toEqual([rot.value.ca_public_key.split(" ")[1]])
+    expect(readKrl(view.krl).keys).toEqual([first.ca_public_key.split(" ")[1], rot.value.ca_public_key.split(" ")[1]])
     // Only the current key is stored, sealed.
     const gens = await inDO(t.stub, async (_i, state) => (state.storage.sql.exec(`SELECT generation FROM ssh_ca_keys`).toArray() as Array<{ generation: number }>).map((x) => x.generation))
     expect(gens).toEqual([3])
+    // A sealed row left by a crashed attempt is never reused by a compromised rotation.
+    const stale = await inDO(t.stub, async (_i, state) => {
+      const row = state.storage.sql.exec(`SELECT sealed, public_key FROM ssh_ca_keys WHERE generation = 3`).toArray()[0] as { sealed: string; public_key: string }
+      state.storage.sql.exec(`INSERT INTO ssh_ca_keys (generation, sealed, public_key) VALUES (4, ?, ?)`, row.sealed, row.public_key.replace("ca-3", "ca-4"))
+      return row.public_key.replace("ca-3", "ca-4")
+    })
+    const fresh = await t.op(t.ownerP, "team_vm.ssh_ca.rotate", { compromised: true })
+    expect(fresh.value.generation).toBe(4)
+    expect(fresh.value.ca_public_key).not.toBe(stale)
   })
 
   it("refuses without a KEK and rate-limits issuance per caller", async () => {
@@ -423,5 +454,8 @@ describe("team SSH CA (TeamDO, workerd)", () => {
     const limited = await t.op(t.memberP, "team_vm.ssh_cert", { public_key: key })
     expect(limited.error).toMatchObject({ code: "team_vm.ssh_rate_limited", retryable: true })
     expect((await t.op(t.ownerP, "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
+    // Per person across installs: a second install gets 30 more, a third gets none.
+    for (let i = 0; i < 30; i++) expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000082"), "team_vm.ssh_cert", { public_key: key })).ok).toBe(true)
+    expect((await t.op(t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000083"), "team_vm.ssh_cert", { public_key: key })).error!.code).toBe("team_vm.ssh_rate_limited")
   })
 })
