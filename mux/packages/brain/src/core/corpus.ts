@@ -74,7 +74,14 @@ const withoutLogs = (effects: Effect[]) => plain(effects.filter((effect) => effe
 export function runCase(c: CorpusCase): string | undefined {
   const core = new Core(c.state);
   for (const [index, step] of c.steps.entries()) {
-    const input = step.input_text === undefined ? step.input : (JSON.parse(step.input_text) as Input);
+    let input = step.input;
+    if (step.input_text !== undefined) {
+      try {
+        input = JSON.parse(step.input_text) as Input;
+      } catch (error) {
+        return `${c.name}: step ${index}: input_text: ${String(error)}`;
+      }
+    }
     if (input === undefined) return `${c.name}: step ${index}: no input`;
     const got = withoutLogs(core.step(plain(input), step.now));
     const want = withoutLogs(step.effects);

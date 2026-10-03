@@ -8315,6 +8315,36 @@
     },
     {
      "now": 1790985600009,
+     "input_text": "{\"kind\":\"acpmux_event\",\"event\":{\"sessionId\":\"s_mux\",\"seq\":4.5,\"dir\":\"agent\",\"kind\":\"agent_message_chunk\",\"msg\":{\"params\":{\"update\":{\"content\":{\"type\":\"text\",\"text\":\" dropped\"}}}}}}",
+     "effects": [
+      {
+       "kind": "log",
+       "line": "dropping acpmux event agent_message_chunk: seq and at must be non-negative integers"
+      }
+     ]
+    },
+    {
+     "now": 1790985600010,
+     "input_text": "{\"kind\":\"acpmux_event\",\"event\":{\"sessionId\":\"s_mux\",\"seq\":-4.0,\"dir\":\"agent\",\"kind\":\"agent_message_chunk\",\"msg\":{\"params\":{\"update\":{\"content\":{\"type\":\"text\",\"text\":\" dropped\"}}}}}}",
+     "effects": [
+      {
+       "kind": "log",
+       "line": "dropping acpmux event agent_message_chunk: seq and at must be non-negative integers"
+      }
+     ]
+    },
+    {
+     "now": 1790985600011,
+     "input_text": "{\"kind\":\"acpmux_event\",\"event\":{\"sessionId\":\"s_mux\",\"seq\":9007199254740992.0,\"dir\":\"agent\",\"kind\":\"agent_message_chunk\",\"msg\":{\"params\":{\"update\":{\"content\":{\"type\":\"text\",\"text\":\" dropped\"}}}}}}",
+     "effects": [
+      {
+       "kind": "log",
+       "line": "dropping acpmux event agent_message_chunk: seq and at must be non-negative integers"
+      }
+     ]
+    },
+    {
+     "now": 1790985600012,
      "input_text": "{\"kind\":\"acpmux_event\",\"event\":{\"sessionId\":\"s_mux\",\"seq\":4.0,\"dir\":\"mux\",\"kind\":\"turn_end\",\"msg\":{}}}",
      "effects": [
       {
@@ -8363,6 +8393,17 @@
        "kind": "typing",
        "conversation": "conv_a",
        "on": false
+      }
+     ]
+    },
+    {
+     "now": 1790985600013,
+     "input_text": "{\"kind\":\"acpmux_event\",\"event\":{\"sessionId\":\"s_mux\",\"seq\":9007199254740991.0,\"dir\":\"mux\",\"kind\":\"turn_started\",\"msg\":{}}}",
+     "effects": [
+      {
+       "kind": "typing",
+       "conversation": "conv_a",
+       "on": true
       }
      ]
     }

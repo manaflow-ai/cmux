@@ -604,12 +604,16 @@ function turnCases(): CorpusCase[] {
     c.stepText(wire("2.0", "agent_message_chunk", "agent", text("float "), `${T0 + 2}.0`), []);
     c.stepText(wire("3e0", "agent_message_chunk", "agent", text("typed")), []);
     c.stepText(wire("2.0", "agent_message_chunk", "agent", text(" replayed")), []);
+    // Not counts, whatever the text: a fraction, a negative, above 2^53 - 1 (dropped with a log).
+    for (const bad of ["4.5", "-4.0", "9007199254740992.0"]) c.stepText(wire(bad, "agent_message_chunk", "agent", text(" dropped")), []);
     c.stepText(wire("4.0", "turn_end", "mux", "{}"), ["persist", "conversation_op", "typing"], (e) => {
       const op = c.get(e, "conversation_op");
       c.check(op.idempotency_key === `turn:${MUX_SESSION}:1`, `key from seq 1, got ${op.idempotency_key}`);
       c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "float typed", "seq 2.0 at or below the cursor is a replay");
       c.check(c.persisted(e).acpmuxSeq === 4, "cursor 4");
     });
+    // The largest count, written as a float, is still a count.
+    c.stepText(wire("9007199254740991.0", "turn_started", "mux", "{}"), ["typing"]);
     cases.push(c.end());
   }
 
