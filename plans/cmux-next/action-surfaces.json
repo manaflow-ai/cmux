@@ -5553,6 +5553,22 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab restart",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.restart",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Restart Shell Here",
+      "title_key" : "action.tab.restart",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app show-tab",
       "context_menu" : "focusMove",
       "context_menus" : [

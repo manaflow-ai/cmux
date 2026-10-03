@@ -86,6 +86,12 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 arguments: [CatalogArgument.nameString.renamingTarget], targets: [.tab], cliName: "tab rename"
             ),
             ActionDescriptor(
+                id: "tab.restart",
+                title: String(localized: "action.tab.restart", defaultValue: "Restart Shell Here", bundle: .module),
+                keywords: ["tab", "terminal", "restart", "relaunch", "respawn", "dead", "lost", "shell"], category: .tab,
+                symbol: "arrow.clockwise", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab restart"
+            ),
+            ActionDescriptor(
                 id: "tab.focus",
                 title: String(localized: "action.tab.focus", defaultValue: "Show Tab", bundle: .module),
                 keywords: ["tab", "focus", "select", "switch"], category: .tab, symbol: "scope",
