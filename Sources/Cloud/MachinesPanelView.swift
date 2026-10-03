@@ -426,6 +426,9 @@ struct MachinesPanelView: View {
         machineActions.resizeCPUOptions = planMemoryGiB.map { max(1, ($0 + 1) / 2) }
         viewModel.bindMachineOrdering(to: &machineActions)
         machineActions.create = MachineCreateRowActions.bound(coordinator: viewModel.createCoordinator)
+        let noteTreeNotice: @MainActor (String) -> Void = { [weak viewModel] description in
+            viewModel?.noteTreeNotice(description)
+        }
         var nodeActions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
@@ -435,7 +438,7 @@ struct MachinesPanelView: View {
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
-            onNotice: { [weak viewModel] description in viewModel?.noteTreeNotice(description) },
+            onNotice: noteTreeNotice,
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }
