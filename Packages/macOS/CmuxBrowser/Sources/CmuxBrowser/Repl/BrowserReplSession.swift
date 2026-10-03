@@ -61,9 +61,14 @@ public final class BrowserReplSession: @unchecked Sendable {
     private var workingDirectory: String
     private var currentEval: EvalState?
     private var nextEvalID = 0
-    /// Driver calls and fetches in flight; `close()` cancels them.
-    private var inFlight: [Int: Task<Void, Never>] = [:]
+    /// Driver calls and fetches in flight; `close()` cancels them, and a
+    /// cell's timeout cancels the fetches it started.
+    private var inFlight: [Int: InFlightWork] = [:]
     private var nextInFlightID = 0
+    /// Fetches running now, at most `maxConcurrentFetches`.
+    private var runningFetches = 0
+    /// Fetches waiting for a running one to finish, oldest first.
+    private var queuedFetches: [PendingFetch] = []
     /// The per-session temporary directory created when no cwd was given.
     private let ownedWorkingDirectory: String?
     /// The session's private temporary directory (mode 0700): `os.tmpdir()`
@@ -138,6 +143,25 @@ public final class BrowserReplSession: @unchecked Sendable {
             ))
             return true
         }
+    }
+
+    /// The most fetches one session runs at once. Each holds up to
+    /// `BrowserReplFetcher.defaultMaxBodyBytes` of body, so this also bounds
+    /// a session's fetch buffers; later fetches wait in order.
+    static let maxConcurrentFetches = 16
+
+    /// A tracked task, and the evaluation that was running when it started.
+    private struct InFlightWork {
+        let task: Task<Void, Never>
+        let evalID: Int?
+        let isFetch: Bool
+    }
+
+    /// A fetch the runtime asked for, waiting for a slot or running.
+    private struct PendingFetch {
+        let callID: Int
+        let requestJSON: String
+        let evalID: Int?
     }
 
     /// Creates a session. The context is created lazily on the first evaluation.
@@ -311,8 +335,10 @@ public final class BrowserReplSession: @unchecked Sendable {
         closed = true
         let running = currentEval
         currentEval = nil
-        let tasks = Array(inFlight.values)
+        let tasks = inFlight.values.map(\.task)
         inFlight.removeAll()
+        queuedFetches.removeAll()
+        runningFetches = 0
         watchdog.requestTermination()
         thread.perform { [self] in
             self.nativeHost = nil
@@ -358,6 +384,73 @@ public final class BrowserReplSession: @unchecked Sendable {
             self.cancelRunningCell(message, evalID: state.id)
         }
         finish(state, error: message)
+        cancelFetches(ofEval: state.id)
+    }
+
+    /// Cancels the running fetches cell `evalID` started and fails its queued ones.
+    private func cancelFetches(ofEval evalID: Int) {
+        let (tasks, dropped): ([Task<Void, Never>], [PendingFetch]) = stateLock.withLock {
+            let tasks = inFlight.values.filter { $0.isFetch && $0.evalID == evalID }.map(\.task)
+            let dropped = queuedFetches.filter { $0.evalID == evalID }
+            queuedFetches.removeAll { $0.evalID == evalID }
+            return (tasks, dropped)
+        }
+        for task in tasks { task.cancel() }
+        guard !dropped.isEmpty else { return }
+        thread.perform { [weak self] in
+            for fetch in dropped { self?.resolveCall(fetch.callID, .failure(Self.cancelledFetchError)) }
+        }
+    }
+
+    private static let cancelledFetchError = BrowserReplDriverError(
+        code: "cancelled",
+        message: "fetch: cancelled because the cell that started it timed out"
+    )
+
+    /// Runs the fetch now, or queues it while `maxConcurrentFetches` run.
+    /// Returns false when the session is closed. The evaluation running
+    /// when the runtime asked owns the fetch, so its timeout cancels it.
+    private func startOrQueueFetch(callID: Int, requestJSON: String) -> Bool {
+        stateLock.withLock {
+            guard !closed else { return false }
+            let fetch = PendingFetch(callID: callID, requestJSON: requestJSON, evalID: currentEval?.id)
+            if runningFetches < Self.maxConcurrentFetches {
+                startFetchLocked(fetch)
+            } else {
+                queuedFetches.append(fetch)
+            }
+            return true
+        }
+    }
+
+    /// Starts `fetch` as an in-flight task. Call with `stateLock` held.
+    private func startFetchLocked(_ fetch: PendingFetch) {
+        runningFetches += 1
+        nextInFlightID += 1
+        let taskID = nextInFlightID
+        let fetcher = self.fetcher
+        let boundary = self.boundary
+        // The task finishes itself; it waits for the lock held here, so the
+        // entry exists before the removal runs.
+        let task = Task { [weak self] in
+            let result = boundary.redactFetch(await fetcher.fetch(requestJSON: fetch.requestJSON))
+            guard let self else { return }
+            self.thread.perform { [weak self] in self?.resolveCall(fetch.callID, result) }
+            self.fetchFinished(taskID)
+        }
+        inFlight[taskID] = InFlightWork(task: task, evalID: fetch.evalID, isFetch: true)
+    }
+
+    /// Frees the finished fetch's slot and starts the oldest queued one.
+    private func fetchFinished(_ taskID: Int) {
+        stateLock.withLock {
+            // close() already dropped every entry and the queue.
+            guard inFlight.removeValue(forKey: taskID) != nil else { return }
+            runningFetches -= 1
+            if !closed, !queuedFetches.isEmpty {
+                startFetchLocked(queuedFetches.removeFirst())
+            }
+        }
     }
 
     /// Asks the runtime to drop cell `evalID` if it is still running
@@ -382,11 +475,12 @@ public final class BrowserReplSession: @unchecked Sendable {
         let taskID = nextInFlightID
         // The task removes itself; it waits for the lock held here, so the
         // entry exists before the removal runs.
-        inFlight[taskID] = Task { [weak self] in
+        let task = Task { [weak self] in
             await body()
             guard let self else { return }
             self.stateLock.withLock { _ = self.inFlight.removeValue(forKey: taskID) }
         }
+        inFlight[taskID] = InFlightWork(task: task, evalID: nil, isFetch: false)
         return true
     }
 
@@ -554,14 +648,9 @@ public final class BrowserReplSession: @unchecked Sendable {
         }
         let fetch: @convention(block) (JSValue?, JSValue?) -> Void = { [weak self] callID, request in
             guard let self, let callID = callID?.toInt32() else { return }
-            let requestJSON = request?.toString() ?? "{}"
-            let fetcher = self.fetcher
-            let boundary = self.boundary
-            let started = self.track { [weak self] in
-                let result = boundary.redactFetch(await fetcher.fetch(requestJSON: requestJSON))
-                self?.thread.perform { self?.resolveCall(Int(callID), result) }
+            if !self.startOrQueueFetch(callID: Int(callID), requestJSON: request?.toString() ?? "{}") {
+                self.resolveCall(Int(callID), .failure(Self.closedError))
             }
-            if !started { self.resolveCall(Int(callID), .failure(Self.closedError)) }
         }
         let fs: @convention(block) (JSValue?, JSValue?) -> String = { [weak self] operation, arguments in
             guard let self else { return #"{"error":{"code":"EINVAL","message":"closed"}}"# }
