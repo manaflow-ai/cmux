@@ -257,10 +257,11 @@ switch (descriptor titles are built once at launch).
 
 ## 9. Open decisions for Lawrence
 
-- Collapse state per window (recommended) or synced per user.
-- Whether sections subsume the space bar (spaces as an item) and the footer accessories.
+- (Decided, see 9a: collapse per window; the space bar stays.)
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
+
+- Section collapse state is per window (`WindowState.collapsedSections`, saved with the window), not synced per user. The space bar stays as its own control; sections do not subsume it (batch item 2, s9).
 
 - Default look quiet; name "sections"; spaces model A.
 - Bottom band: Settings and the account avatar on one line (above).

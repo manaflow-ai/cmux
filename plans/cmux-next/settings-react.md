@@ -57,11 +57,14 @@ publish value domains), the native Settings window until parity (section 8).
 ## 2. Schema
 
 Source of truth, step 1: `SettingsSchema.all` in Swift, exported to
-`plans/cmux-next/settings-surfaces.json` by the catalog lane (settings-surfaces.md), kept fresh by
-`SettingsSurfaceParityTests.exportIsFresh`. The Rust crate embeds it at build time
-(`include_str!`), so a bundled daemon and its app always agree. The export adds, per row:
-`title_key`, `help_key`, `choices[].title_key` (xcstrings keys beside the English text),
-`agent_settable` (default true), `validation` (`portable` or `domain:<name>`) and a `schema_hash`.
+`schemas/settings/settings-schema.json` (landed 306bb4e0858, `SettingsSchemaExportTests.exportIsFresh`,
+`CMUX_UPDATE_ACTION_SURFACES=1` rewrites it). The Rust crate embeds it at build time
+(`include_str!`), so a bundled daemon and its app always agree. Per row: every text with its
+xcstrings key (descriptors carry keys through `SettingText` / `SettingsText.keyed`), kind, choices,
+range, default, `accepts`/`refuses` samples (the conformance corpus the Rust validator must match),
+`validation` (`portable` or `domain:<name>`), `agent_settable` + `agent_refusal`,
+`kept_on_reset_all`, and the document's `schema_hash`. The catalog lane's surface parity reads the
+same file.
 
 End state (step 2, after parity): the schema is authored once in
 `config/settings/schema.json`; Swift descriptors and TypeScript types are generated from it. Kinds
@@ -73,9 +76,10 @@ Validation per kind: `toggle`, `choice`, `choice_or_number`, `number` (range, fi
 against the value domain the app published (`settings.domains.publish`); with no published domain
 (headless host) they accept any non-empty string and the app reports a diagnostic on apply.
 
-`agent_settable: false` marks keys an agent must not change through MCP (none in the schema today;
-`mcp.*` and every non-schema path are already outside MCP). The flag exists so a future key with a
-trust effect is one line, not a policy change.
+Agent policy is explicit per key with no default (`SettingsSchema+AgentPolicy.swift`; the export
+test fails on a key in neither table). Refused today: `history.terminalCommands` and
+`feed.mirrorNotifications.*` (privacy), `browser.remoteLocalhost` (network), `app.quitBehavior`
+(destructive). `appearance.backgroundOpacity` and `appearance.backgroundBlur` are settable.
 
 ## 3. Ops (daemon, capability `settings-v1`)
 
@@ -104,8 +108,11 @@ rows with `agent_settable: false`; the owner enforces it, not the MCP server. Th
 generated v2 tools for these operations (`v2_tools.rs`); the old app-method exclusion for settings
 stays for the app socket until slice b deletes those methods.
 
-A refusal is `validation.invalid` with the kind, the accepted values or range, and for a managed key
-the source and reason (`settings.managed`). The daemon honors `CMUX_NEXT_CONFIG_FILE` exactly as the
+Refusal codes are the ones the Swift socket stopgap (c9cb3b51eea, 1f08a54bc4c) already returns, so
+clients change once: `managed` (with source and reason) and `invalid_params` (with the kind and the
+accepted values or range); new: `agent_refused`, `revision_conflict`, `idempotency_conflict`.
+`SocketSettingsWriteTests` moves to the Rust actor with the same cases when slice b deletes the
+Swift writer. The daemon honors `CMUX_NEXT_CONFIG_FILE` exactly as the
 Swift `CmuxConfigFile.defaultURL` does, so tagged builds never touch the user's file.
 
 ## 4. The page (web, in a page tab)
@@ -147,16 +154,19 @@ overlay that is never written. The commit at the end is the only op (OWNERSHIP-P
 are local continuous state).
 
 Transparency: Appearance > Window Background: Opacity (slider 0-100 %, live preview, reset = the
-Ghostty value) and Material (Frosted, Glass, Clear Glass, None). Keys
+Ghostty value) and Material (Frosted, Glass, Clear Glass, None; a material choice, never a radius
+slider). Keys
 `appearance.backgroundOpacity` and `appearance.backgroundBlur` already exist in the schema; the page
 gives them first-class controls and a preview of the window behind.
 
-One background: the web view is transparent (`drawsBackground = false`, page `background:
-transparent`); the page tab container paints `ThemeTokens.surfaceBackground` (lane 20), so the page
-shows the same background, opacity and material as every other surface. Cards use one fill derived
-from the theme foreground at low alpha, delivered as CSS variables through the theme bridge
-(`AgentPaneTheme.values` moves to a shared web page theme in CmuxNextDesign so both pages get the
-same tokens). The page never picks its own background color.
+One background (lane 20 render rule): html and body `background: transparent`, no full-page
+container background and no background fill at any level (groups are separated by spacing and
+hairlines that follow `appearance.borders`); the WKWebView draws no background
+(`drawsBackground = false`, `underPageBackgroundColor = .clear`); the page tab paints nothing when
+opacity < 1 (the window's one backdrop is the only translucent layer) and
+`ThemeTokens.surfaceBackground` at opacity 1. Interactive feedback (hover, selection, focus) uses
+the shared web theme variables (`AgentPaneTheme.values` until lane 20 defines them in windows.md).
+A test checks the computed html/body background.
 
 Strings: page chrome and descriptor strings are xcstrings keys (21 languages). The build generates
 `webviews/src/settings/generated/strings.<locale>.json` from the xcstrings files the descriptors and
@@ -224,12 +234,8 @@ export). Answer: the export freshness test fails CI on drift, the daemon is bund
 commit, and `schema_hash` in identify makes a mismatch visible; slice f generates all three from
 one file.
 
-## 9. Questions for the coordinator
+## 9. Decisions
 
-- Q1 (lane 20): `appearance.tabBarBackground = darker` draws a second background under the tab strip,
-  which contradicts "all bg across entire app must match the same". Rec: remove the `darker` choice
-  (or keep it as a Debug Settings prototype only) when the one-token work lands.
-- Q2 (catalog lane): this plan takes the writer of settings-surfaces.md "One writer" into Rust. Rec:
-  the catalog lane still lands the Swift export, the palette Set Setting page and the parity test;
-  it skips the Swift `ControlSettingsWriter` routing, which slice b deletes.
-- Q3: Native window deletion (slice e) waits for one dogfood round of the web page. Rec: yes.
+Answered 2026-10-03: Q1 remove `appearance.tabBarBackground = darker` (every background matches);
+Q2 the catalog lane keeps the palette page and parity test and skips the Swift writer routing;
+Q3 delete the native window after one dogfood round of the web page.

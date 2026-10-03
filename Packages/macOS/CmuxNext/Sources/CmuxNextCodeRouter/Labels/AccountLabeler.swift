@@ -33,20 +33,55 @@ public struct AccountLabeler: Sendable, CustomStringConvertible, CustomDebugStri
         return AccountLabel(handle: handle(namespace: provider.rawValue, identity: identity), display: display)
     }
 
-    /// A CodeRouter account row. The handle comes from a stable identity:
-    /// the label only when it is an email (the server's default label for a
-    /// sign-in, so a Codex email gets the same handle here as in local
-    /// detection), else `providerAccountId`, else `identifier`, else the
-    /// row id. A user-editable label is display only: renaming keeps the
-    /// handle, and two rows with the same label keep different handles.
-    /// The display is the label, else `identifier`, else `fallback`, with
-    /// every email shortened.
-    public func server(namespace: String, id: String, label: String?, providerAccountId: String? = nil, identifier: String? = nil,
-                       fallback: String = "") -> AccountLabel {
+    /// A local Codex (ChatGPT) sign-in. The handle comes from the
+    /// workspace and user ids (``CodexAccountIdentity``), so it matches the
+    /// CodeRouter row of the same sign-in (after the server's legacy-row
+    /// migration; see ``CodexAccountIdentity``). When both ids are missing,
+    /// `codex:email:<email>` from the token's own email claim is the last
+    /// resort (still never a label);
+    /// with no email either there is no account. The display is the plan,
+    /// else the redacted email, else the provider name.
+    func localCodex(_ identity: CodexAccountIdentity, email: String?, plan: String?) -> AccountLabel? {
+        let email = email?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        let key: String
+        if let stable = identity.identity {
+            key = stable
+        } else if let email {
+            key = "codex:email:\(email)"
+        } else {
+            return nil
+        }
+        if let reason = identity.instability { CodexAccountIdentity.logUnstable(reason, source: "local") }
+        let display = plan?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            ?? email.map(EmailRedaction.redact(identity:)) ?? AIProvider.codex.displayName
+        return AccountLabel(handle: handle(namespace: AIProvider.codex.rawValue, identity: key), display: display)
+    }
+
+    /// A CodeRouter account row. The handle comes from a stable identity.
+    /// Codex: the workspace (`providerAccountId`) and user
+    /// (`providerUserId`) ids (``CodexAccountIdentity``), else the row id;
+    /// never the label, which the server rewrites and the user can rename.
+    /// A legacy Codex row (no `providerUserId` until the server's
+    /// `upgradeLegacyCodexIdentity` runs) gets the workspace-only handle.
+    /// Other providers: the label only when it is an email, else
+    /// `providerAccountId`, else `identifier`, else the row id. A
+    /// user-editable label is display only: renaming keeps the handle, and
+    /// two rows with the same label keep different handles. The display is
+    /// the label, else `identifier`, else `fallback`, with every email
+    /// shortened.
+    public func server(namespace: String, id: String, label: String?, providerAccountId: String? = nil, providerUserId: String? = nil,
+                       identifier: String? = nil, fallback: String = "") -> AccountLabel {
         let label = label?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let accountID = providerAccountId?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
         let identifier = identifier?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
-        let identity = label.flatMap { EmailRedaction.containsEmail($0) ? $0 : nil } ?? accountID ?? identifier ?? "id:\(id)"
+        let identity: String
+        if namespace == AIProvider.codex.rawValue {
+            let codex = CodexAccountIdentity(workspaceID: accountID, userID: providerUserId)
+            if let reason = codex.instability { CodexAccountIdentity.logUnstable(reason, source: "server row") }
+            identity = codex.identity ?? "id:\(id)"
+        } else {
+            identity = label.flatMap { EmailRedaction.containsEmail($0) ? $0 : nil } ?? accountID ?? identifier ?? "id:\(id)"
+        }
         return AccountLabel(handle: handle(namespace: namespace, identity: identity), display: label ?? identifier ?? fallback)
     }
 

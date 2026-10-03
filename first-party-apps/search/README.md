@@ -71,6 +71,15 @@ Proposed contribution `searchProviders: [{id, title, symbol, run: "<export>", op
 
 Proposed argument: `history.reopen` accepts `{terminal}` to reopen a closed terminal from a transcript match.
 
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderSection`, top) and `cmux.pane/1` (`renderPane`), and the catalog fragment `catalog/search-catalog.json`. Every v1 command is one catalog op of family `search_app` (owner `app:cmux/search`, `export` names the JS function, CLI `apps run cmux/search <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. The family is `search_app`, not `search`: host search ops use `search.*`.
+2. Search providers of other apps: the app calls the host's search ops directly, so it does not list `cmux.search.provider/1` in `consumes`.
+
 ## Platform gaps
 
 1. Scene node count drift: removing a subtree (a dynamic child rebuild or a removed `ForEach` row) emits one `remove` op and decrements the mount's node count by 1, and the child node records stay in the handler map. A long-lived surface that re-renders lists hits `app.limit: more than 4096 scene nodes` after enough searches (a 9-node dynamic child rebuilt 600 times fails today). Found while building this app; the fix belongs in the runtime's `materialize.ts`.

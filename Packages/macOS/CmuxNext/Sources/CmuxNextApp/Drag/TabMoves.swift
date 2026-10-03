@@ -128,6 +128,7 @@ enum TabMoves {
         let surface = tab.surface
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
         let before = Set(daemon.store.workspaces.compactMap(\.key))
+        let name = NewWorkspaceName.forTab(nameInput(tab, services: services))
         let key = await daemon.request("move-tab-to-new-workspace") { connection -> WorkspaceKey? in
             let result = try await connection.moveTabToNewWorkspace(surface, group: nil, index: index, transaction: echoes ? transaction : nil)
             let created: WorkspaceKey?
@@ -137,9 +138,29 @@ enum TabMoves {
                 created = try await connection.listWorkspaces().workspaces.compactMap(\.key).first { !before.contains($0) }
             }
             if !echoes, let created, let index { _ = try await connection.moveWorkspace(created, to: index) }
+            // The workspace takes the moved tab's name (R15). A second
+            // command until move-tab-to-new-workspace carries a name; the
+            // move already happened, so a failed rename leaves the default
+            // name and does not fail the move.
+            if let created, let name { _ = try? await connection.renameWorkspace(created, to: name) }
             return created
         }
         return key ?? nil
+    }
+
+    /// What `NewWorkspaceName` reads from `tab`: the browser's live page
+    /// title comes from the app's renderer, the rest from the store.
+    static func nameInput(_ tab: TabModel, services: AppServices) -> NewWorkspaceName.Tab {
+        let kind: NewWorkspaceName.Tab.Kind = switch tab.kind {
+        case .pty: .terminal
+        case .browser: .browser
+        case .remoteTerminal: .remoteTerminal
+        // A kind this app does not know: its title and directory still name it.
+        case .other: .terminal
+        }
+        return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title,
+                                    pageTitle: tab.kind == .browser ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil,
+                                    url: tab.url, cwd: tab.cwd)
     }
 
     static func toWorkspace(_ tab: TabModel, workspace: WorkspaceModel, services: AppServices,

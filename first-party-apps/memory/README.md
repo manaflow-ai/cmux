@@ -2,7 +2,7 @@
 
 Browse, search, edit and delete what your agents remember, on every machine and project: `CLAUDE.md`, `CLAUDE.local.md`, Claude project memory (`MEMORY.md` and its topic files), `AGENTS.md` at any depth, `AGENTS.override.md`, `GEMINI.md`, the Copilot instructions file and Cursor rules. Each file shows which agents read it and what kind it is (instructions, personal, override, memory index, memory, rules). Every write shows a diff first; delete moves the file to the Trash. Files reach the app only through root and document handles, never as paths it could open itself.
 
-Status: prototype on today's app runtime (preview harness and bun FakeHost). The memory, document and trash ops are proposed (below). Platform v2 sketch: `cmux-app.v2.json` and `catalog/`.
+Status: prototype on today's app runtime (preview harness and bun FakeHost). The memory, document and trash ops are proposed (below). Manifest v2: `cmux-app.v2.json` and `catalog/`; the proposed host ops the app calls are in `proposed/host-catalog.json`, not in its catalog.
 
 ## Contributions
 
@@ -40,7 +40,7 @@ Recommendation: `files`. Memory is per file and per agent ("which agents read th
 
 ## Proposed operations
 
-Owner: the session host of the machine that has the files (V3 document host), with the `agent_cli.*`, `skill.*` and `mcp_server.*` ops of the sibling apps. The operation-catalog form is `catalog/proposed-host-catalog.json`.
+Owner: the session host of the machine that has the files (V3 document host), with the `agent_cli.*`, `skill.*` and `mcp_server.*` ops of the sibling apps. The operation-catalog form is `proposed/host-catalog.json`.
 
 | Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |

@@ -1,7 +1,7 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
 // Command handlers for today's runtime. The agent tools (list, read, create,
 // append, capture, search) forward to the notes server's catalog ops; on
-// manifest v2 they are those ops themselves (catalog/notes-catalog.json) and
+// manifest v2 they are those ops themselves (proposed/notes-server-catalog.json) and
 // these wrappers go away. Commands never move focus or selection: only
 // `newNote` and `open` (user commands, not MCP tools) select a note in the
 // app's own surfaces. The server stamps who wrote (an agent's append shows

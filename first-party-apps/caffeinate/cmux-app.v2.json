@@ -1,33 +1,98 @@
 {
   "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
-  "$comment": "Platform v2 sketch (plans/cmux-next/app-platform.md section 12). Not validated or loaded by today's runtime; cmux-app.json is the live manifest.",
   "manifestVersion": 2,
   "id": "cmux/caffeinate",
-  "name": { "en": "Caffeinate", "ja": "カフェイネート" },
-  "version": "0.2.0",
-  "description": { "en": "Keep the Mac awake until you stop it, for a time, or while a terminal's command runs.", "ja": "止めるまで、指定した時間、またはターミナルのコマンドが動いている間、Mac をスリープさせません。" },
-  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "name": {
+    "en": "Caffeinate",
+    "ja": "カフェイネート"
+  },
+  "version": "0.1.0",
+  "description": {
+    "en": "Keep the Mac awake: until you stop it, for a time, or while a terminal's command runs. Each option explained in plain words; no process is spawned.",
+    "ja": "Mac をスリープさせない: 止めるまで、指定した時間、またはターミナルのコマンドが動いている間。各オプションをわかりやすく説明します。プロセスは起動しません。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
   "icon": "assets/icon.svg",
-  "engines": { "cmux": "^2.0" },
-  "main": "dist/main.js",
+  "categories": [
+    "productivity",
+    "developer-tools"
+  ],
+  "keywords": [
+    "caffeinate",
+    "awake",
+    "sleep",
+    "power",
+    "display"
+  ],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "dist/main.js"
+  },
   "catalog": "catalog/caffeinate-catalog.json",
-  "requires": { "hostCapabilities": ["power.assertion/1"], "platforms": ["macos"] },
+  "implements": {
+    "cmux.status/1": {
+      "export": "renderStatus",
+      "title": {
+        "en": "Caffeinate",
+        "ja": "カフェイネート"
+      },
+      "symbol": "cup.and.saucer",
+      "options": {
+        "placement": "statusStrip"
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {
+        "en": "Caffeinate",
+        "ja": "カフェイネート"
+      },
+      "symbol": "cup.and.saucer"
+    }
+  },
   "scopes": {
     "power:read": "See what keeps this Mac awake through cmux, and follow changes.",
     "power:write": "Keep the Mac awake when you choose a preset, and stop it when you choose Stop. cmux holds the power assertion; the app never runs a process."
   },
   "optionalScopes": {
-    "terminal:read": "List the terminals that run a command, so you can keep the Mac awake until that command finishes."
+    "terminal:read": "List the terminals that run a command, so you can keep the Mac awake until that command finishes.",
+    "mcp:expose": "Let agents keep the Mac awake while their own terminal's command runs.",
+    "actions:run": "Open the Caffeinate pane from the menu bar."
   },
-  "handles": ["terminal", "task"],
-  "implements": [
-    { "interface": "cmux.status/1", "id": "menu", "title": { "en": "Caffeinate", "ja": "カフェイネート" }, "symbol": "cup.and.saucer", "placement": "menuBar", "render": "renderStatus" },
-    { "interface": "cmux.pane/1", "id": "caffeinatePane", "title": { "en": "Caffeinate", "ja": "カフェイネート" }, "symbol": "cup.and.saucer", "renderer": "scene", "render": "renderPane" }
-  ],
-  "variants": { "setting": "variant", "values": ["menu", "pane"], "default": "menu", "channels": ["dev", "nightly"] },
-  "lifecycle": { "onDisable": "release-owned", "onUninstall": "release-owned" },
   "strings": "strings/",
-  "files": ["dist/", "assets/", "catalog/", "strings/"]
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "menu",
+        "pane"
+      ],
+      "default": "menu"
+    }
+  ],
+  "activation": [
+    "onInterface:cmux.status/1",
+    "onInterface:cmux.pane/1",
+    "onOp:caffeinate.keep_awake",
+    "onOp:caffeinate.keep_awake_hour",
+    "onOp:caffeinate.start",
+    "onOp:caffeinate.stop",
+    "onOp:caffeinate.stop_all",
+    "onOp:caffeinate.list",
+    "onOp:caffeinate.show"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/"
+  ]
 }

@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Foundation
+import CmuxNextSettings
 import Testing
 
 /// Notifications migration step 1 (plans/cmux-next/feed.md section 9): each
@@ -39,12 +40,12 @@ struct FeedNotificationBridgeTests {
         var posts: Int { calls.filter { $0.op == "feed.post" }.count }
     }
 
-    private func notice(_ id: UInt64, tab: String? = "tab-1", level: NotificationLevel = .info, title: String = "Done") -> FeedNotificationBridge.Notice {
-        .init(notification: id, daemonSession: "S", title: title, body: "body \(id)", level: level, tab: tab, workspace: tab == nil ? nil : "ws-1", label: "claude ~/p")
+    private func notice(_ id: UInt64, tab: String = "tab-1", level: NotificationLevel = .info, title: String = "Done") -> FeedNotificationBridge.Notice {
+        .init(notification: id, daemonSession: "S", title: title, body: "body \(id)", level: level, tab: tab, workspace: "ws-1", label: "agent")
     }
 
-    private func bridge(_ owner: Owner, signedIn: Bool = true) -> FeedNotificationBridge {
-        FeedNotificationBridge(owner: { _, body in try await owner.handle(body) }, isSignedIn: { signedIn })
+    private func bridge(_ owner: Owner, signedIn: Bool = true, now: @escaping @MainActor () -> Date = Date.init) -> FeedNotificationBridge {
+        FeedNotificationBridge(owner: { _, body in try await owner.handle(body) }, isSignedIn: { signedIn }, now: now)
     }
 
     /// Settles every queued main-actor hop until the bridge has nothing in flight.
@@ -67,7 +68,7 @@ struct FeedNotificationBridgeTests {
         #expect(params["thread"] as? String == "tab:tab-1")
         #expect(params["body"] as? String == "body 7")
         #expect((params["context"] as? [String: Any])?["workspace"] as? String == "ws-1")
-        #expect((params["poster"] as? [String: Any])?["label"] as? String == "claude ~/p")
+        #expect((params["poster"] as? [String: Any])?["label"] as? String == "agent")
         #expect(FeedNotificationBridge.postBody(notice(8))["params"].flatMap { ($0 as? [String: Any])?["priority"] as? String } == "normal")
     }
 
@@ -131,12 +132,11 @@ struct FeedNotificationBridgeTests {
         let bridge = bridge(owner)
         bridge.post(notice(1, tab: "tab-1"))
         bridge.post(notice(2, tab: "tab-2"))
-        bridge.post(notice(3, tab: nil))
         await settle(bridge)
         bridge.read(tab: "tab-2")
         bridge.read(tab: "tab-2")
         await settle(bridge)
-        #expect(owner.posts == 3)
+        #expect(owner.posts == 2)
         #expect(owner.reads == [["fi_2"]])
     }
 
@@ -150,5 +150,83 @@ struct FeedNotificationBridgeTests {
         await settle(bridge)
         #expect(owner.reads.isEmpty)
         #expect(bridge.log.contains { $0.contains("failed: feed.rate_limited") })
+    }
+
+    @Test func postsForOneTabCoalesceWhileOneIsInFlight() async {
+        let owner = Owner()
+        owner.holding = true
+        let bridge = bridge(owner)
+        bridge.post(notice(1))
+        await Task.yield()
+        bridge.post(notice(2))
+        bridge.post(notice(3))
+        owner.release()
+        await settle(bridge)
+        let keys = owner.calls.filter { $0.op == "feed.post" }.map { $0.params["dedupe_key"] as? String }
+        #expect(keys == ["notify:S:1", "notify:S:3"])
+        #expect(bridge.log.contains("coalesced 2"))
+    }
+
+    @Test func theClientCapsPostsPerMinute() async {
+        let owner = Owner()
+        var clock = Date(timeIntervalSince1970: 1_000)
+        let bridge = bridge(owner, now: { clock })
+        for id in 1...UInt64(FeedNotificationBridge.maxPostsPerMinute + 5) {
+            bridge.post(notice(id, tab: "tab-\(id)"))
+        }
+        await settle(bridge)
+        #expect(owner.posts == FeedNotificationBridge.maxPostsPerMinute)
+        clock = clock.addingTimeInterval(61)
+        bridge.post(notice(999, tab: "tab-x"))
+        await settle(bridge)
+        #expect(owner.posts == FeedNotificationBridge.maxPostsPerMinute + 1)
+    }
+
+    @Test func aReadTabIsForgotten() async {
+        let owner = Owner()
+        let bridge = bridge(owner)
+        for id in 1...UInt64(20) { bridge.post(notice(id, tab: "tab-\(id)")) }
+        await settle(bridge)
+        #expect(bridge.trackedTabs == 20)
+        for id in 1...20 { bridge.read(tab: "tab-\(id)") }
+        await settle(bridge)
+        #expect(bridge.trackedTabs == 0)
+    }
+
+    @Test func knownSecretShapesAreRedactedBeforePosting() throws {
+        let cases: [(String, String)] = [
+            ("export OPENAI_API_KEY=sk-proj-abcdefghijklmnop1234", "sk-proj-abcdefghijklmnop1234"),
+            ("token ghp_abcdefghijklmnopqrstuvwxyz0123", "ghp_abcdefghijklmnopqrstuvwxyz0123"),
+            ("Authorization: Bearer abc.def-123456", "abc.def-123456"),
+            ("password=hunter2hunter2", "hunter2hunter2"),
+            ("jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2QT4", "eyJhbGciOiJIUzI1"),
+            ("key AKIAABCDEFGHIJKLMNOP done", "AKIAABCDEFGHIJKLMNOP"),
+            ("db postgres://admin:s3cretpw@db.example.com/x", "s3cretpw"),
+            ("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n-----END OPENSSH PRIVATE KEY-----", "b3BlbnNzaA"),
+        ]
+        for (text, secret) in cases {
+            var n = notice(1, title: text)
+            n.body = text
+            let params = try #require(FeedNotificationBridge.postBody(n)["params"] as? [String: Any])
+            #expect(!(params["title"] as? String ?? "").contains(secret), "title kept \(secret)")
+            #expect(!(params["body"] as? String ?? "").contains(secret), "body kept \(secret)")
+            #expect((params["body"] as? String ?? "").contains(FeedSecretScrubber.marker))
+        }
+        #expect(FeedSecretScrubber.scrub("Build 42 failed in 3 tests") == "Build 42 failed in 3 tests")
+    }
+
+    @Test func mirrorSettingsDecideWhatLeavesTheMac() throws {
+        let data = Data(#"{"notification": 1, "title": "T", "body": "B", "level": "info"}"#.utf8)
+        let n = try JSONDecoder().decode(DaemonNotification.self, from: data)
+        var mirror = FeedMirrorPreferences()
+        #expect(NotificationCenterService.feedContent(n, source: .terminal, mirror: mirror) == nil)
+        #expect(NotificationCenterService.feedContent(n, source: .agent, mirror: mirror)! == ("T", "B"))
+        #expect(NotificationCenterService.feedContent(n, source: .cli, mirror: mirror)! == ("T", "B"))
+        mirror.terminal = .title
+        #expect(NotificationCenterService.feedContent(n, source: .terminal, mirror: mirror)! == ("T", ""))
+        mirror.terminal = .full
+        #expect(NotificationCenterService.feedContent(n, source: .terminal, mirror: mirror)! == ("T", "B"))
+        mirror.agents = false
+        #expect(NotificationCenterService.feedContent(n, source: .agent, mirror: mirror) == nil)
     }
 }

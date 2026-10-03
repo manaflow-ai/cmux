@@ -7,8 +7,9 @@ extension ProviderDetector {
     /// The Codex home: `$CODEX_HOME`, else `~/.codex`.
     var codexHome: URL { environment.directory("CODEX_HOME", fallback: ".codex") }
 
-    /// `auth.json` in the Codex home: ChatGPT tokens (identity from the
-    /// id token's email and plan claims) or an API key. When the CLI keeps
+    /// `auth.json` in the Codex home: ChatGPT tokens (handle from the
+    /// workspace and user id claims, display from the plan claim; see
+    /// ``CodexAccountIdentity``) or an API key. When the CLI keeps
     /// credentials in the Keychain (`cli_auth_credentials_store = "keyring"`
     /// in config.toml), only the item's presence is checked.
     func detectCodex() -> ProviderDetection {
@@ -27,12 +28,14 @@ extension ProviderDetector {
         }
         if let tokens = root["tokens"] as? [String: Any] {
             let claims = (tokens["id_token"] as? String).flatMap(JWTClaims.init(token:))
+            let access = (tokens["access_token"] as? String).flatMap(JWTClaims.init(token:))
             let canRefresh = Self.nonEmpty(tokens["refresh_token"])
-            let accessExpiry = (tokens["access_token"] as? String).flatMap(JWTClaims.init(token:))?.expiry
+            let accessExpiry = access?.expiry
             let expired = !canRefresh && (accessExpiry.map { $0 <= environment.now } ?? true)
             let plan = claims?.chatGPTPlan
+            let codexIdentity = CodexAccountIdentity(idToken: claims, accessToken: access, accountIDField: tokens["account_id"] as? String)
             return ProviderDetection(provider: .codex, status: expired ? .expired : .signedIn,
-                                     account: account(.codex, claims?.email, plan: plan), plan: plan, sources: [source])
+                                     account: environment.labeler.localCodex(codexIdentity, email: claims?.email, plan: plan), plan: plan, sources: [source])
         }
         if Self.nonEmpty(root["OPENAI_API_KEY"]) {
             return ProviderDetection(provider: .codex, status: .signedIn, plan: "API key", sources: [source])

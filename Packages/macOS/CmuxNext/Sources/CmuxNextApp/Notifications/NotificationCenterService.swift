@@ -60,14 +60,6 @@ final class NotificationCenterService {
                 self?.updateDockBadge(count)
             }
         })
-        // A tab read by any client (this app, the iPhone, `cmux` clear) reads its feed notices.
-        tasks.append(Task { [weak self] in
-            var previous: Set<String> = []
-            for await unread in Observations({ Self.unreadTabs(store) }) {
-                for tab in previous.subtracting(unread) { self?.feedBridge?.read(tab: tab) }
-                previous = unread
-            }
-        })
     }
 
     /// Follows `notifications.*` in every loaded snapshot.
@@ -173,10 +165,6 @@ final class NotificationCenterService {
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
-        }
-        // Before the decision: an arrival the policy reads at once is posted, then read.
-        if !arrival.workspaceMuted { mirrorToFeed(notification, located: located) }
-        if let located {
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }
@@ -192,6 +180,9 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
+        // The feed (and the iPhone push) gets only what would alert on this Mac: muted
+        // workspaces, quiet hours and banners turned off are not mirrored.
+        if decision.desktop { mirrorToFeed(notification, source: source, located: located) }
         if decision.desktop { post(notification, tab: located.tab, workspace: located.workspace.id, sound: decision.sound) }
         if !decision.desktop, let sound = decision.sound { NotificationSounds.play(sound) }
         if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }

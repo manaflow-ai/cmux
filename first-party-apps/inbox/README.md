@@ -4,7 +4,7 @@ A view on the cmux feed (`plans/cmux-next/feed.md`). The feed is one per-user li
 
 The owner keeps items, lifecycle (open, answered, cancelled, expired), triage (read, seen, archived, snoozed), order, groups, counts and snooze wake-ups. The app lists with `feed.list`, then follows the owner's op events on the feed stream: each event is one committed op (`{seq, op, params, actor, at}`), and `src/events.ts` derives the listed page's change from it with the owner's rules (answer, cancel, read, seen, archive, snooze, expire). Events that bring items the page cannot know (post, adopt, unarchive, snooze wake-ups) cause one new list per burst; any count-changing event re-reads `feed.counts`. App storage holds only view preferences (filters, grouping).
 
-Build: `bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/inbox`. Validate: `bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/inbox`. Test: `bun test first-party-apps/inbox/test` (FakeHost with the mock owner in `test/mock-feed.ts`, which emits op events). Preview fixtures: `bun first-party-apps/inbox/test/fixtures.ts --write`. `cmux-app.v2.json` is the manifest v2 sketch.
+Build: `bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/inbox`. Validate: `bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/inbox`. Test: `bun test first-party-apps/inbox/test` (FakeHost with the mock owner in `test/mock-feed.ts`, which emits op events). Preview fixtures: `bun first-party-apps/inbox/test/fixtures.ts --write`. `cmux-app.v2.json` is the manifest v2 (section Manifest v2).
 
 ## Contributions
 
@@ -30,7 +30,7 @@ Agents use the feed's own surfaces (`feed_request`, `feed_notify`, `feed_list`, 
 | --- | --- |
 | `feed:read` | `feed.list`, `feed.get`, `feed.counts`, the feed stream |
 | `feed:write` | `feed.read`, `feed.archive`, `feed.unarchive`, `feed.snooze`; today also `feed.answer` and `feed.cancel` |
-| `feed:answer` (v2 sketch only) | `feed.answer` and the user's decline. The v1 manifest schema rejects the verb `answer` in a scope, and the generated scope table maps `feed.answer` to `feed:write` (gap 1) |
+| `feed:answer` (proposed; not in the v1 or v2 scope grammar) | `feed.answer` and the user's decline. The v1 manifest schema rejects the verb `answer` in a scope, and the generated scope table maps `feed.answer` to `feed:write` (gap 1) |
 | `actions:run` | `feed.openItem` |
 | `workspace:read` (optional) | workspace names on rows and on workspace group headers (the owner's group label is the workspace id) |
 
@@ -66,6 +66,17 @@ The feed now provides what this view asked for earlier: `fi_…` ids, `type` plu
 | `feed.openItem` (action) | `{item}` | `{}` | the client that holds the context (feed action, F3/F7) | mutate-own, focuses, gesture required | `actions:run` | one open path for every client and kind; the handover for sign-in and passkey |
 | `app.pane.open` | `{contribution, placement?}` | `{tab_id}` | workspace store | mutate-own (focuses, gesture required) | `workspace:write` | "Open Inbox" needs to open the pane kind as a tab |
 | `app.badge.set` | `{contribution?, count \| null, tone?}` | `{}` | app supervisor; clients render it | mutate-own | none | section header badge, and an app-level badge for the Dock or menu bar |
+
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.section/1` (`renderInbox`, top), `cmux.status/1` (`renderStatus`, titlebar) and `cmux.pane/1` (`renderPane`), and the catalog fragment `catalog/inbox-catalog.json`. Every v1 command is one catalog op of family `inbox_app` (owner `app:cmux/inbox`, `export` names the JS function, CLI `apps run cmux/inbox <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. The family is `inbox_app`, not `inbox`: the cloud Home inbox owns `inbox.*` ops.
+2. `consumes.ops` / `streams` / `actions` (the feed ops this app calls): `consumes` lists interfaces only. Feed ops are the feed's own catalog ops, not ops of this app.
+3. Scope `feed:answer` (restricted answer with a gesture token): not in the v2 scope grammar, as in v1.
+4. `gesture: required` on focus-changing ops: the catalog op format has no gesture field.
 
 ## Platform gaps
 

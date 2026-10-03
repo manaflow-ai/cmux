@@ -210,6 +210,7 @@ public final class ThemeScope {
         ThemeScopeRegistry.setScope(self, of: window)
         windows.add(window)
         window.appearance = appearance
+        window.paintKindSurface()
         if let content = window.contentView { Self.invalidate(content) }
     }
 
@@ -245,6 +246,7 @@ public final class ThemeScope {
         }
         for window in windows.allObjects {
             window.appearance = appearance
+            window.paintKindSurface()
             guard let content = window.contentView else { continue }
             if fade { Self.crossfade(content.layer) }
             Self.invalidate(content)

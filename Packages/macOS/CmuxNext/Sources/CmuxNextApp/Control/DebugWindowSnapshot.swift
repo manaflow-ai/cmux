@@ -9,7 +9,8 @@ import CmuxNextSettings
 /// (plans/cmux-next/windows.md).
 ///
 /// Params: `window` (a main window id or a window number), or `kind`
-/// (`main`, `settings`, `debugSettings`, `appStore`, `onboarding`, ...);
+/// (a `WindowKind` raw value: `main`, `settings`, `debugSettings`,
+/// `appStore`, `onboarding`, ...);
 /// default the key window, else the active main window. `path` is the PNG
 /// to write (default a file in the temporary directory). Returns `path`,
 /// `width`, `height` (pixels), `kind` and `window_number`.
@@ -44,10 +45,10 @@ enum DebugWindowSnapshot {
         return NSApp.keyWindow ?? services.windows.active?.window
     }
 
-    /// `main` for a cmux main window, else the window identifier without
-    /// its `cmux.` prefix (`settings`, `appStore`), else the class name.
+    /// The window's kind (`WindowKind`, as the window kit recorded it),
+    /// else its identifier without the `cmux.` prefix, else its class name.
     static func kind(of window: NSWindow, services: AppServices) -> String {
-        if services.windows.controllers.contains(where: { $0.window === window }) { return "main" }
+        if let kind = window.windowKind { return kind.rawValue }
         if let id = window.identifier?.rawValue, id.hasPrefix("cmux.") { return String(id.dropFirst("cmux.".count)) }
         return String(describing: type(of: window))
     }

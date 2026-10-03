@@ -2,7 +2,7 @@
 
 One place for the agent CLIs on every machine you use: this Mac, your cmux servers and the team VM. For each CLI it shows the installed version, the latest version, how it was installed, and its sign-ins as non-secret labels ("Work · Max · Signed in"). Update, Install and Sign In are one tap each: the app asks cmux, and cmux runs the CLI's own command in a new terminal you can see. The app never runs a command, never reads a credential file and never sees a token or an email.
 
-Status: prototype on today's app runtime (preview harness and bun FakeHost). The data and actions are proposed ops (below), so in a cmux without them the app says which op is missing. Platform v2 sketch: `cmux-app.v2.json` and `catalog/`.
+Status: prototype on today's app runtime (preview harness and bun FakeHost). The data and actions are proposed ops (below), so in a cmux without them the app says which op is missing. Manifest v2: `cmux-app.v2.json` and `catalog/`; the proposed host ops the app calls are in `proposed/host-catalog.json`, not in its catalog.
 
 ## Contributions
 
@@ -35,7 +35,7 @@ Recommendation: `byCli`. The questions people ask are per CLI ("is Codex current
 
 ## Proposed operations
 
-Owner recommendation: the session host on each machine (a small "agent environment" module next to terminals and documents). It is already on every machine (Mac, cmux server, team VM, Linux), it already opens visible terminals with origin user, and V3 makes it the document host for files on that machine, which `cmux/skills` and `cmux/memory` also need. The Swift detector in `CmuxNextCodeRouter/Detection` (presence only, Mac only) is the model for the sign-in part; it moves into the session host or is ported to it. Alternative: a per-machine app server (`server.instances: "machine"`), rejected for now because three first-party apps would need one shared owner and v2 has no shared server. The operation-catalog form is `catalog/proposed-host-catalog.json`.
+Owner recommendation: the session host on each machine (a small "agent environment" module next to terminals and documents). It is already on every machine (Mac, cmux server, team VM, Linux), it already opens visible terminals with origin user, and V3 makes it the document host for files on that machine, which `cmux/skills` and `cmux/memory` also need. The Swift detector in `CmuxNextCodeRouter/Detection` (presence only, Mac only) is the model for the sign-in part; it moves into the session host or is ported to it. Alternative: a per-machine app server (`server.instances: "machine"`), rejected for now because three first-party apps would need one shared owner and v2 has no shared server. The operation-catalog form is `proposed/host-catalog.json`.
 
 | Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |

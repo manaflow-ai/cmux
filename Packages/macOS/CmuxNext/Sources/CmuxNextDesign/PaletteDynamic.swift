@@ -8,7 +8,7 @@ enum PaletteDynamic {
     static let sidebarBackground = token(\.sidebarBackground)
     static let contentBackground = token(\.contentBackground)
     static let pageBackground = token(\.contentBackground, opaque: true)
-    static let utilityWindowBackground = token(\.windowBackground, opaque: true)
+    static let surfaceBackground = token(\.surfaceBackground)
     static let chromeBackground = token(\.chromeBackground)
     static let elevatedBackground = token(\.elevatedBackground)
     static let stripBackground = token(\.stripBackground)

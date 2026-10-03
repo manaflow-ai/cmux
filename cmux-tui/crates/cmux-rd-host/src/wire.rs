@@ -23,6 +23,9 @@ pub enum Control {
         interactive: bool,
         udp_port: Option<u16>,
         max_datagram: usize,
+        /// The per-launch session token (64 hex characters); see `token.rs`.
+        #[serde(default)]
+        token: Option<SecretHex>,
     },
     Start {
         key: String,
@@ -53,6 +56,17 @@ pub enum Control {
         encode_ms_p50: f64,
         loss_pct: f64,
     },
+}
+
+/// A secret in a message; Debug never prints it.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretHex(pub String);
+
+impl std::fmt::Debug for SecretHex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
 }
 
 /// Accumulates bytes from a non-blocking stream and yields complete frames.

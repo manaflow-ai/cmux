@@ -2,15 +2,20 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextDesign
 import Testing
 
 /// Lane 20: Cmd-W in a window of its own (Debug Settings, the App Store,
 /// onboarding, an undocked inspector) closed the selected tab of the last
-/// main window. A standalone window is its own only pane: every close
-/// action closes it, like its close button, and never runs on a main window.
+/// main window. The window key table (`WindowKeyTable`): in every kind but
+/// `main`, every close action closes the window, like its close button,
+/// and never runs on a main window. These ran against `StandaloneWindowRule`
+/// before the table replaced it; the standalone window here has no kind
+/// (the table's fallback), `installedKindsBehaveTheSame` repeats them for a
+/// window installed through the window kit.
 @MainActor
 @Suite(.serialized)
-struct StandaloneWindowCloseTests {
+struct WindowKeyTableTests {
     /// Counts the runs of the main-window handlers it replaces.
     final class Spy {
         var runs: [String: Int] = [:]
@@ -22,7 +27,7 @@ struct StandaloneWindowCloseTests {
 
     /// A registered main window, last active, and a standalone titled
     /// window that is key.
-    private func world() async throws -> (AppServices, NSWindow) {
+    private func world(kind: WindowKind? = nil) async throws -> (AppServices, NSWindow) {
         let services = ActionBindingCoverageTests.boundServices()
         services.windows.ordersWindowsIn = false
         services.daemon.store.apply(snapshot: try BrowserTabTests.tree())
@@ -32,6 +37,7 @@ struct StandaloneWindowCloseTests {
         let standalone = NSWindow(contentRect: NSRect(x: -30_000, y: -30_000, width: 400, height: 300),
                                   styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         standalone.isReleasedWhenClosed = false
+        if let kind { standalone.install(kind: kind, content: NSView(), scope: .app) }
         services.keyWindowSource = { standalone }
         return (services, standalone)
     }
@@ -56,7 +62,7 @@ struct StandaloneWindowCloseTests {
 
     /// Every close action of the catalog, as the rule sees it.
     private static func closeActions() -> [String] {
-        ActionRegistry.standard().descriptors.map(\.id).filter(StandaloneWindowRule.isClose).map(\.rawValue)
+        ActionRegistry.standard().descriptors.map(\.id).filter(WindowKeyTable.isClose).map(\.rawValue)
     }
 
     @Test func theCatalogsCloseActionsAreAllCovered() {
@@ -112,20 +118,29 @@ struct StandaloneWindowCloseTests {
         #expect(spy.runs["closeTab"] == nil, "a panel over a standalone window never reaches the main window")
     }
 
-    @Test func destructiveActionsAreDisabledWhileAStandaloneWindowIsKey() {
-        let kind = StandaloneWindowRule.Kind(closes: false, destroysContent: true)
-        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: false, keyWindow: .standalone) == .disabled)
-        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: false, keyWindow: nil) == .pass)
-        #expect(StandaloneWindowRule.decide(kind, origin: .user, hasTarget: true, keyWindow: .standalone) == .pass)
-        let plain = StandaloneWindowRule.Kind(closes: false, destroysContent: false)
-        #expect(StandaloneWindowRule.decide(plain, origin: .user, hasTarget: false, keyWindow: .standalone) == .pass)
+    @Test func destructiveContentActionsAreDisabledAndCloseActionsCloseTheWindow() {
+        let table = WindowKeyTable(registry: ActionRegistry.standard())
+        let content = table.registry.descriptors.first {
+            $0.isDestructive && !WindowKeyTable.contentTargets.isDisjoint(with: $0.targets) && !WindowKeyTable.isClose($0.id)
+                && !WindowKeyTable.appLevel.contains($0.id)
+        }
+        if let content {
+            #expect(table.behavior(for: content.id, in: .settings) == .disabled(reason: MiscHandlerStrings.noPane))
+            #expect(table.behavior(for: content.id, in: .main) == .run)
+        }
+        #expect(table.behavior(for: "closeTab", in: .settings) == .closeWindow)
+        #expect(table.behavior(for: "closeTab", in: .settings, overRoot: true) == .consume)
+        #expect(table.behavior(for: "closeTab", in: .main) == .run)
+        #expect(table.behavior(for: "newTab", in: .settings) == .run, "Cmd-T in Settings opens a tab in the main window")
+        #expect(table.behavior(for: "quit", in: .devTools) == .run)
     }
 
     @Test func aDestructiveContentActionIsOffAndAnAccountActionIsNot() async throws {
         let (services, _) = try await world()
         let registry = services.registry
-        let content = try #require(registry.descriptors.first { $0.isDestructive && !StandaloneWindowRule.contentTargets.isDisjoint(with: $0.targets) && !StandaloneWindowRule.isClose($0.id) })
-        #expect(StandaloneWindowRule.kind(content.id, registry: registry).destroysContent)
+        let table = WindowKeyTable(registry: registry)
+        let content = try #require(registry.descriptors.first { $0.isDestructive && !WindowKeyTable.contentTargets.isDisjoint(with: $0.targets) && !WindowKeyTable.isClose($0.id) && !WindowKeyTable.appLevel.contains($0.id) })
+        #expect(table.destroysContent(content.id))
         let spy = spy(services, [content.id.rawValue])
         if let item = registry.makeMenuItem(for: content.id), let target = item.target as? any NSMenuItemValidation {
             #expect(!target.validateMenuItem(item), "\(content.id) is off while a standalone window is key")
@@ -133,8 +148,8 @@ struct StandaloneWindowCloseTests {
         let refusal = registry.capturingRefusal { registry.perform(content.id, invocation: ActionInvocation()) }
         #expect(refusal == MiscHandlerStrings.noPane)
         #expect(spy.runs[content.id.rawValue] == nil)
-        if let other = registry.descriptors.first(where: { $0.isDestructive && StandaloneWindowRule.contentTargets.isDisjoint(with: $0.targets) }) {
-            #expect(!StandaloneWindowRule.kind(other.id, registry: registry).destroysContent, "\(other.id) is not main window content")
+        if let other = registry.descriptors.first(where: { $0.isDestructive && WindowKeyTable.contentTargets.isDisjoint(with: $0.targets) }) {
+            #expect(!table.destroysContent(other.id), "\(other.id) is not main window content")
         }
     }
 
@@ -160,14 +175,32 @@ struct StandaloneWindowCloseTests {
         let (services, _) = try await world()
         let main = try #require(services.windows.controllers.first?.window)
         services.keyWindowSource = { main }
-        #expect(services.keyStandaloneWindow == nil)
+        #expect(services.keyWindowRole?.close == .contentFirst)
         let palette = NSPanel(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
         main.addChildWindow(palette, ordered: .above)
         defer { main.removeChildWindow(palette) }
         services.keyWindowSource = { palette }
-        #expect(services.keyStandaloneWindow == nil)
+        #expect(services.keyWindowRole?.close == .contentFirst)
         let borderless = NSPanel(contentRect: .zero, styleMask: [.borderless], backing: .buffered, defer: true)
         services.keyWindowSource = { borderless }
-        #expect(services.keyStandaloneWindow == nil)
+        #expect(services.keyWindowRole == nil)
+    }
+
+    /// Every kind but main, installed through the window kit: Cmd-W closes
+    /// it and the main window's tab survives; a panel over it consumes.
+    @Test func installedKindsBehaveTheSame() async throws {
+        for kind in WindowKind.allCases where kind != .main {
+            let (services, standalone) = try await world(kind: kind)
+            let spy = spy(services, ["closeTab"])
+            #expect(closes(standalone) { services.registry.perform("closeTab", invocation: ActionInvocation()) }, "\(kind)")
+            #expect(spy.runs["closeTab"] == nil, "\(kind)")
+            let panel = NSPanel(contentRect: NSRect(x: -30_000, y: -30_000, width: 100, height: 80),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            standalone.addChildWindow(panel, ordered: .above)
+            services.keyWindowSource = { panel }
+            #expect(!closes(standalone) { services.registry.perform("closeTab", invocation: ActionInvocation()) }, "\(kind)")
+            #expect(spy.runs["closeTab"] == nil, "\(kind)")
+            standalone.removeChildWindow(panel)
+        }
     }
 }

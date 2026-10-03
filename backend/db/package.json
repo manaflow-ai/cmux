@@ -8,15 +8,18 @@
     "typecheck": "tsc -p .",
     "e2e": "bun e2e.ts",
     "test": "bun test test",
-    "lint": "bun migrate.ts --lint"
+    "lint": "bun migrate.ts --lint",
+    "db:generate": "drizzle-kit generate --config drizzle.config.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.2",
     "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
     "pg": "8.23.0",
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "drizzle-orm": "0.45.3",
     "libpg-query": "18.1.5"
   }
 }

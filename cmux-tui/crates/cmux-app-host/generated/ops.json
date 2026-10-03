@@ -46,6 +46,8 @@
     "column.update",
     "conversation.create",
     "conversation.history",
+    "conversation.import",
+    "conversation.import.commit",
     "conversation.settings.set",
     "conversation.snapshot",
     "dm.open",

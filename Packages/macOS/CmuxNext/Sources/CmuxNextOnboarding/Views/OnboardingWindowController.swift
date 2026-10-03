@@ -23,21 +23,17 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         window.title = OnboardingStrings.windowTitle
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.animationBehavior = .alertPanel
         // A fixed size: content never grows the window.
         window.contentMinSize = OnboardingMetrics.windowSize
         window.contentMaxSize = OnboardingMetrics.windowSize
         window.identifier = NSUserInterfaceItemIdentifier("cmux.onboarding")
-        ThemeStore.shared.adopt(window)
         super.init(window: window)
         window.delegate = self
-        // The window is transparent; each variant's surface draws its own
-        // glass or opaque background (`OnboardingSurfaceView`).
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.contentView = OnboardingHostView(model: model, variant: variant)
+        // Kind `.onboarding`: a clear window with only a close button; each
+        // variant's surface draws its own glass or opaque background
+        // (`OnboardingSurfaceView`).
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model, variant: variant), scope: .app)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()

@@ -15,7 +15,7 @@ import Testing
         try home.writeJSON(".codex/auth.json", codexAuth())
         let result = ProviderDetector(environment: home.environment()).detectCodex()
         #expect(result.status == .signedIn)
-        #expect(result.account == fixtureLabeler.local(.codex, identity: "dev@example.com", plan: "pro"))
+        #expect(result.account?.handle == codexHandle(), "the handle comes from the workspace and user ids")
         #expect(result.account?.display == "pro")
         #expect(result.plan == "pro")
         #expect(result.sources == [.file("~/.codex/auth.json")])
@@ -29,7 +29,7 @@ import Testing
         try home.writeJSON("alt-codex/auth.json", codexAuth(email: "alt@example.com"))
         let env = home.environment(["CODEX_HOME": home.url.appendingPathComponent("alt-codex").path])
         let account = try #require(ProviderDetector(environment: env).detectCodex().account)
-        #expect(account.handle == fixtureLabeler.handle(namespace: "codex", identity: "alt@example.com"))
+        #expect(account.handle == codexHandle())
     }
 
     @Test func codexWithoutRefreshTokenAndExpiredAccessIsExpired() throws {

@@ -1,122 +1,98 @@
 {
-  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12). Not loaded by today's runtime; cmux-app.json is the live manifest. The data stays with its owners: connections and team policy in ConnectionDO, credentials and tool catalogs in the integration gateway. The app is UI and onboarding.",
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
   "id": "cmux/integrations",
+  "name": {
+    "en": "Integrations",
+    "ja": "連携"
+  },
   "version": "0.1.0",
+  "description": {
+    "en": "Connect GitHub, Linear, Slack, Google Calendar, Gmail or any OpenAPI, GraphQL or MCP API, share connections with your team, fix sign-ins, and choose per tool whether agents may run it, must ask, or never run it.",
+    "ja": "GitHub、Linear、Slack、Google カレンダー、Gmail、または任意の OpenAPI・GraphQL・MCP API を接続し、チームと共有し、サインインを修復し、ツールごとにエージェントが実行できるか、確認が必要か、実行しないかを選べます。"
+  },
   "publisher": {
     "name": "cmux",
     "url": "https://cmux.dev"
   },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
-  "notices": ["LICENSE-executor"],
+  "icon": "assets/icon.svg",
+  "categories": [
+    "agents",
+    "developer-tools",
+    "cloud"
+  ],
+  "keywords": [
+    "integrations",
+    "connections",
+    "openapi",
+    "graphql",
+    "mcp",
+    "oauth",
+    "policy"
+  ],
   "engines": {
     "cmux": "^2.0"
   },
-  "name": {
-    "en": "Integrations",
-    "ja": "連携"
+  "runtime": {
+    "main": "dist/main.js"
   },
-  "strings": "strings/",
-  "main": "dist/main.js",
-  "scopes": {
-    "integration:read": "List your team's connections, their health, tools and the team's integration policy."
-  },
-  "optionalScopes": {
-    "integration:write": "Connect, sign in again, share, disconnect, or change a tool's policy when you click those buttons.",
-    "feed:read": "Show tool approval requests and sign-in problems in your feed."
-  },
+  "catalog": "catalog/integrations-catalog.json",
   "implements": {
     "cmux.section/1": {
-      "id": "integrations",
       "export": "renderSection",
       "title": {
         "en": "Integrations",
         "ja": "連携"
       },
       "symbol": "puzzlepiece.extension",
-      "defaultRegion": "bottom"
+      "options": {
+        "defaultRegion": "bottom",
+        "maxRows": 6
+      }
     },
-    "cmux.credential.provider/1": {
-      "$comment": "Lets another app (an HTTP or database client) ask for a credential for a host. The app shows a picker of matching connections; the shell returns a cred_ handle the gateway resolves. Secrets never enter either app.",
-      "export": "pickCredential",
-      "renderer": "scene",
-      "kinds": ["api_key", "bearer", "basic", "headers", "oauth2"],
-      "match": "host"
-    },
-    "cmux.feed.source/1": {
-      "$comment": "The gateway posts the items; this app renders their bodies and actions. integration.approval: an Ask tool waits for approval (Approve once / Always allow / Block). integration.reauth: a connection needs sign-in.",
-      "kinds": ["integration.approval", "integration.reauth"],
-      "export": "renderFeedItem"
+    "cmux.pane/1": {
+      "export": "renderPane",
+      "title": {
+        "en": "Integrations",
+        "ja": "連携"
+      },
+      "symbol": "puzzlepiece.extension"
     }
   },
-  "consumes": [],
-  "handles": ["conn", "cred"],
-  "catalog": {
-    "owner": "app:cmux/integrations",
-    "ops": [
-      {
-        "name": "integrations.open",
-        "export": "openIntegrations",
-        "risk": "read",
-        "params": {
-          "connection": "conn_…?"
-        },
-        "surfaces": {
-          "palette": {
-            "title": "Open Integrations"
-          },
-          "cli": "cmux apps run cmux/integrations open",
-          "contexts": ["section:integrations"]
-        },
-        "gesture": "required"
-      },
-      {
-        "name": "integrations.connect",
-        "export": "connect",
-        "risk": "mutate-shared",
-        "params": {
-          "provider": "github | linear | slack (google_calendar and gmail are shown as coming)"
-        },
-        "surfaces": {
-          "palette": {
-            "title": "Connect an Integration"
-          },
-          "cli": "cmux apps run cmux/integrations connect"
-        },
-        "gesture": "required",
-        "$comment": "Completes only with a human at the provider; not on MCP or automations."
-      },
-      {
-        "name": "integrations.import",
-        "export": "importApi",
-        "risk": "read",
-        "params": {
-          "source": "url | json"
-        },
-        "surfaces": {
-          "palette": {
-            "title": "Add an API from a Spec"
-          },
-          "cli": "cmux apps run cmux/integrations import"
-        },
-        "gesture": "required"
-      }
-    ],
-    "events": []
+  "scopes": {
+    "integration:read": "List your team's connections, their health and the team's integration policy."
   },
-  "variants": {
-    "setting": "variant",
-    "values": ["connections", "gallery", "catalog"],
-    "default": "connections",
-    "channels": ["dev", "nightly"]
+  "optionalScopes": {
+    "integration:write": "Start a connection, sign in again, share it with your team, disconnect it (cmux confirms first), turn its MCP exposure on or off, or change a tool's policy when you click those buttons.",
+    "workspace:write": "Open the Integrations pane from the palette or the sidebar."
   },
-  "settings": {},
-  "v2Gaps": [
-    "Pane kinds are not in V2's place interfaces: the main pane needs a `cmux.pane/1` (or a native pane for first-party apps).",
-    "No secure input in the scene vocabulary: credential collection must stay a shell sheet (proposed integration.connect host behavior), never a TextField in an app.",
-    "No URL-open host capability for OAuth approval pages from an app with a gesture.",
-    "No Table or Segmented control in V7's component list: the Allow / Ask / Block control is three tappable Texts.",
-    "cmux.feed.source/1 has no schema yet for action buttons that answer with a policy change (Always allow)."
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "connections",
+        "gallery",
+        "catalog"
+      ],
+      "default": "connections"
+    }
+  ],
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.pane/1",
+    "onOp:integrations.open",
+    "onOp:integrations.connect",
+    "onOp:integrations.import_api"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/",
+    "LICENSE-executor"
   ]
 }

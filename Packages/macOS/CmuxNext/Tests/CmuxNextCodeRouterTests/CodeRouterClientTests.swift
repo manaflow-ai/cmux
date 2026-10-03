@@ -59,7 +59,7 @@ final class FakeCodeRouter: URLProtocol, @unchecked Sendable {
 
     @Test func listsBothFamiliesWithNativeAuthHeaders() async throws {
         FakeCodeRouter.reset([
-            "GET /api/coderouter/accounts": (200, #"{"teamId":"team-1","accounts":[{"id":"a1","provider":"codex","label":"dev@example.com","providerAccountId":"x","state":"active","visibility":"private"},{"id":"a2","provider":"future-provider","label":"?"}]}"#),
+            "GET /api/coderouter/accounts": (200, #"{"teamId":"team-1","accounts":[{"id":"a1","provider":"codex","label":"dev@example.com","providerAccountId":"acct-fixture","providerUserId":"user-fixture","state":"active","visibility":"private"},{"id":"a2","provider":"future-provider","label":"?"}]}"#),
             "GET /api/coderouter/claude-upstream": (200, #"{"teamId":"team-1","accounts":[{"id":"c1","kind":"anthropic_oauth","label":"","identifier":"sk-ant-oat01-…abcd","state":"active"}]}"#),
         ])
         let accounts = try await client.linkedAccounts()
@@ -68,7 +68,7 @@ final class FakeCodeRouter: URLProtocol, @unchecked Sendable {
         #expect(accounts[1].provider == .claude)
         #expect(accounts[1].label == "sk-ant-oat01-…abcd", "a masked key is not personal data: kept")
         #expect(accounts[0].label == "d…@e…")
-        #expect(accounts[0].account.handle == fixtureLabeler.handle(namespace: "codex", identity: "dev@example.com"))
+        #expect(accounts[0].account.handle == codexHandle())
         let request = try #require(FakeCodeRouter.log.first)
         #expect(request.headers["Authorization"] == "Bearer fixture-access")
         #expect(request.headers["X-Stack-Refresh-Token"] == "fixture-refresh")

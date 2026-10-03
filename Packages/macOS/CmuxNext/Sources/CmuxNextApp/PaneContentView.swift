@@ -222,7 +222,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let tokens = themeTokens
         let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
-            contentHost.layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
+            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
     }
 }

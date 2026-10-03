@@ -1,178 +1,154 @@
 {
-  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12). Not loaded by today's runtime; cmux-app.json is the live manifest.",
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
   "manifestVersion": 2,
   "id": "cmux/diffs",
+  "name": {
+    "en": "Diffs",
+    "ja": "差分"
+  },
   "version": "0.1.0",
+  "description": {
+    "en": "Review changes: the working tree against HEAD, two refs, an agent's proposed diff or a run's diff, side by side or inline, with comments and per-hunk accept or reject.",
+    "ja": "変更をレビュー: 作業ツリーとHEAD、2つの参照、エージェントが提案した差分、実行の差分を左右またはインラインで表示し、コメントとハンクごとの承認・却下ができます。"
+  },
   "publisher": {
     "name": "cmux",
     "url": "https://cmux.dev"
   },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": [
+    "git",
+    "agents",
+    "developer-tools"
+  ],
+  "keywords": [
+    "diff",
+    "git",
+    "review",
+    "changes"
+  ],
   "engines": {
     "cmux": "^2.0"
   },
-  "name": {
-    "en": "Diffs",
-    "ja": "差分"
+  "runtime": {
+    "main": "dist/main.js"
   },
-  "strings": "strings/",
-  "main": "dist/main.js",
-  "scopes": {
-    "workspace:read": "Find the repository of the workspace you are in.",
-    "git:read": "Read git status and diffs.",
-    "diff:read": "Open diffs proposed to you.",
-    "feed:read": "Open the review request an agent sent you."
-  },
-  "optionalScopes": {
-    "git:write": "Stage or discard when you click Stage or Discard.",
-    "diff:write": "Record your decisions and comments.",
-    "feed:write": "Send your review back.",
-    "embed:run": "Show file diffs with your editor app."
-  },
+  "catalog": "catalog/diffs-catalog.json",
   "implements": {
-    "cmux.diff.renderer/1": {
-      "export": "renderDiffPane",
-      "renderer": "scene",
-      "inputs": [
-        "worktree",
-        "refs",
-        "resource",
-        "feedItem",
-        "run",
-        "documents"
-      ]
-    },
     "cmux.section/1": {
-      "id": "changes",
       "export": "renderChanges",
       "title": {
         "en": "Changes",
         "ja": "変更"
       },
       "symbol": "plusminus",
-      "defaultRegion": "middle"
+      "options": {
+        "defaultRegion": "middle",
+        "maxRows": 14
+      }
+    },
+    "cmux.pane/1": {
+      "export": "renderDiffPane",
+      "title": {
+        "en": "Diff",
+        "ja": "差分"
+      },
+      "symbol": "plusminus"
+    },
+    "cmux.diff.renderer/1": {
+      "export": "renderDiffPane",
+      "title": {
+        "en": "Diff",
+        "ja": "差分"
+      },
+      "symbol": "plusminus",
+      "options": {
+        "inputs": [
+          "worktree",
+          "refs",
+          "resource",
+          "feedItem",
+          "run",
+          "documents"
+        ]
+      }
     }
   },
   "consumes": [
     "cmux.editor/1",
     "cmux.diff.source/1"
   ],
-  "handles": [
-    "diff",
-    "doc"
-  ],
-  "catalog": {
-    "owner": "app:cmux/diffs",
-    "ops": [
-      {
-        "name": "diffs.open_changes",
-        "export": "openChanges",
-        "risk": "read",
-        "params": {
-          "staged": "boolean?",
-          "path": "string?"
-        },
-        "surfaces": {
-          "palette": {
-            "title": "Open Changes"
-          },
-          "cli": "cmux apps run cmux/diffs open-changes",
-          "mcp": true,
-          "contexts": [
-            "section:changes"
-          ]
-        },
-        "gesture": "required"
-      },
-      {
-        "name": "diffs.open_refs",
-        "export": "openDiff",
-        "risk": "read",
-        "params": {
-          "repo": "repo_…",
-          "base": "string",
-          "head": "string"
-        },
-        "surfaces": {
-          "cli": "cmux apps run cmux/diffs open-refs",
-          "mcp": true
-        }
-      },
-      {
-        "name": "diffs.review",
-        "export": "review",
-        "risk": "read",
-        "params": {
-          "item": "fi_…?",
-          "diff": "diff_…?",
-          "run": "run_…?"
-        },
-        "surfaces": {
-          "cli": "cmux apps run cmux/diffs review",
-          "automation": true
-        }
-      },
-      {
-        "name": "diffs.review_latest",
-        "export": "reviewLatest",
-        "risk": "read",
-        "surfaces": {
-          "palette": {
-            "title": "Review Latest Proposal"
-          }
-        }
-      },
-      {
-        "name": "diffs.toggle_layout",
-        "export": "toggleLayout",
-        "risk": "mutate-own",
-        "surfaces": {
-          "palette": {
-            "title": "Toggle Side-by-Side Diff"
-          }
-        }
-      }
-    ],
-    "events": []
+  "scopes": {
+    "workspace:read": "Find the repository of the workspace you are in.",
+    "git:read": "Read git status and diffs of that repository.",
+    "diff:read": "Open diffs that agents and runs propose to you.",
+    "feed:read": "Open the review request an agent sent you."
   },
-  "variants": {
-    "setting": "variant",
-    "values": [
-      "split",
-      "stream",
-      "review"
-    ],
-    "default": "split",
-    "channels": [
-      "dev",
-      "nightly"
-    ]
+  "optionalScopes": {
+    "git:write": "Stage or discard a hunk when you click Stage or Discard.",
+    "diff:write": "Record your accept, reject and comments on a proposed diff.",
+    "feed:write": "Send your review back to the agent that asked for it."
   },
-  "settings": {
-    "layout": {
-      "enum": [
-        "inline",
-        "sideBySide"
+  "handles": {
+    "diff": "Open a diff resource that an agent or an automation proposed to you.",
+    "document": "Show one file of a diff in your editor app."
+  },
+  "strings": "strings/",
+  "variants": [
+    {
+      "id": "variant",
+      "title": "Design variant",
+      "values": [
+        "split",
+        "stream",
+        "review"
       ],
-      "default": "inline"
-    },
-    "editorApp": {
-      "type": "app-id",
-      "interface": "cmux.editor/1",
-      "default": "cmux/codemirror"
-    },
-    "fallbackLines": {
-      "type": "integer",
-      "default": 160
+      "default": "split"
+    }
+  ],
+  "settings": {
+    "type": "object",
+    "properties": {
+      "layout": {
+        "type": "string",
+        "enum": [
+          "inline",
+          "sideBySide"
+        ],
+        "default": "inline",
+        "title": "Diff layout"
+      },
+      "editorApp": {
+        "type": "string",
+        "default": "cmux/codemirror",
+        "title": "Editor app for file diffs",
+        "description": "Used when you have not chosen a default editor for the file type."
+      },
+      "fallbackLines": {
+        "type": "integer",
+        "minimum": 20,
+        "maximum": 600,
+        "default": 160,
+        "title": "Lines per file in the built-in view before Show More"
+      }
     }
   },
-  "v2Gaps": [
-    "No Embed scene node in the v2 scene vocabulary (V7 lists List, Section, Row, Detail, Form, ActionPanel, Table, Meter): V4 embeds need a placement node.",
-    "No generic hunk decision op across producers: V5 names git.stage/apply only; diff.decide routes accept/reject to any producer.",
-    "No diff.file.read for an embedded editor to read one side of a diff resource.",
-    "No pane open with input (app.pane.open {kind, input}) or pane input in the mount context.",
-    "No ScrollView and no vertical alignment for HStack in the scene (split view clips at the pane height).",
-    "No confirmation primitive for destructive scene actions (Discard uses a second tap)."
+  "activation": [
+    "onInterface:cmux.section/1",
+    "onInterface:cmux.pane/1",
+    "onInterface:cmux.diff.renderer/1",
+    "onOp:diffs.open_changes",
+    "onOp:diffs.open_diff",
+    "onOp:diffs.review",
+    "onOp:diffs.review_latest",
+    "onOp:diffs.toggle_layout"
+  ],
+  "files": [
+    "dist/",
+    "assets/",
+    "catalog/",
+    "strings/"
   ]
 }

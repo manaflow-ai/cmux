@@ -2,7 +2,7 @@
 
 Lists, installs, turns on and off, and removes the skills (SKILL.md folders) and MCP servers of each agent (Claude Code, Codex, OpenCode, Gemini CLI), for the current project or everywhere. Each item shows its source (git repository and ref, the store, a local folder, or the agent that added it), what it asks for in cmux scope words (`process:execute`, `net:api.github.com`, `fs:read:project`) with a risk tone, and the sandbox profile it runs under. Every change is planned first: the app shows the exact edit to the agent's own config file as a diff, inline or in the Diffs app, and writes nothing until you tap Apply.
 
-Status: prototype on today's app runtime (preview harness and bun FakeHost). Every data and write op is proposed (below). Platform v2 sketch: `cmux-app.v2.json` and `catalog/`.
+Status: prototype on today's app runtime (preview harness and bun FakeHost). Every data and write op is proposed (below). Manifest v2: `cmux-app.v2.json` and `catalog/`; the proposed host ops the app calls are in `proposed/host-catalog.json`, not in its catalog.
 
 ## Contributions
 
@@ -41,7 +41,7 @@ Recommendation: `unified`. A skill or server is usually installed for several ag
 
 ## Proposed operations
 
-Owner: the session host of the machine that has the files (V3 document host), next to the `agent_cli.*` ops of `cmux/agents`. The operation-catalog form is `catalog/proposed-host-catalog.json`.
+Owner: the session host of the machine that has the files (V3 document host), next to the `agent_cli.*` ops of `cmux/agents`. The operation-catalog form is `proposed/host-catalog.json`.
 
 | Op | Params | Result | Owner | Risk | Scope | Events | Why existing ops do not suffice |
 | --- | --- | --- | --- | --- | --- | --- | --- |
