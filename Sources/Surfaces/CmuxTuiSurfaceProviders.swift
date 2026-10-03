@@ -1776,9 +1776,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
     func projectionsRestored() { reprojectRestoredPanes(generation: lifecycleGeneration) }
+    /// Rebinds only the resource projections resolved by the latest catalog publication.
     func projectionsRestored(resources: Set<SurfaceResourceID>) {
         reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
     }
+    /// Reprojects restored panes while preserving lifecycle and ownership guards.
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)

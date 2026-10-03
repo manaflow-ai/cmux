@@ -49,6 +49,7 @@ protocol SurfaceProvider: AnyObject {
     func projectionsRestored()
     /// Rebind only projections that became resolvable during the latest publication.
     /// The default keeps providers that do not maintain a targeted reprojection path compatible.
+    /// Rebinds only the restored resources that became available in a publication.
     func projectionsRestored(resources: Set<SurfaceResourceID>)
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.

@@ -235,6 +235,7 @@ extension CmuxTuiSurfaceProvider {
         }
     }
 
+    /// Rebinds browser panes for the supplied resources, or all restored browser panes.
     func reprojectRestoredBrowserPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         for resource in catalog.snapshot.resources(on: machine) where
