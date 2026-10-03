@@ -14,6 +14,8 @@ public final class TerminalViewController: UIViewController {
     let clock: any Clock<Duration>
     var stream: Task<Void, Never>?
     var retry: Task<Void, Never>?
+    /// The pending READY deadline (cancelled by a newer one or detach).
+    var readyDeadline: Task<Void, Never>?
     var pipeline: TerminalStreamPipeline?
     var pathText: String?
     var notice: String?
