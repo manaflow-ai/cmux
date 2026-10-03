@@ -36,7 +36,13 @@ final class TasksPageService: InternalPageProvider {
         guard services.pages.show(.tasks, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
-        guard focus, let model = sharedModel else { return }
+        Self.applyViewState(scope: scope, newTask: newTask, focus: focus, to: sharedModel)
+    }
+
+    /// The origin rule for Tasks actions: the scope and the New Task focus
+    /// are client view state, so only a user run (`focus`) changes them.
+    static func applyViewState(scope: TasksScope?, newTask: Bool, focus: Bool, to model: TasksModel?) {
+        guard focus, let model else { return }
         if let scope { model.scope = scope }
         if newTask { model.focusNewTask() }
     }

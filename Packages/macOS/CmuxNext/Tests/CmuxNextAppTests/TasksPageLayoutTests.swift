@@ -21,4 +21,19 @@ import Testing
         #expect(key.hasPrefix("local-page:tasks:"))
         #expect(LocalPageTab.page(of: key) == .tasks)
     }
+
+    /// Origin rule: an automation run (CLI, MCP, script, remote) opens the
+    /// page but never changes the scope or focuses the New Task field.
+    @Test func automationRunsLeaveTheViewAsItIs() {
+        let model = TasksModel(source: MockTasksSource())
+        model.start()
+        TasksPageService.applyViewState(scope: .mine, newTask: true, focus: false, to: model)
+        #expect(model.scope == .all)
+        #expect(model.newTaskFocusRequest == 0)
+        TasksPageService.applyViewState(scope: .mine, newTask: true, focus: true, to: model)
+        #expect(model.scope == .mine)
+        #expect(model.newTaskFocusRequest == 1)
+        TasksPageService.applyViewState(scope: nil, newTask: false, focus: true, to: model)
+        #expect(model.scope == .mine, "nil keeps the scope")
+    }
 }
