@@ -3,57 +3,55 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import UIKit
 
-@MainActor
-private func configureLiquidGlassButton(
-    _ button: UIButton,
-    imageName: String? = nil,
-    title: String? = nil,
-    prominent: Bool,
-    symbolPointSize: CGFloat = 22,
-    foregroundColor: UIColor? = nil
-) {
-    let image = imageName.flatMap { UIImage(systemName: $0) }
-    if #available(iOS 26.0, *) {
-        var configuration = prominent
-            ? UIButton.Configuration.prominentGlass()
-            : UIButton.Configuration.glass()
-        configuration.image = image
-        configuration.title = title
-        configuration.baseForegroundColor = foregroundColor ?? (prominent ? .white : .label)
-        configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-            pointSize: symbolPointSize,
-            weight: .regular
-        )
-        configuration.contentInsets = .zero
-        configuration.cornerStyle = .capsule
-        button.configuration = configuration
-    } else {
-        button.setImage(image, for: .normal)
-        button.setTitle(title, for: .normal)
-        button.setPreferredSymbolConfiguration(
-            UIImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular),
-            forImageIn: .normal
-        )
-        button.tintColor = foregroundColor ?? (prominent ? .white : .label)
-        button.setTitleColor(foregroundColor ?? (prominent ? .white : .label), for: .normal)
+private extension UIButton {
+    func configureLiquidGlass(
+        imageName: String? = nil,
+        title: String? = nil,
+        prominent: Bool,
+        symbolPointSize: CGFloat = 22,
+        foregroundColor: UIColor? = nil
+    ) {
+        let image = imageName.flatMap { UIImage(systemName: $0) }
+        if #available(iOS 26.0, *) {
+            var configuration = prominent
+                ? UIButton.Configuration.prominentGlass()
+                : UIButton.Configuration.glass()
+            configuration.image = image
+            configuration.title = title
+            configuration.baseForegroundColor = foregroundColor ?? (prominent ? .white : .label)
+            configuration.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+                pointSize: symbolPointSize,
+                weight: .regular
+            )
+            configuration.contentInsets = .zero
+            configuration.cornerStyle = .capsule
+            self.configuration = configuration
+        } else {
+            setImage(image, for: .normal)
+            setTitle(title, for: .normal)
+            setPreferredSymbolConfiguration(
+                UIImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular),
+                forImageIn: .normal
+            )
+            tintColor = foregroundColor ?? (prominent ? .white : .label)
+            setTitleColor(foregroundColor ?? (prominent ? .white : .label), for: .normal)
+        }
     }
 }
 
-@MainActor
-private func configureLiquidGlassMaterial(
-    _ view: UIVisualEffectView,
-    fallback: UIBlurEffect.Style = .systemMaterial
-) {
-    if #available(iOS 26.0, *) {
-        let glass = UIGlassEffect(style: .regular)
-        glass.isInteractive = true
-        view.effect = glass
-    } else {
-        view.effect = UIBlurEffect(style: fallback)
+private extension UIVisualEffectView {
+    func configureLiquidGlass(fallback: UIBlurEffect.Style = .systemMaterial) {
+        if #available(iOS 26.0, *) {
+            let glass = UIGlassEffect(style: .regular)
+            glass.isInteractive = true
+            effect = glass
+        } else {
+            effect = UIBlurEffect(style: fallback)
+        }
+        // The system effect owns the surface color. A second content fill makes
+        // the material opaque and produces a different result from Safari.
+        contentView.backgroundColor = .clear
     }
-    // The system effect owns the surface color. A second content fill makes
-    // the material opaque and produces a different result from Safari.
-    view.contentView.backgroundColor = .clear
 }
 
 @MainActor
@@ -328,7 +326,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         accessibilityIdentifier: String
     ) {
         button.translatesAutoresizingMaskIntoConstraints = true
-        configureLiquidGlassButton(button, imageName: imageName, prominent: false)
+        button.configureLiquidGlass(imageName: imageName, prominent: false)
         button.accessibilityLabel = accessibilityLabel
         button.accessibilityIdentifier = accessibilityIdentifier
         button.accessibilityTraits = .button
@@ -362,7 +360,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         view.addSubview(bottomBar)
 
         newTerminalButton.translatesAutoresizingMaskIntoConstraints = true
-        configureLiquidGlassButton(newTerminalButton, imageName: "plus", prominent: false)
+        newTerminalButton.configureLiquidGlass(imageName: "plus", prominent: false)
         newTerminalButton.accessibilityLabel = L10n.string("mobile.terminal.new", defaultValue: "New Terminal")
         newTerminalButton.accessibilityIdentifier = "MobileTerminalOverviewNewTerminal"
         newTerminalButton.addTarget(self, action: #selector(newTerminalTapped), for: .touchUpInside)
@@ -389,7 +387,7 @@ final class TerminalTabOverviewViewController: UIViewController {
         bottomBar.addSubview(groupControl)
 
         doneButton.translatesAutoresizingMaskIntoConstraints = true
-        configureLiquidGlassButton(doneButton, imageName: "checkmark", prominent: true)
+        doneButton.configureLiquidGlass(imageName: "checkmark", prominent: true)
         doneButton.accessibilityLabel = L10n.string("mobile.common.done", defaultValue: "Done")
         doneButton.accessibilityIdentifier = "MobileTerminalOverviewDone"
         doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
@@ -987,8 +985,7 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
 
         enableButton.setTitle("Turn On Locked Private Browsing", for: .normal)
         enableButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        configureLiquidGlassButton(
-            enableButton,
+        enableButton.configureLiquidGlass(
             title: "Turn On Locked Private Browsing",
             prominent: true,
             foregroundColor: .white
@@ -1000,8 +997,7 @@ private final class TerminalTabOverviewPrivateLockView: UIView {
 
         notNowButton.setTitle("Not Now", for: .normal)
         notNowButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .medium)
-        configureLiquidGlassButton(
-            notNowButton,
+        notNowButton.configureLiquidGlass(
             title: "Not Now",
             prominent: false,
             foregroundColor: .white
@@ -1069,7 +1065,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
         searchMaterial.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         searchMaterial.layer.cornerRadius = 23
         searchMaterial.clipsToBounds = true
-        configureLiquidGlassMaterial(searchMaterial, fallback: .systemMaterial)
+        searchMaterial.configureLiquidGlass(fallback: .systemMaterial)
         searchContainer.addSubview(searchMaterial)
 
         searchIcon.tintColor = .label
@@ -1101,8 +1097,7 @@ private final class TerminalTabOverviewSearchOverlay: UIView {
         searchContainer.addSubview(microphoneButton)
 
         closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        configureLiquidGlassButton(
-            closeButton,
+        closeButton.configureLiquidGlass(
             imageName: "xmark",
             prominent: false,
             symbolPointSize: 20
