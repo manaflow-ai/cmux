@@ -408,6 +408,13 @@ class CloseTerminalResult:
 
 
 @dataclass(frozen=True)
+class ColumnPin:
+    __cmux_schema_path__: ClassVar[str] = 'types/ColumnPin'
+    edge: str
+    mode: str
+
+
+@dataclass(frozen=True)
 class CopyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/CopyResult'
     mode: Literal['screen', 'selection', 'scrollback']
@@ -2292,6 +2299,8 @@ class MoveTabToColumnRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     screen: Union[Id, None, MissingType] = field(default=MISSING)
     after_column: Union[Id, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
+    sticky: Union[ColumnPin, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
     width: Union[float, None, MissingType] = field(default=MISSING)
 
@@ -2398,6 +2407,7 @@ class NewFrontendBrowserTabRequest:
     pane: Union[Id, None, MissingType] = field(default=MISSING)
     cols: Union[int, None, MissingType] = field(default=MISSING)
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
+    idempotency_key: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
     profile_id: Union[str, None, MissingType] = field(default=MISSING)
     rows: Union[int, None, MissingType] = field(default=MISSING)
@@ -3947,6 +3957,7 @@ __all__ = [
     'ClientInfo',
     'ClientSize',
     'CloseTerminalResult',
+    'ColumnPin',
     'CopyResult',
     'DeadPane',
     'DeclarativeLayoutLeaf',

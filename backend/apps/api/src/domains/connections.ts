@@ -112,6 +112,8 @@ export const connectionsDomain: Domain<ConnectionsState> = {
         if (!owner || !p.user) return reject("auth.forbidden", "integration.connect needs a user in a team")
         const allowed = policyOf(state).allowed_providers
         if (allowed !== null && !allowed.includes(d.value.provider)) return reject("policy.denied", `the team policy does not allow ${d.value.provider}`)
+        // A mailbox is personal: a team-shared Gmail connection would let teammates' agents read one person's mail (plan decision I4).
+        if (d.value.provider === "gmail" && d.value.sharing === "team") return reject("validation.invalid", "a Gmail connection is always private")
         if (Object.values(state.connections).filter((c) => c.status !== "revoked" && c.status !== "expired").length >= MAX_CONNECTIONS) {
           return reject("integration.limit", `at most ${MAX_CONNECTIONS} connections per team`)
         }

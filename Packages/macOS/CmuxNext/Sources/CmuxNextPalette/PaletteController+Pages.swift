@@ -20,14 +20,53 @@ extension PaletteController {
             providers.append(SettingsPaletteProvider(source: source, showsItemsForEmptyQuery: false))
         }
         providers += sources.extraProviders
+        let entry = model.scopeEntry
+        if entry.listsScopesWhenTyping || entry.listsScopesWhenEmpty {
+            providers.append(PaletteScopeListProvider(graph: model.navigation.graph, config: model.navigation.config, from: .root,
+                                                      showsItemsForEmptyQuery: entry.listsScopesWhenEmpty))
+        }
         return PalettePageSpec(
             id: "commands",
             title: PaletteStrings.commandsTitle,
             placeholder: PaletteStrings.searchPlaceholder,
             symbol: "command",
             providers: providers,
-            showsRecent: true
+            showsRecent: true,
+            scope: .root
         )
+    }
+
+    /// Scope `commands` (`>`): catalog actions only.
+    func commandsOnlyPage() -> PalettePageSpec {
+        PalettePageSpec(id: "commandsOnly", title: PaletteStrings.commandsTitle, placeholder: PaletteStrings.searchPlaceholder,
+                        symbol: "command", providers: [makeRegistryProvider()], showsRecent: true, scope: PaletteScopeID.commands)
+    }
+
+    /// Scope `scopes` (`?`): every scope, with its prefix and keyword.
+    func scopeListPage() -> PalettePageSpec {
+        PalettePageSpec(id: "scopes", title: PaletteStrings.scopesTitle, placeholder: PaletteStrings.scopesPlaceholder,
+                        symbol: "square.grid.2x2",
+                        providers: [PaletteScopeListProvider(graph: model.navigation.graph, config: model.navigation.config,
+                                                             from: PaletteScopeID.scopes, showsItemsForEmptyQuery: true)],
+                        scope: PaletteScopeID.scopes)
+    }
+
+    /// The page of a graph scope (`PaletteModel.scopePage`); `context` is
+    /// the row a drill came from.
+    func page(forScope id: PaletteScopeID, context: PaletteItem?) -> PalettePageSpec? {
+        var page: PalettePageSpec?
+        switch id {
+        case .root: page = commandsPage()
+        case PaletteScopeID.commands: page = commandsOnlyPage()
+        case PaletteScopeID.tabs: page = sources.actionPages["tab.search"]?() ?? tabsPage()
+        case PaletteScopeID.workspaces: page = workspacesPage()
+        case PaletteScopeID.settings: page = settingsPage()
+        case PaletteScopeID.shortcuts: page = keyboardShortcutsPage()
+        case PaletteScopeID.scopes: page = scopeListPage()
+        default: page = sources.scopes.first { $0.descriptor.id == id }?.page(context)
+        }
+        page?.scope = id
+        return page
     }
 
     public func keyboardShortcutsPage() -> PalettePageSpec {
@@ -145,10 +184,10 @@ extension PaletteController {
 
     func page(for mode: PaletteMode) -> PalettePageSpec {
         switch mode {
-        case .commands: commandsPage()
-        case .keyboardShortcuts: keyboardShortcutsPage()
-        case .workspaces: workspacesPage() ?? commandsPage()
-        case .tabs: tabsPage() ?? commandsPage()
+        case .commands: return commandsPage()
+        case .keyboardShortcuts: return page(forScope: PaletteScopeID.shortcuts, context: nil) ?? commandsPage()
+        case .workspaces: return page(forScope: PaletteScopeID.workspaces, context: nil) ?? commandsPage()
+        case .tabs: return tabsPage() ?? commandsPage()
         }
     }
 }

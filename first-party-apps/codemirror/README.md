@@ -4,7 +4,7 @@ A light code editor for files and documents in cmux, built on [CodeMirror 6](htt
 
 The sibling app `cmux/monaco` is the same design on the Monaco editor. Both share one controller (`src/shared/`), one string table and one test suite; only `web-src/adapter.ts` differs. The shared files are vendored copies kept identical by `test/shared.test.ts`.
 
-Status: prototype. Web panes, documents and the bridge are proposed (app platform critique C2, C6; plan section 12 V3, V7). Platform v2 sketch: `cmux-app.v2.json`.
+Status: prototype. Web panes, documents and the bridge are proposed (app platform critique C2, C6; plan section 12 V3, V7). Manifest v2: `cmux-app.v2.json` and `catalog/` (section Manifest v2).
 
 ## How it works
 
@@ -54,6 +54,28 @@ Recommendation: `statusLine`. Strongest objection: the status line duplicates in
 | `app.pane.open` | `{kind, props}` | `{pane}` | shell | mutate-own, gesture | `workspace:write` | | Open File |
 | `app.pane.command` | `{kind, command, args}` | command result | shell -> focused pane | per command | | | palette Save reaches the focused web pane |
 | `app.settings.set` | `{key, value}` | | config layer | mutate-own | | settings push to panes | persist the variant |
+
+## Manifest v2
+
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.editor/1` as a web implementation (`web/index.html` under `runtime.web.root` `web/`, with the CSP of v1), and the catalog fragment `catalog/codemirror-catalog.json`. Every v1 command is one catalog op of family `codemirror` (owner `app:cmux/codemirror`, `export` names the JS function, CLI `apps run cmux/codemirror <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. Keyboard surface: the catalog op format has no keyboard field, so `Cmd-S` for `codemirror.save` and the `when: paneFocused:editor` condition stay in `cmux-app.json` only.
+2. `openWith` (ask to become the default editor for a type): no manifest field. The handled types are on the `cmux.editor/1` implementation (`types`).
+3. `options.capabilities` and `options.paneCommands` are free-form: the `cmux.editor/1` interface file defines no options yet.
+
+Platform gaps found by the earlier v2 sketch (still open):
+
+- The web pane bridge message shape is not specified in V7 (interfaces/web-bridge.ts proposes one).
+- No pane-routed commands: Save from the palette or Cmd-S must reach the focused web pane (`options.paneCommands` lists them).
+- V7 CSP: both editor libraries inject styles at runtime and need style-src 'unsafe-inline'; scripts stay 'self'.
+- No terminal theme in the pane init (background, foreground, cursor, selection, 16-color palette, font): the editors must not fall back to library colors.
+- document.read {doc, revision} for an older revision (conflict compare) is not in V3's op list.
+- No locale in the web pane init; cmux.t(key) is defined for the script VM only.
+- No pane visibility event to pause work in hidden panes.
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
 
 ## Platform gaps (most important first)
 

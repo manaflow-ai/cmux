@@ -1,3 +1,4 @@
+import CmuxNextActions
 import AppKit
 import Foundation
 
@@ -23,7 +24,7 @@ public final class SettingsPaletteProvider: PaletteProvider {
         return source.toggles.map { toggle in
             let id = toggle.id
             let next = !toggle.isOn
-            return PaletteItem(
+            var item = PaletteItem(
                 id: "setting:\(id)",
                 title: toggle.title,
                 accessory: toggle.isOn ? PaletteStrings.on : PaletteStrings.off,
@@ -38,6 +39,9 @@ public final class SettingsPaletteProvider: PaletteProvider {
                 ),
                 frecencyKey: "setting:\(id)"
             )
+            item.actionRefs = [PaletteActionRef("palette.toggleSetting", arguments: ["setting": .string(id), "on": .bool(next)],
+                                                title: next ? PaletteStrings.turnOn : PaletteStrings.turnOff)]
+            return item
         }
     }
 }

@@ -29,11 +29,13 @@ extension WorkspaceContentController {
             guard daemon.supports(DaemonCapabilities.shared.stickyColumns), let handle = handles.panes[anyPane] else {
                 return layoutModel.rejectTransaction(transaction)
             }
-            // A top or bottom dock has no `sticky` encoding (it travels in
-            // `dock`, edge-docks-v1): never send it as a left or right column.
-            if let sticky, LayoutMapping.snapshot(sticky) == nil { return layoutModel.rejectTransaction(transaction) }
+            // A top or bottom dock needs edge-docks-v1; a daemon without it
+            // would refuse the edge, so the intent rolls back here.
+            if sticky?.edge.isBand == true, !daemon.supports(DaemonCapabilities.shared.edgeDocks) {
+                return layoutModel.rejectTransaction(transaction)
+            }
             let daemonTransaction = gestureTransaction(transaction, phase: .ended)
-            let wire = sticky.flatMap(LayoutMapping.snapshot)
+            let wire = sticky.map(LayoutMapping.snapshot)
             sendGesture(transaction, phase: .ended, label: "set-column-sticky") { connection in
                 try await connection.setColumnSticky(of: handle, sticky: wire, transaction: daemonTransaction)
             }
@@ -141,6 +143,11 @@ extension WorkspaceContentController {
             guard let anchor = column?.root.panes.last, let handle = handles.panes[anchor],
                   let paneModel = daemon.store.pane(handle) else { return }
             TabMoves.toNewColumn(tab, anchor: paneModel, afterColumn: column.flatMap { handles.columns[$0.id] }, services: services, completion: restore)
+        case .newDock(let screen, let edge):
+            // The anchor names the screen only; the daemon places the band.
+            guard let anchor = layoutModel.screens.first(where: { $0.id == screen })?.layout.panes.first,
+                  let handle = handles.panes[anchor], let paneModel = daemon.store.pane(handle) else { return restore(false) }
+            TabMoves.toNewStickyColumn(tab, anchor: paneModel, edge: edge, services: services, completion: restore)
         }
     }
 }

@@ -21,6 +21,7 @@ import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
+import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
@@ -127,6 +128,33 @@ function hostAccount(value: unknown): SidebarAccount | undefined {
   const account = value as { name?: unknown; detail?: unknown } | undefined;
   if (typeof account?.name !== "string" || !account.name) return undefined;
   return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
+}
+
+function emptySnapshot(): AcpmuxSnapshot {
+  return {
+    type: "snapshot",
+    protocolVersion: 1,
+    rows: [],
+    sessions: [],
+    connection: "connecting",
+    isWorking: false,
+    queue: [],
+    catalog: [],
+    canLoadOlder: false,
+  };
+}
+
+function cachedSnapshot(): AcpmuxSnapshot {
+  try {
+    const value = JSON.parse(sessionStorage.getItem("cmux.acpmux.snapshot") ?? "null");
+    if (value?.type === "snapshot" && Array.isArray(value.rows) && Array.isArray(value.sessions)) {
+      acpmuxPerf.markAgent("snapshotPaint");
+      return { ...emptySnapshot(), ...value, connection: "connecting" };
+    }
+  } catch {
+    // A corrupt or unavailable session store must never block the pane.
+  }
+  return emptySnapshot();
 }
 
 /// A page action: the connected client's (chat actions run against acpmux), else the native host.
@@ -695,17 +723,7 @@ export function AcpmuxApp() {
 function AcpmuxPane() {
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
-  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>({
-    type: "snapshot",
-    protocolVersion: 1,
-    rows: [],
-    sessions: [],
-    connection: "connecting",
-    isWorking: false,
-    queue: [],
-    catalog: [],
-    canLoadOlder: false,
-  });
+  const [snapshot, setSnapshot] = useState<AcpmuxSnapshot>(cachedSnapshot);
   const [handoffLabels, setHandoffLabels] = useState(handoffStrings);
   const [checkpointLabels, setCheckpointLabels] = useState(checkpointStrings);
   const [checkpointVariant, setCheckpointVariant] = useState<"compact" | "expanded">("compact");
@@ -895,6 +913,20 @@ function AcpmuxPane() {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
     void callNative("chat.new").catch(() => undefined);
   }, []);
+  /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
+  /// same selection and changes-view paths the sidebar and the edited-files card use.
+  const automationView = useRef<{
+    snapshot: AcpmuxSnapshot;
+    selectSession: (sessionId: string) => void;
+    openDiff: OpenDiff;
+    diff: { open: boolean; paths: string[] };
+  }>(undefined);
+  automationView.current = {
+    snapshot,
+    selectSession,
+    openDiff,
+    diff: { open: diffOpen, paths: (diffFiles ?? []).map((file) => file.path) },
+  };
   // Search chats opens from the app's agentPane.searchChats action (Cmd-K by default, editable in
   // Settings and cmux.json), which calls the bridge's command("searchChats"). The host pushes the
   // live bindings through applyShortcuts, so labels follow a rebind.
@@ -952,6 +984,11 @@ function AcpmuxPane() {
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
   const prompt = useRef<MarkdownFieldHandle>(null);
+  useComposerKeyboard(() => {
+    if (!prompt.current) return false;
+    prompt.current.focus();
+    return true;
+  });
   const dictation = useDictation(prompt, callNative);
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
@@ -1015,6 +1052,11 @@ function AcpmuxPane() {
         const change = diffRows(rowsRef.current, next.rows);
         rowsRef.current = new Map(next.rows.map((row) => [row.id, row]));
         snapshotRef.current = next;
+        try {
+          sessionStorage.setItem("cmux.acpmux.snapshot", JSON.stringify(next));
+        } catch {
+          // Painting remains live when storage is unavailable or full.
+        }
         setSnapshot(next);
         void change;
       },
@@ -1061,6 +1103,13 @@ function AcpmuxPane() {
       },
       rowCount: () => rowsRef.current.size,
       sessionId: () => directClient.current?.selectedSession,
+      automation: {
+        snapshot: () => automationView.current!.snapshot,
+        call: (method, params) => callNative(method, params),
+        selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
+        openDiff: (rowId) => automationView.current?.openDiff(rowId),
+        diff: () => automationView.current?.diff ?? { open: false, paths: [] },
+      },
     });
     let cancelled = false;
     let retryTimer: number | undefined;
@@ -1079,6 +1128,7 @@ function AcpmuxPane() {
       if (connecting) return;
       connecting = true;
       try {
+        acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
         const host = await callNative<{
           protocolVersion: number;
@@ -1091,6 +1141,7 @@ function AcpmuxPane() {
           cwd?: string;
           draft?: string;
           prompt?: string;
+          adopt?: unknown;
           account?: unknown;
           handoffStrings?: unknown;
           checkpointStrings?: unknown;
@@ -1100,6 +1151,12 @@ function AcpmuxPane() {
           revealTurn?: unknown;
         }>("ready", reconnect ? { reconnect } : {});
         if (cancelled) return;
+        acpmuxPerf.markAgent("handshakeReady");
+        if (
+          (host.newSession && !host.sessionId) ||
+          (host.sessionId && snapshotRef.current?.sessionId && host.sessionId !== snapshotRef.current.sessionId)
+        )
+          setSnapshot(emptySnapshot());
         if (!reconnect) setSurface(readSurface(host.surface));
         // A tab opened as the new tab page shows it until it becomes something (#16620).
         if (!reconnect) setNewTab(newTabHost(host));
@@ -1216,7 +1273,12 @@ function AcpmuxPane() {
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
+        acpmuxPerf.markAgent("composerReady");
         client.snapshot();
+        void client.warmRecentProjects();
+        // A new chat owns a live process before the first keypress. Sending a
+        // prompt still joins this in-flight creation through ensureSession().
+        if (host.newSession && !host.adopt) void client.ensureSession().catch(() => undefined);
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.

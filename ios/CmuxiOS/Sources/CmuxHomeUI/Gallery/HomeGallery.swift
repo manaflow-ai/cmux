@@ -47,7 +47,10 @@ public enum HomeGallery {
         for (name, id) in [("chief", chief), ("group", group)] {
             guard let id else { continue }
             await store.open(id)
-            navigation.setViewControllers([home, ConversationViewController(store: store, conversation: id)], animated: false)
+            let screen = ConversationViewController(store: store, conversation: id)
+            navigation.setViewControllers([home, screen], animated: false)
+            navigation.view.layoutIfNeeded()
+            await screen.rendered()
             try await shot.capture("conversation-\(name)-light")
             if name == "chief" {
                 window.overrideUserInterfaceStyle = .dark
@@ -75,7 +78,10 @@ public enum HomeGallery {
             await waitUntil(store) { !$0.isOnline }
             try await shot.install(navigation, name: "home-comfortable-offline-light")
             if let chief {
-                navigation.setViewControllers([home, ConversationViewController(store: store, conversation: chief)], animated: false)
+                let screen = ConversationViewController(store: store, conversation: chief)
+                navigation.setViewControllers([home, screen], animated: false)
+                navigation.view.layoutIfNeeded()
+                await screen.rendered()
                 try await shot.capture("conversation-chief-offline-light")
                 navigation.setViewControllers([home], animated: false)
             }

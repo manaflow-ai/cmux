@@ -45,6 +45,8 @@ members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
 ]
 default-members = [
     "crates/acpmux",
@@ -75,13 +77,15 @@ default-members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
 ]
-exclude = ["vendor/crossterm"]
+exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 [workspace.lints.rust]

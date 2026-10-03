@@ -58,6 +58,26 @@ public final class PaletteController {
         model.onRefusal = { [weak self] _ in self?.presentAgain() }
         model.onEditShortcut = { [weak self] id in self?.shortcutRecorder.begin(id) ?? false }
         model.onDropShortcutRecorder = { [weak self] in self?.shortcutRecorder.abandon() }
+        model.scopePage = { [weak self] scope, context in self?.page(forScope: scope, context: context) }
+        model.onAnnounce = { [weak self] text in
+            guard let element = self?.panel else { return }
+            NSAccessibility.post(element: element, notification: .announcementRequested,
+                                 userInfo: [.announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
+    }
+
+    /// Opens `scope` above the root (`palette.open`, a scope's shortcut).
+    /// Returns false for a scope the graph does not have.
+    @discardableResult
+    public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil) -> Bool {
+        configureScopes()
+        guard model.navigation.graph.contains(scope) else { return false }
+        openStarted = .now
+        captureContext()
+        model.open(scope: scope, query: query)
+        modelReady = .now
+        present(relativeTo: window)
+        return true
     }
 
     // MARK: Registry wiring
@@ -69,7 +89,15 @@ public final class PaletteController {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
         if sources.workspaces != nil {
-            registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
+            // With a workspace (a palette row's typed ref, `palette.run`,
+            // the CLI) it switches to it; without one it opens the page.
+            registry.bind("goToWorkspace", invoke: { [weak self] invocation in
+                if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
+                    self?.sources.workspaces?.selectWorkspace(id: workspace)
+                } else {
+                    self?.show(.workspaces)
+                }
+            })
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
@@ -108,6 +136,7 @@ public final class PaletteController {
             return true
         case 1:
             guard let panel else { return false }
+            configureScopes()
             model.reset(to: commandsPage())
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
@@ -128,6 +157,7 @@ public final class PaletteController {
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
+        configureScopes()
         openStarted = .now
         captureContext()
         model.reset(to: page(for: mode))
@@ -138,6 +168,7 @@ public final class PaletteController {
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
+        configureScopes()
         openStarted = .now
         captureContext()
         model.reset(to: page)
@@ -159,6 +190,7 @@ public final class PaletteController {
             handler()
             return
         }
+        configureScopes()
         openStarted = .now
         model.reset(to: effect, fallback: commandsPage())
         modelReady = .now
@@ -180,7 +212,9 @@ public final class PaletteController {
         let createdPanel = panel == nil
         // The document window, never a Chromium page window over it (a child
         // window): hiding gives the keys back to the window, not the page.
-        var parent = window ?? NSApp.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? NSApp.mainWindow
+        // `NSApplication.shared`: `NSApp` is nil in package-test processes.
+        let app = NSApplication.shared
+        var parent = window ?? app.keyWindow.flatMap { $0 is PalettePanel ? nil : $0 } ?? app.mainWindow
         while let owner = parent?.parent { parent = owner }
         let panel = self.panel ?? makePanel()
         let panelDone = ContinuousClock.now

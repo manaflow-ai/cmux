@@ -96,9 +96,19 @@ Other proposed operations: `app.pane.open {kind, gesture}` (action, macOS client
 
 CLI verbs requested from the CLI owner: `cmux power keep-awake`, `cmux power list`, `cmux power stop` (the v2 generators would produce them from the fragment).
 
-## Platform v2
+## Manifest v2
 
-`cmux-app.v2.json` and `catalog/caffeinate-catalog.json` sketch the app on the converged model: app ops in a catalog fragment owned by `app:cmux/caffeinate` (V1) with palette, CLI (`power keep-awake`, `power list`, `power stop`) and MCP surfaces; places as interfaces `cmux.status/1` with `placement: "menuBar"` and `cmux.pane/1` (V2); terminal and task handles (V6); a `variants` block, `strings/`, gesture tokens on `show` (V11); `requires.hostCapabilities: ["power.assertion/1"]` and `lifecycle.onDisable: "release-owned"` (proposed keys).
+`cmux-app.v2.json` is the manifest v2 that the daemon's app supervisor loads; it passes the one validator (`cmux-tui/crates/cmux-app-manifest`). It declares the same app as `cmux-app.json`: `runtime.main` `dist/main.js`, `cmux.status/1` (`renderStatus`, placement `statusStrip`) and `cmux.pane/1` (`renderPane`), and the catalog fragment `catalog/caffeinate-catalog.json`. Every v1 command is one catalog op of family `caffeinate` (owner `app:cmux/caffeinate`, `export` names the JS function, CLI `apps run cmux/caffeinate <verb>`, palette title only for palette commands, MCP as v1 exposed it). The DEV/NIGHTLY `variant` setting is the `variants` block. `cmux-app.json` stays for today's in-app runtime.
+
+The v2 schema cannot hold these parts of the app, so the manifest leaves them out:
+
+1. `requires.hostCapabilities: ["power.assertion/1"]` and `requires.platforms: ["macos"]`: no manifest field for required host capabilities or platforms.
+2. `lifecycle.onDisable` / `onUninstall: "release-owned"`: no app lifecycle field (only `server.lifecycle`).
+3. Terminal and task handles: `handles` accepts only root, host, credential, document and diff.
+4. Palette presets with arguments and a `when` condition: a catalog op has one palette title. The presets are the ops `caffeinate.keep_awake` and `caffeinate.keep_awake_hour`, as in v1.
+5. Top-level CLI verbs (`cmux power keep-awake`, `power list`, `power stop`), output schemas and code mode: the earlier sketch is kept in `proposed/caffeinate-host-catalog.json`; the CLI request stays with the CLI owner.
+
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
 
 ## Platform gaps (most important first)
 

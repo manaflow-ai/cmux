@@ -50,4 +50,17 @@ import Testing
         #expect(snapshot.notifications.quietHours == nil)
         #expect(Set(snapshot.diagnostics.map(\.path)) == ["notifications.dismissal", "notifications.desktop", "notifications.quietHours"])
     }
+
+    @Test func feedMirrorDefaultsKeepTerminalTextOnTheMac() throws {
+        let mirror = try parse("{}").notifications.feedMirror
+        #expect(mirror.agents)
+        #expect(mirror.terminal == .off)
+        let set = try parse(#"{"feed": {"mirrorNotifications": {"agents": false, "terminal": "title"}}}"#)
+        #expect(set.notifications.feedMirror.agents == false)
+        #expect(set.notifications.feedMirror.terminal == .title)
+        let bad = try parse(#"{"feed": {"mirrorNotifications": {"terminal": "everything"}}}"#)
+        #expect(bad.notifications.feedMirror.terminal == .off)
+        #expect(bad.diagnostics.contains { $0.path.hasPrefix("feed.mirrorNotifications.terminal") })
+    }
 }
+

@@ -52,9 +52,11 @@ pub(super) fn screen_json(
                         "width": column.width,
                         "layout": node_json(&column.root, screen.active_pane),
                     });
-                    // `sticky-columns-v1`: omitted for a scrolling column.
+                    // `sticky-columns-v1` (left, right) as `sticky`, `edge-docks-v1` (top,
+                    // bottom) as `dock`, so an older client shows a dock as a column.
                     if let Some(sticky) = column.sticky {
-                        value["sticky"] = json!(sticky);
+                        value[if sticky.edge.is_band() { "dock" } else { "sticky" }] =
+                            json!(sticky);
                     }
                     value
                 })

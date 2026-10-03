@@ -111,6 +111,6 @@ export async function openInDiffs(): Promise<void> {
   if (!r.ok) setNotice(r.error.missing ? t("diffs.missing", "Opening the Diffs app needs ui.open, which this cmux does not have yet") : r.error.message)
 }
 
-export function openPane() {
-  return call<unknown>("app.pane.open", { kind: "skillsHub" }, withGesture(gesture()))
+export function openPane(token: string | null = gesture()) {
+  return call<unknown>("app.pane.open", { kind: "skillsHub" }, withGesture(token))
 }

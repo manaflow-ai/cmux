@@ -80,4 +80,59 @@ describe("event redaction and the idempotency key in the reducer context (lane 1
     client.receive({ t: "event", stream: "s", seq: 1, tx: "tx", op: "add", params: { v: 1 }, actor: { identity: "a" }, origin: "user", at: 0 })
     expect(keys).toEqual([undefined])
   })
+
+  it("eventsNotReplayed allows param redaction without row mode, and scrubs older stored events once", () => {
+    const db = new DatabaseSync(":memory:")
+    const plain: Domain<Head, P> = { ...invites, reduce: (s, op, p, ctx) => ({ ...(invites.reduce(s, op, p, ctx) as object), writes: [] }) as never }
+    const before = new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x" })
+    before.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i1", token_hash: "OLDTEXT", to: "x" }, idempotency_key: "k1" }, () => {})
+    expect(JSON.stringify(before.eventsAfter(0))).toContain("OLDTEXT")
+    expect(() => new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x", redact: { params: () => ({}) } })).toThrow()
+    const after = new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x", eventsNotReplayed: true, redact: { params: (_op, p) => stripHash(p) } })
+    expect(after.scrubStored("feed.post", "v1")).toBe(1)
+    expect(after.scrubStored("feed.post", "v1")).toBe(0)
+    after.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i2", token_hash: "NEWTEXT", to: "x" }, idempotency_key: "k2" }, () => {})
+    const log = JSON.stringify(after.eventsAfter(0))
+    expect(log).not.toContain("OLDTEXT")
+    expect(log).not.toContain("NEWTEXT")
+  })
+
+  it("a later scrub catches events a stale (non-redacting) build wrote after an earlier scrub", () => {
+    const db = new DatabaseSync(":memory:")
+    const plain: Domain<Head, P> = { ...invites, reduce: (s, op, p, ctx) => ({ ...(invites.reduce(s, op, p, ctx) as object), writes: [] }) as never }
+    const redacting = () => new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x", eventsNotReplayed: true, redact: { params: (_op, p) => stripHash(p) } })
+    const first = redacting()
+    first.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i1", token_hash: "AAA", to: "x" }, idempotency_key: "k1" }, () => {})
+    expect(first.scrubStored("feed.post", "v2")).toBe(0)
+    // A stale deploy without the redaction writes full text after the marker.
+    const stale = new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x" })
+    stale.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i2", token_hash: "STALETEXT", to: "x" }, idempotency_key: "k2" }, () => {})
+    expect(JSON.stringify(stale.eventsAfter(0))).toContain("STALETEXT")
+    const again = redacting()
+    expect(again.scrubStored("feed.post", "v2")).toBe(1)
+    expect(JSON.stringify(again.eventsAfter(0))).not.toContain("STALETEXT")
+    expect(again.scrubStored("feed.post", "v2")).toBe(0)
+  })
+
+  it("ledgerReply keeps no reply text, replays from state, and scrubs stale rows (gone entity: FeedDO test)", () => {
+    const db = new DatabaseSync(":memory:")
+    const plain: Domain<Head, P> = { ...invites, reduce: (s, op, p, ctx) => ({ ...(invites.reduce(s, op, p, ctx) as object), writes: [], value: { to: p.to } }) as never }
+    const ledgerReply = {
+      store: (_op: string, v: unknown) => (v && typeof v === "object" ? { kept: true } : v),
+      replay: (_op: string, _stored: unknown, state: unknown) => ((state as { gone?: boolean }).gone ? { ok: false as const, code: "selector.not_found", message: "gone" } : { ok: true as const, value: { from: "state" } })
+    }
+    const stale = new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x" })
+    stale.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i0", token_hash: "H0", to: "OLDREPLY" }, idempotency_key: "k0" }, () => {})
+    const ledger = () => JSON.stringify(db.prepare("SELECT reply FROM own_ledger").all())
+    const engine = new OwnerEngine(sqliteStore(db), plain, { stream: "feed:x", ledgerReply })
+    expect(engine.scrubStored("feed.post", "v1")).toBe(1)
+    expect(engine.scrubStored("feed.post", "v1")).toBe(0)
+    const frames: unknown[] = []
+    engine.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i1", token_hash: "H1", to: "NEWREPLY" }, idempotency_key: "k1" }, (_to, f) => frames.push(f))
+    expect(JSON.stringify(frames)).toContain("NEWREPLY")
+    expect(ledger()).not.toContain("NEWREPLY")
+    const replays: any[] = []
+    engine.submit({ identity: "a" }, { t: "op", op: "feed.post", params: { id: "i1", token_hash: "H1", to: "NEWREPLY" }, idempotency_key: "k1" }, (_to, f) => replays.push(f))
+    expect(replays.find((f) => f.t === "result")?.value).toEqual({ from: "state" })
+  })
 })

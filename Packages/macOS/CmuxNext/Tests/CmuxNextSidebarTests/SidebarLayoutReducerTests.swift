@@ -21,10 +21,11 @@ import Testing
     // MARK: Defaults
 
     @Test func defaultsAreHomeWorkspacesSettingsCustomizeAccount() {
-        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
+        #expect(defaults.sections(in: .top, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore), .app("cmux/coderouter")])
         #expect(defaults.sections(in: .middle, room: nil).map(\.content) == [.workspaces])
-        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
-        #expect(defaults.sections.filter { $0.region != .middle }.allSatisfy { $0.look == .builtIn && $0.title == nil })
+        #expect(defaults.sections(in: .bottom, room: nil).flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
+        #expect(defaults.sections.filter { $0.region != .middle && $0.content == .items }.allSatisfy { $0.look == .builtIn && $0.title == nil })
+        #expect(defaults.sections.allSatisfy { $0.content != .app })
         #expect(defaults.firstTopItem(room: nil)?.ref == .builtIn(.home))
     }
 
@@ -40,7 +41,7 @@ import Testing
     @Test func addPinsAtIndexAndClampsTheIndex() throws {
         let ws = LayoutItem(id: LayoutItemID("itm_ws"), ref: .workspace("local:ws_1"))
         let doc = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: 99))
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), ws.id])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [home, LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter"), ws.id])
         let front = try reduce(defaults, .itemAdd(ws, section: SidebarLayoutDocument.topSectionID, index: -3))
         #expect(front.section(SidebarLayoutDocument.topSectionID)?.items.first?.id == ws.id)
     }
@@ -70,14 +71,14 @@ import Testing
 
     @Test func moveAcrossRegionsKeepsTheItem() throws {
         let doc = try reduce(defaults, .itemMove(home, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_customize"), LayoutItemID("itm_account")])
-        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [settings, home, LayoutItemID("itm_account")])
+        #expect(doc.section(SidebarLayoutDocument.topSectionID)?.items.map(\.id) == [LayoutItemID("itm_app_store"), LayoutItemID("itm_app_coderouter")])
         #expect(Set(Self.itemIDs(doc)) == Set(Self.itemIDs(defaults)))
     }
 
     @Test func moveWithinASectionExcludesItself() throws {
         let doc = try reduce(defaults, .itemMove(settings, section: SidebarLayoutDocument.bottomSectionID, index: 1))
-        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_customize"), settings, LayoutItemID("itm_account")])
+        #expect(doc.section(SidebarLayoutDocument.bottomSectionID)?.items.map(\.id) == [LayoutItemID("itm_account"), settings])
     }
 
     @Test func moveOntoASectionHoldingTheSameRefIsRefused() throws {
@@ -127,7 +128,8 @@ import Testing
         #expect(doc.sections(in: .top, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.workspacesSectionID])
         #expect(doc.sections(in: .middle, room: nil).isEmpty)
         let bottomFirst = try reduce(defaults, .sectionMove(SidebarLayoutDocument.topSectionID, region: .bottom, index: 0))
-        #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
+        #expect(bottomFirst.sections(in: .bottom, room: nil).map(\.id)
+            == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
     }
 
     @Test func updateSetsAndClearsFields() throws {

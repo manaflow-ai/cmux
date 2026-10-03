@@ -30,5 +30,6 @@ cp "$src/cmux-tui/spec/resource-operations-v2.json" "$code_mode/resource-operati
 cp "$src/backend/catalog/cloud-operations.json" "$code_mode/cloud-operations.json"
 cp "$src/backend/catalog/cloud-relay-operations.json" "$code_mode/cloud-relay-operations.json"
 install -m 755 "$src/scripts/cmux-next/cmux-code-mode-runner" "$bin/cmux-code-mode-runner"
+install -m 755 "$src/scripts/cmux-next/cmux-code-mode-macos-profile" "$bin/cmux-code-mode-macos-profile"
 
 echo "bundled CLI resources into $dest"

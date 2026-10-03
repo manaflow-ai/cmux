@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import os
 public import WebKit
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
@@ -9,6 +10,7 @@ public import WebKit
 /// of the scope it sits in (window, workspace), re-applied whenever that
 /// scope repaints.
 public final class AgentPaneView: NSView {
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
     public let model: AgentPaneModel
     public let webView: WKWebView
     /// Opens a link the user clicked in the transcript. Defaults to the
@@ -68,6 +70,12 @@ public final class AgentPaneView: NSView {
         if renderRate != .capped {
             configuration.preferences.setWebKitFeature(Self.near60FPSFeature, enabled: false)
         }
+        source.register(on: configuration)
+        // The shared web theme (`window.cmuxTheme`, `--cmux-*`): the page
+        // background is the one surface token, or clear over a see-through
+        // window (plans/cmux-next/windows.md).
+        configuration.userContentController.addUserScript(
+            WKUserScript(source: WebTheme.bootstrapScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         dictation = AgentPaneDictation { [weak webView] script in webView?.evaluateJavaScript(script, completionHandler: nil) }
@@ -98,7 +106,15 @@ public final class AgentPaneView: NSView {
         webView.navigationDelegate = navigation
         addSubview(webView)
         source.load(into: webView)
+        Self.logger.info("agent pane webview loading source=\(Self.sourceDescription(source), privacy: .public) bundled=\(Self.bundledPage != nil, privacy: .public)")
         observeMotion()
+    }
+
+    private static func sourceDescription(_ source: AgentPaneSource) -> String {
+        switch source {
+        case .bundled(let url): return "bundled:\(url.path)"
+        case .devServer(let url): return "dev:\(url.absoluteString)"
+        }
     }
 
     private func observeMotion() {

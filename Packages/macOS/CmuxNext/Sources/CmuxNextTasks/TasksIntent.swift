@@ -10,6 +10,11 @@ public nonisolated enum TasksIntentKind: Sendable, Equatable {
     case move(task: String, after: String?, before: String?, sortKey: String)
     case create(id: String, title: String, status: String?)
     case archive(task: String)
+    /// The accountable person (`task.update {assignee}`); nil unassigns.
+    case assign(task: String, person: String?)
+    /// Hand the task to an agent (`task.delegate`); `session` is the
+    /// client-chosen `asess_` id, so a resend replays the same session.
+    case delegate(task: String, session: String, harness: String)
 }
 
 public nonisolated struct TasksIntent: Sendable, Equatable, Identifiable {
@@ -37,11 +42,27 @@ public nonisolated struct TasksIntent: Sendable, Equatable, Identifiable {
                 .merging(status.map { ["status": .string($0)] } ?? [:]) { a, _ in a })
         case let .archive(task):
             ("task.archive", ["task": .string(task)])
+        case let .assign(task, person?):
+            ("task.update", ["task": .string(task), "assignee": .string(person)])
+        case let .assign(task, nil):
+            ("task.update", ["task": .string(task), "unassign": .bool(true)])
+        case let .delegate(task, session, harness):
+            ("task.delegate", ["task": .string(task), "session": .string(session), "harness": .string(harness)])
+        }
+    }
+
+    /// The task this intent changes.
+    public var task: String {
+        switch kind {
+        case let .setStatus(task, _), let .move(task, _, _, _), let .archive(task), let .assign(task, _), let .delegate(task, _, _): task
+        case let .create(id, _, _): id
         }
     }
 
     /// The visible effect of this intent on a mirror (pure).
-    func apply(to tasks: inout [String: TaskItem], statuses: [String: TaskStatusItem], prefix: String) {
+    /// `me` is the local person: a delegation works for them, as the owner
+    /// derives it (`agt_<harness>-<person>`).
+    func apply(to tasks: inout [String: TaskItem], statuses: [String: TaskStatusItem], prefix: String, me: String? = nil) {
         switch kind {
         case let .setStatus(task, status):
             guard var item = tasks[task], let target = statuses[status] else { return }
@@ -60,6 +81,15 @@ public nonisolated struct TasksIntent: Sendable, Equatable, Identifiable {
                                  category: category, sortKey: last + "V")
         case let .archive(task):
             tasks[task]?.archived = true
+        case let .assign(task, person):
+            tasks[task]?.assignee = person.map { TaskPrincipal(user: $0) }
+        case let .delegate(task, _, harness):
+            guard var item = tasks[task] else { return }
+            let person = me ?? ""
+            let name = person.hasPrefix("usr_") ? String(person.dropFirst(4)) : person
+            item.delegate = TaskAgent(principal: "agt_\(harness)-\(name)", harness: harness, onBehalfOf: person)
+            if item.assignee == nil, !person.isEmpty { item.assignee = TaskPrincipal(user: person) }
+            tasks[task] = item
         }
     }
 }

@@ -25,6 +25,7 @@ extension CmuxConfigFile: ControlSettingsStore {
     public nonisolated var fileLocation: String { url.path }
 }
 
+
 /// Facts `system.identify` reports about the running app.
 public struct ControlIdentity: Sendable {
     public var appName: String

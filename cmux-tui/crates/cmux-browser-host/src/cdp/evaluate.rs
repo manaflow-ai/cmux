@@ -1,7 +1,7 @@
 //! Frames, script evaluation in the page and agent worlds, and agent handles.
 
 use super::driver::{Inner, Session};
-use super::state::{AGENT_WORLD, World, error_message};
+use super::state::{AGENT_WORLD, HOST_WORLD, World, error_message};
 use crate::protocol::{DriverError, ErrorCode, required_str, timeout_of};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -66,24 +66,27 @@ impl Inner {
             return Err(DriverError::not_found(format!("Frame {frame_id} has no document")));
         }
         let owner = self.frame_session(session, frame_id);
+        let name = if world == World::Host { HOST_WORLD } else { AGENT_WORLD };
         let created = self.send_on(
             &owner,
             "Page.createIsolatedWorld",
-            json!({"frameId": frame_id, "worldName": AGENT_WORLD, "grantUniveralAccess": true}),
+            json!({"frameId": frame_id, "worldName": name, "grantUniveralAccess": true}),
             deadline,
         )?;
         let id = created
             .get("executionContextId")
             .and_then(Value::as_i64)
             .ok_or_else(|| DriverError::not_found(format!("Frame {frame_id} is gone")))?;
-        let installed = self.send_on(
-            &owner,
-            "Runtime.evaluate",
-            json!({"expression": &*self.agent_source, "contextId": id, "returnByValue": true}),
-            deadline,
-        )?;
-        if let Some(details) = installed.get("exceptionDetails") {
-            return Err(evaluation_error(details));
+        if world == World::Agent {
+            let installed = self.send_on(
+                &owner,
+                "Runtime.evaluate",
+                json!({"expression": &*self.agent_source, "contextId": id, "returnByValue": true}),
+                deadline,
+            )?;
+            if let Some(details) = installed.get("exceptionDetails") {
+                return Err(evaluation_error(details));
+            }
         }
         if let Some(tab) = self.lock().tabs.get_mut(&session.target_id) {
             tab.contexts.insert(key, (owner.clone(), id));
@@ -127,8 +130,9 @@ impl Inner {
         let session = self.session(params)?;
         let deadline = Instant::now() + timeout_of(params);
         let frame_id = self.frame_or_main(&session, params)?;
-        let world = World::parse(params.get("world").and_then(Value::as_str))
-            .ok_or_else(|| DriverError::invalid("world: expected \"agent\" or \"page\""))?;
+        let world = World::parse(params.get("world").and_then(Value::as_str)).ok_or_else(|| {
+            DriverError::invalid("world: expected \"agent\", \"page\" or \"host\"")
+        })?;
         // A context that died with its document is forgotten and the call runs
         // once more in the frame's current context.
         match self.evaluate_once(&session, &frame_id, world, params, deadline) {
@@ -161,6 +165,12 @@ impl Inner {
         let mut arguments: Vec<Value> = Vec::new();
         let mut used_group: Option<String> = None;
         let (context, declaration) = match world {
+            World::Host if !handles.is_empty() => {
+                return Err(DriverError::invalid("the host world takes no element handles"));
+            }
+            World::Host => {
+                (self.context(session, frame_id, World::Host, deadline)?, source.to_owned())
+            }
             World::Agent if handles.is_empty() => {
                 (self.context(session, frame_id, World::Agent, deadline)?, source.to_owned())
             }

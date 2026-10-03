@@ -28,6 +28,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalSizingPolicy": "SizePolicy",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
+    "crate::model::ColumnSticky": "ColumnPin",
 }
 
 sys.path.insert(0, str(BINDINGS))

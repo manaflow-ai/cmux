@@ -60,14 +60,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        // Backdrop first: changing it while AppKit installs the content
-        // view puts the content above the titlebar (see WindowRootView).
-        root.applyBackdrop(to: window)
-        window.contentView = root
+        super.init(window: window)
+        // Kind, scope and backdrop before the content view (the root paints
+        // the backdrop: `WindowSurfacePainting`).
+        window.install(kind: .main, content: root, scope: themeScope)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        super.init(window: window)
-        themeScope.adopt(window)
         window.delegate = self
         window.focus = focus
         focusApplier = FocusEffectApplier(controller: self)
@@ -249,6 +247,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        let snapshots = services.sidebarSnapshots, id = state.id
+        Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
     }

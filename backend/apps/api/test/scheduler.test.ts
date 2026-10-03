@@ -289,7 +289,7 @@ describe("webhook triggers (workerd)", () => {
     const wf = await introspectWorkflowInstance(testEnv.AUTOMATION_RUN, run)
     try {
       await runDurableObjectAlarm(scheduler(team))
-      await wf.waitForStepResult({ name: "sleeping-0" })
+      await wf.waitForStepResult({ name: "cmux:sleeping-0" })
       await inDO(scheduler(team), async (instance) => {
         const rec = instance.boundEngine.currentState.runs[run]
         expect(rec.deadline_at - Date.now()).toBeLessThanOrEqual(60_000)

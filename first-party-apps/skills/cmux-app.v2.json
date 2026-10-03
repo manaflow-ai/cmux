@@ -21,7 +21,7 @@
     "cmux.section/1": { "export": "renderSection", "title": { "en": "Skills", "ja": "スキル" }, "symbol": "book.closed", "options": { "defaultRegion": "bottom" } },
     "cmux.pane/1": { "export": "renderPane", "title": { "en": "Skills and MCP", "ja": "スキルとMCP" }, "symbol": "book.closed" }
   },
-  "consumes": ["cmux.diff.renderer/1"],
+  "consumes": { "interfaces": ["cmux.diff.renderer/1"] },
   "scopes": {
     "skill:read": "List the skills each agent loads, their source, what they ask for and their sandbox.",
     "mcp_server:read": "List the MCP servers each agent starts. Secret values are never shown, only their names.",

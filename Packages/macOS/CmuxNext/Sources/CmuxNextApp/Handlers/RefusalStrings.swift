@@ -10,6 +10,9 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A feature an administrator turned off (DisabledFeatures).
+    static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
+
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
     }
@@ -90,11 +93,14 @@ nonisolated enum RefusalStrings {
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
     static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
-    static var notColumnLayout: String { text("handlers.refusal.notColumnLayout", "the screen is not in column layout") }
+    static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
     static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
     static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
+    /// chat, an incognito page) when it is the screen's only tab.
+    static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
     static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     static func moveColumnUnsupported(_ capability: String, _ count: Int) -> String { format("handlers.refusal.moveColumnUnsupported", "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)", capability, count) }

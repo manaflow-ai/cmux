@@ -4,6 +4,7 @@
 > State: app side landed through cc5f77639e4 (sections, looks, actions, mirror + intent log, presence, emoji icons); store op PR https://github.com/manaflow-ai/cmux/pull/16842 (branch feat-cmux-next-sidebar-layout-store, head c745621e94f, testbox green except the known-flaky `durable_workspace_creation_supports_the_in_process_terminal_runtime`).
 > Next: retarget #16842 to feat-cmux-next when #16174 merges (owner ad349e7b1284e56a5 reviews); then SidebarAppSectionProvider (send SHA to app platform lead a8ea20892365dec47), blob.put/blob.get + blob-ref registry, Home active state + Cmd-1 when Home lands, review Leo's activateLayoutItem change.
 > After PR 16863 merges: regenerate ActionCatalogTests counts with `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionCatalogTests` (never hand-bump).
+> App sections: the app platform lead built SidebarAppSectionProvider (CmuxNextSidebar/Sections/SidebarAppSectionProvider.swift, SidebarView.appSections, row kind `.app`, SidebarRegionLayout `appHeights`) on 2026-10-03; do not build it again. First-party apps are label items, not sections (Lawrence R36): the default top section holds Home, App Store, then `itm_app_coderouter` (`.app("cmux/coderouter")`), which runs `app.open` and opens the app's page tab. The Rust store defaults must add the same item when #16842 lands.
 > Open runs: none (testbox stopped, warmup cancelled). Worktrees: feat-cmux-next-sidebar-client (clean, all on origin), feat-cmux-next-sidebar-layout-store (PR branch).
 
 Status: design + phase 1 build, sidebar-sections lead, 2026-10-02. Binding: OWNERSHIP-PRINCIPLES.md,
@@ -168,8 +169,8 @@ both.
 
 Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
-back). Before the daemon serves the capability (it is `awaitingPin` until the next cmux-tui pin
-cut), the app shows the default layout and every layout action is disabled with the reason
+back). Before the daemon serves the capability (it is in `unservedByBundledDaemon` until the daemon half,
+PR #16842, lands), the app shows the default layout and every layout action is disabled with the reason
 "Needs a newer cmux-tui"; nothing queues and nothing is written to a local file. DEV builds may
 turn on `sidebar.sections.localPrototype` (Debug Settings) to edit an in-memory layout for
 prototyping; it is never persisted.
@@ -256,10 +257,12 @@ switch (descriptor titles are built once at launch).
 
 ## 9. Open decisions for Lawrence
 
-- Collapse state per window (recommended) or synced per user.
-- Whether sections subsume the space bar (spaces as an item) and the footer accessories.
+- (Decided, see 9a: collapse per window; the space bar stays.)
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
+
+- Tab drags (coordinator, 2026-10-03): a workspace made from a moved tab takes the tab's name; from a workspace's last tab it keeps the old workspace's name when the user set one (a `workspace-N` name counts as the daemon default). The name rides on `move-tab-to-new-workspace` (`name` field, sidebar store window); a daemon without it gets a rename after the move. A dragged agent tab snaps back for now: agent tabs are app-local, so the daemon has no slot for them. The real fix is the daemon owning agent tabs (ownership-v2).
+- Section collapse state is per window (`WindowState.collapsedSections`, saved with the window), not synced per user. The space bar stays as its own control; sections do not subsume it (batch item 2, s9).
 
 - Default look quiet; name "sections"; spaces model A.
 - Bottom band: Settings and the account avatar on one line (above).

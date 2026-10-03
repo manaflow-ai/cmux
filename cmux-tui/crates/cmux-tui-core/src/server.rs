@@ -105,7 +105,9 @@ mod personal;
 mod raw_tab;
 mod responses;
 mod screen_json;
+mod session_stream;
 mod split_respawn;
+mod tab_column;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -128,6 +130,9 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
+/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+/// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
+pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -229,6 +234,7 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -379,6 +385,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         STICKY_COLUMNS_CAPABILITY,
+        EDGE_DOCKS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -416,6 +423,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -436,9 +444,11 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
+        crate::git_ops::FILES_SEARCH_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1418,26 +1428,7 @@ enum Command {
     /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
-    /// The daemon persists its location and never attaches a CDP target.
-    NewFrontendBrowserTab {
-        url: String,
-        engine: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        favicon_url: Option<String>,
-        #[serde(default)]
-        profile_id: Option<String>,
-        /// Install id of the hosting app (the record's only writer).
-        #[serde(default)]
-        owner: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -1999,19 +1990,7 @@ enum Command {
         transaction: Option<String>,
     },
     /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn {
-        surface: SurfaceId,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        screen: Option<ScreenId>,
-        #[serde(default)]
-        after_column: Option<SplitId>,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
+    MoveTabToColumn(tab_column::MoveTabToColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -10013,14 +9992,12 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    // `canceled` is only set together with closing `outbound`. The stream
-    // used to wake every second to re-check both.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
@@ -10585,13 +10562,12 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
-    // `canceled` is only set together with closing `outbound`.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         if complete_bounded_journal_replay(writer, &stream) {
@@ -10753,7 +10729,7 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
@@ -14006,37 +13982,7 @@ fn handle_command_with_cancellation(
         Command::NewConversationTab(params) => {
             conversation_tabs_wire::new_conversation_tab(mux, params)
         }
-        Command::NewFrontendBrowserTab {
-            url,
-            engine,
-            pane,
-            title,
-            favicon_url,
-            profile_id,
-            owner,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::FrontendBrowserRecord {
-                engine,
-                url,
-                title,
-                favicon_url,
-                profile_id,
-                owner,
-            };
-            let surface = mux.new_frontend_browser_tab(
-                pane,
-                record,
-                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            Ok(json!({
-                "surface": surface.id,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
-        }
+        Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
@@ -14200,7 +14146,7 @@ fn handle_command_with_cancellation(
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_navigate(&url)?;
+            mux.navigate_browser_surface(&surface, &url)?;
             Ok(json!({}))
         }
         Command::BrowserBack { surface } => {
@@ -14690,14 +14636,7 @@ fn handle_command_with_cancellation(
             let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let anchor = column_anchor(mux, pane, screen)?;
-            let outcome =
-                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
-            Ok(tab_drag_outcome_json(&outcome))
-        }
+        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;
@@ -27527,6 +27466,7 @@ mod tests {
             WINDOW_RECORDS_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
             crate::git_ops::CHECKPOINTS_CAPABILITY,
+            crate::git_ops::FILES_SEARCH_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

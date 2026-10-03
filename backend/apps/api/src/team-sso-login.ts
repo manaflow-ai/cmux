@@ -1,5 +1,5 @@
 import type { OwnerFrame, RejectFrame } from "@cmux/ownership"
-import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose"
+import { createLocalJWKSet, decodeJwt, jwtVerify, type JSONWebKeySet } from "jose"
 import type { TeamState } from "./domains/team.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
 import type { StackServer } from "./stack-server.ts"
@@ -28,7 +28,28 @@ export const ensureLoginTables = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS sso_redeem2 (code_hash TEXT PRIMARY KEY, client_challenge TEXT NOT NULL, sealed TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
   // Keyed by a hash of the IdP issuer and subject: the same person through a recreated connection stays linked.
   sql.exec(`CREATE TABLE IF NOT EXISTS sso_identities2 (idp_key TEXT PRIMARY KEY, connection TEXT NOT NULL, stack_user TEXT NOT NULL, email TEXT NOT NULL, linked_at INTEGER NOT NULL)`)
+  // Sessions this team's SSO created, keyed by Stack's refresh token id (sso.enforce, P17-4).
+  sql.exec(`CREATE TABLE IF NOT EXISTS sso_sessions2 (refresh_token_id TEXT PRIMARY KEY, stack_user TEXT NOT NULL, connection TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
 }
+
+/** Longest an SSO session record lives without sso.sessionMaxAgeHours (Stack's refresh tokens are long-lived). */
+const SSO_SESSION_MAX_MS = 365 * 24 * 3_600_000
+
+/**
+ * The connection whose sign-in created the Stack session `refreshTokenId` for `stackUser`, while
+ * the record lives. A Stack refresh
+ * token keeps its id across access-token refreshes, and Stack mints no access token for a revoked
+ * refresh token, so the record covers exactly that session until it expires.
+ */
+export const ssoSessionConnection = (sql: SqlStorage, refreshTokenId: string, stackUser: string, now: number): string | undefined => {
+  ensureLoginTables(sql)
+  return sql.exec<{ connection: string }>(
+    `SELECT connection FROM sso_sessions2 WHERE refresh_token_id = ? AND stack_user = ? AND expires_at > ?`, refreshTokenId, stackUser, now
+  ).toArray()[0]?.connection
+}
+
+/** Drops expired session records (on each new SSO sign-in, so a lookup never writes). */
+const pruneSsoSessions = (sql: SqlStorage, now: number) => sql.exec(`DELETE FROM sso_sessions2 WHERE expires_at <= ?`, now)
 
 const b64u = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 const random = (n = 32) => b64u(crypto.getRandomValues(new Uint8Array(n)))
@@ -176,7 +197,14 @@ export const ssoCallback = async (deps: LoginDeps, state: string, code: string, 
       linked = r.linked
     }
     const maxHours = deps.state.policy?.values["sso.sessionMaxAgeHours"]?.value
-    const session = await deps.stack.createSession(stackUser, typeof maxHours === "number" ? maxHours * 3_600_000 : undefined)
+    const ttl = typeof maxHours === "number" ? maxHours * 3_600_000 : undefined
+    const session = await deps.stack.createSession(stackUser, ttl)
+    // Record the session server-side: sso.enforce trusts this record, never a token claim.
+    const refreshTokenId = decodeJwt(session.access_token).refresh_token_id
+    if (typeof refreshTokenId !== "string" || !refreshTokenId) return fail("sso.unavailable", "sign-in could not be completed; try again")
+    pruneSsoSessions(deps.sql, deps.now)
+    deps.sql.exec(`INSERT OR REPLACE INTO sso_sessions2 (refresh_token_id, stack_user, connection, expires_at) VALUES (?, ?, ?, ?)`,
+      refreshTokenId, stackUser, c.id, deps.now + (ttl ?? SSO_SESSION_MAX_MS))
     if (!deps.kek) return fail("sso.not_configured", "SSO needs INTEGRATIONS_KEK on this deployment")
     const redeem = `${deps.team}.${random()}`
     const codeHash = await sha256(redeem)

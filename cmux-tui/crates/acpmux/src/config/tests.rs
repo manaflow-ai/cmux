@@ -202,7 +202,7 @@ fn launcher_check_rejects_old_subrouter() {
             policy: None,
         },
     );
-    verify_launchers(&mut cfg);
+    verify_launchers_with(&mut cfg, None);
     // The profile stays (sessions on it keep working or fail with the
     // reason); nothing routes new work to it.
     assert!(cfg.harnesses.contains_key("claude-sr"));
@@ -213,5 +213,64 @@ fn launcher_check_rejects_old_subrouter() {
         SessionDefaults { prefer: vec!["claude-sr".into(), "claude".into()], ..Default::default() },
     );
     assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_subrouter_route_is_the_sr_default_server() {
+    let dir = std::env::temp_dir().join(format!("acpmux-route-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let servers = dir.join("servers.json");
+    std::fs::write(
+        &servers,
+        r#"{"servers":[{"name":"cloud","url":"https://sr.example"},{"name":"mine","url":"http://router.example:31415/"}],"default":"mine"}"#,
+    )
+    .unwrap();
+    assert_eq!(subrouter_route(None, &servers).as_deref(), Some("http://router.example:31415"));
+    // SUBROUTER_URL wins over the file.
+    assert_eq!(
+        subrouter_route(Some("http://env.example:1"), &servers).as_deref(),
+        Some("http://env.example:1")
+    );
+    std::fs::write(&servers, r#"{"servers":[{"name":"a","url":"ftp://x"}],"default":"a"}"#)
+        .unwrap();
+    assert_eq!(subrouter_route(None, &servers), None);
+    assert_eq!(subrouter_route(None, &dir.join("missing.json")), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_sr_without_claude_proxy_routes_claude_sr_through_the_subrouter_server() {
+    let dir = std::env::temp_dir().join(format!("acpmux-route-old-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let old = dir.join("sr-old");
+    std::fs::write(
+        &old,
+        "#!/bin/sh\necho 'subrouter: unknown command: sr claude proxy' >&2\nexit 1\n",
+    )
+    .unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let mut cfg = Config::default();
+    cfg.harnesses.insert(
+        "claude-sr".into(),
+        prof(HarnessKind::ClaudeStdio, &[old.to_str().unwrap(), "claude", "proxy"]),
+    );
+    let mut claude = prof(HarnessKind::Acp, &["/opt/bin/claude-acp"]);
+    claude.fallback = Some("claude-sr".into());
+    cfg.harnesses.insert("claude".into(), claude);
+    verify_launchers_with(&mut cfg, Some("http://router.example:31415".into()));
+    let routed = &cfg.harnesses["claude-sr"];
+    assert_eq!(routed.kind, HarnessKind::Acp);
+    assert_eq!(routed.argv, vec!["/opt/bin/claude-acp".to_owned()]);
+    assert_eq!(routed.env["ANTHROPIC_BASE_URL"], "http://router.example:31415");
+    assert_eq!(routed.env["ANTHROPIC_CUSTOM_HEADERS"], "X-Subrouter-Agent: claude");
+    assert!(routed.env.contains_key("ANTHROPIC_AUTH_TOKEN"));
+    assert_eq!(routed.fallback, None);
+    assert!(!cfg.unavailable.contains_key("claude-sr"));
+    // A direct Claude still falls over to the routed profile.
+    assert_eq!(cfg.harnesses["claude"].fallback.as_deref(), Some("claude-sr"));
     let _ = std::fs::remove_dir_all(&dir);
 }

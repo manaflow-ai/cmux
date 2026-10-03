@@ -19,7 +19,8 @@ public import CoreGraphics
 public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The one material behind the window's content.
     public var material: WindowMaterial
-    /// Alpha of the theme tint laid over the material: the resolved
+    /// Alpha of the theme tint over the material (glass carries it as its
+    /// own tint): the resolved
     /// `background-opacity`, or 1 for an opaque window.
     public var tintOpacity: Double
     /// Alpha of the white window background while non-opaque.

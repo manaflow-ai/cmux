@@ -44,6 +44,9 @@ extension SidebarBridge {
         case LayoutItemRef.tabKind: revealPinnedTab(ref.value)
         case LayoutItemRef.urlKind: openPinnedPage(ref.value)
         case LayoutItemRef.roomKind: switchToPinnedSpace(ref.value)
+        case LayoutItemRef.appKind:
+            // An app's label item opens its page as a tab (CodeRouter below the App Store).
+            _ = services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(ref.value)], origin: .user))
         default: break
         }
     }

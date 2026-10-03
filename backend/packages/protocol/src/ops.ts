@@ -17,12 +17,19 @@ import {
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
+import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
+import { pushOps } from "./push.ts"
+import { userConfirmOps } from "./user-confirm-ops.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
+import { homeOps } from "./ops-home.ts"
 import { networkOps } from "./network-ops.ts"
 import { serverOps } from "./server-ops.ts"
+import { usageOps } from "./usage.ts"
+import { teamVmOps } from "./team-vm-ops.ts"
+import { teamSshOps } from "./team-ssh-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -82,6 +89,21 @@ export const InstallRename = def({
   docs: "Rename an install. An install may rename only itself; the user's session may rename any of its installs.",
   cli: { path: "install rename", visible: true },
   mcp: { expose: "opt_in", group: "account" }
+})
+
+export const InstallSignOut = def({
+  name: "install.sign_out",
+  owner: "cloud:UserDO",
+  class: "mutation",
+  risk: "mutate-own",
+  target: "install",
+  principals: ["install"],
+  params: Schema.Struct({}),
+  result: Install,
+  errors: [...mutationErrors],
+  docs: "Sign this install out: revokes the calling install (its token, grant, push targets and presence key) so a signed-out device keeps nothing usable.",
+  cli: { path: "install sign-out", visible: true },
+  mcp: { expose: "never", group: "account" }
 })
 
 export const InstallRevoke = def({
@@ -164,18 +186,26 @@ export const cloudOps = [
   InstallRegister,
   InstallRename,
   InstallRevoke,
+  InstallSignOut,
   InstallList,
   TeamDirectory,
   HostEnroll,
   HostRemove,
   ...automationOps,
+  ...usageOps,
   ...integrationOps,
+  ...googleOps,
   ...feedOps,
+  ...pushOps,
+  ...userConfirmOps,
   ...policyOps,
   ...networkOps,
   ...enrollmentOps,
   ...ssoOps,
-  ...serverOps
+  ...serverOps,
+  ...teamVmOps,
+  ...teamSshOps,
+  ...homeOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

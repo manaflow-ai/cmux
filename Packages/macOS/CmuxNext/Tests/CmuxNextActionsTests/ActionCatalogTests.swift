@@ -1,4 +1,5 @@
 import CmuxNextActions
+import Foundation
 import Testing
 
 /// Catalog completeness against plans/cmux-next/inventory.md section 1.
@@ -55,34 +56,26 @@ import Testing
         "reloadConfiguration", "sendFeedback",
     ]
 
-    /// Rows per inventory domain after splitting compound rows ("Focus
-    /// Left/Right/Up/Down") into one action each. Dynamic families (workspace
-    /// switcher rows, per-app open targets, per-setting toggles) are served by
-    /// palette providers and appear here once as their parent list action.
-    /// Workspace and tab include the group families (architecture.md section 7).
-    /// Pane, tab, and terminal also count the cmux-next rows in
-    /// `ActionCatalog+Layout.swift` (19 pane/column, 6 tab, 10 terminal).
-    /// Screen counts the screen and screen group families
-    /// (`ActionCatalog+Screens.swift`, `ActionCatalog+ScreenGroups.swift`).
-    /// Settings counts the pane border, padding and corner toggles and the
-    /// two titlebar styles, the focus ring and border width toggles and the
-    /// border color reset, and Make cmux the Default Browser. Window
-    /// counts Minimize (no inventory row; used by idle and visibility checks).
-    static let expectedCounts: [ActionCategory: Int] = [
-        .window: 33, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md); + Open Link (link.open)
-        .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
-        .pane: 72, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md); + Open File (file.open)
-        .screen: 62,
-        .tab: 78, // + Show Tab (`tab.focus`), New Tab of the pane kind, New Tab Page, + Search Tabs (tab-search.md), Focus Location Bar
-        .terminal: 36, // + Set / Reset Terminal Theme, + Scroll to Selection (Cmd-J J, the leader layer)
-        .browser: 113, // 78 - 2 profile placeholders + 18 browser profile actions (data-model.md 5) + Show History (Cmd-Y in a page) + 15 bookmark actions + Import Passwords from CSV + 2 link hints (f, F)
-        .sidebar: 56, // + 26 sidebar section actions (sidebar-sections.md 6)
-        .notifications: 18,
-        .agents: 30, // + Resume Agent Session, Toggle Dictation, Open Agent Activity, Search Agent Chats, Continue In, Create Checkpoint, 7 tool permission controls, Quick Agent Chat
-        .cloud: 48, // + cloud file and tunnel/network/firewall actions
-        .remote: 7, // SSH machines (Connect to Machine…), Open Terminal on Machine Here
-        .settings: 55, // + Toggle Column Scroll Bar, + Onboarding Gallery (DEBUG only), + Open Debug Settings (DEV and NIGHTLY only), + App Store, Installed Apps, Hide App, Unhide App, + Customize Appearance
-    ]
+    /// Counts generated from the catalog and checked into plans/cmux-next/actions.md.
+    /// Regenerate with `CMUX_UPDATE_ACTION_SURFACES=1 swift test --filter ActionSurfaceParityTests`.
+    static func generatedCounts() throws -> [ActionCategory: Int] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("plans/cmux-next/actions.md")
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let start = try #require(text.range(of: "## Catalog counts\n\n"))
+        let end = try #require(text.range(of: "\n## Counts (", range: start.upperBound..<text.endIndex))
+        var counts: [ActionCategory: Int] = [:]
+        for line in text[start.upperBound..<end.lowerBound].split(separator: "\n") {
+            let fields = line.split { $0 == "`" || $0 == ":" }
+            guard fields.count == 3, fields[0].hasPrefix("- "), let count = Int(fields[2].trimmingCharacters(in: .whitespaces)) else { continue }
+            guard let category = ActionCategory(rawValue: String(fields[1])) else { continue }
+            counts[category] = count
+        }
+        return counts
+    }
+
 
     @Test func everyKeyboardShortcutIDExists() {
         let ids = Set(ActionCatalog.all.map(\.id))
@@ -90,15 +83,14 @@ import Testing
         #expect(missing.isEmpty, "missing: \(missing)")
     }
 
-    @Test func countsByDomainMatchInventory() {
+    @Test func countsByDomainMatchInventory() throws {
+        let expected = try Self.generatedCounts()
         var counts: [ActionCategory: Int] = [:]
         for descriptor in ActionCatalog.all { counts[descriptor.category, default: 0] += 1 }
         for category in ActionCategory.allCases where category != .other {
-            #expect(counts[category] == Self.expectedCounts[category], "\(category)")
+            #expect(counts[category] == expected[category], "\(category)")
         }
-        // Inventory estimate is about 290 merged rows; splitting compound
-        // rows lands above it.
-        #expect(ActionCatalog.all.count >= 290)
+        #expect(counts == expected)
     }
 
     @Test func idsAreUniqueAndTitlesPresent() {

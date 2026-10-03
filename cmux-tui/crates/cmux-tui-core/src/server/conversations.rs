@@ -12,6 +12,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::{Mux, MuxEvent, validate_client_transaction};
+use crate::conversation_search::ConversationSearchRejected;
 use crate::conversation_store::{
     ConversationEvent, ConversationRejected, LOCAL_USER, MAX_PAGE_MESSAGES,
 };
@@ -61,8 +62,9 @@ pub(super) struct OpParams {
     op: Value,
 }
 
-/// `conversation-search`: Home-only search over the text of every message
-/// that is not retracted; every word matches as a prefix.
+/// `conversation-search`: Home-only search, the shared read model
+/// (`cmux_conversation::search`): a case-insensitive substring of the text of
+/// the caller's conversations, newest first.
 #[derive(Deserialize)]
 pub(super) struct SearchParams {
     query: String,
@@ -105,12 +107,19 @@ fn resolve_actor(mux: &Mux, client: u64, declared: Option<String>) -> anyhow::Re
 
 /// The stable reason of a conversation reject (the `reason` response field).
 pub(super) fn error_reason(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<ConversationRejected>().map(|rejected| rejected.0.code().to_string())
+    error
+        .downcast_ref::<ConversationRejected>()
+        .map(|rejected| rejected.0.code().to_string())
+        .or_else(|| {
+            error.downcast_ref::<ConversationSearchRejected>().map(|r| r.0.code().to_string())
+        })
 }
 
 /// The `error_code` of a conversation reject.
 pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
-    error.downcast_ref::<ConversationRejected>().map(|_| ConversationRejected::CODE.to_string())
+    let rejected = error.downcast_ref::<ConversationRejected>().is_some()
+        || error.downcast_ref::<ConversationSearchRejected>().is_some();
+    rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
 fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
@@ -183,7 +192,10 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
 pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {
     require_local(mux, client)?;
     let SearchParams { query, limit } = params;
-    let hits = mux.with_conversations(|store| store.search(&query, limit))?;
+    // The owner stamps the actor: a search sees only the caller's conversations.
+    let actor = mux.conversation_principal(client);
+    let input = cmux_conversation::SearchInput { query, limit };
+    let hits = mux.with_conversations(|store| store.search(&actor, &input))?;
     Ok(json!({"hits": hits}))
 }
 

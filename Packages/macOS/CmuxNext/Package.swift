@@ -48,11 +48,17 @@ import PackageDescription
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
-//   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
+//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
+//   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
+//     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
+//     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
+//   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
+//     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -90,6 +96,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        .package(path: "../../Shared/CmuxHomeCore"),
+        .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -105,6 +113,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -130,6 +140,7 @@ let package = Package(
                 "CmuxNextOnboarding",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextRemoteView",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -137,6 +148,8 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
+                "CmuxNextServerHelper",
+                "CmuxNextFeed",
             ],
             resources: [
                 .process("Resources"),
@@ -255,7 +268,11 @@ let package = Package(
         // render-server send motion), the conversation list and composer.
         .target(
             name: "CmuxNextHome",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextDesign", "CmuxNextWakeups",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -264,7 +281,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextHomeTests",
-            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            dependencies: [
+                "CmuxNextHome", "CmuxNextDesign",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -378,7 +399,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -387,6 +408,24 @@ let package = Package(
         .testTarget(
             name: "CmuxNextFeedTests",
             dependencies: ["CmuxNextFeed"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
+        // VideoToolbox decode, presenter variants, chrome A, input capture and
+        // a VideoToolbox mock host. Transport neutral. The App shows it in
+        // `remote_view` tabs (cmux://remote-view records, development builds).
+        .target(
+            name: "CmuxNextRemoteView",
+            dependencies: ["CmuxNextDesign"],
+            exclude: ["README.md"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteViewTests",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
@@ -404,6 +443,25 @@ let package = Package(
             name: "CmuxNextServerTests",
             dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The cmux server's privileged helper (plans/cmux-next/server.md 9.4): the XPC
+        // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
+        .target(
+            name: "CmuxNextServerHelper",
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The helper executable. The app bundle does not link it: the Xcode phase
+        // "Bundle server helper" (scripts/cmux-next/bundle-server-helper.sh) compiles
+        // these sources with swiftc into Contents/Resources/libexec/cmux-server-helper.
+        .executableTarget(
+            name: "CmuxNextServerHelperDaemon",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerHelperTests",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextResources",
@@ -528,6 +586,7 @@ let package = Package(
                 .process("ProfileActions.xcstrings"),
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
+                .process("ServerActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),
@@ -733,7 +792,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+                           "CmuxNextDaemon", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

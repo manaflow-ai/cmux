@@ -22,7 +22,7 @@ extension PaneController {
             guard let index = ids.firstIndex(of: id) else { return }
             close(Array(ids[(index + 1)...]))
         case .reorder(let id, _, let to):
-            move(id, toPane: self, index: to)
+            StripOrder.reorder(id, to: to, in: self)
         case .newTab:
             StripNewTab.request(pane: paneKey) { _ = services.registry.perform($0, invocation: $1) }
         case .pin(let id), .unpin(let id):
@@ -41,11 +41,6 @@ extension PaneController {
             TabMoves.toNewColumn(tab, anchor: pane, services: services)
         case .trailingButton(let id):
             services.tabBarButtons.perform(id, paneKey: paneKey)
-        case .focusLocation:
-            let window = services.windowController(showing: self)
-            StripLocation.request(pane: paneKey, isFocused: window?.focus.state.pane == paneKey,
-                                  focus: { window?.focus.send(.focusPane(paneKey, source: .intent)) },
-                                  perform: { _ = services.registry.perform($0, invocation: $1) })
         case .dragBegan(let start):
             services.dragSession.begin(start, from: self)
         case .groupDragBegan(let start):
@@ -232,11 +227,12 @@ extension PaneController {
     /// Moves a tab into `target` at `index` (display order), optimistic.
     func move(_ id: StripTabID, toPane target: PaneController, index: Int) {
         guard let tab = tab(id) else { return }
+        let index = StripOrder.paneIndex(forDisplayIndex: index, moving: id, in: target) // `index` is a display index
         // Focus follows only a move this client's user started (CLI and
         // agents never change this client's focus unless they ask).
         if target !== self, ActionRunScope.viewChangeAllowed() { workspace?.focus.followMovedTab(tab.id, from: paneKey) }
         TabMoves.move(tab, to: target.pane, index: index, services: services) { [weak self, weak target] ok in
-            guard !ok else { return }
+            guard !ok else { return StripOrder.settle([self, target]) }
             self?.resyncStrip()
             target?.resyncStrip()
             self?.view.stripView.restoreDetachedTab(id)

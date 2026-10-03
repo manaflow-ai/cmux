@@ -346,14 +346,19 @@
       "size": 8564
     },
     {
+      "path": "ColumnPin.java",
+      "sha256": "9ce4adf9084766e8453bac3e5ab74f4edc865972090446f8413b6cb3afe2036d",
+      "size": 2433
+    },
+    {
       "path": "CommandMetadata.java",
       "sha256": "3e3320fe5a1bcaf9edf0e06424706fb95564716704af87bcdd3b531fb2de74dd",
       "size": 471
     },
     {
       "path": "Commands.java",
-      "sha256": "a6ce3197e1e89de11f41fb1e1ea7e104e13d3ac0c5b7aea5b410be4651a881ec",
-      "size": 54775
+      "sha256": "b0be79c9c6d2389a1c30329f4802df14ce4a9c262df012961c868db4d1a1ef5d",
+      "size": 54923
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1027,8 +1032,8 @@
     },
     {
       "path": "MoveTabToColumnRequest.java",
-      "sha256": "9380ac6c45facaf0196eaf8d84918c80a5ce946ddb2c3075b5d1ee93c2ba707d",
-      "size": 5393
+      "sha256": "60b05ec256e8df14c49dae80fc33a5014aedb0052d9d905aadbfe7d77ff7a5e2",
+      "size": 6667
     },
     {
       "path": "MoveTabToNewWorkspaceRequest.java",
@@ -1082,8 +1087,8 @@
     },
     {
       "path": "NewFrontendBrowserTabRequest.java",
-      "sha256": "cb0b814658523f7213c4c230a7d7f5517744fc0ca987f4f549573f2279f7890d",
-      "size": 7205
+      "sha256": "febc978c6c339a785413195a5d9d779d2a8bf8b1f03cf42403b7e626a49541df",
+      "size": 8008
     },
     {
       "path": "NewPaneRequest.java",
@@ -1247,7 +1252,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "6d39049493543e0981ac4bf24d1783e82d6b8fa4f362db5095977c0cd3f7a0dd",
+      "sha256": "d6d02d5cdcaf9e8d1ddf1b270f184f90fa1789ef26c498b33c08bef3b70c5bb3",
       "size": 4943
     },
     {
@@ -2262,7 +2267,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "9db25213cb8861aa38070472e063471f073e76674033258697acacca8a4398b7",
+  "ir_sha256": "9a93a666e8f059fe58fafce71e3c8f25d47a930c49c9058ed455f3ca46b21d7b",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

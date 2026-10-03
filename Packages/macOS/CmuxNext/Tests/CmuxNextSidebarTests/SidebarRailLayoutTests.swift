@@ -20,15 +20,14 @@ import Testing
                                                                    content: .workspaces)])
     }
 
-    @Test func theDefaultLayoutPutsHomeOnTopAndSettingsCustomizeAndTheAccountAtTheBottom() {
+    @Test func theDefaultLayoutPutsHomeOnTopAndSettingsAndTheAccountAtTheBottom() {
         let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
-        #expect(rail.buttons.map(\.item.rawValue) == ["itm_home", "itm_app_store", "itm_settings", "itm_customize", "itm_account"])
+        #expect(rail.buttons.map(\.item.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter", "itm_settings", "itm_account"])
         let frames = rail.buttons.map(\.frame)
         #expect(frames[0] == CGRect(x: 7, y: 40, width: 34, height: 34))
         #expect(frames[1].minY == frames[0].maxY + 4)
         // The bottom band ends at the bottom inset.
         #expect(frames[4].maxY == CGFloat(588))
-        #expect(frames[2].maxY + 4 == frames[3].minY)
         #expect(frames[3].maxY + 4 == frames[4].minY)
         // One section per band: no lines.
         #expect(rail.separators.isEmpty)

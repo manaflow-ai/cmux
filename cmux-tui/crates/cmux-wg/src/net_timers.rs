@@ -122,7 +122,7 @@ impl Driver {
     /// adds no wakeup; it only runs when something else woke the driver.
     pub(super) fn catch_up_timers(&mut self) {
         let now = Instant::now();
-        if self.schedule.overdue(now) {
+        if self.schedule.due(now) {
             self.schedule.on_tick(now);
             self.update_timers();
         }

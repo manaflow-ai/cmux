@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, InstallId, Platform, schedulerInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, pushInternalOps, userConfirmInternalOps, InstallId, Platform, schedulerInternalOps, teamSshInternalOps, teamVmInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -242,6 +242,23 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
     } as CloudOpDef
   ],
   [
+    "install.ssh_revoke_done",
+    {
+      name: "install.ssh_revoke_done",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "mutate-own",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: every team confirmed the KRL entries for a revoked install's SSH certificates.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
     "server.install_revoked",
     {
       name: "server.install_revoked",
@@ -284,7 +301,11 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
   ],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
-  ...feedInternalOps.map((d) => [d.name, d] as const)
+  ...feedInternalOps.map((d) => [d.name, d] as const),
+  ...pushInternalOps.map((d) => [d.name, d] as const),
+  ...userConfirmInternalOps.map((d) => [d.name, d] as const),
+  ...teamVmInternalOps.map((d) => [d.name, d] as const),
+  ...teamSshInternalOps.map((d) => [d.name, d] as const)
 ])
 
 /**

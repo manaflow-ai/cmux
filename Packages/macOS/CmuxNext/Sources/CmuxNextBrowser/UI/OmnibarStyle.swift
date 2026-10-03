@@ -69,7 +69,6 @@ enum OmnibarStyle {
     // toolbar is the same surface as the tab strip and terminal, the bar a
     // faint lift of it, the popup a floating card. Read them only inside
     // `performWithTheme` (theme-scoped).
-    static var toolbarBackground: NSColor { Palette.windowBackground } // theme-scoped
     static var barFill: NSColor { Palette.chromeBackground } // theme-scoped
     static var barHoverFill: NSColor { Palette.elevatedBackground } // theme-scoped
     /// Editing fill and popup card.

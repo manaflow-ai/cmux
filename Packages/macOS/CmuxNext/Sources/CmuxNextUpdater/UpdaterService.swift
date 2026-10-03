@@ -24,6 +24,10 @@ public final class UpdaterService {
     /// The running stable <-> NIGHTLY switch, if any.
     public private(set) var channelSwitchPhase: AppChannelSwitchPhase?
     public private(set) var channelSwitchError: String?
+    /// `UpdateChannel` from the managed policy, or nil.
+    public internal(set) var managedChannel: AppChannelSwitchTarget?
+    /// `MinimumVersion` from the managed policy, or nil.
+    public internal(set) var managedMinimumVersion: String?
 
     /// Asks the App to show the update sheet (set by the App).
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
@@ -34,6 +38,8 @@ public final class UpdaterService {
     @ObservationIgnored private var probeTask: Task<String?, Never>?
     @ObservationIgnored private var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
+    /// Whether ``start()`` ran (the managed policy checks only after it).
+    var isStarted: Bool { started }
 
     /// - Parameter enableSparkle: false builds no Sparkle driver even for a
     ///   release identity (tests, demos).
@@ -78,6 +84,7 @@ public final class UpdaterService {
         }
         controller.actionDelegate = self
         controller.startUpdaterIfNeeded()
+        recheckRequiredUpdate()
     }
 
     /// The user asked to check. Shows the update sheet; with Sparkle it starts
@@ -145,6 +152,7 @@ public final class UpdaterService {
     public func switchChannel(to target: AppChannelSwitchTarget) throws -> Task<String?, Never> {
         guard identity.channelSwitchTarget == target else { throw UpdaterUnavailable.cannotSwitch(to: target, from: identity.track) }
         if policy.disablesUpdates { throw UpdaterUnavailable(reason: .managedPolicy) }
+        if let refusal = managedChannelRefusal(target) { throw refusal }
         if let switchTask { return switchTask }
         channelSwitchError = nil
         let switcher = switcher
@@ -230,7 +238,10 @@ extension UpdaterService {
     /// Why switching channels is impossible here (DEV/RC builds have no
     /// counterpart), or nil.
     public var channelSwitchUnavailableReason: String? {
-        identity.channelSwitchTarget == nil ? UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description : nil
+        guard let target = identity.channelSwitchTarget else {
+            return UpdaterUnavailable.cannotSwitch(to: "stable/nightly", from: identity.track).description
+        }
+        return managedChannelRefusal(target)?.description
     }
 
     /// Why installing is impossible here, or nil.

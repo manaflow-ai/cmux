@@ -67,4 +67,14 @@ import Testing
         }
         #expect(RemoteRelayPolicy.remoteBrowserURL(nil) == nil)
     }
+
+    /// A `remote_view` tab record from another machine's tree never opens
+    /// here, in every build (plans/cmux-next/remote-desktop.md 11.0): the
+    /// gate drops the address before any page is made.
+    @Test func remoteBrowserRecordsNeverOpenARemoteViewTab() {
+        for address in ["cmux://remote-view?host=localhost&target=display:1&mode=control",
+                        "cmux://remote-view?host=mock", "CMUX://REMOTE-VIEW?host=127.0.0.1", " cmux://remote-view?host=local "] {
+            #expect(RemoteRelayPolicy.remoteBrowserURL(address) == nil, "\(address)")
+        }
+    }
 }

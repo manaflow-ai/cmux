@@ -1,4 +1,6 @@
+import * as automation from "./automation";
 import type { AcpmuxRow } from "./model";
+import type { PermissionDecision } from "./permissions/protocol";
 import { acpmuxPerf, frameStats, isBlank, median, round2, typingSummary } from "./perf";
 import { openPicker, pickerLabels } from "./pickerOpeners";
 import { syntheticRows } from "./synthetic";
@@ -17,6 +19,7 @@ export type AcpmuxDebug = {
   startFling(seconds?: number, options?: FlingOptions): Promise<Record<string, unknown>>;
   flingStats(): Record<string, unknown>;
   perfStats(options?: { raw?: boolean }): Record<string, unknown>;
+  agentLatency(): Record<string, unknown>;
   typingStats(): Record<string, unknown>;
   resetTyping(): Record<string, unknown>;
   /// Opens the composer menu labelled `label` and resolves once it has painted.
@@ -25,7 +28,22 @@ export type AcpmuxDebug = {
   acpLog(options?: { limit?: number }): Record<string, unknown>;
   /** The wire log as JSON Lines. */
   acpLogExport(): string;
+  /** Automation (automation.ts): the chat state a script reads, and the verbs it drives. */
+  chatState(): Record<string, unknown>;
+  sendPrompt(text: string): Promise<Record<string, unknown>>;
+  newChat(harness?: string, cwd?: string): Promise<Record<string, unknown>>;
+  selectSession(sessionId: string): Record<string, unknown>;
+  answerPermission(options?: {
+    optionId?: string;
+    allow?: boolean;
+    decision?: PermissionDecision;
+  }): Promise<Record<string, unknown>>;
+  openChanges(): Record<string, unknown>;
+  setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
+  models(): Record<string, unknown>;
 };
+
+const NO_AUTOMATION = { error: "the page has no automation host" };
 
 const WARMUP_FRAMES = 30;
 
@@ -34,7 +52,12 @@ function nextFrame(): Promise<number> {
 }
 
 export function createAcpmuxDebug(
-  host: { replaceRows(rows: AcpmuxRow[]): void; rowCount(): number; sessionId?(): string | undefined },
+  host: {
+    replaceRows(rows: AcpmuxRow[]): void;
+    rowCount(): number;
+    sessionId?(): string | undefined;
+    automation?: automation.AutomationHost;
+  },
   wire: AcpWireLog = acpWire,
 ): AcpmuxDebug {
   let timestamps: number[] = [];
@@ -118,7 +141,11 @@ export function createAcpmuxDebug(
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
-      return { running, ...acpmuxPerf.stats(options.raw === true) };
+      return { running, ...acpmuxPerf.stats(options.raw === true), agent: acpmuxPerf.agentLatency() };
+    },
+
+    agentLatency() {
+      return acpmuxPerf.agentLatency();
     },
 
     typingStats() {
@@ -151,6 +178,33 @@ export function createAcpmuxDebug(
 
     acpLogExport() {
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
+    },
+
+    chatState() {
+      return host.automation ? automation.automationState(host.automation) : NO_AUTOMATION;
+    },
+    async sendPrompt(text) {
+      return host.automation ? automation.sendPrompt(host.automation, String(text ?? "")) : NO_AUTOMATION;
+    },
+    async newChat(harness, cwd) {
+      return host.automation ? automation.newChat(host.automation, harness, cwd) : NO_AUTOMATION;
+    },
+    selectSession(sessionId) {
+      return host.automation ? automation.selectSession(host.automation, String(sessionId ?? "")) : NO_AUTOMATION;
+    },
+    async answerPermission(options = {}) {
+      return host.automation ? automation.answerPermission(host.automation, options) : NO_AUTOMATION;
+    },
+    openChanges() {
+      return host.automation ? automation.openChanges(host.automation) : NO_AUTOMATION;
+    },
+    async setModel(model, effort) {
+      return host.automation
+        ? automation.setModel(host.automation, String(model ?? ""), effort || undefined)
+        : NO_AUTOMATION;
+    },
+    models() {
+      return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
     },
   };
 }

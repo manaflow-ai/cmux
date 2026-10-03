@@ -1,117 +1,328 @@
 {
-  "schema_version": 1,
   "family": "caffeinate",
-  "owner": "app:cmux/caffeinate",
-  "$comment": "App ops (owner app:cmux/caffeinate). They call the proposed host capability power.assertion.* (owner host:native on the target machine; README 'Power assertions'), which is not part of this fragment.",
   "operations": [
+    {
+      "name": "caffeinate.keep_awake",
+      "owner": "app:cmux/caffeinate",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate keep-awake",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Keep Awake Until Stopped"
+      },
+      "docs": "Keep the Mac awake until you stop it.",
+      "since": "caffeinate/1",
+      "export": "keepAwake",
+      "gesture": "required"
+    },
+    {
+      "name": "caffeinate.keep_awake_hour",
+      "owner": "app:cmux/caffeinate",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate keep-awake-hour",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Keep Awake for 1 Hour"
+      },
+      "docs": "Keep the Mac awake for one hour.",
+      "since": "caffeinate/1",
+      "export": "keepAwakeHour"
+    },
     {
       "name": "caffeinate.start",
       "owner": "app:cmux/caffeinate",
       "class": "mutation",
       "risk": "mutate-own",
-      "docs": "Keep the Mac awake with a preset: until stopped, for a time, or until a terminal's command, a task or a process ends. Agents may bind only to their own terminal.",
-      "cli": { "path": "power keep-awake", "visible": true },
-      "code_mode": { "path": "mux.caffeinate.start" },
-      "mcp": { "expose": "default", "group": "power" },
-      "palette": [
-        { "title": "Keep Awake Until Stopped", "args": { "preset": "untilStopped" } },
-        { "title": "Keep Awake for 1 Hour", "args": { "preset": "hour" } },
-        { "title": "Keep Awake While This Command Runs", "args": { "preset": "command", "terminal": "$context.terminal" }, "when": "context.terminal.busy" }
-      ],
+      "idempotency": "required",
       "focuses": false,
-      "idempotency": "optional",
       "queue_offline": false,
       "remote_relay": "deny",
-      "since": "caffeinate/1",
       "input": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "preset": { "enum": ["command", "untilStopped", "hour", "duration"] },
-          "kinds": { "type": "array", "items": { "enum": ["display", "idle", "disk", "system", "user"] } },
-          "minutes": { "type": "integer", "minimum": 1, "maximum": 1440 },
-          "terminal": { "type": "string", "description": "terminal_… handle" },
-          "task": { "type": "string", "description": "task_… handle" },
-          "pid": { "type": "integer", "minimum": 1, "description": "origin user only" },
-          "reason": { "type": "string", "maxLength": 120 }
+          "preset": {
+            "type": "string",
+            "enum": [
+              "command",
+              "untilStopped",
+              "hour",
+              "duration"
+            ],
+            "description": "command: until a terminal's command, a task or a process ends; untilStopped; hour; duration (needs minutes)."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "display",
+                "idle",
+                "disk",
+                "system",
+                "user"
+              ]
+            },
+            "description": "What stays awake (caffeinate -d -i -m -s -u). Default: idle for command, display and idle otherwise."
+          },
+          "minutes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1440,
+            "description": "Time limit (caffeinate -t, in minutes)."
+          },
+          "terminal": {
+            "type": "string",
+            "description": "terminal_… handle: end when its current command finishes. Agents may pass only their own terminal."
+          },
+          "task": {
+            "type": "string",
+            "description": "task_… handle: end when the task finishes."
+          },
+          "pid": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "End when this process exits (caffeinate -w). People only; prefer terminal."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "Shown in the system's power assertion list."
+          },
+          "request_id": {
+            "type": "string",
+            "description": "Idempotency key for retries."
+          }
         },
         "required": []
       },
-      "output": { "type": "object", "properties": { "started": { "type": "boolean" }, "assertion": { "type": "string" }, "expires_at": { "type": ["string", "null"], "format": "date-time" }, "code": { "type": "string" } } },
-      "x-implementation": "js:start"
+      "cli": {
+        "path": "apps run cmux/caffeinate start",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Keep the Mac awake with a preset: until stopped, for a time, or until a terminal's command, a task or a process ends.",
+      "since": "caffeinate/1",
+      "export": "start",
+      "palette": {
+        "title": "Keep Awake…",
+        "presets": [
+          {
+            "id": "until-stopped",
+            "title": {
+              "en": "Keep Awake Until Stopped",
+              "ja": "停止するまでスリープしない"
+            },
+            "args": {
+              "preset": "untilStopped"
+            }
+          },
+          {
+            "id": "one-hour",
+            "title": {
+              "en": "Keep Awake for 1 Hour",
+              "ja": "1 時間スリープしない"
+            },
+            "args": {
+              "preset": "hour"
+            }
+          },
+          {
+            "id": "while-command",
+            "title": {
+              "en": "Keep Awake While This Command Runs",
+              "ja": "このコマンドの実行中はスリープしない"
+            },
+            "args": {
+              "preset": "command"
+            },
+            "when": "paneFocused:terminal"
+          }
+        ]
+      },
+      "gesture": "optional"
     },
     {
       "name": "caffeinate.stop",
       "owner": "app:cmux/caffeinate",
       "class": "mutation",
       "risk": "mutate-shared",
-      "docs": "Stop one assertion. Stopping what someone else started needs origin user.",
-      "cli": { "path": "power stop", "visible": true },
-      "code_mode": { "path": "mux.caffeinate.stop" },
-      "mcp": { "expose": "default", "group": "power" },
-      "palette": null,
+      "idempotency": "required",
       "focuses": false,
-      "idempotency": "optional",
       "queue_offline": false,
       "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "assertion": {
+            "type": "string",
+            "description": "pwr_… id from list. Stopping what someone else started needs a person (origin user)."
+          }
+        },
+        "required": [
+          "assertion"
+        ]
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate stop",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "Stop one keep-awake assertion (pwr_ id from list). Stopping one that someone else started needs a person.",
       "since": "caffeinate/1",
-      "input": { "type": "object", "additionalProperties": false, "properties": { "assertion": { "type": "string" } }, "required": ["assertion"] },
-      "x-implementation": "js:stop"
+      "export": "stop",
+      "gesture": "required"
     },
     {
       "name": "caffeinate.stop_all",
       "owner": "app:cmux/caffeinate",
       "class": "mutation",
       "risk": "mutate-shared",
-      "docs": "Stop every assertion the caller may stop (a person: all; an agent: its own).",
-      "cli": { "path": "power stop --all", "visible": true },
-      "code_mode": { "path": "mux.caffeinate.stopAll" },
-      "mcp": { "expose": "default", "group": "power" },
-      "palette": [{ "title": "Stop Keeping the Mac Awake", "args": {} }],
+      "idempotency": "required",
       "focuses": false,
-      "idempotency": "optional",
       "queue_offline": false,
       "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate stop-all",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Stop Keeping the Mac Awake"
+      },
+      "docs": "Stop every keep-awake assertion that cmux holds.",
       "since": "caffeinate/1",
-      "input": { "type": "object", "additionalProperties": false, "properties": {}, "required": [] },
-      "x-implementation": "js:stopAll"
+      "export": "stopAll",
+      "gesture": "required"
     },
     {
       "name": "caffeinate.list",
       "owner": "app:cmux/caffeinate",
       "class": "read",
       "risk": "read",
-      "docs": "What keeps the Mac awake through cmux: title, kinds and flags, time left, binding, owner.",
-      "cli": { "path": "power list", "visible": true },
-      "code_mode": { "path": "mux.caffeinate.list" },
-      "mcp": { "expose": "default", "group": "power" },
-      "palette": null,
-      "focuses": false,
       "idempotency": "forbidden",
+      "focuses": false,
       "queue_offline": false,
       "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "docs": "List what keeps the Mac awake through cmux.",
       "since": "caffeinate/1",
-      "input": { "type": "object", "additionalProperties": false, "properties": {}, "required": [] },
-      "x-implementation": "js:list"
+      "export": "list"
     },
     {
       "name": "caffeinate.show",
       "owner": "app:cmux/caffeinate",
       "class": "mutation",
       "risk": "mutate-own",
-      "docs": "Open the Caffeinate pane.",
-      "cli": null,
-      "code_mode": { "path": "mux.caffeinate.show" },
-      "mcp": { "expose": "never", "group": "power" },
-      "palette": [{ "title": "Show Caffeinate", "args": {} }],
+      "idempotency": "required",
       "focuses": true,
-      "idempotency": "forbidden",
       "queue_offline": false,
       "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate show",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default"
+      },
+      "palette": {
+        "title": "Show Caffeinate"
+      },
+      "docs": "Show the Caffeinate pane.",
       "since": "caffeinate/1",
-      "input": { "type": "object", "additionalProperties": false, "properties": { "gesture": { "type": "string", "description": "Gesture token of the user action (ctx.gesture)" } }, "required": ["gesture"] },
-      "x-implementation": "js:show"
+      "export": "show"
+    },
+    {
+      "name": "caffeinate.cycle_variant",
+      "owner": "app:cmux/caffeinate",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "idempotency": "required",
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "input": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {},
+        "required": []
+      },
+      "cli": {
+        "path": "apps run cmux/caffeinate cycle-variant",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never"
+      },
+      "palette": {
+        "title": "Next Caffeinate Variant"
+      },
+      "docs": "Switch to the next Caffeinate design variant (DEV and NIGHTLY).",
+      "since": "caffeinate/1",
+      "export": "cycleVariant"
     }
-  ],
-  "trigger_events": []
+  ]
 }

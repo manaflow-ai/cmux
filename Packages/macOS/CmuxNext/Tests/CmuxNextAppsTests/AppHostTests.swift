@@ -40,3 +40,40 @@ import Testing
         #expect(await observed { host.logs[manifest.id]?.contains { $0.message == #"hello {"a":1}"# } == true })
     }
 }
+
+/// DisabledFeatures `apps`: the host refuses to start any app and stops running ones.
+@Suite(.timeLimit(.minutes(2))) struct AppHostPolicyTests {
+    @Test func aDisabledReasonRefusesStartsAndStopsRunningApps() async throws {
+        let (manifest, directory) = try TestApps.bundle(main: "function hi() { return 1 } return { hi }")
+        let host = AppHost(sink: RecordingSink(), clock: ManualAppClock())
+        _ = await host.runCommand(manifest, directory: directory, export: "hi")
+        #expect(host.isRunning(manifest.id))
+        host.disabledReason = "Turned off by your organization"
+        // `logs` is observable where the engine table is not.
+        #expect(await observed { host.logs[manifest.id]?.contains { $0.message == "stopped: Turned off by your organization" } == true })
+        #expect(!host.isRunning(manifest.id))
+        guard case .failure(let error) = await host.runCommand(manifest, directory: directory, export: "hi") else {
+            Issue.record("a disabled host ran an app")
+            return
+        }
+        #expect(error.message == "Turned off by your organization")
+        host.disabledReason = nil
+        #expect(host.failures[manifest.id] == nil, "lifting the policy clears its failure")
+        guard case .success = await host.runCommand(manifest, directory: directory, export: "hi") else {
+            Issue.record("the host stayed disabled")
+            return
+        }
+    }
+
+    /// A start already running when apps are turned off does not keep the engine.
+    @Test func aStartOvertakenByThePolicyDoesNotRun() async throws {
+        let (manifest, directory) = try TestApps.bundle(main: "function hi() { return 1 } return { hi }")
+        let host = AppHost(sink: RecordingSink(), clock: ManualAppClock())
+        // task-owner: test-scoped start racing the policy below
+        let run = Task { await host.runCommand(manifest, directory: directory, export: "hi") }
+        host.disabledReason = "Turned off by your organization"
+        _ = await run.value
+        #expect(!host.isRunning(manifest.id))
+    }
+}
+

@@ -1834,21 +1834,7 @@ OPTIONS:
         wireguard_hub_serve_failed: "could not serve the WireGuard hub socket: {error}",
         wireguard_hub_signal_failed: "could not wait for the hub shutdown signal: {error}",
         wg_hub_option_required: "wg hub requires {option}",
-        wg_hub_help: r#"USAGE: cmux wg hub --config PATH --socket PATH
-
-Own one in-process WireGuard tunnel and serve SOCKS5 CONNECT for other cmux
-processes on an owner-only Unix socket. A WireGuard key supports one live
-session, so every `remote connect --wireguard-hub PATH` sidecar on this machine
-shares this hub instead of handshaking on its own.
-
-  --config PATH  owner-only wg-quick file (PrivateKey, Address, AllowedIPs, Endpoint)
-  --socket PATH  Unix socket to serve; parent directory is created 0700, socket 0600
-
-Prints one JSON line `{"event":"hub-ready","socket":...,"routes":[...]}` when
-listening. Only literal IP targets inside AllowedIPs are dialed; other targets
-get SOCKS reply 0x02, names 0x08. Exits on SIGTERM or SIGINT and removes the
-socket.
-"#,
+        wg_hub_help: include_str!("localization/wg_hub_help.en.txt"),
         known_daemon_not_known: "daemon {fingerprint} is not known",
         known_daemon_forgotten: "Forgot daemon {fingerprint}.",
         known_daemons_empty: "No known daemons.",
@@ -2605,20 +2591,7 @@ ID とセッション:
         wireguard_hub_serve_failed: "WireGuard ハブソケットを提供できませんでした: {error}",
         wireguard_hub_signal_failed: "ハブの終了シグナルを待機できませんでした: {error}",
         wg_hub_option_required: "wg hub には {option} が必要です",
-        wg_hub_help: r#"使用方法: cmux wg hub --config パス --socket パス
-
-プロセス内 WireGuard トンネルを 1 つ所有し、所有者のみ読める Unix ソケットで
-他の cmux プロセスに SOCKS5 CONNECT を提供します。WireGuard 鍵は 1 つの
-セッションしか維持できないため、このマシンの `remote connect --wireguard-hub パス`
-サイドカーはそれぞれハンドシェイクせず、このハブを共有します。
-
-  --config パス  所有者のみ読める wg-quick ファイル（PrivateKey、Address、AllowedIPs、Endpoint）
-  --socket パス  提供する Unix ソケット。親ディレクトリは 0700、ソケットは 0600 で作成します
-
-待ち受け開始時に JSON 1 行 `{"event":"hub-ready","socket":...,"routes":[...]}` を出力します。
-AllowedIPs 内のリテラル IP のみ接続します。それ以外は SOCKS 応答 0x02、名前は 0x08 です。
-SIGTERM または SIGINT で終了し、ソケットを削除します。
-"#,
+        wg_hub_help: include_str!("localization/wg_hub_help.ja.txt"),
         known_daemon_not_known: "デーモン {fingerprint} は登録されていません",
         known_daemon_forgotten: "デーモン {fingerprint} を削除しました。",
         known_daemons_empty: "登録済みのデーモンはありません。",

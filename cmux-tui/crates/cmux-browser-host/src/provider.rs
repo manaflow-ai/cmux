@@ -84,6 +84,9 @@ pub enum Frame {
         #[serde(default)]
         tabs: Vec<TabAnnounce>,
     },
+    /// The host accepted `hello`: the page agent bundle for the app to install.
+    #[serde(rename = "hello.ack")]
+    HelloAck { agent_bundle: String, agent_bundle_sha: String },
     /// A driver protocol call on a provider tab (host -> app).
     #[serde(rename = "call")]
     Call {
@@ -153,6 +156,11 @@ impl fmt::Debug for Frame {
                 .field("engines", engines)
                 .field("tabs", &tabs.len())
                 .finish_non_exhaustive(),
+            Frame::HelloAck { agent_bundle, agent_bundle_sha } => f
+                .debug_struct("HelloAck")
+                .field("agent_bundle_bytes", &agent_bundle.len())
+                .field("agent_bundle_sha", agent_bundle_sha)
+                .finish(),
             Frame::Call { id, method, .. } => f
                 .debug_struct("Call")
                 .field("id", id)

@@ -36,6 +36,8 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
     public var tabGroup: TabGroupID?
     /// The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`).
     public var remote: RemoteTerminalRef?
+    /// The conversation a `.conversation` tab shows.
+    public var conversation: ConversationTabRef?
     /// The workspace store's keep-layout record of a dead kept tab
     /// (`end-terminals-keep-layout-v1`).
     public var relaunch: TabRelaunch?
@@ -96,11 +98,11 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
 
     /// True when the app draws this tab itself; `attach-surface` refuses it.
     public var isFrontendOwned: Bool {
-        browserRenderer == "frontend" || kind == .remoteTerminal
+        browserRenderer == "frontend" || kind == .remoteTerminal || kind == .conversation
     }
 
     enum CodingKeys: String, CodingKey {
-        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch
+        case surface, kind, name, title, size, dead, notification, url, pinned, cwd, remote, relaunch, conversation
         case tabResourceID = "tab_resource_id"
         case contentResourceID = "content_resource_id"
         case terminalID = "terminal_id"
@@ -151,5 +153,6 @@ public struct TabSnapshot: Sendable, Hashable, Decodable {
         tabGroup = try c.decodeIfPresent(TabGroupID.self, forKey: .tabGroup)
         remote = kind == .remoteTerminal ? try? c.decodeIfPresent(RemoteTerminalRef.self, forKey: .remote) : nil
         relaunch = try c.decodeIfPresent(TabRelaunch.self, forKey: .relaunch)
+        conversation = kind == .conversation ? try? c.decodeIfPresent(ConversationTabRef.self, forKey: .conversation) : nil
     }
 }

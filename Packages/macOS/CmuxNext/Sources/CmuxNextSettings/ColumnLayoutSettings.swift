@@ -17,7 +17,7 @@ public nonisolated enum ColumnLayoutSettings {
 
     public static let splitSizingFallback: SplitSizing = .even
     public static let newColumnWidthFallback: NewColumnWidthMode = .matchCurrent
-    public static let stickyEdgeFallback: StickyDefaultEdge = .right
+    public static let stickyEdgeFallback: StickyDefaultEdge = .nearest
     public static let stickyModeFallback: StickyDefaultMode = .docked
     public static let frameOrientationFallback: FrameOrientation = .columnMajor
     public static let minimumPaneWidthFallback: Double = 200

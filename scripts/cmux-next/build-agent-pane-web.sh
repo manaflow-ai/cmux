@@ -13,6 +13,7 @@ OUT="$ROOT/Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pan
 MODE="${1:-build}"
 
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the agent pane" >&2; exit 1; }
+"$ROOT/scripts/check-webviews-bun-version.sh"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -21,18 +22,9 @@ cd "$ROOT/webviews"
 [ -d node_modules ] || bun install --frozen-lockfile >/dev/null
 
 # `shiki` resolves to a trimmed copy (acpmux/shiki): the JavaScript regex engine and
-# common languages, not every grammar and the WebAssembly engine.
-bun x esbuild "$SRC/acpmux/main.tsx" \
-  --bundle \
-  --format=esm \
-  --platform=browser \
-  --target=es2022 \
-  '--define:process.env.NODE_ENV="production"' \
-  --minify \
-  --legal-comments=none \
-  "--alias:shiki=$SRC/acpmux/shiki" \
-  --log-level=warning \
-  --outfile="$WORK/app.js"
+# common languages, not every grammar and the WebAssembly engine. The React Compiler
+# runs on first-party sources, as in the Vite dev server; skipped components are listed.
+bun scripts/agent-pane/bundle.mjs "$SRC/acpmux/main.tsx" "$SRC/acpmux/shiki" "$WORK/app.js"
 
 # The shared stylesheet opens with a Tailwind @import that only Vite resolves;
 # the pane needs just its variables and rules, so drop @import lines.

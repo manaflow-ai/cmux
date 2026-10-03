@@ -46,6 +46,9 @@ TARGETS = [
     },
 ]
 
+# Every generated package ships the GPL text that the launcher template carries.
+LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE"
+
 RELAY_TARGETS = [
     {**target, "package": target["package"].replace("cmux-tui", "cmux-relay")}
     for target in TARGETS
@@ -171,6 +174,7 @@ def package_platforms(
         recreate_dir(package_dir)
         copy_executable(src, package_dir / "bin" / f"cmux-tui{ext}")
         copy_executable(hook_src, package_dir / "bin" / f"cmux-tui-hook{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
         manifest_path = package_dir / SSH_MANIFEST
         manifest_path.parent.mkdir(parents=True)
         write_json(manifest_path, manifest)
@@ -189,7 +193,7 @@ def package_platforms(
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
                 "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST],
@@ -212,6 +216,7 @@ def package_platforms(
         # platform package. The launcher resolves this bundled binary from the
         # same platform package, so a separate TUI package is not needed.
         copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
+        shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
         write_json(
             package_dir / "package.json",
             {
@@ -223,7 +228,7 @@ def package_platforms(
                     "url": "git+https://github.com/manaflow-ai/cmux.git",
                     "directory": "cmux-tui/dist",
                 },
-                "license": "MIT",
+                "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
                 "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}"],

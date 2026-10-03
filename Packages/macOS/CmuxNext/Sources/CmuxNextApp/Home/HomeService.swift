@@ -1,3 +1,4 @@
+import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -10,7 +11,7 @@ import os
 @Observable @MainActor
 final class HomeService {
     /// Conversations, newest activity first, as the owner reports them.
-    private(set) var conversations: [ConversationSummary] = []
+    private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
     /// The local daemon serves `local-conversations-v1`.
     var isAvailable: Bool { services.machines.local.supports(DaemonCapabilities.shared.localConversations) }
     @ObservationIgnored private(set) var sessions: [String: HomeConversationSession] = [:]
@@ -19,6 +20,16 @@ final class HomeService {
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// The brain host was started on this app launch (it outlives the app).
     @ObservationIgnored private var startedBrainHost = false
+    /// The store's home workspace (`workspace-kind-v1`), from `workspace.ensure_home`.
+    var homeWorkspaceID: ResourceID?
+    @ObservationIgnored var homeWorkspaceTask: Task<Void, Never>?
+    @ObservationIgnored private var homeObservation: Task<Void, Never>?
+    /// The shared Home core over the local owner (home-mac.md): the native
+    /// transcript of every conversation tab reads this one store.
+    @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser))
+    @ObservationIgnored private(set) lazy var homeStore = HomeStore(source: homeSource)
+    /// Each conversation tab's view, by tab id; released with the tab.
+    @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID
@@ -34,9 +45,19 @@ final class HomeService {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in self?.handle(event) }
         let local = services.machines.local
         // task-owner: lives as long as the service; event-driven (Observation)
+        homeObservation = Task { [weak self] in
+            for await connection in Observations({ local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil }) {
+                guard let self, let connection else { continue }
+                ensureHomeWorkspace(connection)
+            }
+        }
+        // task-owner: lives as long as the service; event-driven (Observation)
+        homeStore.start()
         availability = Task { [weak self] in
             for await connection in Observations({ local.supports(DaemonCapabilities.shared.localConversations) ? local.connection : nil }) {
-                guard let self, let connection else { continue }
+                guard let self else { continue }
+                homeSource.connectionChanged(connection)
+                guard let connection else { continue }
                 reloadList(connection)
                 for session in sessions.values {
                     session.load(from: connection) { [weak self, weak session] in
@@ -105,10 +126,12 @@ final class HomeService {
         switch event {
         case .conversationChanged(let changed):
             updateList(changed)
+            homeSource.publish(changed, summary: conversations.first { $0.id == changed.conversation })
             guard let session = sessions[changed.conversation] else { return }
             if !session.apply(changed), let connection { session.load(from: connection) }
         case .conversationTyping(let typing):
             sessions[typing.conversation]?.setTyping(typing.participant, on: typing.on)
+            homeSource.publish(.typing(ConversationID(typing.conversation), ParticipantID(typing.participant), on: typing.on))
         default:
             break
         }

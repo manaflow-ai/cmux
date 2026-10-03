@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -11,6 +12,7 @@ import { AcpmuxRpcError, supportsHandoff } from "./handoff/protocol";
 import { sessionEnforcement } from "./handoff/review";
 import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
+import { acpmuxPerf } from "./perf";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -502,14 +504,17 @@ export class AcpmuxDirectClient {
       if (!request) return;
       this.pending.delete(message.id);
       if (request.timer) clearTimeout(request.timer);
-      // The failure's code (`validation.invalid`, ...) rides along for callers that tell failures apart.
-      if (message.error)
+      // The failure's code (`validation.invalid`, ...) and details ride along for callers that
+      // tell failures apart.
+      if (message.error) {
+        const data = message.error.data as { code?: unknown; details?: unknown } | undefined;
         request.reject(
           Object.assign(new AcpmuxRpcError(message.error), {
-            code: (message.error.data as { code?: unknown } | undefined)?.code ?? message.error.code,
+            code: data?.code ?? message.error.code,
+            ...(data?.details === undefined ? {} : { details: data.details }),
           }),
         );
-      else request.resolve(message.result);
+      } else request.resolve(message.result);
       return;
     }
     const notification = message as Notification;
@@ -631,9 +636,19 @@ export class AcpmuxDirectClient {
     return this.request("acp.trust.set", { cwd, level });
   }
 
-  /// Files under `path` whose path matches `query`, best first (fileSearchModel.ts).
+  /// Files under `path` (else the selected session's folder) whose path matches `query`, best
+  /// first (fileSearchModel.ts). acpmux serves no file search: the native host runs it on the
+  /// session host as `git.files.search`, and mock mode's in-page daemon answers it.
   fileSearch(path: string | undefined, query: string, limit: number): Promise<unknown> {
-    return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+    if (this.gitRoute === "daemon") return this.request("file.search", { ...(path ? { path } : {}), query, limit });
+    const sessionId = this.selectedSessionId;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    const cwd = path ?? text(summary?.cwd) ?? text(entry?.cwd);
+    if (!cwd) return Promise.reject(new Error("This chat has no working folder to search"));
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(new Error("This chat runs on another machine, so its files can't be searched here yet"));
+    return postNative("file.search", { cwd, query, limit });
   }
 
   /// The selected session's repository changes in one git scope (changes/model.ts).
@@ -946,6 +961,7 @@ export class AcpmuxDirectClient {
     }
     const text = textFromContent(update.content);
     if (event.kind === "agent_message_chunk" && text) {
+      acpmuxPerf.markAgent("firstToken");
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
       const sameMessage = Boolean(
@@ -1108,6 +1124,22 @@ export class AcpmuxDirectClient {
       await this.creating;
     }
     return this.selectedSessionId;
+  }
+
+  /// Starts one live agent child for each of the most recent project sessions.
+  /// Old daemons simply reject this extension, so warming never blocks chat.
+  async warmRecentProjects(limit = 3): Promise<void> {
+    const ids: string[] = [];
+    const seen = new Set<string>();
+    for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
+      const cwd = typeof session.cwd === "string" ? session.cwd : "";
+      if (!cwd || seen.has(cwd)) continue;
+      seen.add(cwd);
+      ids.push(session.sessionId);
+      if (ids.length >= limit) break;
+    }
+    if (!ids.length) return;
+    await this.request("_acpmux/warm", { sessionIds: ids, limit }).catch(() => undefined);
   }
   async send(text: string): Promise<string | undefined> {
     const record = this.handoff.state.record;
@@ -1285,7 +1317,12 @@ export class AcpmuxDirectClient {
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
   async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
-    return normalizeCatalog(await this.request("_acpmux/harnesses", {}));
+    // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
+    const [names, probed] = await Promise.all([
+      this.request("_acpmux/harnesses", {}),
+      this.request("_acpmux/models", {}).catch(() => undefined),
+    ]);
+    return mergeModelCatalog(names, probed);
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the

@@ -60,6 +60,9 @@ public nonisolated struct LayoutStyle: Hashable, Sendable {
     public var dropEdgeRange: ClosedRange<CGFloat> = 28...180
     /// Width of the "new column" drop zone centered on each column gap.
     public var newColumnDropWidth: CGFloat = 36
+    /// Height of the band at a screen's top and bottom edge that opens a
+    /// dock (layout-model.md DD1).
+    public var dockDropBand: CGFloat = 24
     /// Which docks own the frame's corners (cmux.json `layout.frameOrientation`).
     public var frameOrientation: FrameOrientation = .columnMajor
     /// DEV layout model prototype (Debug Settings `layout.prototype.*`); off draws the real layout.

@@ -63,19 +63,18 @@ extension ControlRouter {
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 guard let value = call.params["value"] else { throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "settings.set", "value")) }
-                try await store.set(value, at: path)
-                // Read-your-writes: answer from the file until the watcher republishes.
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(value, at: path, store: store)
                 return ["path": .array(path.map(JSONValue.string)), "value": value, "file": .string(store.fileLocation)]
             },
-            .async("settings.unset") { [weak self] call in
+        ] + ["settings.reset", "settings.unset"].map { name in
+            ControlMethod.async(name) { [weak self] call in
                 guard let self else { throw Self.stopped }
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
-                try await store.remove(path)
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(nil, at: path, store: store)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
-            },
+            }
+        } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
                 return [
@@ -112,6 +111,7 @@ extension ControlRouter {
         let noun = params["noun"]?.stringValue.map { ControlCatalog.renamedCLIName($0.lowercased()) }
         let availableOnly = params["available_only"]?.boolValue ?? false
         let actions = catalog.actions.filter { action in
+            if action.disabledFeature != nil { return false }
             if let category, action.category.lowercased() != category { return false }
             if let noun, action.cliName.split(separator: " ").first.map(String.init) != noun { return false }
             if availableOnly, !catalog.isAvailable(action) { return false }
@@ -119,7 +119,7 @@ extension ControlRouter {
         }
         var categories: [String] = []
         var seen: Set<String> = []
-        for action in catalog.actions where seen.insert(action.category).inserted { categories.append(action.category) }
+        for action in catalog.actions where action.disabledFeature == nil && seen.insert(action.category).inserted { categories.append(action.category) }
         return [
             "actions": .array(actions.map(catalog.json)),
             "categories": .array(categories.map(JSONValue.string)),
@@ -187,7 +187,7 @@ extension ControlRouter {
         return ["path": .array(path.map(JSONValue.string)), "exists": .bool(value != nil), "value": value ?? .null, "file": .string(file)]
     }
 
-    private func settingsStore() throws -> any ControlSettingsStore {
+    func settingsStore() throws -> any ControlSettingsStore {
         guard let settings else { throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.settingsUnavailable", "settings are not available")) }
         return settings
     }

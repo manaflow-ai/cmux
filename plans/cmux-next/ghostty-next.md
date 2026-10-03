@@ -158,6 +158,37 @@ it) is out of scope for v1. It helps only on high-RTT paths, it is wrong in
 raw-mode apps, and it needs a reconciliation layer. Revisit with measured
 RTT data from lane 12's path badges.
 
+### 2.1 Frame fields (proposal for sync-and-transport.md sections 3 and 4)
+
+Capability `terminal-snapshot-v1`. One `terminal_bytes` channel per attached
+viewer. Every binary frame keeps the section 4 header (`u32 channel`,
+`u64 seq`, `u8 flags`) and adds a terminal sub-header before the payload:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | u8 | 0 `bytes` (raw PTY output), 1 `snapshot_ready` (GHOSTSNP up to READY; keyframe flag set), 2 `snapshot_history` (GHOSTSNP HISTORY pages, newest first), 3 `digest` |
+| `generation` | u32 | grid generation (size-state `generation`); a viewer drops `bytes` older than its last restored snapshot |
+| `offset` | u64 | host byte offset of the PTY output stream after this frame (for `snapshot_ready`: the offset the snapshot reflects) |
+| `snapshot_version` | u16 | GHOSTSNP version, present for kinds 1 to 3 |
+
+Rules: the first frame after attach is `snapshot_ready`. A grid change sends
+`snapshot_ready` with the new generation to every viewer. Per-viewer credit:
+when a viewer's unacknowledged backlog would exceed
+`terminal.viewerBacklogBytes` (default 262144), the host drops that
+viewer's pending bytes and sends `snapshot_ready` at the next credit. 2 s
+after output goes idle the host sends `digest` (sha256 of its READY
+encoding). A viewer with a different `snapshot_version` gets the byte
+replay instead (capability fallback). `presence.set` carries `visible` and
+`counts` (section 6).
+
+The same fields map onto cmux-tui raw v12 events for local clients:
+`attach-surface {mode:"bytes", snapshot:"ghostsnp", snapshot_version}`
+answers with event `snapshot {phase:"ready"|"history", generation, offset,
+version, data(b64)}`; `output` gains `generation` and `offset`; `digest
+{generation, offset, version, sha256}`; command `snapshot-request
+{surface}`. `terminal.history` and `terminal.read_range` are in the
+request file `terminal-snapshot-history.md`.
+
 ## 3. Manual IO mode
 
 ghostty-next keeps the desktop fork's C ABI so app code transfers:
@@ -444,14 +475,26 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 10. GhosttyNextKit pipeline
 
-- Current pin for lane 14 (2026-10-02):
-  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip,
-  sha256 `7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2`.
-  It contains the remote IO mode. `next/smoke.sh --release` on the build
-  host: sha256 match, all three slices link, C and Swift
-  (`import GhosttyNextKit`) binaries run on macOS and in an iOS 27
-  simulator; `gh attestation verify` passes. Releases with flavor `ios-v1`
-  use the old module name GhosttyKit; never pin them.
+- Current pin for lane 14 (2026-10-03): release ios-v4,
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-76db9d14f3cd66cb026d56a0bd46eecaa085ece4-ios-v4/GhosttyNextKit.xcframework.zip,
+  sha256 `e8f62d62a48eec2c685e997ba8efff2bb34712784f2d4aed988c38b691771126`.
+  New API: `ghostty_surface_set_grid(s, cols, rows, generation)` (older
+  generation refused; larger grid crops at the top-left, smaller grid pads
+  in the background color, MANUAL_MIRROR never reflows) and
+  `ghostty_surface_grid`; `ghostty_surface_restore_snapshot(s, bytes, len,
+  phase)` and `ghostty_surface_encode_snapshot(s, write_cb, userdata,
+  phase)` with phases READY=0, HISTORY=1, COMPLETE=2;
+  `ghostty_surface_snapshot_version()` (1). set_grid, restore and encode run
+  on the process_output serial queue. Also: surface calls no longer block
+  on the renderer mailbox, 72 DPI fonts on iOS, IOSurfaceLayer detach before
+  renderer free, bounded (100 ms) swap-chain release on hide. Evidence:
+  ghostty-next PR 6 (CI: 101 Zig tests incl. a byte-equal snapshot round
+  trip); `next/ios-render-smoke.sh --release` on the build host passes fill,
+  grid (10x5 grid red only inside, stale generation refused) and snapshot
+  restore. iOS draw contract (from ios-v3): no display link; the renderer
+  thread draws on change and ghostty_surface_draw draws on main; the
+  embedder view is a plain UIView passing pixel sizes from layoutSubviews.
+  Never pin ios-v1 (module GhosttyKit) or ios-v2 (draws black).
 - Status 2026-10-02: first release
   `xcframework-e699e418bf5e16bac6451dc44bd0c82907af58bc-ios-v1`
   (zip 96,269,903 bytes, sha256
@@ -478,7 +521,7 @@ and the live RTT show in the terminal header, so a slow path is visible.
   timestamps and modes), `SHA256SUMS`, and `manifest.json` (commit, upstream
   base, Zig, Xcode and SDK versions, flags, per-slice SHA-256).
 - A push to `main` publishes release `xcframework-<sha>-<flavor>` (flavor
-  `ios-v2`; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
+  `ios-v4` at the time of writing; asset `GhosttyNextKit.xcframework.zip`) with the zip, sums, manifest and a build provenance attestation.
   A release is never replaced. Pull requests build and upload a workflow
   artifact only. `workflow_dispatch -f verify_reproducible=true` rebuilds on
   a second runner without caches and compares slice hashes.

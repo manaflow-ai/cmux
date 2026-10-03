@@ -7,8 +7,9 @@ extension ProviderDetector {
     /// The Codex home: `$CODEX_HOME`, else `~/.codex`.
     var codexHome: URL { environment.directory("CODEX_HOME", fallback: ".codex") }
 
-    /// `auth.json` in the Codex home: ChatGPT tokens (identity from the
-    /// id token's email and plan claims) or an API key. When the CLI keeps
+    /// `auth.json` in the Codex home: ChatGPT tokens (handle from the
+    /// workspace and user id claims, display from the plan claim; see
+    /// ``CodexAccountIdentity``) or an API key. When the CLI keeps
     /// credentials in the Keychain (`cli_auth_credentials_store = "keyring"`
     /// in config.toml), only the item's presence is checked.
     func detectCodex() -> ProviderDetection {
@@ -27,11 +28,14 @@ extension ProviderDetector {
         }
         if let tokens = root["tokens"] as? [String: Any] {
             let claims = (tokens["id_token"] as? String).flatMap(JWTClaims.init(token:))
+            let access = (tokens["access_token"] as? String).flatMap(JWTClaims.init(token:))
             let canRefresh = Self.nonEmpty(tokens["refresh_token"])
-            let accessExpiry = (tokens["access_token"] as? String).flatMap(JWTClaims.init(token:))?.expiry
+            let accessExpiry = access?.expiry
             let expired = !canRefresh && (accessExpiry.map { $0 <= environment.now } ?? true)
-            return ProviderDetection(provider: .codex, status: expired ? .expired : .signedIn, identity: claims?.email,
-                                     plan: claims?.chatGPTPlan, sources: [source])
+            let plan = claims?.chatGPTPlan
+            let codexIdentity = CodexAccountIdentity(idToken: claims, accessToken: access, accountIDField: tokens["account_id"] as? String)
+            return ProviderDetection(provider: .codex, status: expired ? .expired : .signedIn,
+                                     account: environment.labeler.localCodex(codexIdentity, email: claims?.email, plan: plan), plan: plan, sources: [source])
         }
         if Self.nonEmpty(root["OPENAI_API_KEY"]) {
             return ProviderDetection(provider: .codex, status: .signedIn, plan: "API key", sources: [source])
@@ -54,13 +58,13 @@ extension ProviderDetector {
 
     /// Claude Code: `$CLAUDE_CODE_OAUTH_TOKEN`, the `.credentials.json`
     /// file (Linux layout, also used when the Keychain is unavailable),
-    /// or the macOS Keychain item `Claude Code-credentials`. The signed-in
-    /// email comes from `oauthAccount.emailAddress` in `.claude.json`.
+    /// or the macOS Keychain item `Claude Code-credentials`. The account
+    /// label comes from `oauthAccount.emailAddress` in `.claude.json`.
     func detectClaudeCode() -> ProviderDetection {
         let configDir = environment.directory("CLAUDE_CONFIG_DIR", fallback: ".claude")
         let identity = claudeIdentity(configDir: configDir)
         if environment.value("CLAUDE_CODE_OAUTH_TOKEN") != nil {
-            return ProviderDetection(provider: .claude, status: .signedIn, identity: identity.email, plan: identity.plan,
+            return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
                                      sources: [.environment("CLAUDE_CODE_OAUTH_TOKEN")])
         }
         let file = configDir.appendingPathComponent(".credentials.json")
@@ -72,11 +76,11 @@ extension ProviderDetector {
             let canRefresh = Self.nonEmpty(oauth["refreshToken"])
             let expiresAt = (oauth["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
             let expired = !canRefresh && (expiresAt.map { $0 <= environment.now } ?? true)
-            return ProviderDetection(provider: .claude, status: expired ? .expired : .signedIn, identity: identity.email,
+            return ProviderDetection(provider: .claude, status: expired ? .expired : .signedIn, account: identity.account,
                                      plan: identity.plan, sources: [source])
         }
         if environment.keychain.hasGenericPassword(service: Self.claudeKeychainService) {
-            return ProviderDetection(provider: .claude, status: .signedIn, identity: identity.email, plan: identity.plan,
+            return ProviderDetection(provider: .claude, status: .signedIn, account: identity.account, plan: identity.plan,
                                      sources: [.keychain(Self.claudeKeychainService)])
         }
         return .missing(.claude)
@@ -86,15 +90,14 @@ extension ProviderDetector {
 
     /// `.claude.json` next to the config dir's parent (`~/.claude.json`),
     /// or inside `$CLAUDE_CONFIG_DIR`.
-    private func claudeIdentity(configDir: URL) -> (email: String?, plan: String?) {
+    private func claudeIdentity(configDir: URL) -> (account: AccountLabel?, plan: String?) {
         let candidates = environment.value("CLAUDE_CONFIG_DIR") != nil
             ? [configDir.appendingPathComponent(".claude.json")]
             : [environment.home.appendingPathComponent(".claude.json"), configDir.appendingPathComponent(".claude.json")]
         for url in candidates {
-            guard let account = environment.jsonObject(at: url)?["oauthAccount"] as? [String: Any] else { continue }
-            let email = (account["emailAddress"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            let organization = (account["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-            return (email, organization)
+            guard let oauthAccount = environment.jsonObject(at: url)?["oauthAccount"] as? [String: Any] else { continue }
+            let organization = (oauthAccount["organizationName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            return (account(.claude, oauthAccount["emailAddress"] as? String, plan: organization), organization)
         }
         return (nil, nil)
     }

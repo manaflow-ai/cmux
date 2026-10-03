@@ -16,7 +16,7 @@ struct TasksSnapshotTests {
             let model = TasksModel(source: MockTasksSource())
             model.start()
             model.selection = "task_1"
-            let host = TasksHostView(model: model, layoutOverride: layout)
+            let host = TasksHostView(model: model, layout: layout)
             let size = NSSize(width: 1280, height: 760)
             let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20_000, y: -20_000), size: size),
                                   styleMask: [.borderless], backing: .buffered, defer: false)

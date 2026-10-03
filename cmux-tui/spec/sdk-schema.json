@@ -6180,6 +6180,28 @@
     }
    },
    "additional_properties": false
+  },
+  "ColumnPin": {
+   "kind": "object",
+   "fields": {
+    "edge": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -13339,6 +13361,15 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "idempotency_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
      }
     },
     "additional_properties": false
@@ -14467,6 +14498,28 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "sticky": {
+      "type": {
+       "kind": "ref",
+       "name": "ColumnPin"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "edge-docks-v1"
+     },
+     "respawn": {
+      "type": {
+       "kind": "ref",
+       "name": "SplitRespawn"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-respawn-v1"
      },
      "transaction": {
       "type": {
@@ -16697,7 +16750,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. limit is 1-100; query is at most 200 characters, and every word matches as a prefix. See spec/commands.md for the result object."
+    "Trusted local connections only. query is trimmed, 1-200 characters, no control characters; limit is 1-100 (rejects: conversation_rejected with reason invalid_query or invalid_limit). See spec/commands.md for the result object."
    ]
   },
   "conversation-op": {

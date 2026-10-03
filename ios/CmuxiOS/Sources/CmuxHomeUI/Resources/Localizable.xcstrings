@@ -7730,137 +7730,6 @@
         }
       }
     },
-    "home.message.deleted": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "تم حذف هذه الرسالة."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ova poruka je obrisana."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne besked blev slettet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Diese Nachricht wurde gelöscht."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "This message was deleted."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Este mensaje se eliminó."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ce message a été supprimé."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Questo messaggio è stato eliminato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このメッセージは削除されました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សារនេះត្រូវបានលុប។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제된 메시지입니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Denne meldingen ble slettet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ta wiadomość została usunięta."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esta mensagem foi apagada."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Это сообщение удалено."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ข้อความนี้ถูกลบแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bu mesaj silindi."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Це повідомлення видалено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Tin nhắn này đã bị xóa."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此消息已删除。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "此訊息已刪除。"
-          }
-        }
-      }
-    },
     "home.message.discard": {
       "extractionState": "manual",
       "localizations": {
@@ -13232,264 +13101,133 @@
         }
       }
     },
-    "home.typing.many": {
+    "home.transcript.a11y": {
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ يكتبون…"
+            "value": "الرسائل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ pišu…"
+            "value": "Poruke"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ skriver …"
+            "value": "Beskeder"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ schreiben …"
+            "value": "Nachrichten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ are typing…"
+            "value": "Messages"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ están escribiendo…"
+            "value": "Mensajes"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ écrivent…"
+            "value": "Messages"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ stanno scrivendo…"
+            "value": "Messaggi"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ が入力中…"
+            "value": "メッセージ"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ កំពុងវាយ…"
+            "value": "សារ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 님이 입력 중…"
+            "value": "메시지"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ skriver …"
+            "value": "Meldinger"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ piszą…"
+            "value": "Wiadomości"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ estão digitando…"
+            "value": "Mensagens"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ печатают…"
+            "value": "Сообщения"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ กำลังพิมพ์…"
+            "value": "ข้อความ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ yazıyor…"
+            "value": "Mesajlar"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ друкують…"
+            "value": "Повідомлення"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ đang nhập…"
+            "value": "Tin nhắn"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 正在输入…"
+            "value": "消息"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "%@ 正在輸入…"
-          }
-        }
-      }
-    },
-    "home.typing.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ يكتب…"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ piše…"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ skriver …"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ schreibt …"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ is typing…"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ está escribiendo…"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ écrit…"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ sta scrivendo…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ が入力中…"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ កំពុងវាយ…"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 님이 입력 중…"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ skriver …"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ pisze…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ está digitando…"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ печатает…"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ กำลังพิมพ์…"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ yazıyor…"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ друкує…"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ đang nhập…"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 正在输入…"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ 正在輸入…"
+            "value": "訊息"
           }
         }
       }

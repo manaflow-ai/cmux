@@ -1149,9 +1149,9 @@
     ]);
   }
   var PANE = "cmux/caffeinate#caffeinatePane";
-  async function show() {
+  async function show(_args = {}, ctx) {
     try {
-      await cmux.actions.run("app.pane.open", { kind: PANE, gesture: cmux.gesture() ?? undefined });
+      await (ctx?.cmux ?? cmux).actions.run("app.pane.open", { kind: PANE, gesture: ctx?.gesture ?? undefined });
       return { shown: true };
     } catch (e) {
       return { shown: false, reason: e.code ?? String(e) };

@@ -45,7 +45,9 @@ enum HistoryHandlers {
         for id: ActionID in ["history.show", "browserShowHistory"] {
             registry.bind(id, run: { _ in services.historyPage.open() })
         }
-        registry.bind("history.reopen", run: { _ in HistoryRestorer(services: services).reopen(closedID: nil) })
+        registry.bind("history.reopen", run: { invocation in
+            HistoryRestorer(services: services).reopen(closedID: invocation["id"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 })
+        })
         registry.bind("history.clear", run: { invocation in
             let range = invocation["range"]?.stringValue.flatMap(HistoryRange.init(rawValue:)) ?? .hour
             let kind = invocation["kind"]?.stringValue.flatMap(HistoryEntry.Kind.init(rawValue:))

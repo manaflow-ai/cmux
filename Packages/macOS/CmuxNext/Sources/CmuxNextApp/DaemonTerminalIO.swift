@@ -43,7 +43,11 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     let events: AsyncStream<TerminalIOEvent>
     private let driver: TerminalAttachDriver<TerminalAttachment>
 
-    init(target: Target, visible: Bool = true, endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+    /// - Parameter policyBlocked: true while an administrator turned off the
+    ///   feature that reaches this terminal's machine: every disconnect shows
+    ///   "Turned off by your organization" and the endpoint refuses re-attaches.
+    init(target: Target, visible: Bool = true, policyBlocked: @escaping @Sendable () -> Bool = { false },
+         endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
         let driver = TerminalAttachDriver<TerminalAttachment>(
@@ -64,7 +68,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             backoffDelay: { failed in try await Self.reattachBackoff(afterFailures: failed) }
         )
         self.driver = driver
-        events = AsyncStream(unfolding: { await driver.nextStep().map(Self.event(for:)) },
+        events = AsyncStream(unfolding: {
+            await driver.nextStep().map { step in
+                let event = Self.event(for: step)
+                guard case .status(.disconnected) = event, policyBlocked() else { return event }
+                return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+            }
+        },
                              onCancel: { driver.cancelSteps() })
         driver.start()
     }

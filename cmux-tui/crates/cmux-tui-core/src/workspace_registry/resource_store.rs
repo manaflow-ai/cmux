@@ -291,6 +291,7 @@ pub(crate) fn create_resource_schema(transaction: &Transaction<'_>) -> anyhow::R
          CREATE INDEX IF NOT EXISTS resource_agent_hook_pending_by_terminal
            ON resource_agent_hook_pending(terminal_id, event_sequence, idempotency_key);",
     )?;
+    screen_rows::create_column_dock_schema(transaction)?;
     migrate_tab_name_authority(transaction)
 }
 
@@ -1835,7 +1836,9 @@ fn validate_registry_browser(browser: &RegistryBrowser) -> anyhow::Result<()> {
     Ok(())
 }
 
+mod screen_rows;
 mod viewport;
+use screen_rows::upsert_resource_screen;
 pub use viewport::{RegistryViewport, RegistryViewportColumn};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -2532,6 +2535,7 @@ pub(crate) fn load_resource_topology(
             })
             .collect::<anyhow::Result<Vec<_>>>()?
     };
+    let screens = screen_rows::with_column_docks(connection, screens)?;
     let panes = {
         let mut statement = connection.prepare(
             "SELECT public_id, screen_id, name, active_tab_id, creation_ordinal
@@ -3159,6 +3163,7 @@ fn resource_change_is_stored(
                         && auto == desired_auto
                         && layout == canonical_json(&serde_json::to_value(&screen.layout)?)?
                         && viewport == canonical_json(&serde_json::to_value(&screen.viewport)?)?
+                        && screen_rows::column_docks_match(transaction, screen)?
                 }
             }
         }
@@ -3749,78 +3754,6 @@ fn upsert_resource_workspace(
     Ok(())
 }
 
-fn upsert_resource_screen(
-    transaction: &Transaction<'_>,
-    screen: &RegistryScreen,
-    revision: i64,
-) -> anyhow::Result<()> {
-    let old_splits = transaction
-        .query_row(
-            "SELECT layout_json, viewport_json FROM resource_screens WHERE public_id = ?1",
-            [screen.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?
-        .map(|(layout, viewport)| {
-            let layout: RegistryLayoutNode = serde_json::from_str(&layout)?;
-            let viewport: RegistryViewport = serde_json::from_str(&viewport)?;
-            let mut splits = Vec::new();
-            collect_screen_split_public_ids(&layout, &viewport, &mut splits);
-            Ok::<_, anyhow::Error>(splits)
-        })
-        .transpose()?
-        .unwrap_or_default();
-    upsert_resource_identity(transaction, screen.public_id.as_str(), "screen", revision)?;
-    let mut desired_splits = Vec::new();
-    collect_screen_split_public_ids(&screen.layout, &screen.viewport, &mut desired_splits);
-    for split in &desired_splits {
-        upsert_resource_identity(transaction, split, "split", revision)?;
-    }
-    let desired_splits = desired_splits.into_iter().collect::<HashSet<_>>();
-    for split in old_splits {
-        if !desired_splits.contains(&split) {
-            tombstone_resource_identity(transaction, &split, revision)?;
-        }
-    }
-    let layout = canonical_json(&serde_json::to_value(&screen.layout)?)?;
-    let auto_layout = screen
-        .auto_layout
-        .as_ref()
-        .map(|value| canonical_json(&serde_json::to_value(value)?))
-        .transpose()?;
-    let viewport = canonical_json(&serde_json::to_value(&screen.viewport)?)?;
-    transaction.execute(
-        "INSERT INTO resource_screens(
-           public_id, workspace_id, position, name, layout_json, active_pane_id,
-           zoomed_pane_id, auto_layout_json, viewport_json,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, NULL)
-         ON CONFLICT(public_id) DO UPDATE SET
-           workspace_id=excluded.workspace_id,
-           position=excluded.position,
-           name=excluded.name,
-           layout_json=excluded.layout_json,
-           active_pane_id=excluded.active_pane_id,
-           zoomed_pane_id=excluded.zoomed_pane_id,
-           auto_layout_json=excluded.auto_layout_json,
-           viewport_json=excluded.viewport_json,
-           updated_revision=excluded.updated_revision",
-        params![
-            screen.public_id.as_str(),
-            screen.workspace_id.as_str(),
-            i64::try_from(screen.position).context("screen position exceeds SQLite range")?,
-            screen.name,
-            layout,
-            screen.active_pane.as_str(),
-            screen.zoomed_pane.as_ref().map(PanePublicId::as_str),
-            auto_layout,
-            viewport,
-            revision,
-        ],
-    )?;
-    Ok(())
-}
-
 fn upsert_resource_pane(
     transaction: &Transaction<'_>,
     pane: &RegistryPane,
@@ -4088,6 +4021,7 @@ fn tombstone_resource_screen(
         require_known_resource(transaction, screen_id, "screen")?;
         return Ok(());
     };
+    screen_rows::delete_column_docks(transaction, screen_id)?;
     let panes = {
         let mut statement = transaction.prepare(
             "SELECT public_id FROM resource_panes

@@ -88,6 +88,10 @@ public struct ControlActionInfo: Sendable, Hashable {
     /// reaches the executor even out of context, which re-reads the live
     /// reason and reports it before the context check.
     public var unavailableReason: String?
+    /// The feature an administrator turned off for this action
+    /// (`DisabledFeatures`): `action.list` leaves it out and resolving it
+    /// answers `feature.disabled`.
+    public var disabledFeature: String?
     /// Surface decisions (`ActionDescriptor.surfacePlan`): `palette`, `cli`,
     /// `context_menu`, `mcp` map to `offered` or an exemption reason.
     public var surfaces: [String: String] = [:]

@@ -1,5 +1,5 @@
 // A small in-memory notes server and file broker for tests and preview
-// fixtures, written from the catalog fragment (catalog/notes-catalog.json):
+// fixtures, written from the catalog fragment (proposed/notes-server-catalog.json):
 // one owner per note, a revision per note document, base-revision edits with
 // `revision.conflict`, one scratchpad per workspace, typed `note.watch`
 // events, and `fs.*` handles that only a gesture can create.

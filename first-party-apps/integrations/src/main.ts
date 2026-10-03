@@ -14,8 +14,12 @@ import { open, reload } from "./model/store.ts"
 import { sectionView } from "./views/section.ts"
 import { paneView } from "./views/variants.ts"
 
-/** Re-read on the owner's change events; no polling. */
+let following = false
+
+/** Re-read when `integration.changed` arrives on the user stream (ConnectionDO outbox through the session); no polling. One subscription per app VM. */
 function follow() {
+  if (following) return
+  following = true
   cmux.events.on("integration.changed", () => reload())
 }
 

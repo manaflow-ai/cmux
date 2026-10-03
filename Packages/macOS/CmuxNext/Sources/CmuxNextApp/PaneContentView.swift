@@ -9,10 +9,6 @@ import Observation
 /// border and rounded corners trace only the content below it.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
-    /// The strip's tonal step over the window backdrop, a shade darker than
-    /// the content; hidden for `appearance.tabBarBackground` window, where
-    /// the strip's negative space is the window's own background.
-    private let stripBackdrop = ChromeStepView(step: PaneContentView.stripStep)
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
@@ -33,16 +29,14 @@ final class PaneContentView: NSView, PaneContentChrome {
         wantsLayer = true
         contentHost.wantsLayer = true
         contentHost.layer?.masksToBounds = true
-        addSubview(stripBackdrop)
         addSubview(contentHost)
         addSubview(stripView)
         stripScope.root(stripView)
         reveal.hold(stripView, until: .tabs)
-        reveal.hold(stripBackdrop, until: .tabs)
         reveal.hold(contentHost, until: .pane)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in Observations({ (PaneChromeMetrics.current, DesignSettings.shared.effectiveTabBarBackground) }) {
+            for await _ in Observations({ PaneChromeMetrics.current }) {
                 self?.needsLayout = true
             }
         }
@@ -55,13 +49,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         tokenObservation?.cancel()
     }
 
-    /// The strip's tonal step over the window's one backdrop (none for
-    /// `appearance.tabBarBackground` window). theme-scoped: ChromeStepView
-    /// calls it inside its performWithTheme.
-    private static func stripStep() -> NSColor {
-        DesignSettings.shared.effectiveTabBarBackground == .darker ? Palette.stripStep : .clear
-    }
-    private var appliedTabBarBackground: TabBarBackground?
 
     override var isFlipped: Bool { true }
 
@@ -69,8 +56,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         super.layout()
         let stripHeight = self.stripHeight
         stripView.frame = NSRect(x: 0, y: 0, width: bounds.width, height: stripHeight)
-        stripBackdrop.frame = stripView.frame
-        applyTabBarBackground()
         let hostFrame = NSRect(x: 0, y: stripHeight, width: bounds.width, height: max(0, bounds.height - stripHeight))
         reportHeaderIfChanged()
         guard contentHost.frame != hostFrame else { return }
@@ -181,19 +166,6 @@ final class PaneContentView: NSView, PaneContentChrome {
         return content.superview === contentHost
     }
 
-    private func applyTabBarBackground() {
-        let mode = DesignSettings.shared.effectiveTabBarBackground
-        if appliedTabBarBackground != mode {
-            appliedTabBarBackground = mode
-            stripBackdrop.step = Self.stripStep
-        }
-        let sheet = (window?.contentView ?? self).themeTokens.windowBackground
-        stripBackdrop.isHidden = !mode.paintsStripFill(paneWindowBackground: themeTokens.windowBackground, sheet: sheet)
-    }
-
-    /// Whether the strip paints its own fill (tests read it).
-    var showsStripFill: Bool { !stripBackdrop.isHidden }
-
     func setChromeEmphasis(_ emphasis: ChromeEmphasis, animated: Bool) {
         stripScope.setEmphasis(emphasis, animated: animated)
     }
@@ -222,7 +194,7 @@ final class PaneContentView: NSView, PaneContentChrome {
         let tokens = themeTokens
         let paints = WindowBackdrop(tokens).panesPaintBackground
         performWithTheme {
-            contentHost.layer?.backgroundColor = paints ? Palette.contentBackground.cgColor : nil
+            contentHost.layer?.backgroundColor = paints ? Palette.surfaceBackground.cgColor : nil
         }
     }
 }

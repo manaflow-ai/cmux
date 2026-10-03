@@ -45,9 +45,10 @@ public final class ActionRegistry {
         didSet { shortcutIndex = nil }
     }
 
-    /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see
-    /// `ActionKeyTier`.
+    /// User key-routing tiers (`cmux.json` `shortcuts.tiers`), see `ActionKeyTier`.
     public internal(set) var keyTierOverrides: [ActionID: ActionKeyTier] = [:]
+    /// Features an administrator turned off (`DisabledFeatures`, ActionRegistry+Policy).
+    public var disabledFeatures: Set<ActionFeature> = [] { didSet { shortcutIndex = nil } }
 
     /// Whether a menu item's key equivalent may run `id` now. The App
     /// installs its `KeyRouter` here so menus follow the same tier rules as
@@ -90,6 +91,8 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// The key window's claim on a run (``KeyWindowRoute``), asked first by `perform` and menu validation.
+    @ObservationIgnored public var keyWindowRoute: (@MainActor (ActionID, ActionInvocation) -> KeyWindowRoute?)?
     @ObservationIgnored public internal(set) var isCapturingRefusal = false
     @ObservationIgnored var capturedRefusal: String?
     /// The captured refusal said an explicit target names nothing.
@@ -238,12 +241,11 @@ public final class ActionRegistry {
 
     // MARK: - Availability
 
-    /// Whether the action applies in `context` (defaults to the current
-    /// context): its required context is present and it is not debug-only
-    /// in a build without developer tools (Release, RC; see `DevTools`). Independent of binding and `isEnabled`.
+    /// Whether the action applies in `context` (default: the current one): policy allows it, its
+    /// required context is present, and it is not debug-only without developer tools (`DevTools`).
     public func isAvailable(_ id: ActionID, in context: ActionContext? = nil) -> Bool {
         guard let descriptor = descriptor(for: id) else { return isBound(id) }
-        return Self.isAvailable(descriptor, in: context ?? self.context)
+        return ActionFeature.turnedOff(descriptor, in: disabledFeatures) == nil && Self.isAvailable(descriptor, in: context ?? self.context)
     }
 
     /// `isAvailable(_:in:)` with the facts the invocation's explicit target
@@ -283,11 +285,13 @@ public final class ActionRegistry {
         return perform(id, invocation: ActionInvocation(arguments: [name: value]))
     }
 
-    /// Performs with a target and typed arguments (palette, CLI, context
-    /// menus). Fails when a required argument is missing.
+    /// Performs with a target and typed arguments (palette, CLI, context menus). Fails when a required argument is missing.
     @discardableResult
     public func perform(_ id: ActionID, invocation: ActionInvocation) -> Bool {
+        if disabledFeature(for: id) != nil { return false }
+        if let route = keyWindowRoute?(canonicalID(for: id), invocation) { return route.perform { refuse($0) } }
         guard let action = action(for: id), isAvailable(id, for: invocation), action.isEnabled() else { return false }
+        if ActionTargetReasons.refuses(action, invocation, in: self) { return false }
         let missing = descriptor(for: id).map { descriptor in
             descriptor.arguments.contains { $0.isRequired && invocation.arguments[$0.name] == nil && !Self.target(of: invocation, supplies: $0, for: descriptor) }
         } ?? false

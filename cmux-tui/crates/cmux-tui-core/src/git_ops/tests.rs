@@ -7,6 +7,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde_json::{Value, json};
 
 use super::parse;
+
+#[path = "files_tests.rs"]
+mod files;
 use crate::resource::TerminalPublicId;
 use crate::resource_router::handle_resource_message;
 use crate::{Mux, SurfaceOptions};
@@ -371,6 +374,8 @@ fn a_folder_outside_a_repository_is_not_a_repository() {
     for (operation, params) in [
         ("git.status", json!({"path":path})),
         ("git.diff", json!({"path":path,"scope":"uncommitted"})),
+        ("git.files.search", json!({"path":path,"query":"x"})),
+        ("git.files.search", json!({"path":path,"query":""})),
     ] {
         let envelope = call(&mux, operation, params);
         let (code, details) = failure(&envelope);

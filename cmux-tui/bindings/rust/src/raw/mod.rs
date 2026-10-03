@@ -5,6 +5,7 @@
 //! acquired a resource-level operation.
 
 mod byte_attachment;
+mod frontend_browser;
 
 pub use crate::client::{
     ClientConfig, CmuxClient as Client, CmuxError as Error, CmuxStream as Stream, Result,
@@ -21,4 +22,8 @@ pub use byte_attachment::{
     AttachInfo, AttachOptions, AttachTarget, AttachmentItem, BYTE_ATTACHMENT_CAPABILITIES,
     ByteAttachment, ByteAttachmentReader, ByteAttachmentWriter, CellSize, ClientIdentity,
     EndReason, Reattach, Replay,
+};
+pub use frontend_browser::{
+    FRONTEND_BROWSER_TAB_KEYS_CAPABILITY, FrontendBrowserEngine, FrontendBrowserTabCreate,
+    FrontendBrowserTabCreated, FrontendBrowserTabUpdate, FrontendBrowserTabUpdated,
 };

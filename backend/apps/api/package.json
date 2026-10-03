@@ -17,7 +17,9 @@
     "effect": "4.0.0-rc.117",
     "jose": "6.2.12",
     "pg": "8.23.0",
-    "@cmux/home-core": "workspace:*"
+    "@cmux/home-core": "workspace:*",
+    "@cmux/db": "workspace:*",
+    "drizzle-orm": "0.45.3"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",

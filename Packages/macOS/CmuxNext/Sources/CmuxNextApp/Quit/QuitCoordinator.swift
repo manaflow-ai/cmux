@@ -107,6 +107,7 @@ final class QuitCoordinator {
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
+                await services.sidebarSnapshots.flush()
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             stopBrowserEngines: { await services.cache.cef.shutdown() }

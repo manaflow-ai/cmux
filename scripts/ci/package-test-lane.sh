@@ -74,13 +74,9 @@ references_ghosttykit() {
 select_packages() {
   PACKAGES=(
     CMUXAuthCore
-    CmuxAgentChat
     CmuxAuthRuntime
-    CmuxWorkspacePresence
     CmuxIrohTransport
     CmuxIrxTransport
-    CmuxMobileTerminalKit
-    CmuxMobileWorkspace
     CmuxUpdater
     CmuxPhonePush
   )
@@ -307,7 +303,7 @@ run_package_tests() {
     # These packages have process-tree suites whose child fixtures
     # share global process resources; run each suite in its own Swift
     # Testing process.
-    CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
+    CmuxAuthRuntime|CmuxIrohTransport|CmuxIrxTransport)
       ./scripts/ci/run-swift-testing-suites.sh "$pkgdir" || return $?
       ;;
     *)
