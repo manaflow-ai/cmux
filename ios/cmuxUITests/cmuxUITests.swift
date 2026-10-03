@@ -7844,6 +7844,44 @@ final class cmuxUITests: XCTestCase {
     }
 
     @MainActor
+    func testTerminalOverviewToolbarOpensAndPreservesTerminalPicker() throws {
+        let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
+        ])
+        defer { app.terminate() }
+
+        // Enter through the real toolbar. The overview preview launches with
+        // its cover already open and cannot catch a missing toolbar action.
+        for opening in 1...2 {
+            let overview = app.buttons["MobileTerminalOverviewButton"]
+            XCTAssertTrue(waitForHittable(overview, timeout: 8))
+            overview.tap()
+
+            let done = app.buttons["MobileTerminalOverviewDone"]
+            XCTAssertTrue(
+                waitForHittable(done, timeout: 8),
+                "Tapping All Tabs must present the overview on opening \(opening)."
+            )
+            XCTAssertTrue(app.buttons["MobileTerminalOverviewNewTerminal"].exists)
+            let screenshot = XCTAttachment(screenshot: app.screenshot())
+            screenshot.name = "Tab overview opened from toolbar \(opening)"
+            screenshot.lifetime = .keepAlways
+            add(screenshot)
+
+            done.tap()
+            XCTAssertTrue(done.waitForNonExistence(timeout: 5))
+        }
+
+        let picker = app.buttons["MobileTerminalDropdown"]
+        XCTAssertTrue(
+            waitForHittable(picker, timeout: 5),
+            "All Tabs and the terminal picker must retain separate toolbar actions."
+        )
+        picker.tap()
+        assertTerminalMenuItemExists("terminal-delayed", in: app)
+    }
+
+    @MainActor
     func testWorkspaceDetailToolbarKeepsTerminalPickerVisibleWithLongTitle() throws {
         let app = launchWorkspaceDetailDelayedTerminalPreviewApp(environment: [
             "CMUX_UITEST_WORKSPACE_DETAIL_LONG_TITLE": "1",
