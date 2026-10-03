@@ -86,7 +86,7 @@ pub struct HubControl {
     path: PathBuf,
     socket_cleanup: Arc<UnixSocketCleanup>,
     shutdown: Option<oneshot::Sender<()>>,
-    task: Option<tokio::task::JoinHandle<Result<(), HubError>>>,
+    task: Option<JoinHandle<Result<(), HubError>>>,
 }
 
 impl std::fmt::Debug for HubControl {
@@ -506,7 +506,7 @@ fn bind_datagram_socket(path: &Path) -> io::Result<(UnixDatagram, (u64, u64))> {
                 libc::SOL_SOCKET,
                 option,
                 (&raw const size).cast(),
-                std::mem::size_of_val(&size) as libc::socklen_t,
+                size_of_val(&size) as libc::socklen_t,
             );
         }
     }
