@@ -312,6 +312,7 @@ fn a_stuck_child_events_fetch_hits_the_request_deadline_and_acpmux_reconnects() 
     wait_until("the work card", || {
         w.messages(&conversation).iter().any(|m| matches!(m.parts.first(), Some(Part::Work { .. })))
     });
+    let connects = w.hub.connects.load(Ordering::Acquire);
     w.hub.hold.lock().unwrap().insert("_acpmux/events".to_owned());
     let before = w.hub.calls("_acpmux/events");
     w.hub.notify(
@@ -320,7 +321,6 @@ fn a_stuck_child_events_fetch_hits_the_request_deadline_and_acpmux_reconnects() 
     );
     wait_until("the child events fetch", || w.hub.calls("_acpmux/events") > before);
     w.hub.hold.lock().unwrap().clear();
-    let connects = w.hub.connects.load(Ordering::Acquire);
     wait_until("the reconnect", || w.hub.connects.load(Ordering::Acquire) > connects);
     wait_until("the finish prompt", || {
         w.hub

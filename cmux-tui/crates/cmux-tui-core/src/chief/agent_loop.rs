@@ -21,16 +21,30 @@ pub(super) enum Ctl {
     Stop,
 }
 
+/// The hub connection a stop must close, and whether a stop came.
+#[derive(Default)]
+pub(super) struct Current {
+    pub(super) connection: Option<Arc<dyn AgentConnection>>,
+    pub(super) stopping: bool,
+}
+
+impl Current {
+    /// Marks the stop and hands back the connection to close (outside the lock).
+    pub(super) fn stop(&mut self) -> Option<Arc<dyn AgentConnection>> {
+        self.stopping = true;
+        self.connection.take()
+    }
+}
+
 /// The loop's settings.
 pub(super) struct AgentLoop {
     pub(super) connector: Arc<dyn AgentConnector>,
     pub(super) spec: SessionSpec,
-    pub(super) shared: Arc<Mutex<HostState>>,
     pub(super) sender: Sender<Msg>,
     pub(super) ctl: Sender<Ctl>,
     pub(super) ctl_rx: Receiver<Ctl>,
     /// The connection being set up or running, so a stop can close it.
-    pub(super) current: Arc<Mutex<Option<Arc<dyn AgentConnection>>>>,
+    pub(super) current: Arc<Mutex<Current>>,
     pub(super) timeout: Duration,
     pub(super) backoff: Backoff,
     pub(super) log: Arc<dyn Fn(&str) + Send + Sync>,
@@ -62,7 +76,7 @@ fn run(settings: &AgentLoop) {
             }
             Err(error) => (settings.log)(&format!("acpmux: {error:#}")),
         }
-        *settings.current.lock().unwrap() = None;
+        settings.current.lock().unwrap().connection = None;
         if wait_backoff(settings, delay) {
             return;
         }
@@ -92,10 +106,19 @@ fn run_once(settings: &AgentLoop, id: u64) -> anyhow::Result<End> {
             sink_forward(notice);
         }
     }))?;
-    *settings.current.lock().unwrap() = Some(connection.clone());
+    {
+        let mut current = settings.current.lock().unwrap();
+        if current.stopping {
+            drop(current);
+            connection.close();
+            return Ok(End::Stopped);
+        }
+        current.connection = Some(connection.clone());
+    }
     let deadline = Instant::now() + settings.timeout;
-    let state = settings.shared.lock().unwrap().clone();
-    let input = match agent::connect_sequence(&connection, &settings.spec, &state, deadline) {
+    let input = actor_state(settings, deadline)
+        .and_then(|state| agent::connect_sequence(&connection, &settings.spec, &state, deadline));
+    let input = match input {
         Ok(input) => input,
         Err(error) => {
             connection.close();
@@ -108,6 +131,16 @@ fn run_once(settings: &AgentLoop, id: u64) -> anyhow::Result<End> {
     let stopped = wait_for_end(settings, id, &connection);
     let _ = settings.sender.send(Msg::AgentDown { id });
     Ok(if stopped { End::Stopped } else { End::Closed { lived: up.elapsed() } })
+}
+
+/// The core's durable state, read by the actor after every message it
+/// already holds (so the attach cursor is not older than the core's).
+fn actor_state(settings: &AgentLoop, deadline: Instant) -> anyhow::Result<HostState> {
+    let (reply, answer) = std::sync::mpsc::channel();
+    settings.sender.send(Msg::State(reply)).map_err(|_| anyhow::anyhow!("the actor ended"))?;
+    answer
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .map_err(|_| anyhow::anyhow!("no state from the actor before the connect deadline"))
 }
 
 /// Blocks until connection `id` closes (false) or the Chief stops (true).

@@ -42,6 +42,11 @@ impl Mux {
         Ok(value)
     }
 
+    /// Local conversation owner events only (the Chief's daemon shell).
+    pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
+        self.subscribers.subscribe_conversations()
+    }
+
     /// `conversation-create` as `actor` (already resolved by the caller):
     /// commits, then publishes `conversation-changed` unless it replayed.
     pub(crate) fn conversation_create_as(

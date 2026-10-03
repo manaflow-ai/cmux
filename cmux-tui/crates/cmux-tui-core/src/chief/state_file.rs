@@ -20,11 +20,15 @@ impl StateFile {
     /// The saved state; a missing or unreadable file is the empty state (as
     /// in TypeScript: every entry is a to-do an owner dedupes, so a lost
     /// file only costs a replay).
-    pub(super) fn load(&self) -> HostState {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+    pub(super) fn load(&self, log: &dyn Fn(&str)) -> HostState {
+        let Ok(text) = std::fs::read_to_string(&self.path) else { return HostState::default() };
+        serde_json::from_str(&text).unwrap_or_else(|error| {
+            log(&format!(
+                "{} is unreadable ({error}); starting from an empty state",
+                self.path.display()
+            ));
+            HostState::default()
+        })
     }
 
     /// Writes atomically and durably: a temp file, `sync_all` (F_FULLFSYNC on
