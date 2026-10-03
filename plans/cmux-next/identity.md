@@ -54,28 +54,57 @@ daemon process. Keys survive daemon restarts because terminal hosts do.
 Rotation: `credential.rotate` (local user only, never an agent, `mcp.expose:
 never`) makes a new current key and keeps one previous key for verification. A
 second rotation drops the oldest key, which revokes credentials minted under it.
-Live terminals get no new environment, so after two rotations they lose their
-identity and their calls are attributed by pid ancestry, or refused when they
-present the stale credential.
+Live terminals get no new environment, so after two rotations their credential
+has an unknown `kid` and their calls are attributed by pid ancestry or to the user
+(section 3), never refused for that reason.
 
 ## 3. The actor stamp
 
+Reviewed with the daemon owner (6 objections, accepted by the coordinator
+2026-10-03); the rules below include them.
+
+Shape:
+
+| kind | id | other fields | who sets it |
+| --- | --- | --- | --- |
+| `user` | `user_local` (local) or the account user id | - | the connection |
+| `terminal` | terminal public id | `host`, `agent?` | a verified launch credential, or pid ancestry |
+| `acp_session` | acpmux session id | `host`, `agent?` | a verified launch credential |
+| `app` | app id (`<publisher>/<name>`) | `host`, `version`, `on_behalf_of` (a `user` actor) | ONLY the app supervisor; never accepted from a caller |
+
+Rules:
 - Every request may carry `credential` (the CLI and `cmux mcp` copy
-  `CMUX_LAUNCH_CREDENTIAL` into each request). The daemon verifies it per request.
-  An invalid or foreign credential is refused with `credential_invalid`; it never
-  falls back to the user.
-- With no credential, a Unix-socket peer whose pid descends from a terminal is
-  stamped with that terminal (slice 3); anything else is the local user.
-- The actor is `{kind: user|terminal|acp_session, id, host, agent?}`. The dispatcher
-  sets it in a request scope; owners read it there, so no handler passes it:
-  - resource journal records carry `actor` in their payload;
-  - local conversations use `agent` (or the terminal actor) as the principal, so a
-    process that skips `conversation-bind` is no longer `user_local`;
-  - the app (`action.run`) receives the credential, verifies it with the session
-    host, and records the actor in `ActionInvocation`.
-- The scope is thread-local with a restore guard. Work that leaves the dispatch
-  thread has no actor and is recorded without one: the stamp may be missing, never
-  wrong.
+  `CMUX_LAUNCH_CREDENTIAL` into each request). The dispatcher verifies it per
+  request and builds the actor. A caller can never send an actor directly.
+- One rule for stale credentials: a bad MAC, a foreign `host`, or a closed terminal
+  or ACP session is refused with `credential_invalid`. An unknown `kid` (dropped by
+  rotation) is not an error: the request falls back to pid ancestry (slice 4) or to
+  the user, as if no credential was sent.
+- `credential.verify` and the per-request check read liveness from mux state
+  BEFORE `commit_state` takes the registry and state locks, so verification never
+  runs under those locks.
+- Durable records carry the actor explicitly, never through ambient state:
+  `WorkspaceMutation` gets `actor: Option<Actor>`, set by the dispatcher.
+  `resource_mutations` gets an `actor` column and the resource journal record gets
+  an `actor` field next to `origin` and `idempotency_key` (beside them, not in the
+  payload). Projections never depend on the caller. Every durable write path must
+  set it; a test fails when a mutation path leaves it empty.
+- The actor is NOT part of the idempotency fingerprint. The same key sent again
+  with a different credential is a replay and keeps the FIRST actor (tested).
+- Thread-local scope is allowed only for non-durable reads (logs, diagnostics).
+  Note: server.rs spawns `handle_message` on its own thread, so such a scope must
+  be set again on that thread.
+- Respawn and restart: `tab-split-respawn-v1` leaves a fresh tab with a new
+  terminal public id, so its child gets a new credential; the moved tab keeps its
+  id and credential. A restart that keeps the terminal public id keeps the old
+  credential valid, because it still names the same terminal (checked in slice 3;
+  if restart changes the id, the old credential is refused as closed).
+- The app (`action.run`) receives the credential, verifies it with the session
+  host, and records the actor in `ActionInvocation`.
+- Local conversations keep `user_local` for unbound connections until their own
+  slice (section 8): changing the conversation principal to the terminal or agent
+  actor needs a migration rule for existing `user_local` rows and the Home lead's
+  agreement.
 
 ## 4. Localhost listeners
 
@@ -135,7 +164,10 @@ risk class. Token ops are `mcp.expose: never`.
 2. `cmux-local-auth` crate and the Origin/Host/token check on the daemon `--ws`,
    acpmux and both cmux-remote listeners, with refusal tests.
 3. Launch key, `CMUX_LAUNCH_CREDENTIAL`, `credential.verify|mint|rotate`, the CLI
-   and MCP send it, request-scope actor in journal records and conversations.
+   and MCP send it, `WorkspaceMutation.actor`, the `resource_mutations` column and
+   the journal field.
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.
+8. Conversation principal from the actor, with the `user_local` migration rule
+   (needs the Home lead).
