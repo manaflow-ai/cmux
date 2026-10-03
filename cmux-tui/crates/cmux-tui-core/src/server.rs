@@ -20,8 +20,6 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::io::{BufRead, BufReader, Read, Write};
-#[cfg(unix)]
-use std::mem::{offset_of, size_of};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -16850,8 +16848,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_socket_path_reserves_trailing_nul() {
-        const SUN_PATH_CAPACITY: usize =
-            size_of::<libc::sockaddr_un>() - offset_of!(libc::sockaddr_un, sun_path);
+        const SUN_PATH_CAPACITY: usize = cmux_unix_socket::SUN_PATH_CAPACITY;
         assert!(unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY - 1))));
         assert!(!unix_socket_path_fits(Path::new(&"x".repeat(SUN_PATH_CAPACITY))));
     }
