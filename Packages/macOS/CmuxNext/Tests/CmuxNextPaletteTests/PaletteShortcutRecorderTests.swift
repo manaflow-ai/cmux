@@ -113,6 +113,17 @@ import Testing
         #expect(h.registry.effectiveShortcut(for: "t.plain") == Shortcut("u"))
     }
 
+    @Test func theOpenRecorderSuspendsSystemWideHotKeysAndCancelResumesThem() async {
+        let h = await harness()
+        h.model.handle(.toggleActions)
+        #expect(h.registry.globalHotKeysSuspended)
+        // The palette hiding cancels through the recorder, not by dropping its state.
+        h.recorder.cancel()
+        #expect(h.model.shortcutRecorder == nil)
+        #expect(!h.registry.globalHotKeysSuspended)
+        #expect(h.editor.saves.isEmpty)
+    }
+
     @Test func pressingTheCurrentShortcutChangesNothing() async {
         let h = await harness()
         h.model.handle(.toggleActions)

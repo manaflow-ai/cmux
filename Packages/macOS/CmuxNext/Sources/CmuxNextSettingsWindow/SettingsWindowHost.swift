@@ -41,6 +41,10 @@ public import SwiftUI
     /// leaves it unset (the window opacity from the Ghostty config), shown
     /// by its slider; nil uses the descriptor's placeholder.
     func derivedNumber(at path: [String]) -> Double?
+    /// Global actions whose shortcut could not be registered system-wide
+    /// (another app or another global action holds the key), so it works
+    /// only while cmux is in front.
+    var systemWideRefusals: Set<ActionID> { get }
 }
 
 extension SettingsWindowHost {
@@ -51,6 +55,7 @@ extension SettingsWindowHost {
     public func setTheme(_ spec: String?, at level: SettingsThemeLevel) {}
     public func accountsView(tokens: ThemeTokens) -> AnyView? { nil }
     public func derivedNumber(at path: [String]) -> Double? { nil }
+    public var systemWideRefusals: Set<ActionID> { [] }
 }
 
 /// One row of a list section (a room, a machine).
@@ -83,6 +88,7 @@ public struct SettingsListRow: Identifiable, Hashable, Sendable {
     public var ghosttyConfigPath = "~/.config/ghostty/config"
     public var shellIntegration: String? = "zsh"
     public weak var shortcutEditor: (any ShortcutRecorderEditing)?
+    public var systemWideRefusals: Set<ActionID> = []
     public var browserProfiles: [SettingsBrowserProfileRow] = [
         SettingsBrowserProfileRow(id: "default", name: "Default", isDefault: true),
         SettingsBrowserProfileRow(id: "3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", name: "Work", color: "green", icon: "💼",

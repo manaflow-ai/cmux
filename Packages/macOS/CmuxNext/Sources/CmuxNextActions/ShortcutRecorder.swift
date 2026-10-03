@@ -38,6 +38,7 @@ public import AppKit
         writeState(ShortcutRecorderState(
             actionID: descriptor.id, actionTitle: descriptor.title, currentKeycaps: registry.shortcutKeycaps(for: descriptor.id),
             message: ShortcutRecorderStrings.recorderPrompt, hasDefault: descriptor.defaultShortcut != nil))
+        registry.context.insert(.recordingShortcut)
         return true
     }
 
@@ -151,6 +152,7 @@ public import AppKit
     private func finish(notice: String?) {
         guard let state = readState() else { return }
         writeState(nil)
+        registry.context.remove(.recordingShortcut)
         didFinish(state.actionID, notice)
     }
 

@@ -251,7 +251,7 @@ public final class PaletteController {
         registry.context.remove(.paletteOpen)
         onVisibilityChange?(false)
         model.closeActionsMenu()
-        model.shortcutRecorder = nil
+        shortcutRecorder.cancel()
         model.hover(nil)
         model.didHide()
         presentationGeneration += 1

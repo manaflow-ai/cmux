@@ -43,6 +43,10 @@ public import CmuxNextActions
 
     /// A click on an option, or the key for it.
     public func choose(_ option: PaletteShortcutOption) { core.choose(option) }
+
+    /// Closes the recorder without a change (the palette hid), which also
+    /// lets the system-wide hot keys register again.
+    public func cancel() { core.cancel() }
 }
 
 extension PaletteShortcutRecorder {
