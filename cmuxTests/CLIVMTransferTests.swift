@@ -193,6 +193,134 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(pulled, remoteData, "pulled bytes must match the machine's file")
     }
 
+    /// Builds a gzip tarball of `files` (relative path -> contents) the way the
+    /// machine's `tar -czf ... -C dir .` does.
+    private static func makeGzipTarball(_ files: [String: Data]) throws -> Data {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-pull-src-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tree = root.appendingPathComponent("tree")
+        for (relative, contents) in files {
+            let url = tree.appendingPathComponent(relative)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try contents.write(to: url)
+        }
+        let archive = root.appendingPathComponent("tree.tgz")
+        let tar = Process()
+        tar.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+        tar.arguments = ["-czf", archive.path, "-C", tree.path, "."]
+        try tar.run()
+        tar.waitUntilExit()
+        XCTAssertEqual(tar.terminationStatus, 0)
+        return try Data(contentsOf: archive)
+    }
+
+    /// Runs `cmux vm pull <vm> work/tree <local>` against a mock machine whose
+    /// directory packs into `archive`.
+    private func runVMDirectoryPull(
+        archive: Data,
+        localDirectory: URL,
+        extraEnvironment: [String: String] = [:]
+    ) throws -> (status: Int32, stdout: String, stderr: String) {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-pull-dir")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+        let archiveDigest = Self.sha256Hex(archive)
+        let chunkBytes = 512 * 1024
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard let params = request["params"] as? [String: Any],
+                  let command = params["command"] as? String else {
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "missing command"])
+            }
+            if command.hasPrefix("p=") {
+                return self.vmExecOKResponse(id: id, stdout: "CMUX_DIR\n")
+            }
+            if command.hasPrefix("tar -czf ") || command.hasPrefix("rm -f ") {
+                return self.vmExecOKResponse(id: id, stdout: "")
+            }
+            if command.hasPrefix("wc -c < ") {
+                return self.vmExecOKResponse(id: id, stdout: "\(archive.count)\n\(archiveDigest)  tree.tgz\n")
+            }
+            if command.hasPrefix("dd if=") {
+                guard let skipRange = command.range(of: "skip=") else {
+                    return self.v2Response(id: id, ok: false, error: ["code": "bad_dd", "message": command])
+                }
+                let skip = Int(command[skipRange.upperBound...].prefix(while: { $0.isNumber })) ?? 0
+                let start = min(skip * chunkBytes, archive.count)
+                let end = min(start + chunkBytes, archive.count)
+                return self.vmExecOKResponse(id: id, stdout: archive.subdata(in: start..<end).base64EncodedString())
+            }
+            return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected command \(command)"])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.merge(extraEnvironment) { _, new in new }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "pull", "brave-otter", "work/tree", localDirectory.path],
+            environment: environment,
+            timeout: 30
+        )
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        return (result.status, result.stdout, result.stderr)
+    }
+
+    func testVMPullDirectoryExtractsTree() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-pull-dir-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let localDirectory = tempDir.appendingPathComponent("tree")
+        let archive = try Self.makeGzipTarball([
+            "README.md": Data("hello\n".utf8),
+            "src/main.swift": Data("print(1)\n".utf8),
+        ])
+
+        let result = try runVMDirectoryPull(archive: archive, localDirectory: localDirectory)
+
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertEqual(try Data(contentsOf: localDirectory.appendingPathComponent("README.md")), Data("hello\n".utf8))
+        XCTAssertEqual(try Data(contentsOf: localDirectory.appendingPathComponent("src/main.swift")), Data("print(1)\n".utf8))
+    }
+
+    /// A machine controls the archive bytes, and gzip compresses zeros ~1000:1,
+    /// so a small transfer must not expand past the pull budget on the Mac.
+    func testVMPullDirectoryRefusesArchiveThatExpandsPastTheLimit() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-pull-bomb-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let localDirectory = tempDir.appendingPathComponent("tree")
+        let archive = try Self.makeGzipTarball(["zeros.bin": Data(count: 8 * 1024 * 1024)])
+        XCTAssertLessThan(archive.count, 512 * 1024, "the bomb must fit in one transfer chunk")
+
+        let result = try runVMDirectoryPull(
+            archive: archive,
+            localDirectory: localDirectory,
+            extraEnvironment: ["CMUX_VM_PULL_MAX_EXPANDED_BYTES": String(1024 * 1024)]
+        )
+
+        XCTAssertNotEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertTrue(result.stderr.contains("expands past"), result.stderr)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: localDirectory.appendingPathComponent("zeros.bin").path),
+            "nothing may be extracted once the budget is exceeded"
+        )
+    }
+
     private static func writeJSON(_ object: Any, to url: URL) throws {
         try JSONSerialization.data(withJSONObject: object).write(to: url)
     }
