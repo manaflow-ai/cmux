@@ -15,8 +15,7 @@ name: Promote cmux-next to nightly-next
 # Only the GitHub App that the nightly-next ruleset allows can move the branch
 # (ruleset "nightly-next: fast-forward by the promote app only"). The ref
 # update fast-forwards; the one forced case replaces a baseline build (a
-# feat-cmux-next commit plus one patch) with a feat-cmux-next commit that
-# descends from that baseline's parent.
+# feat-cmux-next commit plus patches) with a later feat-cmux-next commit.
 on:
   workflow_call:
     inputs:
@@ -147,13 +146,16 @@ jobs:
               let force = false;
               if (data.status === 'diverged') {
                 // One exception: a hand-made baseline build, a feat-cmux-next
-                // commit plus one patch (the first build was 1e6c86ba7ae plus
-                // d43ea8aabad). Move on only when `sha` descends from that
-                // baseline's parent, so the branch never goes backward; the
-                // patch itself is dropped, so it must already be on the source.
-                const { data: head } = await github.rest.git.getCommit({ owner, repo, commit_sha: current });
-                const parent = head.parents.length === 1 ? head.parents[0].sha : null;
-                force = parent !== null && data.merge_base_commit?.sha === parent;
+                // commit plus patches that are not on feat-cmux-next (the
+                // first build was 1e6c86ba7ae plus two patches). Replace it
+                // only when the point where it left feat-cmux-next is itself
+                // on feat-cmux-next and `sha` descends from it, so the branch
+                // never moves to older feat-cmux-next history.
+                const base = data.merge_base_commit?.sha;
+                if (base) {
+                  const { data: onSource } = await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${base}...${sourceHead}` });
+                  force = onSource.status === 'ahead' || onSource.status === 'identical';
+                }
               }
               if (data.status !== 'ahead' && !force) {
                 skip(`${sha} does not move ${target} forward from ${current} (compare status ${data.status}); nothing promoted.`);
