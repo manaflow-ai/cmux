@@ -20,18 +20,63 @@ import Testing
                                                                    content: .workspaces)])
     }
 
-    @Test func theDefaultLayoutPutsHomeOnTopAndSettingsAndTheAccountAtTheBottom() {
+    /// The default rail (Leo, 2026-10-03; the Codex app's skinny strip):
+    /// Home, the App Store, History and Notifications from the top, then a
+    /// More button holding Settings, Customize Appearance and CodeRouter
+    /// (the top section's `maxRows` is 4), and the account pinned to the
+    /// bottom.
+    @Test func theDefaultRailIsFourDestinationsThenMoreWithTheAccountAtTheBottom() {
         let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
-        #expect(rail.buttons.map(\.item.rawValue) == ["itm_home", "itm_app_store", "itm_app_coderouter", "itm_settings", "itm_account"])
+        #expect(rail.buttons.map(\.item.rawValue) == ["itm_home", "itm_app_store", "itm_history", "itm_notifications", "itm_account"])
+        #expect(rail.overflow.map(\.rawValue) == ["itm_settings", "itm_customize", "itm_app_coderouter"])
         let frames = rail.buttons.map(\.frame)
         #expect(frames[0] == CGRect(x: 7, y: 40, width: 34, height: 34))
         #expect(frames[1].minY == frames[0].maxY + 4)
+        // More takes the slot after the last destination.
+        #expect(rail.more == CGRect(x: 7, y: frames[3].maxY + 4, width: 34, height: 34))
         // The bottom band ends at the bottom inset.
         #expect(frames[4].maxY == CGFloat(588))
-        #expect(frames[3].maxY + 4 == frames[4].minY)
         // One section per band: no lines.
         #expect(rail.separators.isEmpty)
-        #expect(rail.overflow.isEmpty)
+    }
+
+    /// A section's `maxRows` caps its buttons in the rail: the rest go
+    /// under More, which sits right after the capped section's buttons; a
+    /// section without a cap shows every item.
+    @Test func maxRowsCapsASectionAndMoreFollowsIt() {
+        var capped = section("a", region: .top, refs: [.builtIn(.home), .builtIn(.history), .builtIn(.notifications)])
+        capped.maxRows = 1
+        let doc = document([capped, section("b", region: .top, refs: [.builtIn(.bookmarks)])])
+        let rail = SidebarRailLayout.make(document: doc, room: nil, height: 600, metrics: m)
+        #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "b_0"])
+        #expect(rail.overflow.map(\.rawValue) == ["a_1", "a_2"])
+        let moreY: CGFloat = 40 + 34 + 4
+        #expect(rail.more == CGRect(x: 7, y: moreY, width: 34, height: 34))
+        // The line before section b comes after the More button.
+        let lineY: CGFloat = moreY + 34 + 8
+        #expect(rail.separators == [CGRect(x: 12, y: lineY, width: 24, height: 1)])
+        let sectionBY: CGFloat = lineY + 1 + 8
+        #expect(rail.buttons[1].frame.minY == sectionBY)
+
+        // A cap at or above the item count changes nothing.
+        capped.maxRows = 3
+        let uncapped = SidebarRailLayout.make(document: document([capped]), room: nil, height: 600, metrics: m)
+        #expect(uncapped.overflow.isEmpty && uncapped.more == nil)
+        #expect(uncapped.buttons.count == 3)
+    }
+
+    /// A short rail still overflows by height: buttons that reach the
+    /// bottom band join the capped items under the one More button, in
+    /// document order.
+    @Test func aShortCappedRailOverflowsIntoTheSameMore() {
+        var capped = section("a", region: .top, refs: [.builtIn(.home), .builtIn(.history), .builtIn(.notifications), .builtIn(.bookmarks)])
+        capped.maxRows = 3
+        let doc = document([capped, section("z", region: .bottom, refs: [.builtIn(.account)])])
+        // a_0 40-74, a_1 78-112, a_2 116-150, More 154-188; the limit is 240 - 12 - 34 - 8 = 186.
+        let rail = SidebarRailLayout.make(document: doc, room: nil, height: 240, metrics: m)
+        #expect(rail.buttons.map(\.item.rawValue) == ["a_0", "a_1", "z_0"])
+        #expect(rail.overflow.map(\.rawValue) == ["a_2", "a_3"])
+        #expect(rail.more == CGRect(x: 7, y: 116, width: 34, height: 34))
     }
 
     @Test func aLineSeparatesSectionsOfOneBand() {
@@ -121,8 +166,10 @@ import Testing
         #expect(rail.separators.map(\.minY) == [CGFloat(82)])
     }
 
+    /// Without caps (the layout before the rail defaults) a tall rail shows
+    /// everything.
     @Test func nothingOverflowsAndNoMoreWhenEverythingFits() {
-        let rail = SidebarRailLayout.make(document: .defaults, room: nil, height: 600, metrics: m)
+        let rail = SidebarRailLayout.make(document: SidebarLayoutDocument.preRailDefaults, room: nil, height: 600, metrics: m)
         #expect(rail.overflow.isEmpty)
         #expect(rail.more == nil)
     }
