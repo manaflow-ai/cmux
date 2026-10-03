@@ -6,11 +6,11 @@
 #
 # tree (default): the daemon built from this checkout's own cmux-tui source.
 #   The key is a git tree hash of the binary's source inputs, the cmux-tui
-#   tree and the ghostty gitlink (`pin-cmux-tui.sh key`):
+#   tree and the ghostty and ghostty-next gitlinks (`pin-cmux-tui.sh key`):
 #     printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n' \
 #       "$(git rev-parse HEAD:cmux-tui)" "$(git rev-parse HEAD:ghostty)" | git mktree --missing
 #   The `cmux-tui artifacts` workflow runs on every push to feat-cmux-next,
-#   feat-cmux-next-acpmux and cmux-tui-pin-* that touches cmux-tui or ghostty.
+#   feat-cmux-next-acpmux and cmux-tui-pin-* that touches cmux-tui, ghostty or ghostty-next.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
 #   it publishes https://files.cmux.com/cmux-tui/tree/<key>/ with
 #   cmux-tui-aarch64-apple-darwin, cmux-tui-aarch64-apple-darwin.sha256 and
@@ -80,15 +80,20 @@ download() {
 }
 
 # The tree key of <rev> (default HEAD): the git tree hash of {cmux-tui tree,
-# ghostty gitlink}, the binary's source inputs.
+# ghostty gitlink, ghostty-next gitlink when present}, the binary's source
+# inputs (libghostty-vt builds from ghostty-next; the shell-integration
+# scripts come from ghostty). Revisions without ghostty-next keep their key.
 tree_key() {
-  local rev="${1:-HEAD}" tui ghostty
+  local rev="${1:-HEAD}" tui ghostty next entries
   tui="$(git -C "$repo_root" rev-parse --verify -q "$rev:cmux-tui")" || {
     echo "error: $rev has no cmux-tui tree" >&2; return 1; }
   ghostty="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty")" || {
     echo "error: $rev has no ghostty gitlink" >&2; return 1; }
-  printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n' "$tui" "$ghostty" \
-    | git -C "$repo_root" mktree --missing
+  entries="$(printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty' "$tui" "$ghostty")"
+  if next="$(git -C "$repo_root" rev-parse --verify -q "$rev:ghostty-next")"; then
+    entries+="$(printf '\n160000 commit %s\tghostty-next' "$next")"
+  fi
+  printf '%s\n' "$entries" | git -C "$repo_root" mktree --missing
 }
 
 mode_from_args() {
