@@ -58,12 +58,15 @@ EOF_PROFILE
   printf '(allow file-write* (subpath "%s"))\n' "$(literal "$temp_dir")"
   printf '(allow file-read-metadata (subpath "%s"))\n' "$(literal "$temp_dir")"
 
-  # Unix-domain sockets are represented as network endpoints by Seatbelt. The
-  # proxy owns the target cmux socket, so the sandbox sees only these relays.
+  # Unix-domain sockets need an AF_UNIX socket descriptor plus a remote socket
+  # path. The proxy owns the target cmux socket, so the sandbox sees only these
+  # relays. A path filter directly on network-outbound is invalid SBPL and
+  # makes sandbox-exec abort while compiling the profile.
+  printf '(allow system-socket (socket-domain AF_UNIX))\n'
   printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$proxy_socket")"
-  printf '(allow network-outbound (path "%s"))\n' "$(literal "$proxy_socket")"
+  printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$proxy_socket")"
   if [ -n "$cloud_socket" ]; then
     printf '(allow file-read-metadata (literal "%s"))\n' "$(literal "$cloud_socket")"
-    printf '(allow network-outbound (path "%s"))\n' "$(literal "$cloud_socket")"
+    printf '(allow network-outbound (remote unix-socket (subpath "%s")))\n' "$(literal "$cloud_socket")"
   fi
 } >"$profile"

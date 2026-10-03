@@ -70,6 +70,8 @@ if grep -Fq 'network-outbound (**)' "$profile"; then
   echo "sandbox profile grants broad network access" >&2
   exit 1
 fi
+grep -q '(allow system-socket (socket-domain AF_UNIX))' "$profile"
+grep -q '(allow network-outbound (remote unix-socket (subpath ' "$profile"
 
 # Use an existing host-home file outside the allowlist, so a missing file cannot
 # make the denial assertion pass accidentally.
