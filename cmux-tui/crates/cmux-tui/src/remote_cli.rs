@@ -1058,6 +1058,8 @@ mod remote_browser_proxy;
 #[path = "remote_wg_hub.rs"]
 mod remote_wg_hub;
 use remote_wg_hub::run_wg;
+#[cfg(test)]
+use remote_wg_hub::{parse_wg_hub_flags, start_wireguard_hub_tunnel};
 use remote_browser_proxy::{parse_browser_proxy_args, serve_browser_proxy};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -3236,7 +3238,7 @@ mod tests {
         .unwrap();
         fs::set_permissions(&config, fs::Permissions::from_mode(0o600)).unwrap();
         let runtime = tokio_runtime().unwrap();
-        let started = super::remote_wg_hub::start_wireguard_hub_tunnel(&runtime, &config, Duration::from_secs(5));
+        let started = start_wireguard_hub_tunnel(&runtime, &config, Duration::from_secs(5));
         drop(started);
     }
 
