@@ -3,6 +3,7 @@ import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
+import { postNative } from "./native";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -238,6 +239,9 @@ function sessionUpdate(event: EventRecord): any | undefined {
 /// Opens the client's socket; mock mode passes an in-page daemon (mock.ts).
 export type OpenSocket = (url: URL) => WebSocket;
 
+/// Where git reads go: the native host, or in mock mode the daemon the socket reaches.
+export type GitRoute = "native" | "daemon";
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 export class AcpmuxDirectClient {
   private socket?: WebSocket;
@@ -316,6 +320,7 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     private readonly openSocket: OpenSocket = (url) => new WebSocket(url),
+    private readonly gitRoute: GitRoute = "native",
     /// Every message on the socket and its lifecycle, for the ACP inspector (wire.ts).
     private readonly wire: AcpWireLog = acpWire,
   ) {
@@ -330,9 +335,10 @@ export class AcpmuxDirectClient {
     listener: Listener,
     onLost?: () => void,
     openSocket?: OpenSocket,
+    gitRoute?: GitRoute,
     wire?: AcpWireLog,
   ): Promise<AcpmuxDirectClient> {
-    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, wire);
+    const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
     await client.open();
     return client;
   }
@@ -626,12 +632,28 @@ export class AcpmuxDirectClient {
 
   /// The selected session's repository changes in one git scope (changes/model.ts).
   gitDiff(scope: string): Promise<unknown> {
-    return this.request("git.diff", { sessionId: this.selectedSessionId, scope, include_patch: true });
+    return this.git("git.diff", { scope, include_patch: true });
   }
 
   /// The selected session's branch, upstream and how far it is ahead and behind.
   gitStatus(): Promise<unknown> {
-    return this.request("git.status", { sessionId: this.selectedSessionId });
+    return this.git("git.status", {});
+  }
+
+  /// acpmux serves no git methods: the native host runs them on the session host in the selected
+  /// session's folder, and mock mode's in-page daemon answers them by session.
+  private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
+    const sessionId = this.selectedSessionId;
+    const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
+    const entry = this.sessions.find((session) => session.sessionId === sessionId);
+    const cwd = text(summary?.cwd) ?? text(entry?.cwd);
+    if (!sessionId || !cwd) return Promise.reject(new Error("This chat has no working folder to read changes from"));
+    // The native host reads folders on this Mac; a cloud session's folder is on its machine.
+    if (hostKind(summary?.hostKind) === "cloud" || entry?.hostKind === "cloud")
+      return Promise.reject(new Error("This chat runs on another machine, so its changes can't be read here yet"));
+    return this.gitRoute === "daemon"
+      ? this.request(method, { sessionId, cwd, ...params })
+      : postNative(method, { cwd, ...params });
   }
 
   private request(method: string, params: Record<string, unknown>, deadline?: number): Promise<any> {

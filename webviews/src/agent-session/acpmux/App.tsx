@@ -15,6 +15,7 @@ import {
   type AcpmuxSnapshot,
 } from "./model";
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
+import { postNative } from "./native";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
@@ -67,11 +68,9 @@ import { useCheckpoints } from "./checkpoints/controller";
 import { PermissionPanel } from "./permissions/Panel";
 import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
-import { NativeError, type NativeErrorReply } from "./nativeError";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
 
-type Reply<T> = { ok: true; value: T } | { ok: false; error?: NativeErrorReply };
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
 /// `onOpenDiff` opens the changes of the turn holding `rowId`, at `path` when given; focus
@@ -130,17 +129,11 @@ function hostAccount(value: unknown): SidebarAccount | undefined {
   return { name: account.name, detail: typeof account.detail === "string" ? account.detail : undefined };
 }
 
+/// A page action: the connected client's (chat actions run against acpmux), else the native host.
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
-  const handler = window.webkit?.messageHandlers?.agentSession;
-  if (!handler) return Promise.reject(new NativeError({ code: "native.not_connected", origin: "native" }));
-  return Promise.resolve(handler.postMessage({ id: crypto.randomUUID(), method, params }) as unknown as Reply<T>).then(
-    (reply) => {
-      if (!reply.ok) throw new NativeError(reply.error);
-      return reply.value;
-    },
-  );
+  return postNative<T>(method, params);
 }
 
 /// Asks the host to show the Quick Composer's chat in a window.
@@ -153,8 +146,8 @@ const trustSource: TrustSource = {
   set: (cwd, level) => callNative("acp.trust.set", { cwd, level }),
 };
 
-/// The changes view reads git scopes from whoever runs the session: the acpmux client
-/// (or the mock daemon), else the native host.
+/// The changes view reads git scopes through the client, which knows the selected session's
+/// folder and asks the native host (or, in mock mode, the in-page daemon).
 const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
@@ -1163,6 +1156,7 @@ function AcpmuxPane() {
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
           },
           mock ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket : undefined,
+          mock ? "daemon" : "native",
         );
         if (cancelled) {
           client.close();

@@ -167,7 +167,7 @@ final class LocationTrailService {
             do {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value, expectedRevision: revision)
-            } catch DaemonError.command(_, let message, _) where message.contains("revision conflict") {
+            } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: Self.schemaVersion,
                                                                     projection: value)
             }
