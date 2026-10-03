@@ -475,8 +475,12 @@
       homedir: native.homedir,
       setTimeout(fn, ms) {
         const id = nextTimer++;
+        // The app refuses a timer past its per-session bound
+        // (scheduled timers plus fired ones whose callback has not run).
+        if (native.setTimer(id, timerDelay(ms), false) === false) {
+          throw new RangeError("setTimeout: this session has too many pending timers; clear some or let them run before adding more");
+        }
         timers.set(id, fn);
-        native.setTimer(id, timerDelay(ms), false);
         return id;
       },
       clearTimeout(id) {

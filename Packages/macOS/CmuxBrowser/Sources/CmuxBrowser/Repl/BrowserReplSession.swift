@@ -150,6 +150,10 @@ public final class BrowserReplSession: @unchecked Sendable {
     /// a session's fetch buffers; later fetches wait in order.
     static let maxConcurrentFetches = 16
 
+    /// The most timers a session has scheduled, or fired with their callback
+    /// not yet run, at once; `setTimer` returns false past it.
+    static let maxPendingTimers = 10_000
+
     /// A tracked task, and the evaluation that was running when it started.
     private struct InFlightWork {
         let task: Task<Void, Never>
@@ -211,7 +215,7 @@ public final class BrowserReplSession: @unchecked Sendable {
             sandbox: BrowserReplFileSandbox(root: resolvedCwd),
             temporaryDirectory: privateTemporaryDirectory
         )
-        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock()) { [weak self] id in
+        self.scheduler = BrowserReplTimerScheduler(clock: ContinuousClock(), maximumTimers: Self.maxPendingTimers) { [weak self] id in
             self?.fireTimer(id)
         }
         let boundary = self.boundary
@@ -618,10 +622,10 @@ public final class BrowserReplSession: @unchecked Sendable {
                 text: self.boundary.secrets.redact(text?.toString() ?? "")
             ))
         }
-        let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Void = { [weak self] id, delay, repeating in
-            guard let self, let id = id?.toInt32() else { return }
+        let setTimer: @convention(block) (JSValue?, JSValue?, JSValue?) -> Bool = { [weak self] id, delay, repeating in
+            guard let self, let id = id?.toInt32() else { return false }
             let duration = Duration.milliseconds(BrowserReplSession.timerDelayMilliseconds(delay?.toDouble()))
-            self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
+            return self.scheduler.schedule(id: Int(id), after: duration, repeating: repeating?.toBool() ?? false)
         }
         let clearTimer: @convention(block) (JSValue?) -> Void = { [weak self] id in
             guard let self, let id = id?.toInt32() else { return }
@@ -759,7 +763,10 @@ public final class BrowserReplSession: @unchecked Sendable {
 
     private func fireTimer(_ id: Int) {
         thread.perform { [weak self] in
-            guard let self, let context = self.context else { return }
+            guard let self else { return }
+            // The timer counts as pending until its callback has run.
+            defer { self.scheduler.delivered(id: id) }
+            guard let context = self.context else { return }
             self.watchdog.absorbTermination(in: context)
             guard let handler = context.objectForKeyedSubscript("__cmuxHostOnTimer"),
                   !handler.isUndefined else { return }

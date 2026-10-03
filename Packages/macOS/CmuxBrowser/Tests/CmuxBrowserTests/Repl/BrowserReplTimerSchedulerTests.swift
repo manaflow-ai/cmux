@@ -135,7 +135,7 @@ struct BrowserReplTimerSchedulerTests {
         #expect(scheduler.isScheduled(id: 1))
     }
 
-    @Test("An interval re-arms until cancelled")
+    @Test("An interval re-arms after each delivered fire until cancelled")
     func intervalRepeatsUntilCancelled() async {
         let clock = BrowserReplManualClock()
         let fired = FiredTimers()
@@ -144,6 +144,7 @@ struct BrowserReplTimerSchedulerTests {
         scheduler.schedule(id: 7, after: .milliseconds(10), repeating: true)
         clock.advance(by: .milliseconds(10))
         #expect(await fired.wait(forCount: 1) == [7])
+        scheduler.delivered(id: 7)
         clock.advance(by: .milliseconds(10))
         #expect(await fired.wait(forCount: 2) == [7, 7])
 
