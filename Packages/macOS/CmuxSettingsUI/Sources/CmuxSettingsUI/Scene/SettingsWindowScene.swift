@@ -25,7 +25,6 @@ public struct SettingsWindowRoot: View {
     @State var mountModel: SettingsSectionMountModel
 
     static let selectedSectionDefaultsKey = "selectedSettingsSection"
-    static let cloudMachinesBetaDefaultsKey = "cloud.beta.machines.enabled"
 
     /// - Parameters:
     ///   - runtime: Catalog, stores, and host actions shared by every section.
@@ -49,11 +48,8 @@ public struct SettingsWindowRoot: View {
         let defaults = UserDefaults.standard
         let restoredSection = defaults.string(forKey: Self.selectedSectionDefaultsKey)
             .flatMap(SettingsSectionID.init(rawValue:)) ?? .account
-        let betaEnabled = defaults.object(forKey: Self.cloudMachinesBetaDefaultsKey) as? Bool
-            ?? BetaFeaturesCatalogSection().cloudMachines.defaultValue
         let cloudAvailable = !ManagedDevicePolicy().isEnforced(.disableCloud)
             && runtime.hostActions.isCloudMachinesAvailable
-            && betaEnabled
         _mountModel = State(initialValue: mountModel ?? SettingsSectionMountModel(
             initial: initialSection ?? restoredSection,
             order: Self.mountOrder(cloudAvailable: cloudAvailable)
@@ -70,6 +66,10 @@ public struct SettingsWindowRoot: View {
     @State private var cloudDisabledByPolicy = ManagedDevicePolicy().isEnforced(.disableCloud)
     @State private var cloudFeatureFlagRevision = 0
     @State private var searchText: String = ""
+
+    var cloudSectionIdentity: String {
+        "cloud-machines-section-\(cloudFeatureFlagRevision)"
+    }
     /// Loaded when the window opens so the App pane renders its agent
     /// sound matrix at full height on every visit.
     @State var soundAgentCache = NotificationSoundAgentCache()
@@ -85,11 +85,6 @@ public struct SettingsWindowRoot: View {
     // there is no SwiftUI scene to store into (cmux issue #7777).
     @AppStorage(SettingsWindowRoot.selectedSectionDefaultsKey) private var selectedSectionRaw: String = SettingsSectionID.account.rawValue
     @AppStorage("selectedSettingsSidebarEntry") private var selectedSidebarEntryID: String = "section:\(SettingsSectionID.account.rawValue)"
-    // Mirrors BetaFeaturesCatalogSection.cloudMachines so flipping the Beta
-    // Features toggle shows/hides the Cloud sidebar row without reopening
-    // Settings; the host folds in the remote rollout flag.
-    @AppStorage(SettingsWindowRoot.cloudMachinesBetaDefaultsKey)
-    private var cloudMachinesBetaEnabled = BetaFeaturesCatalogSection().cloudMachines.defaultValue
     // Legacy `SettingsRootView` binds `NavigationSplitView`'s
     // `columnVisibility` so the user can collapse the sidebar via the
     // toolbar button (or the SidebarCommands menu) and have that state
@@ -125,11 +120,11 @@ public struct SettingsWindowRoot: View {
     var hostActions: SettingsHostActions { runtime.hostActions }
     var accountFlow: AccountFlow? { runtime.accountFlow }
     /// Whether the Cloud section (and its sidebar row) is offered at all. The
-    /// host owns the remote flag and managed-policy decision; this local value
-    /// keeps the section responsive to the Beta Features toggle as well.
+    /// host owns the remote rollout and managed-policy decisions; first-use
+    /// activation belongs to the Cloud tab itself.
     var isCloudSectionAvailable: Bool {
         _ = cloudFeatureFlagRevision
-        return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable && cloudMachinesBetaEnabled
+        return !cloudDisabledByPolicy && hostActions.isCloudMachinesAvailable
     }
     /// Resolves the selected section pane from the persisted raw value,
     /// defaulting to ``SettingsSectionID/account`` when the stored value

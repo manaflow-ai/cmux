@@ -19,7 +19,7 @@ final class CloudWorkspaceRowOpenFixture {
     var failures: [String] = []
     lazy var panelModel = MachinesPanelViewModel(
         createCoordinator: MachineCreateCoordinator(notifier: { _ in }),
-        isCloudEnabled: { false },
+        isCloudEnabled: { true },
         catalogProvider: { [unowned self] in base.catalog.snapshot },
         localWorkspacesProvider: { [] }
     )
