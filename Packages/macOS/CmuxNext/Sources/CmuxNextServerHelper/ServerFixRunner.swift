@@ -20,6 +20,7 @@ public nonisolated struct ProcessFixRunner: ServerFixRunner {
             process.standardOutput = pipe
             process.standardError = FileHandle.nullDevice
             process.terminationHandler = { finished in
+                // concurrency-allow: Process.terminationHandler runs on a background queue, never the main thread; pmset -g custom prints about 1 KiB, far below the pipe buffer, so it never blocks the child before exit
                 let data = (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
                 continuation.resume(returning: FixRunResult(status: finished.terminationStatus, output: String(decoding: data.prefix(65_536), as: UTF8.self)))
             }
