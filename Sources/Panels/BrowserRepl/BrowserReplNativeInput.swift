@@ -332,15 +332,7 @@ enum BrowserReplClipboardItems {
     /// Writes the tab's clipboard items (`{ type, base64 }`, MIME types or
     /// raw pasteboard types) to `pasteboard` as one item.
     static func write(_ items: [[String: Any]], to pasteboard: NSPasteboard) {
-        pasteboard.clearContents()
-        let item = NSPasteboardItem()
-        for entry in items {
-            guard let type = entry["type"] as? String,
-                  let base64 = entry["base64"] as? String,
-                  let data = Data(base64Encoded: base64) else { continue }
-            item.setData(data, forType: pasteboardType(forMIME: type))
-        }
-        if !(item.types.isEmpty) { pasteboard.writeObjects([item]) }
+        pasteboard.writeBrowserReplClipboardItems(items)
     }
 
     /// Reads `pasteboard`'s first item back as tab clipboard items. Types
@@ -359,21 +351,6 @@ enum BrowserReplClipboardItems {
     }
 
     private static let customWebData = "com.apple.WebKit.custom-pasteboard-data"
-
-    private static func pasteboardType(forMIME mime: String) -> NSPasteboard.PasteboardType {
-        switch mime.lowercased() {
-        case "text/plain": return .string
-        case "text/html": return .html
-        case "text/rtf", "application/rtf": return .rtf
-        case "text/uri-list": return .URL
-        case "image/png": return .png
-        case "image/tiff": return .tiff
-        default:
-            if !mime.contains("/") { return NSPasteboard.PasteboardType(mime) }
-            if let type = UTType(mimeType: mime), !type.isDynamic { return NSPasteboard.PasteboardType(type.identifier) }
-            return NSPasteboard.PasteboardType(mime)
-        }
-    }
 
     private static func mimeType(for type: NSPasteboard.PasteboardType) -> String? {
         switch type {
