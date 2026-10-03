@@ -232,7 +232,7 @@ final class NewMachineSheetDataCache {
         let fetchPage = fetchPage
         let fetchCatalog = fetchCatalog
         refreshTask = Task { @MainActor [weak self] in
-            async let pageResult: Void = {
+            async let pageResult: Void = { @MainActor in
                 let result = await Self.capture(fetchPage)
                 guard !Task.isCancelled, let self,
                       self.refreshID == id, self.isCurrent(scope) else { return }
