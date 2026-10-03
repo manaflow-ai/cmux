@@ -1231,15 +1231,38 @@ extension CMUXCLI {
     }
 
     static func saveVMRunBinding(workKey: String, machine: String, to url: URL? = nil) {
+        try? updateVMRunBindings(at: url) { store in
+            store[workKey] = VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
+        }
+    }
+
+    /// Serializes binding read-modify-write operations across independent CLI
+    /// processes. Atomic replacement protects readers from partial JSON, but
+    /// without the lock two writers can each start from the same snapshot and
+    /// silently discard the other's directory binding.
+    static func updateVMRunBindings(
+        at url: URL? = nil,
+        _ mutate: (inout [String: VMRunBinding]) -> Void
+    ) throws {
         let storeURL = url ?? vmRunBindingsStoreURL()
-        var store = loadVMRunBindings(from: storeURL)
-        store[workKey] = VMRunBinding(machine: machine, updatedAtUnix: Int(Date().timeIntervalSince1970))
-        guard let data = try? JSONEncoder().encode(store) else { return }
-        try? FileManager.default.createDirectory(
+        try FileManager.default.createDirectory(
             at: storeURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try? data.write(to: storeURL, options: [.atomic])
+        let lockPath = storeURL.path + ".lock"
+        let lockFD = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
+        guard lockFD >= 0 else {
+            throw CLIError(message: "vm run: could not open the binding lock at \(lockPath): \(String(cString: strerror(errno)))")
+        }
+        defer { close(lockFD) }
+        guard flock(lockFD, LOCK_EX) == 0 else {
+            throw CLIError(message: "vm run: could not lock the binding store at \(lockPath): \(String(cString: strerror(errno)))")
+        }
+        defer { _ = flock(lockFD, LOCK_UN) }
+        var store = loadVMRunBindings(from: storeURL)
+        mutate(&store)
+        let data = try JSONEncoder().encode(store)
+        try data.write(to: storeURL, options: [.atomic])
     }
 
     /// Machines this router provisioned, persisted per Mac. This list — never the
