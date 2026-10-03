@@ -122,7 +122,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "quick.openInWindow":
             let id = params?["sessionId"] as? String
             self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
-        case "git.diff", "git.status", "file.search":
+        case "git.diff", "git.status", "file.search", "git.checkpoint.diff":
             if let git = AgentPaneGitRequest(method: method, params: params) {
                 self = .git(git)
             } else {

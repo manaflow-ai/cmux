@@ -60,6 +60,23 @@ private struct GitReadFailed: Error {}
         #expect(search.cwd == "/repo")
     }
 
+    /// `git.checkpoint.diff` for Last turn: the folder, the turn's checkpoints and
+    /// whether to include patches; `to` is optional.
+    @Test func aCheckpointDiffCarriesTheFolderAndTheTurnsCheckpoints() {
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": "ckpt_b", "include_patch": true])
+            == .git(.checkpointDiff(cwd: "/repo", from: "ckpt_a", to: "ckpt_b", includePatch: true)))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a"])
+            == .git(.checkpointDiff(cwd: "/repo", from: "ckpt_a", to: nil, includePatch: false)))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo"]) == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": ""]) == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "a b"]) == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["cwd": "/repo", "from": "ckpt_a", "to": ""])
+            == .invalidGit("git.checkpoint.diff"))
+        #expect(Self.request("git.checkpoint.diff", ["from": "ckpt_a"]) == .invalidGit("git.checkpoint.diff"))
+        #expect(AgentPaneGitRequest.checkpointDiff(cwd: "/repo", from: "a", to: nil, includePatch: false).operation
+            == "git.checkpoint.diff")
+    }
+
     /// The session host's operation and params: the folder as `path`.
     @Test func theRequestNamesTheSessionHostOperation() {
         let diff = AgentPaneGitRequest.diff(cwd: "/repo", scope: .committed, includePatch: true)

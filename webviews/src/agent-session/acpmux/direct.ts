@@ -4,6 +4,7 @@ import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./session
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
+import { readTurnCheckpoint } from "./changes/model";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -655,9 +656,17 @@ export class AcpmuxDirectClient {
     return this.git("git.status", {});
   }
 
+  /// One turn's repository changes: checkpoint `from` against `to`, or the working tree.
+  gitCheckpointDiff(from: string, to?: string): Promise<unknown> {
+    return this.git("git.checkpoint.diff", { from, ...(to ? { to } : {}), include_patch: true });
+  }
+
   /// acpmux serves no git methods: the native host runs them on the session host in the selected
   /// session's folder, and mock mode's in-page daemon answers them by session.
-  private git(method: "git.diff" | "git.status", params: Record<string, unknown>): Promise<unknown> {
+  private git(
+    method: "git.diff" | "git.status" | "git.checkpoint.diff",
+    params: Record<string, unknown>,
+  ): Promise<unknown> {
     const sessionId = this.selectedSessionId;
     const summary = this.summary?.sessionId === sessionId ? this.summary : undefined;
     const entry = this.sessions.find((session) => session.sessionId === sessionId);
@@ -939,6 +948,7 @@ export class AcpmuxDirectClient {
             ...this.turnTotals(event.at),
             status: String(msg.status ?? "completed"),
             error: msg.errorText,
+            ...(readTurnCheckpoint(msg) ? { checkpoint: readTurnCheckpoint(msg) } : {}),
           });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;

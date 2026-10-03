@@ -16,7 +16,7 @@ import { LoadState } from "./changes/LoadState";
 import { applyCommand } from "./changes/applyCommand";
 import { BranchPill } from "./changes/BranchPill";
 import { copyText } from "./conversation/clipboard";
-import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
+import { changeSetFiles, type ChangeScope, type ChangesSource, type TurnCheckpoint } from "./changes/model";
 import { OptionsMenu, type OptionsRow } from "./changes/OptionsMenu";
 import { RevertBar } from "./changes/RevertBar";
 import { ScopeMenu } from "./changes/ScopeMenu";
@@ -57,6 +57,7 @@ export function DiffPanel({
   checkpointAction,
   checkpointReview,
   review,
+  turnCheckpoint,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -67,15 +68,20 @@ export function DiffPanel({
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
   review?: HunkReview;
+  /// The shown turn's checkpoints, when acpmux recorded them: Last turn then reads the
+  /// repository between them, or says the turn's changes are unavailable.
+  turnCheckpoint?: TurnCheckpoint;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
-  const { load, retry, branch } = useScopeChanges(source, scope);
+  const { load, retry, branch } = useScopeChanges(source, scope, turnCheckpoint);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
-  const files = scope === "lastTurn" ? turnFiles : scopeFiles;
-  /// A git scope's body before its files: loading, failed or empty.
+  /// Last turn reads the transcript's files unless acpmux recorded the turn's checkpoints.
+  const fromTranscript = scope === "lastTurn" && !turnCheckpoint;
+  const files = fromTranscript ? turnFiles : scopeFiles;
+  /// A git scope's body before its files: loading, failed, empty or unavailable.
   const scopeState =
-    scope === "lastTurn" || (load.state === "loaded" && files.length > 0)
+    fromTranscript || (load.state === "loaded" && files.length > 0)
       ? undefined
       : load.state === "loaded"
         ? "empty"
@@ -90,7 +96,7 @@ export function DiffPanel({
   const back = useRef<HTMLButtonElement>(null);
   const focusAfter = useRef<string | undefined>(undefined);
   // Decisions are keyed by the turn's tool calls, so only the last turn's hunks are reviewed.
-  const hunkReview = scope === "lastTurn" ? review : undefined;
+  const hunkReview = fromTranscript ? review : undefined;
   const totals = useMemo(
     () =>
       files.reduce(
@@ -223,19 +229,19 @@ export function DiffPanel({
     { id: "split", label: "Split view", icon: <SplitView />, pressed: layout === "split" },
     { id: "tree", label: "File tree", icon: <Panels />, pressed: showTree },
   ];
-  // Last turn's files come from the transcript, so it neither refreshes nor has git's patches.
+  // Last turn's files from the transcript neither refresh nor have git's patches.
   const command = useMemo(
-    () => (scope !== "lastTurn" && load.state === "loaded" ? applyCommand(load.changeSet) : undefined),
-    [scope, load],
+    () => (!fromTranscript && load.state === "loaded" ? applyCommand(load.changeSet) : undefined),
+    [fromTranscript, load],
   );
-  const skipped = scope !== "lastTurn" && load.state === "loaded" ? (load.changeSet.untrackedSkipped ?? 0) : 0;
+  const skipped = !fromTranscript && load.state === "loaded" ? (load.changeSet.untrackedSkipped ?? 0) : 0;
   // A refresh drops what it replaces, so focus moves to the scope pill first.
   const refresh = () => {
     panel.current?.querySelector<HTMLElement>(".acpmux-diff-scope")?.focus();
     retry();
   };
   const options: OptionsRow[] = [
-    { label: "Refresh", disabled: scope === "lastTurn", run: retry },
+    { label: "Refresh", disabled: fromTranscript || load.state === "unavailable", run: retry },
     { label: wrap ? "Disable word wrap" : "Word wrap", run: () => press("wrap") },
     { label: layout === "split" ? "Switch to unified diff" : "Switch to split diff", run: () => press("split") },
     {
