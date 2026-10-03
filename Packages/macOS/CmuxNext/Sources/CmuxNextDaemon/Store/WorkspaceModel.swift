@@ -30,6 +30,8 @@ public final class WorkspaceModel: Identifiable {
     /// Marked unread by hand (`notification-mark-unread-v1`), apart from
     /// notification markers; cleared when the workspace is used.
     public internal(set) var markedUnread: Bool
+    /// `home` for the store's home workspace (`workspace-kind-v1`).
+    public internal(set) var kind: String?
     /// Daemon rollup (`notification-ack-v1`); nil on older daemons.
     public internal(set) var daemonUnreadCount: Int?
 
@@ -64,6 +66,7 @@ public final class WorkspaceModel: Identifiable {
         title = s.title
         pinned = s.pinned
         markedUnread = s.markedUnread
+        kind = s.kind
         daemonUnreadCount = s.unreadCount
     }
 
@@ -82,6 +85,7 @@ public final class WorkspaceModel: Identifiable {
         if title != s.title { title = s.title }
         if pinned != s.pinned { pinned = s.pinned }
         if markedUnread != s.markedUnread { markedUnread = s.markedUnread }
+        if kind != s.kind { kind = s.kind }
         if daemonUnreadCount != s.unreadCount { daemonUnreadCount = s.unreadCount }
         if !screenGroupsFromState, screenGroups != s.screenGroups { screenGroups = s.screenGroups }
         if let reordered = reconcile(screens, with: s.screens, id: ScreenModel.identity, make: ScreenModel.init, update: { $0.update($1) }) {
