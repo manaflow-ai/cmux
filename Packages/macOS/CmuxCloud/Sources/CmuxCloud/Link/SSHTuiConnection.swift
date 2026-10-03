@@ -107,7 +107,7 @@ public struct SSHTuiConnection: Sendable {
         ["/bin/sh", "-c", "exec \"${SHELL:-/bin/sh}\" -lc \"$1\"", "cmux-ssh", command]
     }
 
-    public func arguments(stateDirectory: String, deviceName: String) -> [String] {
+    public func arguments(stateDirectory: String, deviceName: String, upgrade: Bool = false) -> [String] {
         var arguments = ["remote", "ssh", configuration.destination, "--headless", "--json",
                          "--exit-with-parent", "--lanes", "single", "--carrier",
                          "--session", session, "--state-dir", stateDirectory]
@@ -121,6 +121,7 @@ public struct SSHTuiConnection: Sendable {
         // this launch (SSHTuiPreflight), and verification stays OpenSSH's.
         for argument in sshArguments { arguments += ["--ssh-arg", argument] }
         arguments += ["--device-name", deviceName]
+        if upgrade { arguments.append("--upgrade") }
         if !agentHookProviders.isEmpty {
             arguments += ["--agent-hooks", agentHookProviders.joined(separator: ",")]
         }
