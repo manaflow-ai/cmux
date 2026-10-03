@@ -14965,6 +14965,111 @@
    }
   },
   {
+   "name": "children: a stale permission prompt is matched by its exact session (the permission id is after the last ':'): sessions s and s:x",
+   "state": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "perm:s:p2": {
+      "conversation": "conv_a",
+      "text": "session s, waiting",
+      "order": 1
+     },
+     "perm:s:x:p1": {
+      "conversation": "conv_a",
+      "text": "session s:x, answered",
+      "order": 2
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   },
+   "steps": [
+    {
+     "now": 1790985600001,
+     "input": {
+      "kind": "acpmux_connected",
+      "session_id": "s_mux",
+      "sessions": [
+       {
+        "sessionId": "s",
+        "name": "one",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "waiting",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       },
+       {
+        "sessionId": "s:x",
+        "name": "two",
+        "harness": "claude",
+        "cwd": "/work",
+        "status": "running",
+        "pendingPermissions": 0,
+        "stateSeq": 1,
+        "preview": null,
+        "tags": {
+         "mux.parent": "mux"
+        }
+       }
+      ],
+      "events": []
+     },
+     "effects": [
+      {
+       "kind": "persist",
+       "state": {
+        "acpmuxSeq": 0,
+        "prompts": {
+         "perm:s:p2": {
+          "conversation": "conv_a",
+          "text": "session s, waiting",
+          "order": 1
+         }
+        },
+        "answered": [],
+        "outbox": [],
+        "children": {},
+        "defaultConversation": "conv_a",
+        "muxSessionId": "s_mux"
+       }
+      },
+      {
+       "kind": "log",
+       "line": "dropping permission prompt perm:s:x:p1: its session is not waiting"
+      },
+      {
+       "kind": "prompt",
+       "prompt_id": "perm:s:p2",
+       "text": "session s, waiting"
+      }
+     ]
+    }
+   ],
+   "state_after": {
+    "acpmuxSeq": 0,
+    "prompts": {
+     "perm:s:p2": {
+      "conversation": "conv_a",
+      "text": "session s, waiting",
+      "order": 1
+     }
+    },
+    "answered": [],
+    "outbox": [],
+    "children": {},
+    "defaultConversation": "conv_a",
+    "muxSessionId": "s_mux"
+   }
+  },
+  {
    "name": "children: a pending permission survives a failed sessions fetch and an acpmux reconnect, then is answered",
    "state": {
     "acpmuxSeq": 0,
