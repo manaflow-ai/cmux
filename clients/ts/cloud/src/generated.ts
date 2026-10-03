@@ -69,6 +69,8 @@ export type Concurrency = {
   readonly on_limit: "queue" | "skip"
 }
 
+export type ConfirmLevel = "strict" | "destructive-only" | "off"
+
 export type Connection = {
   readonly id: ConnectionId
   readonly owner: TeamId
@@ -2077,6 +2079,44 @@ export interface CloudOps {
     readonly params: Readonly<Record<string, never>>
     readonly result: UserProfile
   }
+  /** Make an install's presence key unusable at once (device lost); its nonces are dropped. */
+  readonly "user.presence_key.revoke": {
+    readonly params: {
+      readonly install: string
+    }
+    readonly result: unknown
+  }
+  /** The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings. */
+  readonly "user.text_confirm.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: unknown
+  }
+  /** Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower. */
+  readonly "user.text_confirm.level.set": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: {
+      readonly level: ConfirmLevel
+    }
+  }
+  /** Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code. */
+  readonly "user.text_confirm.lower": {
+    readonly params: {
+      readonly level: ConfirmLevel
+      readonly nonce: string
+      readonly presence_sig: string
+      readonly app_attest?: string
+    }
+    readonly result: unknown
+  }
+  /** Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install). */
+  readonly "user.text_confirm.lower.challenge": {
+    readonly params: {
+      readonly level: ConfirmLevel
+    }
+    readonly result: unknown
+  }
 }
 
 export type CloudOpName = keyof CloudOps
@@ -2192,6 +2232,11 @@ export const cloudOpMeta = {
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "user.text_confirm.level.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "user.text_confirm.lower.challenge": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
 } as const satisfies Record<CloudOpName, { class: "read" | "mutation"; owner: string; risk: string }>
 
 export type CloudMutationName = { [K in CloudOpName]: (typeof cloudOpMeta)[K]["class"] extends "mutation" ? K : never }[CloudOpName]

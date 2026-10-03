@@ -2,8 +2,10 @@ import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } 
 import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
+import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
-import { grantFor, installActive, userDomain, type UserState } from "./domains/user.ts"
+import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
@@ -21,12 +23,21 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
  * one-time challenges live outside the op protocol because they are
  * credentials, not shared entity state.
  */
+/** POST /v1/presence-key body. */
+export interface PresenceKeyBody {
+  readonly platform?: unknown
+  readonly jwk?: unknown
+  readonly signature?: unknown
+  readonly attestation?: unknown
+  readonly key_id?: unknown
+}
+
 export class UserDO extends OwnerDO<UserState> {
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, userDomain, "user")
+    super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
@@ -100,6 +111,46 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   /**
+   * POST /v1/presence-key (home-messaging.md section 21): an owner device registers the
+   * Secure Enclave key that later signs level lowering. The caller is the install itself.
+   * macOS: the install key signs `cmux-presence-key-v1\n<user>\n<install>\n<thumbprint>`.
+   * iOS: an App Attest attestation whose client data is the presence key's thumbprint,
+   * verified against Apple's root for this deployment's IOS_APP_ID. Then the system op
+   * `user.presence_key.register` commits (usable after 24 h; every device and the email are told).
+   */
+  async registerPresenceKey(entity: string, principal: Principal, body: PresenceKeyBody): Promise<SubmitResult | { error: { code: string; message: string } }> {
+    const refuse = (code: string, message: string) => ({ error: { code, message } })
+    if (principal.kind !== "install" || principal.agent || principal.user !== entity || !principal.install) return refuse("auth.forbidden", "an owner device install registers its own key")
+    const state = this.bind(entity).currentState
+    const inst = state.installs[principal.install]
+    if (!installActive(state, principal) || !inst) return refuse("auth.forbidden", "install revoked or unknown")
+    if ((body.platform !== "mac" && body.platform !== "ios") || inst.kind !== body.platform) return refuse("validation.invalid", "platform must be this install's kind (mac or ios)")
+    const jwk = body.jwk as { kty?: string; crv?: string; x?: string; y?: string } | undefined
+    if (!jwk || jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return refuse("validation.invalid", "jwk must be a P-256 public key")
+    const thumbprint = jwkThumbprint({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y })
+    let appAttest: AttestedKey | undefined
+    if (body.platform === "mac") {
+      const message = `cmux-presence-key-v1\n${entity}\n${inst.id}\n${thumbprint}`
+      if (typeof body.signature !== "string" || !(await verifyInstallSignature(inst.public_jwk, message, body.signature))) return refuse("auth.forbidden", "the install key did not sign this registration")
+    } else {
+      if (!this.env.IOS_APP_ID) return refuse("presence_key.not_configured", "App Attest is not configured on this deployment")
+      if (typeof body.attestation !== "string" || typeof body.key_id !== "string") return refuse("validation.invalid", "attestation and key_id are required on iOS")
+      const r = verifyAttestation({
+        attestation: body.attestation,
+        keyId: body.key_id,
+        clientData: new TextEncoder().encode(thumbprint),
+        appId: this.env.IOS_APP_ID,
+        allowDevelopment: this.env.IOS_APP_ATTEST_DEVELOPMENT === "true",
+        now: Date.now()
+      })
+      if (!r.ok) return refuse("auth.forbidden", `attestation refused (${r.reason})`)
+      appAttest = r.key
+    }
+    const params = { install: inst.id, jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, platform: body.platform, ...(appAttest ? { app_attest: appAttest } : {}) }
+    return this.submitSystem("user.presence_key.register", params, `presence-key:${inst.id}:${thumbprint}`, `system:user:${entity}`)
+  }
+
+  /**
    * Inbox calls come from this user only, through an active install whose grant covers the op
    * (the catalog check other owners apply), checked before the object binds the entity.
    */
@@ -114,6 +165,7 @@ export class UserDO extends OwnerDO<UserState> {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
     if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    if (op === "user.text_confirm.get") return { ok: true, value: confirmView(state), revision: "" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }

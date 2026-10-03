@@ -72,6 +72,10 @@ export interface Env {
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** "<Apple Team ID>.<iOS bundle id>" whose App Attest keys this deployment accepts (presence keys). */
+  readonly IOS_APP_ID?: string
+  /** "true" accepts App Attest development keys (appattestdevelop); staging and development only. */
+  readonly IOS_APP_ATTEST_DEVELOPMENT?: string
   /** Secrets for invite delivery (Resend email, SendBlue SMS and iMessage). */
   readonly RESEND_API_KEY?: string
   readonly SENDBLUE_API_KEY?: string

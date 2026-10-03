@@ -5,6 +5,7 @@ import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
+import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 
@@ -54,6 +55,21 @@ const wire = async (request: Request, env: Env, scope: string, conversation?: st
   return stub.fetch(new Request(request.url, { headers, method: "GET" }))
 }
 
+/** POST /v1/presence-key with the install's own token (home-messaging.md section 21). */
+const handlePresenceKey = async (request: Request, env: Env): Promise<Response> => {
+  const auth = request.headers.get("authorization") ?? ""
+  const principal = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
+  if (!principal?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
+  const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
+  if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
+  const r = (await stub.registerPresenceKey(principal.user, principal, body)) as { error?: { code: string; message: string }; frames?: Array<{ t: string; value?: unknown; code?: string; message?: string }> }
+  if (r.error) return Response.json({ ok: false, error: r.error }, { status: r.error.code.startsWith("auth.") ? 403 : 400 })
+  const reply = r.frames?.find((f) => f.t === "result" || f.t === "reject")
+  if (reply?.t !== "result") return Response.json({ ok: false, error: { code: reply?.code ?? "owner.unreachable", message: reply?.message ?? "no reply" } }, { status: 400 })
+  return Response.json({ ok: true, value: reply.value })
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url)
@@ -66,6 +82,7 @@ export default {
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
+    if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     // Webhook ingress: no bearer; each route verifies its own signature before any DO call.
     const hook = url.pathname.match(/^\/v1\/hooks\/automation\/([^/]+)\/([^/]+)$/)
     if (hook) return handleAutomationHook(request, env, hook[1]!, hook[2]!)

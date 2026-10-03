@@ -3,12 +3,16 @@ import type { Domain, Principal, ReduceResult } from "@cmux/ownership"
 import { InstallRegister, InstallRename, InstallRevoke, type Grant, type Install, type UserProfile as UserProfileSchema } from "@cmux/protocol"
 import { admit, decodeParams, reject } from "./common.ts"
 import { reducePushTarget, type PushTargetsState } from "./user-push.ts"
+import { user as homeUser } from "@cmux/home-core"
+import { confirmEnv, reduceConfirm, revokePresenceKey, USER_CONFIRM_OPS } from "./user-confirm.ts"
 
 type UserProfile = typeof UserProfileSchema.Type
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 
 export interface UserState extends PushTargetsState {
   readonly user: UserProfile | null
+  /** Text confirmation level and presence keys (home-core user/), absent until first used. */
+  readonly confirm?: homeUser.UserConfirmState
   readonly installs: Readonly<Record<string, typeof Install.Type>>
   readonly grants: Readonly<Record<string, typeof Grant.Type>>
 }
@@ -47,7 +51,7 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
   return {
     ok: true,
     state: {
-      ...state,
+      ...revokePresenceKey(state, cur.id, now),
       push_targets: Object.fromEntries(Object.entries(state.push_targets ?? {}).filter(([, t]) => t.install !== cur.id)),
       installs: { ...state.installs, [cur.id]: next },
       grants: g ? { ...state.grants, [g.id]: { ...g, revoked_at: now } } : state.grants
@@ -60,19 +64,23 @@ const revokeInstall = (state: UserState, cur: typeof Install.Type, now: number):
 /** Default grant per install kind: the iPhone app gets read and mutate-own (L14-1); execute and riskier classes need their own grant. */
 const defaultClasses = (kind: string): ReadonlyArray<(typeof INSTALL_CLASSES)[number]> => (kind === "ios" ? ["read", "mutate-own"] : INSTALL_CLASSES)
 
-export const userDomain: Domain<UserState> = {
+export const makeUserDomain = (appIdHash: string): Domain<UserState> => ({
   initial: () => ({ user: null, installs: {}, grants: {} }),
 
   authorize: (state, op, _params, principal) => {
     // A system principal exists only inside a DO (TeamDO's revoke of a bound install); internal ops only. Also push.target.drop.
-    if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now())
+    const confirm = USER_CONFIRM_OPS.has(op)
+    const confirmRefused = () =>
+      confirm && !homeUser.authorizeUserConfirm(op, principal, confirmEnv(state, appIdHash)) ? { code: "auth.forbidden", message: `${op} is not allowed for this caller` } : undefined
+    if (principal.kind === "system") return admit("cloud:UserDO", op, principal, () => undefined, Date.now()) ?? confirmRefused()
     if (state.user && principal.user !== state.user.id) return { code: "auth.forbidden", message: "not this user" }
     if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
-    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now()) ?? confirmRefused()
   },
 
   reduce: (state, op, params, ctx) => {
     const p = ctx.principal
+    if (USER_CONFIRM_OPS.has(op)) return reduceConfirm(state, op, params, ctx, appIdHash)
     switch (op) {
       case "user.ensure": {
         if (!p.user || !p.stack_user_id || !p.team) return reject("auth.forbidden", "user.ensure needs a Stack session")
@@ -186,6 +194,9 @@ export const userDomain: Domain<UserState> = {
         return reject("validation.invalid", `unknown op ${op}`)
     }
   }
-}
+})
+
+/** The domain without an App Attest app id (tests, and deployments where IOS_APP_ID is unset). */
+export const userDomain = makeUserDomain("")
 
 export { ALL_CLASSES }

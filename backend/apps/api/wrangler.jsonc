@@ -9,7 +9,7 @@
   "compatibility_date": "2026-08-20",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "vars": { "ENVIRONMENT": "local", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+  "vars": { "ENVIRONMENT": "local", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
   "durable_objects": {
     "bindings": [
       { "name": "USER_DO", "class_name": "UserDO" },
@@ -31,7 +31,7 @@
   "env": {
     "development": {
       "name": "cmux-api-development",
-      "vars": { "ENVIRONMENT": "development", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "development", "DASHBOARD_ORIGIN": "http://localhost:3010", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -55,7 +55,7 @@
     "staging": {
       "name": "cmux-api-staging",
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "staging", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
+      "vars": { "ENVIRONMENT": "staging", "DASHBOARD_ORIGIN": "https://console-staging.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.ios", "IOS_APP_ATTEST_DEVELOPMENT": "true", "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },
@@ -80,7 +80,7 @@
     "production": {
       "name": "cmux-api",
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "production", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      "vars": { "ENVIRONMENT": "production", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.dev.cmux.app.beta", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },

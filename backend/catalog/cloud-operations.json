@@ -358,6 +358,14 @@
         }
       }
     },
+    "ConfirmLevel": {
+      "kind": "enum",
+      "values": [
+        "strict",
+        "destructive-only",
+        "off"
+      ]
+    },
     "Connection": {
       "kind": "object",
       "fields": {
@@ -37891,6 +37899,516 @@
             "additionalProperties": true
           }
         }
+      }
+    },
+    "user.presence_key.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "install": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_params",
+        "revision.conflict",
+        "text_confirm.locked",
+        "text_confirm.proof_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief presence-key revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Make an install's presence key unusable at once (device lost); its nonces are dropped.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "install": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "install"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "user.text_confirm.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chief confirm-level get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "The level in effect, the user's own level, the lock and the presence keys (public parts and usable_from) for Settings.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "user.text_confirm.level.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConfirmLevel"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "level": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "ConfirmLevel"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_params",
+        "revision.conflict",
+        "text_confirm.locked",
+        "text_confirm.proof_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief confirm-level set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "$ref": "#/$defs/ConfirmLevel"
+          }
+        },
+        "required": [
+          "level"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConfirmLevel": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "destructive-only",
+              "off"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "$ref": "#/$defs/ConfirmLevel"
+          }
+        },
+        "required": [
+          "level"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConfirmLevel": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "destructive-only",
+              "off"
+            ]
+          }
+        }
+      }
+    },
+    "user.text_confirm.lower": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConfirmLevel"
+            }
+          },
+          "nonce": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          },
+          "presence_sig": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 512
+            }
+          },
+          "app_attest": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 8192
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_params",
+        "revision.conflict",
+        "text_confirm.locked",
+        "text_confirm.proof_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief confirm-level lower",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "$ref": "#/$defs/ConfirmLevel"
+          },
+          "nonce": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "presence_sig": {
+            "type": "string",
+            "maxLength": 512
+          },
+          "app_attest": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "level",
+          "nonce",
+          "presence_sig"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConfirmLevel": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "destructive-only",
+              "off"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "user.text_confirm.lower.challenge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "user",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConfirmLevel"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "invalid_params",
+        "revision.conflict",
+        "text_confirm.locked",
+        "text_confirm.proof_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief confirm-level challenge",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "account"
+      },
+      "docs": "Owner Mac or iPhone install with an active presence key: returns the exact bytes to sign (2 minutes, one live nonce per install).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "level": {
+            "$ref": "#/$defs/ConfirmLevel"
+          }
+        },
+        "required": [
+          "level"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConfirmLevel": {
+            "type": "string",
+            "enum": [
+              "strict",
+              "destructive-only",
+              "off"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
       }
     }
   }

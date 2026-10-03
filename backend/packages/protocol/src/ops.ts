@@ -19,6 +19,7 @@ import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { feedOps } from "./feed.ts"
 import { pushOps } from "./push.ts"
+import { userConfirmOps } from "./user-confirm-ops.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
@@ -190,6 +191,7 @@ export const cloudOps = [
   ...integrationOps,
   ...feedOps,
   ...pushOps,
+  ...userConfirmOps,
   ...policyOps,
   ...networkOps,
   ...enrollmentOps,
