@@ -150,7 +150,10 @@ fn prepare_datagram_directory(control: &Path) -> io::Result<PathBuf> {
     if datagram_socket_path(control, u16::MAX).as_os_str().as_bytes().len() > MAX_SOCKET_PATH {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("control socket path {} is too long for its datagram sockets", control.display()),
+            format!(
+                "control socket path {} is too long for its datagram sockets",
+                control.display()
+            ),
         ));
     }
     match std::fs::DirBuilder::new().mode(0o700).create(&directory) {
