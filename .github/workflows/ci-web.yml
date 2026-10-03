@@ -247,7 +247,9 @@ jobs:
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       - name: Generated bundle merge driver
-        run: python3 tests/test_install_git_hooks.py
+        run: |
+          python3 tests/test_install_git_hooks.py
+          python3 tests/test_bundle_autoregen.py
 
       - name: Check diff viewer eager JS budget
         run: node ./scripts/check-webviews-diff-budget.mjs

@@ -1,0 +1,188 @@
+name: Regenerate cmux-next generated web bundles
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened]
+    paths:
+      - Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html
+      - Resources/markdown-viewer/webviews-app/**
+      - scripts/cmux-next/build-agent-pane-web.sh
+      - scripts/cmux-next/regenerate-web-bundles.sh
+      - scripts/build-webviews-app.sh
+      - webviews/**
+      - .github/workflows/cmux-next-bundle-autoregen.yml
+  push:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  discover:
+    if: >-
+      ${{
+        github.event_name == 'push' ||
+        github.event.pull_request.head.repo.full_name == github.repository
+      }}
+    runs-on: ubuntu-24.04
+    outputs:
+      prs: ${{ steps.prs.outputs.prs }}
+    steps:
+      - name: Checkout workflow tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Find same-repository pane PRs
+        id: prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = push ]; then
+            python3 scripts/ci/bundle_autoregen.py discover >> "$GITHUB_OUTPUT"
+          else
+            python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json, os
+          print("prs=" + json.dumps([{
+              "number": int(os.environ["PR_NUMBER"]),
+              "head_ref": os.environ["PR_HEAD_REF"],
+              "merge_base": False,
+          }]))
+          PYCODE
+          fi
+
+  regenerate:
+    needs: discover
+    if: needs.discover.outputs.prs != '[]'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        pr: ${{ fromJSON(needs.discover.outputs.prs) }}
+    concurrency:
+      group: cmux-next-bundle-regenerate-${{ matrix.pr.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repair helper from the base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: _bundle-tools
+          sparse-checkout: scripts/ci/bundle_autoregen.py
+          persist-credentials: false
+
+      - name: Checkout the pull request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: ${{ github.repository }}
+          ref: refs/pull/${{ matrix.pr.number }}/head
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Save repair tool before merging
+        run: |
+          set -euo pipefail
+          if [ -f _bundle-tools/scripts/ci/bundle_autoregen.py ]; then
+            cp _bundle-tools/scripts/ci/bundle_autoregen.py "$RUNNER_TEMP/bundle_autoregen.py"
+          else
+            # The first push of this workflow may be on the PR that adds the
+            # helper, before the base branch contains it.
+            cp scripts/ci/bundle_autoregen.py "$RUNNER_TEMP/bundle_autoregen.py"
+          fi
+          rm -rf _bundle-tools
+
+      - name: Prepare generated-only base conflicts
+        id: prepare
+        env:
+          MERGE_BASE: ${{ matrix.pr.merge_base }}
+        run: |
+          set -euo pipefail
+          git config user.name "cmux generated bundle bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ "$MERGE_BASE" != true ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          else
+            git fetch --no-tags origin feat-cmux-next
+            python3 "$RUNNER_TEMP/bundle_autoregen.py" prepare >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Bun
+        if: steps.prepare.outputs.proceed == 'true'
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.14"
+
+      - name: Cache Bun package cache
+        if: steps.prepare.outputs.proceed == 'true'
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: cmux-next-bundles-bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Regenerate committed bundles
+        if: steps.prepare.outputs.proceed == 'true'
+        run: ./scripts/cmux-next/regenerate-web-bundles.sh
+
+      - name: Commit regenerated bundles or resolved merge
+        id: commit
+        if: steps.prepare.outputs.proceed == 'true'
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet && ! git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            echo "Generated bundles are already current."
+            exit 0
+          fi
+          # A base merge stages authored changes from base too. Regeneration
+          # must never leave unstaged authored edits or conflict markers.
+          if ! git diff --quiet; then
+            echo "regeneration changed an unstaged path" >&2
+            exit 1
+          fi
+          git diff --cached --check
+          git -c core.hooksPath=/dev/null commit -m "chore: regenerate cmux-next web bundles"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # Mint only after the build. The package scripts never receive a write
+      # token, and an App push starts normal CI on the exact regenerated head.
+      - name: Mint repository write token
+        id: app-token
+        if: steps.commit.outputs.changed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: read
+
+      - name: Verify the PR is still open and push without force
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_REF: ${{ matrix.pr.head_ref }}
+          PR_NUMBER: ${{ matrix.pr.number }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" > "$RUNNER_TEMP/pr.json"
+          python3 - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          pr = json.loads((Path(os.environ["RUNNER_TEMP"]) / "pr.json").read_text())
+          assert pr["state"] == "open"
+          assert pr["base"]["ref"] == "feat-cmux-next"
+          assert pr["head"]["repo"]["full_name"] == os.environ["GITHUB_REPOSITORY"]
+          assert pr["head"]["ref"] == os.environ["HEAD_REF"]
+          PYCODE
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -c core.hooksPath=/dev/null -c http.https://github.com/.extraheader="AUTHORIZATION: basic $auth" \
+            push "https://github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/$HEAD_REF"
