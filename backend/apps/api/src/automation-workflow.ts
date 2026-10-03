@@ -11,14 +11,18 @@ import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRunParams> {
   override async run(event: Readonly<WorkflowEvent<AutomationRunParams>>, step: WorkflowStep): Promise<void> {
     const p = event.payload
-    const report = (name: string, r: Omit<RunReport, "run">) =>
-      step.do(name, async () => {
+    const report = async (name: string, r: Omit<RunReport, "run">) => {
+      const res = await step.do(name, async () => {
         const stub = this.env.SCHEDULER_DO.get(this.env.SCHEDULER_DO.idFromName(p.owner))
-        const res = (await stub.reportRun(p.owner, { run: p.run, ...r })) as { ok: boolean; code?: string }
+        const out = (await stub.reportRun(p.owner, { run: p.run, ...r })) as { ok: boolean; code?: string; stopped?: boolean }
         // A pruned or unknown run cannot take reports; retrying would not help.
-        if (!res.ok && res.code !== "selector.not_found") throw new Error(`run.report refused: ${res.code}`)
-        return res.ok
+        if (!out.ok && out.code !== "selector.not_found") throw new Error(`run.report refused: ${out.code}`)
+        return { ok: out.ok, stopped: out.stopped === true }
       })
+      // The owner ended this run (cancelled): stop here, with no further steps or reports.
+      if (res.stopped) throw new RunStopped()
+      return res.ok
+    }
 
     await report("cmux:start-report", { state: "running", step: -1 })
     try {
@@ -58,7 +62,13 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       }
       await report("cmux:finish", { state: "succeeded", step: steps.length - 1 })
     } catch (e) {
-      await report("cmux:fail", { state: "failed", step: -1, error: { code: "run.failed", message: String(e).slice(0, 500) } })
+      if (e instanceof RunStopped) return
+      await report("cmux:fail", { state: "failed", step: -1, error: { code: "run.failed", message: String(e).slice(0, 500) } }).catch((x) => {
+        if (!(x instanceof RunStopped)) throw x
+      })
     }
   }
 }
+
+/** The owner already ended the run; the Workflow returns without reporting again. */
+class RunStopped extends Error {}
