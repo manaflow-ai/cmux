@@ -23,7 +23,7 @@ row is recorded as a missing evidence item rather than inferred from source.
 
 | Area | Score | Evidence and screenshot |
 | --- | --- | --- |
-| Terminal input | ROUGH | Tagged `terminal.write` produced a 25-line command result and prompt in `terminal screen read`; foreground CUA text remained unverified because a host iCloud modal covered the renderer. [Screenshot](evidence/terminal-after-cli-input.png) |
+| Terminal input | ROUGH | Tagged `terminal.write` produced a 25-line command result and prompt in `terminal screen read`; a new foreground CUA click/key slice returned the foreground delivery route, but the terminal text remained visually unverified. [Screenshots](evidence/terminal-after-cli-input.png) and [foreground](evidence/runtime-cua-main-after-foreground.png) |
 | Scrollback, copy/paste | ROUGH | Scrollback output and clipboard types/text were read back; terminal paste was not visually confirmable under the modal. [Screenshot](evidence/terminal-after-cli-input.png) |
 | Fonts and themes | UNVERIFIED | No capture. |
 | Splits and tabs | WORKS | `pane split --right` and terminal-tab creation returned IDs; two panes and six tabs were listed. [Screenshot](evidence/layout-split-tabs.png) |
@@ -31,8 +31,8 @@ row is recorded as a missing evidence item rather than inferred from source.
 | SSH | UNVERIFIED | No live remote route in local-backend build; no screenshot. |
 | Claude Code via ACP (start, stream, approve, diff, resume) | UNVERIFIED | Agent catalog and acpmux are bundled; no live ACP turn or screenshot. |
 | Codex via ACP (start, stream, approve, diff, resume) | UNVERIFIED | Same limitation; no live ACP turn or screenshot. |
-| Browser pane | UNVERIFIED | Fleet artifact contains CEF and browser actions; local backend does not prove browser auth; no screenshot. |
-| Notifications | MISSING | `plans/cmux-next/notifications.md` states there is no Settings window yet; no runtime screenshot. |
+| Browser pane | BROKEN | A picker-host CUA slice launched the tagged artifact and `cmux browser open https://example.com` returned `unknown or incomplete browser action`; the follow-up browser list stayed empty. [Screenshot](evidence/runtime-cua-browser.png) |
+| Notifications | WORKS | `cmux notify` created an unread notification and `notification list` returned it with title, subtitle, body, and session. The visual notification surface was not asserted. [Screenshot](evidence/runtime-cua-notification.png) |
 | Session restore after relaunch | WORKS | After killing and relaunching the tagged app, the same workspace, two panes, and six tabs were listed before and after. [Screenshot](evidence/restore-after-relaunch.png) |
 | Import classic sessions | ROUGH | Import exists but intentionally omits commands, scrollback, and remote panels; no screenshot. |
 | Settings | MISSING | No Settings window; JSON/palette settings only; no screenshot. |
@@ -45,8 +45,7 @@ row is recorded as a missing evidence item rather than inferred from source.
 
 ## Runtime receipts
 
-The bounded slices used `/Users/Shared/cmux-build-fleet/bin/with-host-lock` and
-each returned before five minutes. The exact tagged artifact was downloaded on
+The earlier bounded slices used `/Users/Shared/cmux-build-fleet/bin/with-host-lock`; the new picker-assigned slice held the picker lease, which owns that same remote `host.lock` (nesting `with-host-lock` would deadlock), and also returned before five minutes. The exact tagged artifact was downloaded on
 the mini from the controller and verified as
 `2da47e7d35b332bd54fd7129e13358120aa467b0fd4873fee44bd5e5fd92d066` before
 launch. The terminal screen receipt is kept with the capture evidence; the GUI
@@ -56,10 +55,11 @@ visual CUA result is recorded as rough rather than works.
 - Terminal slice: command output, prompt, scrollback, and clipboard readback.
 - Layout slice: split-right, tab creation, workspace/pane/tab listings.
 - Relaunch slice: workspace, panes, and tabs listed before and after relaunch.
+- CUA system slice: foreground click/key delivery returned by `cua-driver`; browser open/list failed; notification create/list worked. The host wallpaper manifest selected `met-death-of-socrates-436105.jpg`.
 
 Evidence files: `plans/cmux-next/evidence/terminal-after-cli-input.png`,
 `plans/cmux-next/evidence/layout-split-tabs.png`, and
-`plans/cmux-next/evidence/restore-after-relaunch.png`.
+`plans/cmux-next/evidence/restore-after-relaunch.png`, `plans/cmux-next/evidence/runtime-cua-main-before.png`, `plans/cmux-next/evidence/runtime-cua-main-after-foreground.png`, `plans/cmux-next/evidence/runtime-cua-browser.png`, and `plans/cmux-next/evidence/runtime-cua-notification.png`.
 
 ## Ranked blockers
 
