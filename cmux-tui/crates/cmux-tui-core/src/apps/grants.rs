@@ -159,8 +159,13 @@ const VIEW_STATE_OPS: &[&str] = &[
     "workspace.focus",
 ];
 
+/// Provider ops that open UI (a file panel) need a gesture the same way.
+/// They join scopes.json with the build-time scopes; listed here first so a
+/// VM can never open a panel without one.
+const PANEL_OPS: &[&str] = &["fs.pick"];
+
 pub fn needs_gesture(op: &str) -> bool {
-    VIEW_STATE_OPS.contains(&op)
+    VIEW_STATE_OPS.contains(&op) || PANEL_OPS.contains(&op)
 }
 
 struct Token {
