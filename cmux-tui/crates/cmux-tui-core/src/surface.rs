@@ -1849,7 +1849,7 @@ enum PtyLifetime {
 /// When a new terminal surface takes its share of the Kitty image budget.
 #[derive(Clone, Copy)]
 #[cfg_attr(not(unix), allow(dead_code))]
-enum KittyQuota {
+pub(crate) enum KittyQuota {
     /// Before its host launches, waiting for other surfaces to shrink.
     AtLaunch,
     /// Once the surface commits (`Mux::reserve_kitty_image_surface_without_quota`).
@@ -2489,7 +2489,7 @@ impl Surface {
 
     /// The identity environment and Kitty image budget every terminal
     /// surface gets before its process starts.
-    fn spawn_prelude(
+    pub(crate) fn spawn_prelude(
         id: SurfaceId,
         mut opts: SurfaceOptions,
         mux: &Weak<Mux>,
