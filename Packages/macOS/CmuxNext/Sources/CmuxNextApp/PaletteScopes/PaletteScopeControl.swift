@@ -37,9 +37,16 @@ enum PaletteScopeControl {
                 case .success(let value): return value
                 case .failure(let error): throw error
                 }
+            }.withLimit { request, _ in
+                // The forwarded action.run keeps its own deadline (terminal
+                // start, awaited result); this one only has to outlast it
+                // plus the page load, so the inner reply always answers.
+                (request.params["wait"]?.boolValue ?? true) ? runLimit : nil
             },
         ]
     }
+
+    nonisolated static let runLimit = max(ControlRouter.terminalStartDeadline, ActionDescriptor.resultDeadline) + .seconds(5)
 
     @MainActor
     private static func runnableRef(services: AppServices?, _ request: (scope: String, item: String, action: String?)) async throws -> PaletteActionRef {
@@ -57,6 +64,8 @@ enum PaletteScopeControl {
         }
     }
 
+    nonisolated static let headlessOrigins: Set<String> = ["cli", "mcp", "script", "remote"]
+
     nonisolated static func scopeUnknown(_ scope: String) -> ControlError {
         ControlError(code: "palette.scope_unknown", message: PaletteOpenRefusal.unknownScope(scope).message, data: ["scope": .string(scope)])
     }
@@ -68,6 +77,11 @@ enum PaletteScopeControl {
         switch params["args"] ?? params["arguments"] {
         case nil, .null, .object: break
         default: throw ControlError.invalidParams("args must be an object of name: value")
+        }
+        // A headless run is never the in-app user: only a user in this app
+        // may change its view without `focus: true` (OWNERSHIP-PRINCIPLES).
+        if let origin = params["origin"], !origin.isNull, !headlessOrigins.contains(origin.stringValue ?? "") {
+            throw ControlError.invalidParams("origin must be cli, mcp, script or remote")
         }
         return (scope, item, params["action"]?.stringValue)
     }
@@ -82,9 +96,11 @@ enum PaletteScopeControl {
         }
         var run: [String: JSONValue] = ["action": .string(ref.action.rawValue), "args": .object(arguments)]
         if let target = ref.target { run["target"] = .string(target.description) }
-        for key in ["origin", "focus", "wait", "idempotency_key"] {
+        for key in ["focus", "wait", "idempotency_key"] {
             if let value = params[key] { run[key] = value }
         }
+        // `runParameters` allowed only headless origins; none is a CLI run.
+        run["origin"] = params["origin"].flatMap { $0.isNull ? nil : $0 } ?? "cli"
         return run
     }
 

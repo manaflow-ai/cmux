@@ -62,8 +62,8 @@ extension PaletteController {
     /// looked up among all the scope's rows (not only the top ranked ones),
     /// then `PaletteRunSelection.pick` chooses its ref.
     public func runnableRef(scope: PaletteScopeID, item: String, action: String?) async throws(PaletteRunSelection.Failure) -> PaletteActionRef {
-        guard let (_, state) = await loadedPage(scope) else { throw .unknownScope }
-        let rows = state.providerItems.keys.sorted().compactMap { state.providerItems[$0] }.joined()
+        guard let (page, state) = await loadedPage(scope) else { throw .unknownScope }
+        let rows = page.providers.compactMap { state.providerItems[$0.id] }.joined()
         guard let row = rows.first(where: { $0.id == item }) else { throw .refused(.unknownItem(scope: scope.rawValue, item: item)) }
         do throws(PaletteRunRefusal) {
             return try PaletteRunSelection.pick(titled(row.actionRefs), title: row.title, item: item, action: action)
@@ -91,7 +91,11 @@ extension PaletteController {
     private func titled(_ refs: [PaletteActionRef]) -> [PaletteActionRef] {
         refs.map { ref in
             var ref = ref
-            if ref.title == nil { ref.title = registry.descriptor(for: ref.action)?.title }
+            // The catalog is the truth for the title and for confirmation.
+            if let descriptor = registry.descriptor(for: ref.action) {
+                if ref.title == nil { ref.title = descriptor.title }
+                ref.isDestructive = descriptor.isDestructive
+            }
             return ref
         }
     }

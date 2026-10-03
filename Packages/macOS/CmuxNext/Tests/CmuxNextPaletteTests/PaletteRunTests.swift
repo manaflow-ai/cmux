@@ -27,7 +27,8 @@ import Testing
         let close = try await palette.runnableRef(scope: .tabs, item: "tab:t2", action: "closeTab")
         #expect(close.action == "closeTab")
         #expect(close.target == ActionTargetRef(kind: .tab, id: "t2"))
-        #expect(close.isDestructive)
+        // Confirmation follows the catalog, not the row's UI styling.
+        #expect(close.isDestructive == ActionRegistry.standard().descriptor(for: "closeTab")?.isDestructive)
     }
 
     @Test func workspaceRowsGoToTheirWorkspace() async throws {

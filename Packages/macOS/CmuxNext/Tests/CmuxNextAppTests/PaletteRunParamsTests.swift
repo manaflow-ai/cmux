@@ -15,6 +15,17 @@ import Testing
         #expect(params["action"] == "palette.toggleSetting")
         #expect(params["args"] == ["setting": "sidebar.minimal", "on": false])
         #expect(params["target"] == nil)
+        #expect(params["origin"] == "cli")
+    }
+
+    /// A socket caller cannot claim to be the in-app user (who may move
+    /// focus without `focus: true`).
+    @Test func theUserOriginIsRefused() throws {
+        #expect(throws: (any Error).self) { try PaletteScopeControl.runParameters(["scope": "tabs", "item": "tab:1", "origin": "user"]) }
+        #expect(throws: (any Error).self) { try PaletteScopeControl.runParameters(["scope": "tabs", "item": "tab:1", "origin": 3]) }
+        for origin in ["cli", "mcp", "script", "remote"] {
+            _ = try PaletteScopeControl.runParameters(["scope": "tabs", "item": "tab:1", "origin": .string(origin)])
+        }
     }
 
     @Test func originFocusAndKeyPassThroughAndTheRowTargetWins() {
