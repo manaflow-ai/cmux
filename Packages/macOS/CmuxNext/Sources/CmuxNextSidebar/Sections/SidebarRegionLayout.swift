@@ -148,10 +148,33 @@ extension SidebarLayoutDocument {
     /// `room`, in region order (top, middle, bottom) split at the
     /// workspaces section. Items sections in the middle region draw in the
     /// band next to the list; they scroll with it in phase 5
-    /// (plans/cmux-next/sidebar-sections.md 8).
-    public func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
+    /// (plans/cmux-next/sidebar-sections.md 8). Pure, so the rail's
+    /// nonisolated layout reads it too.
+    public nonisolated func bands(room: String?) -> (above: [LayoutSection], below: [LayoutSection]) {
         let ordered = SidebarRegion.allCases.flatMap { sections(in: $0, room: room) }
         guard let split = ordered.firstIndex(where: { $0.content == .workspaces }) else { return (ordered, []) }
         return (Array(ordered[..<split]), Array(ordered[(split + 1)...]))
+    }
+}
+
+extension Array where Element == LayoutSection {
+    /// These sections without the items in `hidden` (items that draw
+    /// nothing, such as a hidden app's); the layout keeps them.
+    public func hidingItems(_ hidden: Set<LayoutItemID>) -> [LayoutSection] {
+        presenting(hidingItems: hidden, apps: [])
+    }
+
+    /// What draws: no section and no item of a suppressed app (no
+    /// placeholder either: hiding an app is a choice, not an error), and no
+    /// item in `hidden`. The layout keeps every place, so unhiding an app
+    /// brings its sections and items back where they were.
+    public func presenting(hidingItems hidden: Set<LayoutItemID>, apps: Set<String>) -> [LayoutSection] {
+        guard !hidden.isEmpty || !apps.isEmpty else { return self }
+        return compactMap { section in
+            if let app = section.owningAppID, apps.contains(app) { return nil }
+            var section = section
+            section.items.removeAll { hidden.contains($0.id) || $0.owningAppID.map(apps.contains) == true }
+            return section
+        }
     }
 }

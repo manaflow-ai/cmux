@@ -1,5 +1,5 @@
-// Line icons for the changes view and the edited-files card, after the Codex glyphs in
-// manaflow-ai/codex-atlas-clone (src/changes/icons.tsx, src/conversation/icons.tsx).
+// Line icons for the changes view and the edited-files card, ported from
+// the agent-pane reference prototype (src/changes/icons.tsx, src/conversation/icons.tsx).
 // They draw in currentColor, so the pane's theme colors them.
 import React, { useLayoutEffect, type SVGProps } from "react";
 import { createFileTreeIconResolver, getBuiltInSpriteSheet } from "@pierre/trees";
@@ -20,6 +20,17 @@ const line = (size: number): P => ({
 export const ChevronDown = (p: P) => (
   <svg {...line(12)} {...p}>
     <path d="M4 6l4 4 4-4" />
+  </svg>
+);
+export const OpenTab = (p: P) => (
+  <svg {...line(16)} {...p}>
+    <path d="M7 3H4.6A1.6 1.6 0 0 0 3 4.6v6.8A1.6 1.6 0 0 0 4.6 13h6.8a1.6 1.6 0 0 0 1.6-1.6V9" />
+    <path d="M9.5 3H13v3.5M13 3L8 8" />
+  </svg>
+);
+export const Code = (p: P) => (
+  <svg {...line(16)} strokeWidth={1.45} {...p}>
+    <path d="M4.6 5.2L2.2 8l2.4 2.8M11.4 5.2L13.8 8l-2.4 2.8M9 4.9L7 11.1" />
   </svg>
 );
 export const Check = (p: P) => (
@@ -44,7 +55,7 @@ export const CollapseAll = (p: P) => (
     <path d="M5 1.8v4.6M3 4.6l2 1.9 2-1.9M5 14.2V9.6M3 11.4l2-1.9 2 1.9M9.4 6.4h4.4M9.4 9.6h3.2" />
   </svg>
 );
-/// Codex fills the split icon's halves red and green; here they take the diff colors.
+/// The split icon's halves take the diff colors.
 export const SplitView = (p: P) => (
   <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden {...p}>
     <rect x="1.6" y="2.1" width="12.8" height="11.8" rx="2.2" fill="none" stroke="currentColor" strokeWidth="1.25" />

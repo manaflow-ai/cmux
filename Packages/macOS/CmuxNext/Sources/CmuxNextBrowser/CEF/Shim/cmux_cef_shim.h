@@ -64,7 +64,7 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_WILL_OPEN = 20,
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
-  // The tab's renderer process ended unexpectedly (Chrome's "Aw, Snap!").
+  // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
   // a = cef_termination_status_t, b = error code (exit code or signal),
   // s1 = Chromium's error string.
   CMUX_SHIM_RENDER_TERMINATED = 23,
@@ -73,7 +73,7 @@ typedef enum {
   CMUX_SHIM_RENDER_UNRESPONSIVE = 24,
   // The renderer answers again after RENDER_UNRESPONSIVE.
   CMUX_SHIM_RENDER_RESPONSIVE = 25,
-  // A Chrome command that opens a window of Chromium's own (New Window,
+  // A Chromium command that opens a window of Chromium's own (New Window,
   // New Incognito Window, Task Manager, feedback, guest profile, Move Tab to
   // New Window, app windows). The shim blocked it; request = the IDC_*
   // command id (chrome/app/chrome_command_ids.h).
@@ -83,8 +83,10 @@ typedef enum {
   // a = 1 for a redirect. The host re-creates the tab in the other store.
   CMUX_SHIM_NAVIGATION_REROUTE = 27,
   // The page did not handle a key down (CefKeyboardHandler::OnKeyEvent
-  // after the renderer). Only Escape without modifiers is reported;
-  // a = Windows key code (0x1B). A popup panel closes on it.
+  // after the renderer): Escape without modifiers (a popup panel closes on
+  // it), or a letter A-Z without Command, Control or Option while no
+  // editable field has focus (single-key page shortcuts). a = Windows key
+  // code (0x1B, or 0x41-0x5A), b = 1 when Shift was down.
   CMUX_SHIM_KEY_UNHANDLED = 28,
   // An extension install or permission prompt (fork API 12): request =
   // prompt id (0 = "installed" notice, no reply), s1 = JSON (cef_cmux.h,
@@ -101,8 +103,8 @@ typedef enum {
 
 typedef enum {
   CMUX_SHIM_DEVTOOLS_SHOW = 1,        // open, or focus the open DevTools
-  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chrome's IDC_DEV_TOOLS_CONSOLE
-  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chrome's IDC_DEV_TOOLS_INSPECT (element picker)
+  CMUX_SHIM_DEVTOOLS_CONSOLE = 2,     // Chromium's IDC_DEV_TOOLS_CONSOLE
+  CMUX_SHIM_DEVTOOLS_INSPECT = 3,     // Chromium's IDC_DEV_TOOLS_INSPECT (element picker)
   CMUX_SHIM_DEVTOOLS_INSPECT_AT = 4,  // inspect the element at (x, y), view coordinates
   CMUX_SHIM_DEVTOOLS_CLOSE = 5,
 } cmux_shim_devtools_command_t;
@@ -227,7 +229,7 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
-// Chrome's Back/Forward menus. JSON {"current": index, "entries": [{"url",
+// Back/Forward menu entries. JSON {"current": index, "entries": [{"url",
 // "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown
 // browser. Works on every fork.
 CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_entries(int browser_id);

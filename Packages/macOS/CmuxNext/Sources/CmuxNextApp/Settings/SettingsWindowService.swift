@@ -24,8 +24,18 @@ final class SettingsWindowService: SettingsWindowHost {
     var model: SettingsWindowModel? { controller?.model }
     var window: NSWindow? { controller?.window }
 
-    func show(section: SettingsSection?) throws {
+    /// Shows Settings on `section`, or scrolled to `setting` (a cmux.json
+    /// key path, card or button `SettingsAnchor(key:)` knows) with its
+    /// highlight. An unknown setting is refused and opens nothing.
+    func show(section: SettingsSection?, setting: String? = nil) throws {
         guard let settings = services.settings else { throw ActionFailure(message: RefusalStrings.settingsNotLoaded) }
+        var anchor: SettingsAnchor?
+        if let setting {
+            guard let found = SettingsAnchor(key: setting) else {
+                throw ActionFailure.invalidTarget(RefusalStrings.noSuchSettingsEntry(setting))
+            }
+            anchor = found
+        }
         if controller == nil {
             let controller = SettingsWindowController(model: SettingsWindowModel(settings: settings, registry: services.registry, host: self))
             controller.onClose = { [weak self] in self?.controller = nil }
@@ -33,7 +43,7 @@ final class SettingsWindowService: SettingsWindowHost {
         }
         // Settings draws in the theme of the window it was opened from.
         controller?.setThemeScope(services.windows.active?.themeScope ?? .app)
-        controller?.present(section: section)
+        controller?.present(section: section, anchor: anchor)
     }
 
     // MARK: SettingsWindowHost
@@ -70,6 +80,15 @@ final class SettingsWindowService: SettingsWindowHost {
     }
 
     var shellIntegration: String? { GhosttyRuntime.shared.shellIntegrationSettings?.mode }
+
+    /// The window opacity the theme resolved (Ghostty's, or the default a
+    /// chosen material gets), so the unset slider sits where the window is:
+    /// read through the active window's theme scope (the app scope when no
+    /// window is open), which inherits the app theme unless a room
+    /// overrides it.
+    func derivedNumber(at path: [String]) -> Double? {
+        path == WindowBackgroundSetting.opacityPath ? (services.windows.active?.themeScope ?? ThemeScope.app).input.backgroundOpacity : nil
+    }
 
     var shortcutEditor: (any ShortcutRecorderEditing)? { services.paletteShortcutEditor }
 

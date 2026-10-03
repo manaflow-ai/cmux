@@ -16,7 +16,8 @@
     "croner": "10.0.1",
     "effect": "4.0.0-rc.117",
     "jose": "6.2.12",
-    "pg": "8.23.0"
+    "pg": "8.23.0",
+    "@cmux/home-core": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d'
+IR_SHA256 = '4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c'
 
 
 @dataclass(frozen=True)
@@ -513,6 +513,18 @@ COMMANDS = {
             'transaction': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-search': CommandMetadata(
+        'conversation-search',
+        'local-admin',
+        12,
+        'conversation-search-v1',
+        ('local-admin',),
+        None,
+        {
+            'limit': CommandFieldMetadata(None, None),
+            'query': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-snapshot': CommandMetadata(
         'conversation-snapshot',
         'local-admin',
@@ -903,6 +915,17 @@ COMMANDS = {
         ('frontend',),
         None,
         {
+        },
+    ),
+    'get-frontend-browser-history': CommandMetadata(
+        'get-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'get-frontend-projection': CommandMetadata(
@@ -1354,6 +1377,7 @@ COMMANDS = {
             'edge': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
             'ratio': CommandFieldMetadata(None, None),
+            'respawn': CommandFieldMetadata(12, 'tab-split-respawn-v1'),
             'surface': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
         },
@@ -2164,6 +2188,18 @@ COMMANDS = {
             'palette': CommandFieldMetadata(9, None),
             'selection_bg': CommandFieldMetadata(9, None),
             'selection_fg': CommandFieldMetadata(9, None),
+        },
+    ),
+    'set-frontend-browser-history': CommandMetadata(
+        'set-frontend-browser-history',
+        'control',
+        12,
+        'frontend-browser-history-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'history': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'set-personal-terminal': CommandMetadata(

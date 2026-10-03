@@ -12,6 +12,10 @@ public enum AppPermissionsSurface {
     case permissions(AppPermissionsModel)
     /// The inline first-use prompt inside the app's surface.
     case firstUse(AppFirstUsePrompt)
+    /// Installed Apps (Hide/Unhide, Disable/Enable, Remove).
+    case installed(AppInstallsModel)
+    /// The "Show Hidden Apps" sheet.
+    case hiddenApps(AppInstallsModel)
 }
 
 /// Hosts one permission surface (SwiftUI in an NSHostingView). Resolves
@@ -25,9 +29,12 @@ public final class AppPermissionsHostView: NSView {
 
     /// `scrolls` wraps the surface in a scroll view (Settings pane); pass
     /// false to size the view to its content (sheets, prompts, snapshots).
-    public init(surface: AppPermissionsSurface, style: any AppPermissionsStyleSource, scrolls: Bool = true) {
+    /// `installedStyle` drives the Installed Apps prototypes (cards when nil).
+    public init(surface: AppPermissionsSurface, style: any AppPermissionsStyleSource,
+                installedStyle: (any AppInstalledStyleSource)? = nil, scrolls: Bool = true) {
         self.surface = surface
-        hosting = NSHostingView(rootView: PermissionsRoot(surface: surface, style: style, appearance: appearanceState, scrolls: scrolls))
+        hosting = NSHostingView(rootView: PermissionsRoot(surface: surface, style: style, installedStyle: installedStyle,
+                                                          appearance: appearanceState, scrolls: scrolls))
         super.init(frame: .zero)
         wantsLayer = true
         hosting.translatesAutoresizingMaskIntoConstraints = false

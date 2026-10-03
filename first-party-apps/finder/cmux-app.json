@@ -1,0 +1,90 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
+  "manifestVersion": 1,
+  "id": "cmux/finder",
+  "name": { "en": "Finder", "ja": "ファインダー" },
+  "version": "0.1.0",
+  "description": {
+    "en": "Browse folders on this Mac, cmux servers, the team VM and SSH hosts. Copy, move, rename and trash files with progress, preview them, and send them to terminals and agents.",
+    "ja": "このMac、cmuxサーバー、チームVM、SSHホストのフォルダをブラウズします。進捗を見ながらファイルをコピー、移動、名前変更、ゴミ箱に入れ、プレビューし、ターミナルやエージェントに渡せます。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "categories": ["productivity", "cloud", "developer-tools"],
+  "keywords": ["files", "finder", "ssh", "sftp", "copy", "browse"],
+  "engines": { "cmux": "^1.0" },
+  "main": "dist/main.js",
+  "scopes": {
+    "fs:read": "List and preview files in the folders and hosts you give this app.",
+    "host:read": "Show the hosts you connected this app to and whether they are online."
+  },
+  "optionalScopes": {
+    "fs:write": "Create, rename, copy, move and trash files when you ask, only in folders you gave it write access to.",
+    "host:control": "Open the cmux connect sheet when you click Connect. You choose the host and the credential; the app never sees it.",
+    "terminal:input": "Insert a file's path into the focused terminal when you choose Insert Path in Terminal.",
+    "agent:write": "Attach files to an agent when you choose Attach to Agent."
+  },
+  "contributes": {
+    "sidebarSections": [
+      { "id": "files", "title": { "en": "Files", "ja": "ファイル" }, "symbol": "folder", "defaultRegion": "middle", "render": "renderFiles" }
+    ],
+    "paneKinds": [
+      { "id": "finder", "title": { "en": "Finder", "ja": "ファインダー" }, "symbol": "folder", "render": "renderFinder" }
+    ],
+    "commands": [
+      {
+        "id": "openFinder",
+        "title": { "en": "Open Finder", "ja": "ファインダーを開く" },
+        "symbol": "folder",
+        "run": "openFinder",
+        "keywords": ["files", "browse", "folder"],
+        "contexts": ["palette", "sidebarSection:files"]
+      },
+      {
+        "id": "addFolder",
+        "title": { "en": "Add Folder to Finder…", "ja": "ファインダーにフォルダを追加…" },
+        "symbol": "folder.badge.plus",
+        "run": "addFolder",
+        "keywords": ["folder", "favorite", "root"],
+        "contexts": ["palette", "sidebarSection:files"]
+      },
+      {
+        "id": "connectHost",
+        "title": { "en": "Connect to Host…", "ja": "ホストに接続…" },
+        "symbol": "network",
+        "run": "connectHost",
+        "keywords": ["ssh", "server", "vm", "remote"],
+        "contexts": ["palette", "sidebarSection:files"]
+      },
+      {
+        "id": "cycleVariant",
+        "title": { "en": "Next Finder Variant", "ja": "ファインダーの次のバリアント" },
+        "run": "cycleVariant",
+        "contexts": ["palette"],
+        "x-cmux-devOnly": true
+      }
+    ],
+    "settings": {
+      "type": "object",
+      "properties": {
+        "variant": {
+          "type": "string",
+          "enum": ["listPreview", "columns", "dualPane"],
+          "default": "listPreview",
+          "title": "Design variant",
+          "description": "listPreview: list with columns and a preview. columns: column view. dualPane: two lists side by side for copying between hosts.",
+          "x-cmux-devOnly": true
+        },
+        "showPreview": {
+          "type": "boolean",
+          "default": true,
+          "title": "Show the preview pane"
+        }
+      }
+    }
+  },
+  "activation": ["onSidebarSection:files", "onCommand:openFinder", "onCommand:addFolder", "onCommand:connectHost"],
+  "files": ["dist/", "assets/", "strings/"]
+}

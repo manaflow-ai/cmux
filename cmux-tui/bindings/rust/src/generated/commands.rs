@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d.
+// cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -498,6 +498,16 @@ pub type ConversationOpResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationSearchRequest {
+    pub limit: u32,
+    pub query: String,
+}
+
+#[rustfmt::skip]
+pub type ConversationSearchResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationSnapshotRequest {
     pub conversation: String,
     pub tail: u32,
@@ -915,6 +925,15 @@ pub struct GetCellPixelsRequest {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetFrontendBrowserHistoryRequest {
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type GetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GetFrontendProjectionRequest {
     pub frontend: String,
     pub scope: String,
@@ -1321,6 +1340,8 @@ pub struct MoveTabToSplitRequest {
     pub pane: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ratio: Optional<f32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub respawn: Optional<T::SplitRespawn>,
     pub surface: T::Id,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,
@@ -2130,6 +2151,16 @@ pub type SetDefaultColorsResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetFrontendBrowserHistoryRequest {
+    pub history: Nullable<T::JsonValue>,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type SetFrontendBrowserHistoryResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetPersonalTerminalRequest {
     pub session_id: String,
     pub terminal_key: String,
@@ -2899,6 +2930,10 @@ impl CmuxClient {
         self.execute(&CONVERSATION_OP_METADATA, &request)
     }
 
+    pub fn conversation_search(&mut self, request: ConversationSearchRequest) -> Result<ConversationSearchResult> {
+        self.execute(&CONVERSATION_SEARCH_METADATA, &request)
+    }
+
     pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
         self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
     }
@@ -3039,6 +3074,10 @@ impl CmuxClient {
 
     pub fn get_cell_pixels(&mut self, request: GetCellPixelsRequest) -> Result<T::GetCellPixelsResult> {
         self.execute(&GET_CELL_PIXELS_METADATA, &request)
+    }
+
+    pub fn get_frontend_browser_history(&mut self, request: GetFrontendBrowserHistoryRequest) -> Result<GetFrontendBrowserHistoryResult> {
+        self.execute(&GET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn get_frontend_projection(&mut self, request: GetFrontendProjectionRequest) -> Result<GetFrontendProjectionResult> {
@@ -3190,6 +3229,10 @@ impl CmuxClient {
     }
 
     pub fn move_tab_to_split(&mut self, request: MoveTabToSplitRequest) -> Result<MoveTabToSplitResult> {
+        if !request.respawn.is_missing() {
+            self.require_protocol_field("move-tab-to-split", 12)?;
+            self.require_capability_field("move-tab-to-split", "tab-split-respawn-v1")?;
+        }
         self.execute(&MOVE_TAB_TO_SPLIT_METADATA, &request)
     }
 
@@ -3578,6 +3621,10 @@ impl CmuxClient {
             self.require_protocol_field("set-default-colors", 9)?;
         }
         self.execute(&SET_DEFAULT_COLORS_METADATA, &request)
+    }
+
+    pub fn set_frontend_browser_history(&mut self, request: SetFrontendBrowserHistoryRequest) -> Result<SetFrontendBrowserHistoryResult> {
+        self.execute(&SET_FRONTEND_BROWSER_HISTORY_METADATA, &request)
     }
 
     pub fn set_personal_terminal(&mut self, request: SetPersonalTerminalRequest) -> Result<SetPersonalTerminalResult> {

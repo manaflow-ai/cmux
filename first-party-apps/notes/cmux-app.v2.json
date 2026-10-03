@@ -1,0 +1,81 @@
+{
+  "$comment": "Sketch of this app on manifest v2 (Platform v2, plans section 12: V1 catalog fragment, V3 documents with one owner, V6 handles, V7 native pane, V10 owner taxonomy, V11 typed watch streams, gesture tokens, l10n, variants). Not loaded by today's runtime; cmux-app.json is the runnable v1 manifest.",
+  "manifestVersion": 2,
+  "id": "cmux/notes",
+  "version": "0.2.0",
+  "name": { "en": "Notes", "ja": "メモ" },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "icon": "assets/icon.svg",
+  "main": "dist/main.js",
+  "strings": "strings/",
+  "tier": "first-party",
+  "server": {
+    "kind": "native",
+    "binary": "cmux-notes",
+    "args": ["serve"],
+    "instances": "user",
+    "data": "durable",
+    "catalog": "catalog/notes-catalog.json"
+  },
+  "documents": {
+    "$comment": "The notes server is the document host for every note (one owner per document): buffer, revision, unsaved-buffer journal, conflicts. Views edit with document.edit {doc, base_revision, edits}; a stale base is refused with revision.conflict.",
+    "types": [{ "id": "note", "mime": "text/markdown", "prefix": "doc_", "openWith": "editor" }]
+  },
+  "scopes": {
+    "workspace:read": "Show the scratchpad of the workspace you are in and label notes with workspace names."
+  },
+  "optionalScopes": {
+    "fs:read": "Import the Markdown files you pick (a handle per pick; no other file is reachable).",
+    "fs:write": "Export notes as Markdown files into a folder you pick (a handle per pick)."
+  },
+  "consumes": {
+    "ops": ["fs.pick", "fs.read", "fs.write", "app.pane.open", "workspace.list"],
+    "handles": ["root_"]
+  },
+  "implements": {
+    "cmux.section/1": [{ "id": "notes", "title": { "en": "Notes", "ja": "メモ" }, "symbol": "note.text", "defaultRegion": "middle", "render": "renderNotes" }],
+    "cmux.search.provider/1": [{ "id": "notes", "title": { "en": "Notes", "ja": "メモ" }, "prefix": "n", "symbol": "note.text", "op": "note.search" }],
+    "cmux.pane/1": [
+      {
+        "id": "editor",
+        "renderer": "native",
+        "native": "notes-editor",
+        "title": { "en": "Note", "ja": "メモ" },
+        "symbol": "note.text",
+        "input": { "type": "object", "required": ["doc"], "properties": { "doc": { "type": "string", "pattern": "^doc_" } } },
+        "$comment": "The only native pane for now (first-party). Contract in README, 'The editor pane'."
+      }
+    ]
+  },
+  "catalog": {
+    "$comment": "Ops of the notes server: catalog/notes-catalog.json (owner app:cmux/notes). The agent tools are those ops with mcp: default (note.list, note.get, note.create, note.append, note.capture, note.search); no JS runs for them. The app adds only client commands below.",
+    "family": "notes",
+    "owner": "app:cmux/notes",
+    "operations": [
+      { "name": "notes.new", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "newNote", "palette": { "title": { "en": "New Note", "ja": "新規メモ" } }, "mcp": { "expose": "never" } },
+      { "name": "notes.open", "class": "mutation", "risk": "mutate-own", "focuses": true, "gesture": "required", "export": "open", "input": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }, "mcp": { "expose": "never" } },
+      { "name": "notes.export", "class": "mutation", "risk": "mutate-shared", "gesture": "required", "export": "exportNotes", "input": { "type": "object", "properties": { "id": { "type": "string" } } }, "palette": { "title": { "en": "Export Notes as Markdown…", "ja": "メモをMarkdownで書き出す…" } }, "mcp": { "expose": "never" } },
+      { "name": "notes.import", "class": "mutation", "risk": "mutate-own", "gesture": "required", "export": "importNotes", "palette": { "title": { "en": "Import Markdown Files as Notes…", "ja": "Markdownファイルをメモとして読み込む…" } }, "mcp": { "expose": "never" } }
+    ]
+  },
+  "settings": {
+    "type": "object",
+    "properties": {
+      "sort": { "type": "string", "enum": ["updated", "created", "title"], "default": "updated", "title": { "en": "Sort notes by", "ja": "並べ替え" } },
+      "bodyLines": { "type": "integer", "minimum": 1, "maximum": 400, "default": 12, "title": { "en": "Lines shown before Show More", "ja": "「さらに表示」までの行数" } }
+    }
+  },
+  "variants": {
+    "$comment": "DEV/NIGHTLY prototypes (x-cmux-devOnly); the platform adds the 'Next Notes Variant' palette entry and the Settings picker.",
+    "setting": "variant",
+    "default": "scratchpad",
+    "options": {
+      "scratchpad": { "en": "This workspace's scratchpad open on top, then the other notes." },
+      "list": { "en": "Notes with the selected one shown inline." },
+      "editor": { "en": "Rows only; a click opens the note in the editor pane." }
+    }
+  },
+  "files": ["dist/", "assets/", "strings/", "catalog/"]
+}

@@ -1,222 +1,238 @@
 import { describe, expect, test } from "bun:test"
-import { FOCUS_OPS, findVisible, makeHost, nodesOf, run, texts, visible } from "./harness.ts"
+import { FOCUS_OPS, findVisible, makeHost, menu, nodesOf, run, tap, texts, visible } from "./harness.ts"
 
-const seeded = {
-  "notes.v1": {
-    version: 1,
-    notes: [
-      { id: "note_a", title: "Release checklist", body: "- [x] tag\n- [ ] notes\n- [ ] announce", pinned: true, scratchpad: false, workspace: null, createdAt: 1, updatedAt: 10, revision: 3, lastEdit: { via: "ui" } },
-      { id: "note_b", title: "", body: "Ideas\nfaster search\nexport to folder", pinned: false, scratchpad: false, workspace: null, createdAt: 2, updatedAt: 20, revision: 1, lastEdit: { via: "ui" } },
-      { id: "note_pad", title: "", body: "check flaky test\nport 3001 busy", pinned: false, scratchpad: true, workspace: { id: "workspace_api", name: "api" }, createdAt: 3, updatedAt: 30, revision: 2, lastEdit: { via: "command", actor: "agent:claude" } }
-    ]
-  }
-}
+const focusCalls = (host: ReturnType<typeof makeHost>["host"]) => host.calls.filter((c) => FOCUS_OPS.includes(c.name))
+const rowTitles = (host: ReturnType<typeof makeHost>["host"], m = "m") => nodesOf(host, m, "Row").map(([, n]) => n.props.title)
+const PAD = "note_pad0000000000000"
+const LIST = "note_a000000000000000"
 
-describe("commands (agent tools)", () => {
-  test("create, list, read, append; list never returns bodies; everything persists", async () => {
-    const { host, kv } = makeHost()
+describe("agent tools (commands forward to the notes server's ops)", () => {
+  test("create, list, read, append, capture, search; list never returns bodies; no focus op", async () => {
+    const { host, server } = makeHost({ seeds: [] })
     const created = await run(host, "create", { title: "Deploy", body: "step 1", workspace: "current" })
     expect(created.ok).toBe(true)
+    expect(host.calls.find((c) => c.name === "note.create")!.params).toEqual({ title: "Deploy", body: "step 1", workspace: "current", pinned: false })
     const id = created.body.value.id
+    expect(created.body.value.body).toBeUndefined()
     expect(created.body.value.workspace).toEqual({ id: "workspace_api", name: "api" })
-    const appended = await run(host, "append", { id, text: "step 2" })
-    expect(appended.body.value.lines).toBe(2)
-    const listed = await run(host, "list", {})
-    expect(listed.body.value.notes).toHaveLength(1)
-    expect(listed.body.value.notes[0].body).toBeUndefined()
-    expect(listed.body.value.notes[0].preview).toBe("step 1 · step 2")
-    expect(listed.body.value.storage).toBe("local")
-    const read = await run(host, "read", { id })
-    expect(read.body.value.body).toBe("step 1\nstep 2")
-    expect((kv.get("notes.v1") as { notes: unknown[] }).notes).toHaveLength(1)
-    expect(host.calls.filter((c) => FOCUS_OPS.includes(c.name))).toEqual([])
+    expect((await run(host, "append", { id, text: "step 2" })).body.value.lines).toBe(2)
+    const listed = (await run(host, "list", {})).body.value.notes
+    expect(listed).toHaveLength(1)
+    expect(listed[0].body).toBeUndefined()
+    expect((await run(host, "read", { id })).body.value.body).toBe("step 1\nstep 2")
+    expect(host.calls.find((c) => c.name === "note.get")!.params).toEqual({ note: id })
+    const captured = (await run(host, "capture", { text: "Call the vendor\nabout invoices" })).body.value
+    expect(captured.title).toBe("Call the vendor")
+    expect((await run(host, "search", { query: "vendor" })).body.value.results.map((r: { id: string }) => r.id)).toEqual([captured.id])
+    expect(server.notes.size).toBe(2)
+    expect(focusCalls(host)).toEqual([])
+    expect(host.calls.some((c) => c.name.startsWith("app.storage"))).toBe(false)
   })
 
-  test("append by workspace creates the scratchpad once, then appends to it", async () => {
-    const { host } = makeHost()
+  test("append by workspace goes to its scratchpad (the server creates it once)", async () => {
+    const { host, server } = makeHost({ seeds: [] })
     await run(host, "append", { workspace: "web", text: "one" })
     await run(host, "append", { workspace: "workspace_web", text: "two" })
-    const listed = (await run(host, "list", { workspace: "web" })).body.value.notes
-    expect(listed).toHaveLength(1)
-    expect(listed[0].scratchpad).toBe(true)
-    expect((await run(host, "read", { id: listed[0].id })).body.value.body).toBe("one\ntwo")
-  })
-
-  test("capture: first line is the title", async () => {
-    const { host } = makeHost()
-    const r = await run(host, "capture", { text: "Call the vendor\nabout invoices" })
-    expect(r.body.value.title).toBe("Call the vendor")
-    expect(r.body.value.preview).toBe("about invoices")
+    const pads = [...server.notes.values()].filter((n) => n.scratchpad)
+    expect(pads).toHaveLength(1)
+    expect(pads[0]!.body).toBe("one\ntwo")
+    expect(host.calls.filter((c) => c.name === "note.append").map((c) => c.params)).toEqual([
+      { workspace: "web", text: "one" },
+      { workspace: "workspace_web", text: "two" }
+    ])
   })
 
   test("errors carry stable codes", async () => {
     const { host } = makeHost()
-    expect((await run(host, "read", { id: "note_missing" })).body.code).toBe("note.not_found")
+    expect((await run(host, "read", { id: "note_missing0000000" })).body.code).toBe("selector.not_found")
     expect((await run(host, "append", { text: "x" })).body.code).toBe("invalid_params")
     expect((await run(host, "append", { id: "a", workspace: "api", text: "x" })).body.code).toBe("invalid_params")
     expect((await run(host, "capture", {})).body.code).toBe("invalid_params")
-    expect((await run(host, "create", { body: "x", workspace: "nope" })).body.code).toBe("workspace.not_found")
+    expect((await run(host, "create", { body: "x", workspace: "nope" })).body.code).toBe("selector.not_found")
   })
 
-  test("search answers in the search-provider shape", async () => {
-    const { host } = makeHost({}, seeded)
-    const r = (await run(host, "search", { query: "flaky" })).body.value.results
-    expect(r).toHaveLength(1)
-    expect(r[0]).toMatchObject({ id: "note_pad", snippet: "check flaky test", subtitle: "api", open: { command: "cmux/notes#open", args: { id: "note_pad" } } })
-  })
-
-  test("export returns markdown files with unique names", async () => {
-    const { host } = makeHost({}, seeded)
-    const files = (await run(host, "exportNotes", {})).body.value.files
-    expect(files.map((f: { name: string }) => f.name)).toEqual(["release-checklist.md", "ideas.md", "check-flaky-test.md"])
-    expect(files[0].text).toBe("# Release checklist\n\n- [x] tag\n- [ ] notes\n- [ ] announce\n")
-  })
-
-  test("cycleVariant falls back to a session override without app.settings.set", async () => {
-    const { host } = makeHost({ variant: "list" })
-    const r = await run(host, "cycleVariant")
-    expect(r.body.value).toEqual({ variant: "split", persisted: false })
-    expect(host.calls.some((c) => c.name === "app.settings.set")).toBe(true)
+  test("without the notes server the tools answer operation.unsupported", async () => {
+    const { host } = makeHost({ unavailable: true })
+    expect((await run(host, "list", {})).body.code).toBe("operation.unsupported")
   })
 })
 
-describe("document store backend (proposed ops)", () => {
-  test("uses document.* when the host has them and replays an op after a conflict", async () => {
-    const { host } = makeHost()
-    const server = new Map<string, { revision: number; data: Record<string, unknown> }>()
-    server.set("note_x", { revision: 4, data: { title: "", body: "from phone", pinned: false, scratchpad: false, workspace: null, createdAt: 1, updatedAt: 1, lastEdit: { via: "ui" } } })
-    let conflictOnce = true
-    host.handlers["document.list"] = () => ({ ok: true, body: { value: { documents: [...server].map(([id, d]) => ({ id, revision: String(d.revision), data: d.data })) } } })
-    host.handlers["document.get"] = (p) => {
-      const d = server.get(p.id)
-      return { ok: true, body: { value: d ? { id: p.id, revision: String(d.revision), data: d.data } : null } }
-    }
-    host.handlers["document.put"] = (p) => {
-      const d = server.get(p.id)
-      if (conflictOnce && d) {
-        // Another device appended first.
-        conflictOnce = false
-        server.set(p.id, { revision: d.revision + 1, data: { ...d.data, body: `${d.data.body}\nfrom laptop` } })
-        return { ok: false, body: { code: "revision.conflict", message: "stale base" } }
-      }
-      if ((d?.revision ?? 0) !== Number(p.base_revision)) return { ok: false, body: { code: "revision.conflict", message: "stale" } }
-      server.set(p.id, { revision: (d?.revision ?? 0) + 1, data: p.data })
-      return { ok: true, body: { value: { revision: String((d?.revision ?? 0) + 1) } } }
-    }
-    const r = await run(host, "append", { id: "note_x", text: "from agent" })
-    expect(r.ok).toBe(true)
-    expect(server.get("note_x")!.data.body).toBe("from phone\nfrom laptop\nfrom agent")
-    expect(server.get("note_x")!.revision).toBe(6)
-    expect((await run(host, "list", {})).body.value.storage).toBe("documents")
-    expect(host.calls.some((c) => c.name.startsWith("app.storage"))).toBe(false)
-    expect(host.subscriptions.size).toBeGreaterThan(0)
-  })
-})
-
-describe("surfaces", () => {
-  test("scratchpad variant: current workspace's scratchpad, then other notes", async () => {
-    const { host } = makeHost({ variant: "scratchpad" }, seeded)
+describe("surfaces follow the server's stream", () => {
+  test("scratchpad variant: this workspace's scratchpad open on top, other notes below", async () => {
+    const { host } = makeHost({ settings: { variant: "scratchpad" } })
     expect(host.mount("m", "renderNotes", { contribution: "cmux/notes#notes", surface: "sidebarSection" })).toBe("")
-    await host.settle(10)
-    const shown = texts(host, "m")
-    expect(shown).toEqual(expect.arrayContaining(["api", "check flaky test", "port 3001 busy", "Release checklist", "Ideas"]))
-    expect(nodesOf(host, "m", "Row").map(([, n]) => n.props.title)).not.toContain("api") // this workspace's scratchpad is open above, not a row
+    await host.settle(20)
+    expect(texts(host, "m")).toEqual(expect.arrayContaining(["api", "check flaky test", "port 3001 busy", "Release checklist", "Ideas"]))
+    expect(rowTitles(host)).not.toContain("api")
     expect(host.timers.size).toBe(0) // no polling
-    expect([...host.subscriptions.values()].map((s) => s.stream)).toContain("workspace.changed")
+    expect([...host.subscriptions.values()].map((s) => s.stream)).toEqual(expect.arrayContaining(["note.watch", "workspace.changed"]))
+    expect(host.calls.some((c) => c.name.startsWith("app.storage"))).toBe(false)
   })
 
-  test("an agent append updates the mounted section without any focus op", async () => {
-    const { host } = makeHost({ variant: "scratchpad" }, seeded)
+  test("an agent's write arrives through note.watch without moving focus or selection", async () => {
+    const { host, server, emit } = makeHost({ settings: { variant: "list" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
-    await run(host, "append", { workspace: "current", text: "deploy at 5pm" })
-    expect(texts(host, "m")).toContain("deploy at 5pm")
-    expect(host.calls.filter((c) => FOCUS_OPS.includes(c.name))).toEqual([])
+    await host.settle(20)
+    tap(host, "m", findVisible(host, "m", (n) => n.type === "Row" && n.props.title === "Ideas")!)
+    await host.settle(20)
+    emit(server.append({ note: PAD, text: "deploy at 5pm" }, "agent").events[0])
+    emit(server.external(LIST, "- [x] tag\n- [x] notes\n- [ ] announce"))
+    await host.settle(20)
+    const pad = nodesOf(host, "m", "Row").find(([, n]) => n.props.title === "api")!
+    expect(pad[1].props.symbol).toBe("sparkles")
+    expect(String(pad[1].props.subtitle)).toContain("deploy at 5pm")
+    expect(nodesOf(host, "m", "Row").find(([, n]) => n.props.selected === true)![1].props.title).toBe("Ideas")
+    expect(focusCalls(host)).toEqual([])
   })
 
-  test("typing in the scratchpad field appends a line", async () => {
-    const { host, kv } = makeHost({ variant: "scratchpad" }, seeded)
+  test("a duplicate or older event changes nothing", async () => {
+    const { host, server, emit } = makeHost({ settings: { variant: "list" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
+    await host.settle(20)
+    const ev = server.external("note_b000000000000000", "Ideas v2\nfaster search")
+    emit(ev, ev)
+    await host.settle(20)
+    expect(rowTitles(host)).toContain("Ideas v2")
+    expect(host.calls.filter((c) => c.name === "note.list")).toHaveLength(1)
+  })
+
+  test("typing in the scratchpad field appends through note.append", async () => {
+    const { host, server } = makeHost({ settings: { variant: "scratchpad" } })
+    host.mount("m", "renderNotes", {})
+    await host.settle(20)
     const field = findVisible(host, "m", (n) => n.type === "TextField" && n.props.placeholder === "Note for this workspace")!
     host.dispatch("m", field, "submit", { text: "buy coffee" })
-    await host.settle(10)
+    await host.settle(20)
+    expect(host.calls.find((c) => c.name === "note.append")!.params).toEqual({ workspace: "workspace_api", text: "buy coffee" })
+    expect(server.get(PAD).body.endsWith("buy coffee")).toBe(true)
     expect(texts(host, "m")).toContain("buy coffee")
-    const pad = (kv.get("notes.v1") as { notes: Array<{ id: string; body: string }> }).notes.find((n) => n.id === "note_pad")!
-    expect(pad.body.endsWith("buy coffee")).toBe(true)
   })
 
-  test("list variant: tapping a row opens it inline; tapping a checkbox toggles it", async () => {
-    const { host, kv } = makeHost({ variant: "list" }, seeded)
+  test("a checkbox tap edits the note's document at its revision; a conflict rebases onto the current text", async () => {
+    const { host, server } = makeHost({ settings: { variant: "list" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
-    expect(texts(host, "m")).not.toContain("tag")
-    const row = findVisible(host, "m", (n) => n.type === "Row" && n.props.title === "Release checklist")!
-    host.dispatch("m", row, "tap")
-    await host.settle(5)
+    await host.settle(20)
+    tap(host, "m", findVisible(host, "m", (n) => n.type === "Row" && n.props.title === "Release checklist")!)
+    await host.settle(20)
     expect(texts(host, "m")).toEqual(expect.arrayContaining(["tag", "notes", "announce"]))
-    const notesLine = visible(host, "m").find(([, n]) => n.type === "HStack" && n.props.onTap)!
-    host.dispatch("m", notesLine[0], "tap")
-    await host.settle(10)
-    const saved = (kv.get("notes.v1") as { notes: Array<{ id: string; body: string }> }).notes.find((n) => n.id === "note_a")!
-    expect(saved.body).toBe("- [ ] tag\n- [ ] notes\n- [ ] announce")
+    // Another device inserts a line above before the tap lands.
+    server.external(LIST, "- [ ] write changelog\n- [x] tag\n- [ ] notes\n- [ ] announce", "user")
+    const checks = visible(host, "m").filter(([, n]) => n.type === "HStack" && n.props.onTap)
+    tap(host, "m", checks[1]![0]) // "notes", line 1 of the revision the view showed
+    await host.settle(30)
+    const edits = host.calls.filter((c) => c.name === "document.edit").map((c) => c.params)
+    expect(edits[0]).toEqual({ doc: "doc_a000000000000000", base_revision: 1, edits: [{ start: 13, end: 14, text: "x" }] })
+    expect(edits[1]).toMatchObject({ base_revision: 2 })
+    expect(server.get(LIST).body).toBe("- [ ] write changelog\n- [x] tag\n- [x] notes\n- [ ] announce")
   })
 
-  test("list variant: search filters rows", async () => {
-    const { host } = makeHost({ variant: "list" }, seeded)
+  test("editor variant: a click opens the note's document in the native editor pane, with the tap's gesture", async () => {
+    const { host } = makeHost({ settings: { variant: "editor" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
-    const search = findVisible(host, "m", (n) => n.type === "TextField" && n.props.placeholder === "Search notes")!
-    host.dispatch("m", search, "edit", { text: "export" })
-    await host.settle(5)
-    const rows = nodesOf(host, "m", "Row").map(([, n]) => n.props.title)
-    expect(rows).toEqual(["Ideas"])
-  })
-
-  test("split variant: tap shows the editor in place; back returns to the list", async () => {
-    const { host } = makeHost({ variant: "split" }, seeded)
-    host.mount("m", "renderNotes", {})
-    await host.settle(10)
+    await host.settle(20)
+    expect(nodesOf(host, "m", "TextField").map(([, n]) => n.props.placeholder)).toEqual(["Search notes"])
     const row = findVisible(host, "m", (n) => n.type === "Row" && n.props.title === "Ideas")!
-    host.dispatch("m", row, "tap")
-    await host.settle(5)
-    expect(nodesOf(host, "m", "Row")).toHaveLength(0)
-    const title = findVisible(host, "m", (n) => n.type === "TextField" && n.props.placeholder === "Ideas")!
-    host.dispatch("m", title, "submit", { text: "Product ideas" })
-    await host.settle(10)
-    expect((await run(host, "read", { id: "note_b" })).body.value.title).toBe("Product ideas")
-    const back = findVisible(host, "m", (n) => n.type === "Button" && n.props.help === "Back")!
-    host.dispatch("m", back, "tap")
-    await host.settle(5)
-    expect(nodesOf(host, "m", "Row").map(([, n]) => n.props.title)).toContain("Product ideas")
+    tap(host, "m", row)
+    const call = host.calls.find((c) => c.name === "app.pane.open")!
+    expect(call.params).toEqual({ contribution: "cmux/notes#editor", input: { doc: "doc_b000000000000000" }, placement: "right" })
+    expect(call.options.gesture).toBe(`g_${row}`)
   })
 
-  test("pane: list and editor side by side, empty editor until a note is chosen", async () => {
-    const { host } = makeHost({}, seeded)
-    expect(host.mount("p", "renderNotesPane", { surface: "pane" })).toBe("")
-    await host.settle(10)
-    expect(texts(host, "p")).toEqual(expect.arrayContaining(["Release checklist", "Select a note"]))
+  test("search asks the server; the latest query wins", async () => {
+    const { host } = makeHost({ settings: { variant: "list" } })
+    host.mount("m", "renderNotes", {})
+    await host.settle(20)
+    const search = findVisible(host, "m", (n) => n.type === "TextField" && n.props.placeholder === "Search notes")!
+    host.dispatch("m", search, "edit", { text: "expo" })
+    host.dispatch("m", search, "edit", { text: "export" })
+    await host.settle(20)
+    expect(host.calls.filter((c) => c.name === "note.list").at(-1)!.params).toEqual({ query: "export", limit: 50 })
+    expect(rowTitles(host)).toEqual(["Ideas"])
   })
 
   test("New Note (user command) selects the new note in a mounted surface", async () => {
-    const { host } = makeHost({ variant: "split" }, seeded)
+    const { host } = makeHost({ settings: { variant: "list" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
-    await run(host, "newNote")
-    await host.settle(5)
-    expect(nodesOf(host, "m", "Row")).toHaveLength(0) // the editor replaced the list
-    expect(findVisible(host, "m", (n) => n.type === "TextField" && n.props.placeholder === "Title")).toBeDefined()
+    await host.settle(20)
+    const r = await run(host, "newNote")
+    await host.settle(20)
+    expect(nodesOf(host, "m", "Row").find(([, n]) => n.props.selected === true)).toBeDefined()
+    expect(r.body.value.id).toMatch(/^note_/)
   })
 
-  test("empty and error states", async () => {
-    const { host } = makeHost({ variant: "list" })
+  test("no notes server: the section says so; empty server: onboarding", async () => {
+    const missing = makeHost({ settings: { variant: "list" }, unavailable: true }).host
+    missing.mount("m", "renderNotes", {})
+    await missing.settle(20)
+    expect(texts(missing, "m")).toContain("Notes are not available yet")
+    const empty = makeHost({ settings: { variant: "list" }, seeds: [] }).host
+    empty.mount("m", "renderNotes", {})
+    await empty.settle(20)
+    expect(texts(empty, "m")).toContain("No notes")
+  })
+})
+
+describe("markdown export and import through picked handles", () => {
+  const moreMenu = (host: ReturnType<typeof makeHost>["host"]) => visible(host, "m").find(([, n]) => n.type === "Button" && n.props.help === "More")!
+
+  test("Export All writes one .md per note under the picked folder handle, never a raw path", async () => {
+    const { host, server } = makeHost({ settings: { variant: "list" } })
     host.mount("m", "renderNotes", {})
-    await host.settle(10)
-    expect(texts(host, "m")).toContain("No notes")
-    const broken = makeHost({ variant: "list" }).host
-    broken.handlers["app.storage.get"] = () => ({ ok: false, body: { code: "storage.unavailable", message: "disk full" } })
-    broken.mount("m", "renderNotes", {})
-    await broken.settle(10)
-    expect(texts(broken, "m")).toContain("Cannot load notes")
+    await host.settle(20)
+    const [id, node] = moreMenu(host)
+    const items = (node.props.menu as Array<{ title?: string }>).map((m) => m.title)
+    menu(host, "m", id, [items.indexOf("Export All Notes as Markdown…")])
+    await host.settle(30)
+    const pick = host.calls.find((c) => c.name === "fs.pick")!
+    expect(pick.params).toEqual({ mode: "folder", purpose: "export", create: true })
+    expect(pick.options.gesture).toBe(`g_${id}`)
+    expect(server.written.map((w) => w.path)).toEqual(["release-checklist.md", "ideas.md", "check-flaky-test.md"])
+    expect(server.written.every((w) => w.root === "root_export1")).toBe(true)
+    expect(server.written[0]!.text).toBe("# Release checklist\n\n- [x] tag\n- [ ] notes\n- [ ] announce\n")
+    expect(host.calls.filter((c) => c.name === "fs.write").every((c) => c.params.exists === "unique")).toBe(true)
+    expect(texts(host, "m")).toContain("Exported 3 notes to Notes export")
+  })
+
+  test("a row's Export as Markdown writes that note only", async () => {
+    const { host, server } = makeHost({ settings: { variant: "list" } })
+    host.mount("m", "renderNotes", {})
+    await host.settle(20)
+    const [id, row] = visible(host, "m").find(([, n]) => n.type === "Row" && n.props.title === "Ideas")!
+    const items = (row.props.menu as Array<{ title?: string }>).map((m) => m.title)
+    menu(host, "m", id, [items.indexOf("Export as Markdown…")])
+    await host.settle(30)
+    expect(server.written.map((w) => w.path)).toEqual(["ideas.md"])
+  })
+
+  test("Import reads each picked file through its handle and creates one note each, once", async () => {
+    const { host, server } = makeHost({ settings: { variant: "list" }, pickFiles: { "runbook.md": "# Runbook\n\nrestart the worker", "todo.md": "- [ ] ship" } })
+    host.mount("m", "renderNotes", {})
+    await host.settle(20)
+    const [id, node] = moreMenu(host)
+    const items = (node.props.menu as Array<{ title?: string }>).map((m) => m.title)
+    menu(host, "m", id, [items.indexOf("Import Markdown Files…")])
+    await host.settle(30)
+    expect(host.calls.find((c) => c.name === "fs.pick")!.params).toEqual({ mode: "files", purpose: "import", accept: [".md", ".markdown", ".txt"], multiple: true })
+    const creates = host.calls.filter((c) => c.name === "note.create")
+    expect(creates.map((c) => c.params)).toEqual([{ title: "Runbook", body: "restart the worker" }, { body: "- [ ] ship" }])
+    expect(creates.map((c) => c.options.idempotencyKey)).toEqual(["import:root_import1:runbook.md", "import:root_import1:todo.md"])
+    expect(server.notes.size).toBe(5)
+    expect(rowTitles(host)).toEqual(expect.arrayContaining(["Runbook", "ship"]))
+    expect(texts(host, "m")).toContain("Imported 2 notes")
+  })
+
+  test("from the palette (no gesture) the panel is refused and nothing is written", async () => {
+    const { host, server } = makeHost()
+    expect((await run(host, "exportNotes", {})).body.code).toBe("gesture.required")
+    expect((await run(host, "importNotes", {})).body.code).toBe("gesture.required")
+    expect(server.written).toEqual([])
+  })
+})
+
+describe("settings", () => {
+  test("Next Notes Variant writes the setting through the config layer", async () => {
+    const { host } = makeHost({ settings: { variant: "list" } })
+    expect((await run(host, "cycleVariant")).body.value).toEqual({ variant: "editor" })
+    expect(host.calls.find((c) => c.name === "app.settings.set")!.params).toEqual({ values: { variant: "editor" } })
   })
 })

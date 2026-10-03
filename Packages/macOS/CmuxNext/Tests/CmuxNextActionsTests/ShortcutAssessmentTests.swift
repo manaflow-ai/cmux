@@ -4,7 +4,7 @@ import Testing
 
 /// The palette's shortcut recorder asks the registry whether a chord can
 /// become an action's shortcut (plans/cmux-next/focus.md section 5 for the
-/// tiers and the Chrome and Ghostty rules).
+/// tiers and the browser chord and Ghostty rules).
 @MainActor
 @Suite struct ShortcutAssessmentTests {
     static func action(_ id: ActionID, _ shortcut: Shortcut? = nil, requires: ActionContext = [],
@@ -91,8 +91,8 @@ import Testing
     }
 
     /// Tiers 0 and 1 run before a page; a tier 2 action only in its own
-    /// context, so a terminal-only action leaves a page its Chrome chord.
-    @Test func chromeChordsSayWhoWinsInAPage() {
+    /// context, so a terminal-only action leaves a page its browser chord.
+    @Test func browserChordsSayWhoWinsInAPage() {
         let registry = Self.registry()
         let chrome = ShortcutEditEnvironment(chromeChords: [Shortcut("y")])
         #expect(registry.assessShortcut(Shortcut("y"), for: "t.plain", environment: chrome) == .available(notes: [.chromeChord(cmuxWins: true)]))

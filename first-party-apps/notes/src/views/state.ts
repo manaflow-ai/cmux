@@ -1,7 +1,10 @@
+/// <reference path="../../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
 // View state. It belongs to one mounted surface (client view state stays
-// client): selection, query, the line being edited, expanded notes. Writes
-// from commands never touch it; only `requestSelect` from a user command does.
+// client): selection, query and search results, expanded notes. Writes from
+// commands and agents never touch it; only `requestSelect` from a user
+// command does.
 
+import { api, type NoteSummary } from "../notes.ts"
 import { type Workspaces, watchWorkspaces } from "../workspace.ts"
 
 export interface ViewState {
@@ -10,8 +13,8 @@ export interface ViewState {
   toggle: (id: string) => void
   query: () => string
   setQuery: (q: string) => void
-  editingLine: () => { id: string; index: number } | null
-  setEditingLine: (v: { id: string; index: number } | null) => void
+  /** The server's answer for the current query (null while there is no query). */
+  results: () => NoteSummary[] | null
   isExpanded: (id: string) => boolean
   setExpanded: (id: string, on: boolean) => void
   ws: Workspaces
@@ -28,10 +31,19 @@ export function requestSelect(id: string): void {
   setSelectRequest({ id, seq: ++seq })
 }
 
+const [notice, setNotice] = signal<string | null>(null)
+export { notice }
+
+/** A transient one-line message (export done, a refused edit). */
+export function noticeFor(message: string): void {
+  setNotice(message)
+  cmux.timer.after(6000, () => setNotice(null))
+}
+
 export function createViewState(ctx: Record<string, unknown>): ViewState {
   const [selected, select] = signal<string | null>(null)
   const [query, setQuery] = signal("")
-  const [editingLine, setEditingLine] = signal<{ id: string; index: number } | null>(null)
+  const [results, setResults] = signal<NoteSummary[] | null>(null)
   const [expanded, setExpandedSet] = signal<ReadonlySet<string>>(new Set())
   const [fieldGeneration, setFieldGeneration] = signal(0)
   let seen = selectRequest()?.seq ?? 0 // render runs untracked; older requests are ignored
@@ -39,25 +51,28 @@ export function createViewState(ctx: Record<string, unknown>): ViewState {
     const r = selectRequest()
     if (!r || r.seq === seen) return
     seen = r.seq
-    // Writes do not track reads, so this effect depends on selectRequest only.
     select(r.id)
     setQuery("")
     setFieldGeneration((g) => g + 1)
   })
+  // The server searches (it indexes every note); the latest query wins.
+  let asked = 0
+  effect(() => {
+    const q = query().trim()
+    const mine = ++asked
+    if (!q) return setResults(null)
+    api.list({ query: q, limit: 50 }).then(
+      (r) => mine === asked && setResults(r.notes),
+      () => mine === asked && setResults([])
+    )
+  })
   return {
     selected,
-    select: (id) => {
-      select(id)
-      setEditingLine(null)
-    },
-    toggle: (id) => {
-      select((cur) => (cur === id ? null : id))
-      setEditingLine(null)
-    },
+    select,
+    toggle: (id) => select((cur) => (cur === id ? null : id)),
     query,
     setQuery,
-    editingLine,
-    setEditingLine,
+    results,
     isExpanded: (id) => expanded().has(id),
     setExpanded: (id, on) =>
       setExpandedSet((set) => {

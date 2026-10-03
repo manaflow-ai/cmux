@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
+/* cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c. */
 
 
 import type * as T from "./types.js";
@@ -356,6 +356,14 @@ export interface ConversationOpRequest extends CmuxRequestBase {
 export type ConversationOpResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
+export interface ConversationSearchRequest extends CmuxRequestBase {
+  cmd: "conversation-search";
+  "limit": number;
+  "query": string;
+}
+export type ConversationSearchResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
 export interface ConversationSnapshotRequest extends CmuxRequestBase {
   cmd: "conversation-snapshot";
   "conversation": string;
@@ -630,6 +638,13 @@ export type GetBrowserProviderResult = T.BrowserProviderSnapshot;
 export interface GetCellPixelsRequest extends CmuxRequestBase {
   cmd: "get-cell-pixels";
 }
+
+/** Protocol v12; authority: control. */
+export interface GetFrontendBrowserHistoryRequest extends CmuxRequestBase {
+  cmd: "get-frontend-browser-history";
+  "surface": T.Id;
+}
+export type GetFrontendBrowserHistoryResult = T.JsonValue;
 
 /** Protocol v7; authority: control. */
 export interface GetFrontendProjectionRequest extends CmuxRequestBase {
@@ -925,6 +940,7 @@ export interface MoveTabToSplitRequest extends CmuxRequestBase {
   "edge": string;
   "pane": T.Id;
   "ratio"?: (number) | null;
+  "respawn"?: (T.SplitRespawn) | null;
   "surface": T.Id;
   "transaction"?: (string) | null;
 }
@@ -1499,6 +1515,14 @@ export interface SetDefaultColorsRequest extends CmuxRequestBase {
 export type SetDefaultColorsResult = T.EmptyResult;
 
 /** Protocol v12; authority: control. */
+export interface SetFrontendBrowserHistoryRequest extends CmuxRequestBase {
+  cmd: "set-frontend-browser-history";
+  "history": (T.JsonValue) | null;
+  "surface": T.Id;
+}
+export type SetFrontendBrowserHistoryResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetPersonalTerminalRequest extends CmuxRequestBase {
   cmd: "set-personal-terminal";
   "session_id": string;
@@ -1936,6 +1960,7 @@ export type CmuxRequest =
   | ConversationHistoryRequest
   | ConversationListRequest
   | ConversationOpRequest
+  | ConversationSearchRequest
   | ConversationSnapshotRequest
   | ConversationTypingRequest
   | CopyRequest
@@ -1964,6 +1989,7 @@ export type CmuxRequest =
   | ForgetSessionRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
+  | GetFrontendBrowserHistoryRequest
   | GetFrontendProjectionRequest
   | GetSizeStateRequest
   | IdentifyRequest
@@ -2059,6 +2085,7 @@ export type CmuxRequest =
   | SetClientSizingRequest
   | SetColumnStickyRequest
   | SetDefaultColorsRequest
+  | SetFrontendBrowserHistoryRequest
   | SetPersonalTerminalRequest
   | SetPersonalWorkspaceRequest
   | SetProfileFollowsRequest
@@ -2395,6 +2422,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "local-conversations-v1";
     stream: null;
   };
+  "conversation-search": {
+    request: ConversationSearchRequest;
+    result: ConversationSearchResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-search-v1";
+    stream: null;
+  };
   "conversation-snapshot": {
     request: ConversationSnapshotRequest;
     result: ConversationSnapshotResult;
@@ -2617,6 +2652,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "get-frontend-browser-history": {
+    request: GetFrontendBrowserHistoryRequest;
+    result: GetFrontendBrowserHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-history-v1";
     stream: null;
   };
   "get-frontend-projection": {
@@ -3377,6 +3420,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "set-frontend-browser-history": {
+    request: SetFrontendBrowserHistoryRequest;
+    result: SetFrontendBrowserHistoryResult;
+    authority: "control";
+    since: 12;
+    capability: "frontend-browser-history-v1";
     stream: null;
   };
   "set-personal-terminal": {

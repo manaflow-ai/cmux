@@ -247,6 +247,11 @@ describe("SSO/MDM lock notices and release (TeamDO)", () => {
     expect(s.integration_managed_by).toBe("mdm")
     // A late, older notice changes nothing.
     expect(teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: null, version: 1 }, sys())).toMatchObject({ ok: true, changed: false })
+    // A recreated ConnectionDO (new epoch) restarts at version 1 and is still recorded.
+    const fresh = teamDomain.reduce(s, "team.policy.integration_lock", { managed_by: "sso", version: 1, epoch: "lck_new" }, sys())
+    if (!fresh.ok) throw new Error(fresh.message)
+    expect((fresh.state as TeamState).integration_managed_by).toBe("sso")
+    expect((fresh.state as TeamState).integration_lock_epoch).toBe("lck_new")
     // A push result from before this notice (older lock version) does not overwrite it.
     const stale = teamDomain.reduce(s, "team.policy.integration_synced", { version: 1, slice_hash: "h", managed_by: null, lock_version: 1 }, sys())
     expect(stale).toMatchObject({ ok: true, changed: false })

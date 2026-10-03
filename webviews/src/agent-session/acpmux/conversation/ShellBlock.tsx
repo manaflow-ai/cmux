@@ -1,4 +1,4 @@
-// An opened shell call as Codex draws it: a "Shell" card with the command line, its output
+// An opened shell call: a "Shell" card with the command line, its output
 // and, when the command failed, its exit code.
 
 export function ShellBlock({ command, output, exitCode }: { command?: string; output?: string; exitCode?: number }) {

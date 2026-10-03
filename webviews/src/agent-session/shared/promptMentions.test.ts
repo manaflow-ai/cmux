@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { promptMentionMarkdown, promptTextWithAutoContext } from "./promptMentions";
 
-test("prompt mention serialization matches Codex markdown links", () => {
+test("prompt mentions serialize as markdown links", () => {
   expect(
     promptMentionMarkdown({
       kind: "at",

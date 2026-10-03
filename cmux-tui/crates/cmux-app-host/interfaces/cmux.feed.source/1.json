@@ -1,0 +1,15 @@
+{
+  "name": "cmux.feed.source/1",
+  "version": 1,
+  "docs": "Post feed items and receive responses (mail, integrations, CI).",
+  "props": {
+    "kinds": "string[]"
+  },
+  "methods": {
+    "respond": "(item, response) -> void"
+  },
+  "events": [
+    "feed.item.posted"
+  ],
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

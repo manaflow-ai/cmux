@@ -53,8 +53,8 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     /// Like ``allows(_:focus:)`` for action `id`. The DevTools actions
-    /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: as in
-    /// Chrome they run from the page, the address bar, the find bar and
+    /// (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) are not editing chords: they run
+    /// from the page, the address bar, the find bar and
     /// DevTools itself (where other content chords belong to DevTools).
     /// Browser focus mode still gives them to the page.
     nonisolated static func allows(_ tier: ActionKeyTier, id: ActionID, focus: FocusState) -> Bool {
@@ -113,6 +113,11 @@ final class KeyRouter: BrowserKeyRouting {
         // A popup panel (or its Chromium page window) has the keyboard:
         // Cmd-W closes the popup, never the opener's tab.
         if services?.popups.interceptKeyDown(event, in: window) == true {
+            chords.cancel()
+            return true
+        }
+        // Link hints are showing: their letters, Backspace and Escape.
+        if let hints = services?.linkHints, hints.isActive, hints.interceptKeyDown(event, in: window) {
             chords.cancel()
             return true
         }
@@ -193,13 +198,13 @@ final class KeyRouter: BrowserKeyRouting {
         let isBrowser = BrowserChordTable.isBrowserContext(focus.resolved)
         // Page Back/Forward chords never fall back to a Ghostty keybind.
         if !isBrowser, BrowserChordTable.isBrowserOnlyChord(event, registry: registry) { return nil }
-        // Chrome's tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
+        // Browser tab-switching chords (Ctrl-Tab, Ctrl-PageDown...) are
         // cmux's next/previous tab in a browser context. Unbinding the
         // action in cmux.json removes these aliases too.
         if isBrowser, let id = BrowserChordTable.tabNavigationAction(for: event), registry.effectiveShortcut(for: id) != nil {
             return Candidate(id: id, tier: registry.keyTier(for: id), source: .registry(argument: nil))
         }
-        // Ghostty fallback: never for a chord Chrome defines while a page,
+        // Ghostty fallback: never for a browser chord while a page,
         // the address bar or the find bar has the keyboard (Cmd-[ is Back
         // there, not Ghostty's `goto_split:previous`); see BrowserChordTable.
         if isBrowser, BrowserChordTable.isChromeChord(event) { return nil }
@@ -215,13 +220,13 @@ final class KeyRouter: BrowserKeyRouting {
     func routeContentKeyEquivalent(_ event: NSEvent, focus: FocusState) -> Bool {
         if event === chordMismatch { return false }
         if let resolved = registry.resolveShortcut(for: event), resolved.tier == .content,
-           Self.allows(.content, id: resolved.id, focus: focus) {
+           !isPageKey(event, id: resolved.id), Self.allows(.content, id: resolved.id, focus: focus) {
             return registry.runShortcut(resolved.id, argument: resolved.argument)
         }
         return runExtensionShortcut(event, focus: focus)
     }
 
-    /// Chromium dispatches extension shortcuts from the Chrome toolbar that
+    /// Chromium dispatches extension shortcuts from the Chromium toolbar that
     /// cmux hides, and never sees keys while the omnibar or find bar has the
     /// keyboard, so cmux routes them for the focused Chromium tab.
     private func runExtensionShortcut(_ event: NSEvent, focus: FocusState) -> Bool {
@@ -289,6 +294,29 @@ final class KeyRouter: BrowserKeyRouting {
 
     // MARK: BrowserKeyRouting (CEF page window is key)
 
+    /// A letter the page did not handle outside any text field (Chromium
+    /// reports it after the page): runs the content action bound to that
+    /// single key, such as link hints (`f`, `F`), when that page has the
+    /// keyboard. Plain keys never reach ``interceptKeyDown(_:in:)``, so
+    /// typing in a terminal or a text field never gets here.
+    func routePageKey(_ key: BrowserPageKey, from tab: any BrowserTab) {
+        guard let services, !services.linkHints.isActive, let controller = window(showing: tab),
+              case .browserPage(_, let shown) = controller.focus.state.resolved, shown == services.cache.key(of: tab),
+              Self.allows(.content, focus: controller.focus.state),
+              let resolved = registry.resolve(Shortcut(key.character, modifiers: key.shift ? [.shift] : [])),
+              registry.descriptor(for: resolved.id)?.requires.contains(.browserFocused) == true else { return }
+        registry.runShortcut(resolved.id, argument: resolved.argument)
+    }
+
+    /// A key without Command, Control or Option bound to a browser action
+    /// (link hints): it runs only from ``routePageKey(_:from:)``, after the
+    /// page passed it on, never before a page (WebKit's included) whose
+    /// text field may want the letter.
+    func isPageKey(_ event: NSEvent, id: ActionID) -> Bool {
+        event.modifierFlags.isDisjoint(with: [.command, .control, .option])
+            && registry.descriptor(for: id)?.requires.contains(.browserFocused) == true
+    }
+
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
     }
@@ -301,7 +329,7 @@ final class KeyRouter: BrowserKeyRouting {
     }
 
     /// Before a docked or undocked DevTools sees a key: only the DevTools
-    /// actions (Cmd-Opt-I closes it, Cmd-Opt-J, Cmd-Opt-C), as in Chrome.
+    /// actions (Cmd-Opt-I closes it, Cmd-Opt-J, Cmd-Opt-C).
     /// Tiers 0 and 1 ran app-wide already; content chords (Copy, Reload)
     /// belong to the DevTools frontend.
     func browserTab(_ tab: any BrowserTab, devToolsKeyEquivalent event: NSEvent) -> BrowserKeyDisposition {

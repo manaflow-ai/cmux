@@ -217,7 +217,14 @@ public struct ControlCatalog: Sendable {
         }
         let spaced = trimmed.split(whereSeparator: { $0 == " " }).joined(separator: " ")
         if let index = indexByCLIName[spaced] { return actions[index] }
+        if let index = indexByCLIName[Self.renamedCLIName(spaced)] { return actions[index] }
         return nil
+    }
+
+    /// The current name of a CLI name from before Rooms became Spaces
+    /// (`room create`, `workspace move-to-room`); every other name as is.
+    static func renamedCLIName(_ name: String) -> String {
+        name.replacingOccurrences(of: "room", with: "space")
     }
 
     func isAvailable(_ action: ControlActionInfo) -> Bool {

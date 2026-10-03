@@ -83,6 +83,10 @@ public final class RegistryControlBridge: ControlActionExecutor {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
+        // Every socket run lands here, and its `origin` is the caller's claim.
+        if registry.descriptor(for: id)?.isPersonOnly == true {
+            return .refused(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
+        }
         // Reported before the context check, so a context-gated action that
         // cannot exist yet says why instead of "not available here".
         if let reason = registry.unavailableReason(for: id) { return .refused(reason) }
@@ -193,6 +197,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         (.canvasLayout, "canvasLayout"),
         (.simulatorFocused, "simulatorFocused"),
         (.agentPaneFocused, "agentPaneFocused"),
+        (.checkpointCaptureAvailable, "checkpointCaptureAvailable"),
         (.diffViewerFocused, "diffViewerFocused"),
         (.filePreviewFocused, "filePreviewFocused"),
         (.markdownFocused, "markdownFocused"),

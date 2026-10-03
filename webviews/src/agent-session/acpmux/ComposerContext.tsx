@@ -1,6 +1,8 @@
 import React from "react";
 import { projectName } from "./EmptyState";
 import type { AcpmuxSnapshot } from "./model";
+import { ProjectChooser, type Project } from "./ProjectChooser";
+import { groupByProject } from "./sessionList";
 
 /// Context-row copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 export const CONTEXT_LABELS = {
@@ -13,24 +15,47 @@ export const CONTEXT_LABELS = {
 };
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
+type AcpmuxSessionEntry = AcpmuxSnapshot["sessions"][number];
 
 /// Where the session runs, on the tray behind the composer: the project, the
-/// machine and the branch as filled pills (Claude's Local / Projects chips),
-/// and at the right whether the session works in its own git worktree (Codex).
-/// Each pill shows only when the daemon reports it.
-export function ComposerContext({ summary }: { summary?: Summary }) {
+/// machine and the branch as filled pills, and at the right whether the
+/// session works in its own git worktree.
+/// Each pill shows only when the daemon reports it. With `onProject`, the project
+/// pill chooses among the folders the user has chats in.
+export function ComposerContext({
+  summary,
+  sessions = [],
+  onProject,
+}: {
+  summary?: Summary;
+  sessions?: AcpmuxSessionEntry[];
+  onProject?(cwd: string): void;
+}) {
   const project = projectName(summary?.cwd);
   const host = summary?.host;
   const branch = summary?.branch;
-  if (!project && !host && !branch) return null;
+  const projects = React.useMemo(() => localProjects(sessions), [sessions]);
+  const choosing = onProject !== undefined && projects.length > 0;
+  if (!project && !host && !branch && !choosing) return null;
   const worktree = summary?.worktree;
   return (
     <div className="acpmux-composer-context">
-      {project && (
-        <span className="acpmux-context-chip" title={`${CONTEXT_LABELS.project}: ${summary?.cwd}`}>
-          <FolderIcon />
-          <span>{project}</span>
-        </span>
+      {choosing ? (
+        <ProjectChooser
+          projects={projects}
+          // A cloud chat's folder is on its machine, so even at the same path the local project is another place.
+          current={summary?.host && summary.hostKind !== "local" ? undefined : summary?.cwd?.replace(/\/+$/, "")}
+          currentLabel={project}
+          icon={<FolderIcon />}
+          onPick={onProject}
+        />
+      ) : (
+        project && (
+          <span className="acpmux-context-chip" title={`${CONTEXT_LABELS.project}: ${summary?.cwd}`}>
+            <FolderIcon />
+            <span>{project}</span>
+          </span>
+        )
       )}
       {host && (
         <span className="acpmux-context-chip">
@@ -62,7 +87,15 @@ export function ComposerContext({ summary }: { summary?: Summary }) {
   );
 }
 
-// Codex's tray glyphs (16px box, stroke in currentColor), at the composer's icon weight.
+/// Folders the user has chats in on this machine, newest first. A cloud machine's folder
+/// isn't one a new local chat can open in.
+function localProjects(sessions: AcpmuxSessionEntry[]): Project[] {
+  return groupByProject(sessions)
+    .filter((group) => group.cwd && !group.host)
+    .map((group) => ({ cwd: group.cwd!, label: group.label }));
+}
+
+// Tray glyphs (16px box, stroke in currentColor), at the composer's icon weight.
 function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg

@@ -16,6 +16,7 @@ export interface CloudOpDef<P extends Schema.Top = Schema.Top, R extends Schema.
     | "cloud:ConversationDO"
     | "cloud:MuxDO"
     | "cloud:AddressDO"
+    | "cloud:PairingDO"
     /** A read of a PlanetScale projection through the read-only Hyperdrive (for example home.search). */
     | "cloud:planetscale"
   readonly class: "read" | "mutation"

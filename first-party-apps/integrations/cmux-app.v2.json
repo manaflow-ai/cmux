@@ -1,0 +1,122 @@
+{
+  "$comment": "SKETCH of this app on platform v2 (plan app-platform section 12). Not loaded by today's runtime; cmux-app.json is the live manifest. The data stays with its owners: connections and team policy in ConnectionDO, credentials and tool catalogs in the integration gateway. The app is UI and onboarding.",
+  "manifestVersion": 2,
+  "id": "cmux/integrations",
+  "version": "0.1.0",
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "MIT",
+  "notices": ["LICENSE-executor"],
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "name": {
+    "en": "Integrations",
+    "ja": "連携"
+  },
+  "strings": "strings/",
+  "main": "dist/main.js",
+  "scopes": {
+    "integration:read": "List your team's connections, their health, tools and the team's integration policy."
+  },
+  "optionalScopes": {
+    "integration:write": "Connect, sign in again, share, disconnect, or change a tool's policy when you click those buttons.",
+    "feed:read": "Show tool approval requests and sign-in problems in your feed."
+  },
+  "implements": {
+    "cmux.section/1": {
+      "id": "integrations",
+      "export": "renderSection",
+      "title": {
+        "en": "Integrations",
+        "ja": "連携"
+      },
+      "symbol": "puzzlepiece.extension",
+      "defaultRegion": "bottom"
+    },
+    "cmux.credential.provider/1": {
+      "$comment": "Lets another app (an HTTP or database client) ask for a credential for a host. The app shows a picker of matching connections; the shell returns a cred_ handle the gateway resolves. Secrets never enter either app.",
+      "export": "pickCredential",
+      "renderer": "scene",
+      "kinds": ["api_key", "bearer", "basic", "headers", "oauth2"],
+      "match": "host"
+    },
+    "cmux.feed.source/1": {
+      "$comment": "The gateway posts the items; this app renders their bodies and actions. integration.approval: an Ask tool waits for approval (Approve once / Always allow / Block). integration.reauth: a connection needs sign-in.",
+      "kinds": ["integration.approval", "integration.reauth"],
+      "export": "renderFeedItem"
+    }
+  },
+  "consumes": [],
+  "handles": ["conn", "cred"],
+  "catalog": {
+    "owner": "app:cmux/integrations",
+    "ops": [
+      {
+        "name": "integrations.open",
+        "export": "openIntegrations",
+        "risk": "read",
+        "params": {
+          "connection": "conn_…?"
+        },
+        "surfaces": {
+          "palette": {
+            "title": "Open Integrations"
+          },
+          "cli": "cmux apps run cmux/integrations open",
+          "contexts": ["section:integrations"]
+        },
+        "gesture": "required"
+      },
+      {
+        "name": "integrations.connect",
+        "export": "connect",
+        "risk": "mutate-shared",
+        "params": {
+          "provider": "github | linear | slack | google_calendar | gmail"
+        },
+        "surfaces": {
+          "palette": {
+            "title": "Connect an Integration"
+          },
+          "cli": "cmux apps run cmux/integrations connect"
+        },
+        "gesture": "required",
+        "$comment": "Completes only with a human at the provider; not on MCP or automations."
+      },
+      {
+        "name": "integrations.import",
+        "export": "importApi",
+        "risk": "read",
+        "params": {
+          "source": "url | json"
+        },
+        "surfaces": {
+          "palette": {
+            "title": "Add an API from a Spec"
+          },
+          "cli": "cmux apps run cmux/integrations import"
+        },
+        "gesture": "required"
+      }
+    ],
+    "events": []
+  },
+  "variants": {
+    "setting": "variant",
+    "values": ["connections", "gallery", "catalog"],
+    "default": "connections",
+    "channels": ["dev", "nightly"]
+  },
+  "settings": {},
+  "v2Gaps": [
+    "Pane kinds are not in V2's place interfaces: the main pane needs a `cmux.pane/1` (or a native pane for first-party apps).",
+    "No secure input in the scene vocabulary: credential collection must stay a shell sheet (proposed integration.connect host behavior), never a TextField in an app.",
+    "No URL-open host capability for OAuth approval pages from an app with a gesture.",
+    "No Table or Segmented control in V7's component list: the Allow / Ask / Block control is three tappable Texts.",
+    "cmux.feed.source/1 has no schema yet for action buttons that answer with a policy change (Always allow)."
+  ]
+}

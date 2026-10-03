@@ -6,10 +6,10 @@
     "en": "Inbox",
     "ja": "受信トレイ"
   },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": {
-    "en": "Your cmux feed in one triage list: notifications and requests from agents, apps, runs and integrations such as GitHub. Open, answer, mark done or snooze each item.",
-    "ja": "cmux のフィードを1つのトリアージリストに: エージェント、アプリ、実行、GitHub などの連携からの通知とリクエスト。各項目を開く、回答する、完了にする、スヌーズする。"
+    "en": "Your cmux feed in one triage list: notices and requests from agents, apps, automations and integrations such as GitHub. Open, answer or decline, mark done or snooze each item.",
+    "ja": "cmux のフィードを1つのトリアージリストに: エージェント、アプリ、オートメーション、GitHub などの連携からの通知とリクエスト。各項目を開く、回答または辞退する、完了にする、スヌーズする。"
   },
   "publisher": {
     "name": "cmux",
@@ -37,12 +37,12 @@
   },
   "main": "dist/main.js",
   "scopes": {
-    "feed:read": "List your feed items and their counts.",
-    "feed:write": "Mark items seen or done, snooze them, and send the answers you give to requests.",
-    "actions:run": "Open an item's target: the agent's tab, a pull request, or the browser tab for a sign-in."
+    "feed:read": "List your feed items and their counts, and follow changes as they happen.",
+    "feed:write": "Mark items read or done, snooze them, and send the answers and declines you choose. Answers always come from your own tap.",
+    "actions:run": "Open an item through the feed: the agent's tab, a pull request, or the browser copy for a sign-in."
   },
   "optionalScopes": {
-    "mcp:expose": "Let your agents list inbox items and mark them done or snoozed. Agents cannot answer requests through these tools."
+    "workspace:read": "Show workspace names on items and group headers."
   },
   "contributes": {
     "sidebarSections": [
@@ -98,15 +98,14 @@
         ]
       },
       {
-        "id": "markAllSeen",
+        "id": "markAllRead",
         "title": {
-          "en": "Mark All Inbox Items as Seen",
+          "en": "Mark All Inbox Items as Read",
           "ja": "受信トレイをすべて既読にする"
         },
-        "run": "markAllSeen",
+        "run": "markAllRead",
         "keywords": [
           "inbox",
-          "seen",
           "read"
         ],
         "contexts": [
@@ -186,7 +185,7 @@
           "properties": {
             "id": {
               "type": "string",
-              "description": "Item id from list; the selected item when omitted."
+              "description": "Item id (fi_…); the selected item when omitted."
             }
           }
         }
@@ -211,7 +210,7 @@
           "properties": {
             "id": {
               "type": "string",
-              "description": "Item id from list; the selected item when omitted."
+              "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be marked done."
             }
           }
         }
@@ -237,7 +236,7 @@
           "properties": {
             "id": {
               "type": "string",
-              "description": "Item id from list; the selected item when omitted."
+              "description": "Item id (fi_…); the selected item when omitted. Open requests cannot be snoozed."
             },
             "minutes": {
               "type": "integer",
@@ -248,69 +247,6 @@
             }
           }
         }
-      },
-      {
-        "id": "list",
-        "title": {
-          "en": "List Inbox Items",
-          "ja": "受信トレイ項目を一覧表示"
-        },
-        "run": "list",
-        "keywords": [
-          "inbox",
-          "json"
-        ],
-        "contexts": [],
-        "arguments": {
-          "type": "object",
-          "properties": {
-            "source": {
-              "type": "string",
-              "enum": [
-                "agent",
-                "app",
-                "run",
-                "integration",
-                "user"
-              ]
-            },
-            "needsResponse": {
-              "type": "boolean",
-              "default": false
-            },
-            "unseen": {
-              "type": "boolean",
-              "default": false
-            },
-            "includeSnoozed": {
-              "type": "boolean",
-              "default": false
-            },
-            "limit": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200,
-              "default": 100
-            }
-          }
-        }
-      },
-      {
-        "id": "refresh",
-        "title": {
-          "en": "Refresh Inbox",
-          "ja": "受信トレイを更新"
-        },
-        "run": "refresh",
-        "keywords": [
-          "inbox",
-          "feed",
-          "reload"
-        ],
-        "contexts": [
-          "palette",
-          "sidebarSection:inbox"
-        ]
       },
       {
         "id": "cycleVariant",
@@ -329,16 +265,6 @@
         ]
       }
     ],
-    "mcpServers": [
-      {
-        "id": "tools",
-        "title": {
-          "en": "Inbox",
-          "ja": "受信トレイ"
-        },
-        "tools": "commands"
-      }
-    ],
     "settings": {
       "type": "object",
       "properties": {
@@ -351,17 +277,17 @@
           ],
           "default": "grouped",
           "title": "Layout (prototype)",
-          "description": "grouped: rows under source headers, a click opens. focus: a list and a detail area. card: one item at a time.",
+          "description": "grouped: rows under the owner's groups, a click opens. focus: a list and a detail area with the answer form. card: one item at a time.",
           "x-cmux-devOnly": true
         },
         "groupBy": {
           "type": "string",
           "enum": [
-            "source",
+            "poster",
             "workspace",
             "thread"
           ],
-          "default": "source",
+          "default": "poster",
           "title": "Group items by"
         }
       }
@@ -372,11 +298,11 @@
     "onStatusItem:badge",
     "onPane:pane",
     "onCommand:openInbox",
-    "onCommand:list",
     "onCommand:markDone"
   ],
   "files": [
     "dist/",
-    "assets/"
+    "assets/",
+    "strings/"
   ]
 }

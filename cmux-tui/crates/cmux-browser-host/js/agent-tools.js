@@ -1,6 +1,6 @@
-// browser-use parity for the cmux browser REPL
-// (plans/cmux-next/browser-repl/browser-use-parity.md): what browser-use's tools,
-// browser profile and agent offer that a REPL-driving agent can use, in this
+// Agent tools for the cmux browser REPL
+// (plans/cmux-next/browser-repl/README.md): the tools, browser profile and
+// agent features that a REPL-driving agent can use, in this
 // REPL's Playwright-shaped API and without a model inside cmux.
 //
 // Globals: secret(name), secrets, search(query, options), tools.
@@ -22,12 +22,10 @@
   const AGENT = 'globalThis[Symbol.for("cmux.browserRepl.agent")]';
 
   // ---------------------------------------------------------------------------
-  // Domain patterns, browser-use's syntax (utils.match_url_with_domain_pattern
-  // and the security watchdog): "example.com" (and www.example.com),
+  // Domain patterns: "example.com" (and www.example.com),
   // "*.example.com" (subdomains and the bare domain), "http*://example.com",
-  // "https://example.com", "*". A port in the pattern must match (browser-use
-  // drops it). Multiple wildcards, wildcard TLDs and embedded wildcards are
-  // refused when set, where browser-use logs and ignores them.
+  // "https://example.com", "*". A port in the pattern must match. Multiple
+  // wildcards, wildcard TLDs and embedded wildcards are refused when set.
 
   function parsePattern(raw, title) {
     if (typeof raw !== "string" || !raw.trim()) throw new Error(`${title}: expected domain patterns as non-empty strings, got ${JSON.stringify(raw)}`);
@@ -59,8 +57,7 @@
   const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/;
 
   // `secure`: a pattern without a scheme matches https only (and http on a
-  // loopback host), as browser-use's secret matching does; otherwise it
-  // matches http and https, as its allowed_domains check does.
+  // loopback host); otherwise it matches http and https.
   function urlMatches(url, pattern, secure) {
     let u;
     try {
@@ -665,7 +662,7 @@
         const opts = checkSecretArgs(name, value, options, "secrets.set");
         return hostCall("secretSet", name, value, opts);
       },
-      // browser-use's sensitive_data shape: { "<domain pattern>": { name: value } },
+      // Secrets map: { "<domain pattern>": { name: value } },
       // as an object or a JSON file path. A value { value, totp } is accepted.
       load(source) {
         let data = source;
@@ -1246,8 +1243,7 @@
   };
 
   // Boxes and ref labels over elements, until hideHighlight() or the next
-  // highlight: every interactive element without targets (browser-use's
-  // highlight_elements), else the given refs or locators. Returns the count.
+  // highlight: every interactive element without targets, else the given refs or locators. Returns the count.
   P.highlight = async function (targets) {
     await this.hideHighlight();
     if (targets === undefined) {

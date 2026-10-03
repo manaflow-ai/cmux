@@ -96,15 +96,15 @@ class Client : public CefClient,
   }
 
   // Tab past the last element or Shift-Tab past the first: the host moves
-  // focus to its omnibar (Chrome moves it to the toolbar).
+  // focus to its omnibar.
   void OnTakeFocus(CefRefPtr<CefBrowser> browser, bool next) override {
     Emit(CMUX_SHIM_TAKE_FOCUS, browser->GetIdentifier(), 0, next ? 1 : 0);
   }
 
-  // MARK: Chrome commands
+  // MARK: Chromium commands
 
-  // Chrome commands that open a window of Chromium's own never run: the
-  // host sees them as CHROME_COMMAND. Every other command runs as in Chrome.
+  // Chromium commands that open a window of Chromium's own never run: the
+  // host sees them as CHROME_COMMAND. Every other command runs normally.
   bool OnChromeCommand(CefRefPtr<CefBrowser> browser, int command_id, cef_window_open_disposition_t) override {
     if (!IsWindowCommand(command_id)) {
       return false;
@@ -270,7 +270,7 @@ class Client : public CefClient,
     // Chromium window and the host moves the tab into a pane. window.opener
     // stays either way. AFTER_CREATED carries the disposition and features.
     window_info = CefWindowInfo();
-    // A page opened by a page is past a new tab's first paint: Chrome's
+    // A page opened by a page is past a new tab's first paint: Chromium's
     // white default (PageBackground; cmux also sets it on adoption).
     settings.background_color = 0xFFFFFFFF;
     RememberPopup(browser->GetIdentifier(), disposition, features);
@@ -280,7 +280,7 @@ class Client : public CefClient,
 
   void OnBeforeDevToolsPopup(CefRefPtr<CefBrowser> browser, CefWindowInfo& window_info, CefRefPtr<CefClient>& client,
                              CefBrowserSettings&, CefRefPtr<CefDictionaryValue>&, bool* use_default_window) override {
-    // Every DevTools of this page (ShowDevTools, Chrome's DevTools
+    // Every DevTools of this page (ShowDevTools, Chromium's DevTools
     // commands, the context menu's Inspect) gets its own client, so it is
     // never adopted as a tab and never reports this page's URL or title.
     PrepareDevToolsPopup(browser->GetIdentifier(), window_info, client, use_default_window);
@@ -371,15 +371,25 @@ class Client : public CefClient,
     return h.key(h.ctx, browser->GetIdentifier(), (__bridge void*)os_event) != 0;
   }
 
-  // After the renderer: a key the page did not handle. Only a plain Escape
-  // is reported (a popup panel closes on it); everything else goes on to
-  // Chromium's own accelerators.
+  // After the renderer: a key the page did not handle. A plain Escape is
+  // reported (a popup panel closes on it), and so is a letter, with or
+  // without Shift, while no editable field has focus (single-key page
+  // shortcuts such as link hints). Everything goes on to Chromium's own
+  // accelerators.
   bool OnKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle) override {
     constexpr int kEscape = 0x1B;
     constexpr uint32_t kModifiers = EVENTFLAG_SHIFT_DOWN | EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN |
                                     EVENTFLAG_COMMAND_DOWN;
-    if (event.type == KEYEVENT_RAWKEYDOWN && event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
+    constexpr uint32_t kChordModifiers = EVENTFLAG_CONTROL_DOWN | EVENTFLAG_ALT_DOWN | EVENTFLAG_COMMAND_DOWN;
+    if (event.type != KEYEVENT_RAWKEYDOWN) {
+      return false;
+    }
+    if (event.windows_key_code == kEscape && !(event.modifiers & kModifiers)) {
       Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, kEscape);
+    } else if (event.windows_key_code >= 'A' && event.windows_key_code <= 'Z' && !(event.modifiers & kChordModifiers) &&
+               !event.focus_on_editable_field && !event.is_system_key) {
+      const int64_t shift = (event.modifiers & EVENTFLAG_SHIFT_DOWN) ? 1 : 0;
+      Emit(CMUX_SHIM_KEY_UNHANDLED, browser->GetIdentifier(), 0, event.windows_key_code, shift);
     }
     return false;
   }

@@ -1,4 +1,4 @@
-// An opened edit as Codex draws it inside the transcript: a card per changed file with its
+// An opened edit inside the transcript: a card per changed file with its
 // name, the lines added and removed, copy, and the change on @pierre/diffs, scrolling past a
 // few lines. The changes view (changes/EditBlock.tsx) draws the same edits at full size.
 import { useEffect, useMemo, useState } from "react";

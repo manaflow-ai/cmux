@@ -9,6 +9,13 @@ public nonisolated enum SidebarBuiltIn: String, Hashable, Sendable, CaseIterable
     case notifications
     case history
     case bookmarks
+    case appStore = "app_store"
+    /// New-tab launchers, for sections and the rail (`window.rail`).
+    case newTerminal = "new_terminal"
+    case newBrowser = "new_browser"
+    case newAgentChat = "new_agent_chat"
+    /// The appearance studio (Customize Appearance).
+    case customize
 }
 
 /// What an item points at: a kind and a string value. Kinds this client
@@ -28,6 +35,8 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static let roomKind = "room"
     public static let savedGroupKind = "saved_group"
     public static let urlKind = "url"
+    /// An installed cmux app (`<publisher>/<name>`); its menu offers Hide.
+    public static let appKind = "app"
 
     public static func builtIn(_ item: SidebarBuiltIn) -> LayoutItemRef { LayoutItemRef(kind: builtInKind, value: item.rawValue) }
     /// A qualified public workspace id (`<session>:ws_…`).
@@ -37,6 +46,7 @@ public nonisolated struct LayoutItemRef: Hashable, Sendable, Codable {
     public static func room(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: roomKind, value: id) }
     public static func savedGroup(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: savedGroupKind, value: id) }
     public static func url(_ url: String) -> LayoutItemRef { LayoutItemRef(kind: urlKind, value: url) }
+    public static func app(_ id: String) -> LayoutItemRef { LayoutItemRef(kind: appKind, value: id) }
 
     /// The built-in this ref names, or nil (another kind, or a built-in
     /// from a newer client).
@@ -49,6 +59,9 @@ public nonisolated struct LayoutItem: Hashable, Sendable, Codable, Identifiable 
     /// False: the item shows its icon only on a line (inline arrangement),
     /// like the account avatar beside Settings.
     public var showsLabel: Bool
+
+    /// The app this item opens, for an app item.
+    public var owningAppID: String? { ref.kind == LayoutItemRef.appKind ? ref.value : nil }
 
     public init(id: LayoutItemID, ref: LayoutItemRef, showsLabel: Bool = true) {
         self.id = id

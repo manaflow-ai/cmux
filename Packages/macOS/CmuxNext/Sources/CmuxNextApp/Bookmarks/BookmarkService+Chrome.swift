@@ -60,7 +60,7 @@ extension BookmarkService {
         entry.chrome.addressBar.setBookmarkStar(bookmarked ? .on : .off)
     }
 
-    /// Pages Chrome lets you bookmark: anything with a scheme except blank,
+    /// Pages that can be bookmarked: anything with a scheme except blank,
     /// data and the New Tab page.
     static func canBookmark(_ url: URL?) -> Bool {
         guard let url, let scheme = url.scheme?.lowercased(), !["about", "data", "javascript"].contains(scheme) else { return false }

@@ -9,7 +9,7 @@ public nonisolated enum SectionsLookVariant: String, Sendable, CaseIterable, Has
     case quiet
     /// Each section of a sticky band sits in a rounded inset card.
     case card
-    /// Built-in sections lay out as an icon grid (Arc favorites).
+    /// Built-in sections lay out as an icon grid.
     case tray
     /// No headers; a thin line between sections (a tonal step under
     /// `appearance.borders = none`).

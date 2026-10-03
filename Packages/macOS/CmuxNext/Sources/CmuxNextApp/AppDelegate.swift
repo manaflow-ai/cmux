@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         // Once the first terminal frame is drawn, the palette panel is made
         // at the next idle moment, so the first open costs what later opens
-        // cost (Spotlight and Chrome's omnibox open in one frame), without
+        // cost (a launcher panel opens in one frame), without
         // delaying that frame.
         launchSettle.whenSettled { [palette = services.palette] in Self.preparePalette(palette, step: 0) }
         services.palette.onPresented = { DebugTimings.palettePresented($0) }
@@ -142,6 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         services.tabBarButtons.start(settings: settings)
+        // Agent-launched builds never take system-wide keys from the person's app.
+        if !environment.noActivate { services.globalHotKeys.start() }
         services.cache.browserTabs.preference.follow(settings)
         services.notifications.follow(settings)
         services.startHibernation(settings: settings)
@@ -225,6 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.ssh.stop()
         control.stop()
         services?.tabBarButtons.stop()
+        services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
         services?.daemon.shutdownConnection()

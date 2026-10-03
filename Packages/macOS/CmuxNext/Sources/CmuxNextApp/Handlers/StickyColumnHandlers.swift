@@ -3,7 +3,6 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
-import os
 
 /// Sticky columns and the strip scrollbar (plans/cmux-next/sticky-column.md).
 /// Every entry point (palette, context menus, CLI verbs, `action.run`,
@@ -13,8 +12,6 @@ import os
 /// Disabled with the daemon's reason until the pinned cmux-tui serves
 /// `sticky-columns-v1`.
 enum StickyColumnHandlers {
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
-
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let capability = DaemonCapabilities.shared.stickyColumns
         registry.bind("column.makeSticky", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
@@ -41,14 +38,9 @@ enum StickyColumnHandlers {
             try apply(next, to: target, in: content)
         })
         registry.bind("layout.toggleStripScrollbar", run: { _ in
-            let next = DesignSettings.shared.stripScrollbar.toggled
-            DesignSettings.shared.stripScrollbar = next
-            guard let settings = ctx.services.settings else { return }
-            Task {
-                do { try await settings.set(.string(next.rawValue), at: StripScrollbarSetting.configPath) } catch {
-                    logger.error("set strip scrollbar failed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            let next = ctx.design.stripScrollbar.toggled
+            ctx.design.stripScrollbar = next
+            ctx.writeSetting("set strip scrollbar", StripScrollbarSetting.configPath, .string(next.rawValue))
         })
     }
 
@@ -62,6 +54,11 @@ enum StickyColumnHandlers {
     static func apply(_ sticky: StickyColumn?, to column: LayoutColumn, in content: WorkspaceContentController) throws {
         let capability = DaemonCapabilities.shared.stickyColumns
         guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
+        // Top and bottom docks need the daemon's `dock` field, which the app
+        // does not encode yet; the wire's sticky edge has only left and right.
+        if sticky?.edge.isBand == true {
+            throw ActionFailure(message: content.daemon.missingCapabilityMessage(DaemonCapabilities.shared.edgeDocks))
+        }
         guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky) else { return }
         switch refusal {
         case .notColumns: throw ActionFailure.invalidTarget(RefusalStrings.notColumnLayout)

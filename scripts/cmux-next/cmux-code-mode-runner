@@ -1,0 +1,121 @@
+#!/bin/sh
+set -eu
+
+script=${1:?cmux run needs a TypeScript script path}
+shift
+if [ "${1:-}" = "--" ]; then shift; fi
+session=${CMUX_TUI_SESSION:-main}
+case "$session" in
+  ""|.|..|*/*|*\\*) echo 'cmux run: invalid session name' >&2; exit 2 ;;
+esac
+socket=${CMUX_TUI_SOCKET:-}
+if [ -z "$socket" ]; then
+  uid=$(id -u)
+  base=${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}
+  socket="$base/cmux-tui-$uid/$session.sock"
+fi
+[ -S "$socket" ] || { echo "cmux run: cmux socket not found: $socket" >&2; exit 2; }
+root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+bun=$(command -v bun || true)
+[ -n "$bun" ] || { echo 'cmux run: bun is required' >&2; exit 2; }
+[ -f "$script" ] || { echo "cmux run: script not found: $script" >&2; exit 2; }
+if [ -d "$root/cmux-tui/bindings/typescript" ]; then
+  sdk="$root/cmux-tui/bindings/typescript"
+  catalog="$root/cmux-tui/spec/resource-operations-v2.json"
+elif [ -d "$root/Resources/code-mode/sdk" ]; then
+  sdk="$root/Resources/code-mode/sdk"
+  catalog="$root/Resources/code-mode/resource-operations-v2.json"
+else
+  sdk="$root/code-mode/sdk"
+  catalog="$root/code-mode/resource-operations-v2.json"
+fi
+
+script=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)/$(basename -- "$script")
+
+proxy_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-code-mode-proxy.XXXXXX")
+proxy_socket="$proxy_dir/cmux.sock"
+cloud_socket="$proxy_dir/cloud.sock"
+proxy="$sdk/code-mode/proxy.mjs"
+sandbox_pid=
+cloud_relay_pid=
+cleanup() {
+  if [ -n "$sandbox_pid" ]; then kill "$sandbox_pid" 2>/dev/null || true; sandbox_pid=; fi
+  kill "${proxy_pid:-}" 2>/dev/null || true
+  kill "${cloud_relay_pid:-}" 2>/dev/null || true
+  rm -rf "$proxy_dir"
+}
+trap cleanup EXIT
+trap 'exit 143' INT TERM
+"$bun" "$proxy" "$socket" "$proxy_socket" "$catalog" >/dev/null 2>&1 &
+proxy_pid=$!
+for _ in $(seq 1 100); do
+  [ -S "$proxy_socket" ] && break
+  kill -0 "$proxy_pid" 2>/dev/null || { echo 'cmux run: code-mode proxy exited' >&2; exit 2; }
+  sleep 0.01
+done
+[ -S "$proxy_socket" ] || { echo 'cmux run: code-mode proxy did not start' >&2; exit 2; }
+
+# Cloud is an owner relay. The bearer and API URL stay in this host process; only
+# its Unix socket is mounted into bwrap. Missing credentials disables Cloud cleanly.
+cloud_catalog="$root/backend/catalog/cloud-operations.json"
+cloud_relay_catalog="$root/backend/catalog/cloud-relay-operations.json"
+if [ ! -f "$cloud_catalog" ] && [ -f "$root/code-mode/cloud-operations.json" ]; then cloud_catalog="$root/code-mode/cloud-operations.json"; fi
+if [ ! -f "$cloud_relay_catalog" ] && [ -f "$root/code-mode/cloud-relay-operations.json" ]; then cloud_relay_catalog="$root/code-mode/cloud-relay-operations.json"; fi
+if [ -n "${CMUX_CLOUD_API_URL:-}" ] && [ -n "${CMUX_CLOUD_BEARER_TOKEN:-}" ] && [ -f "$cloud_catalog" ] && [ -f "$cloud_relay_catalog" ]; then
+  "$bun" "$sdk/code-mode/cloud-relay-host.mjs" "$cloud_socket" "$cloud_catalog" "$cloud_relay_catalog" >/dev/null 2>&1 &
+  cloud_relay_pid=$!
+  for _ in $(seq 1 100); do
+    [ -S "$cloud_socket" ] && break
+    kill -0 "$cloud_relay_pid" 2>/dev/null || { echo 'cmux run: Cloud relay exited' >&2; exit 2; }
+    sleep 0.01
+  done
+  [ -S "$cloud_socket" ] || { echo 'cmux run: Cloud relay did not start' >&2; exit 2; }
+fi
+
+# Linux prototype sandbox: no host network, no host home, read-only runtime and
+# source, a tmpfs for transient writes, and one explicitly bound cmux socket.
+# The runner fails closed when this sandbox is unavailable.
+if command -v bwrap >/dev/null 2>&1; then
+  if [ -n "$cloud_relay_pid" ]; then
+    bwrap \
+      --die-with-parent --new-session --unshare-all --clearenv \
+      --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+      --ro-bind /lib64 /lib64 \
+      --ro-bind "$bun" /run/cmux-bun \
+      --ro-bind "$sdk" /run/cmux-sdk \
+      --ro-bind "$script" /run/cmux-script.ts \
+      --ro-bind "$proxy_socket" /run/cmux.sock \
+      --ro-bind "$cloud_socket" /run/cmux-cloud.sock \
+      --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
+      --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
+      --setenv CMUX_TUI_SESSION "$session" \
+      --setenv CMUX_CLOUD_SOCKET /run/cmux-cloud.sock \
+      /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
+      /run/cmux-script.ts "$@" &
+  else
+    bwrap \
+      --die-with-parent --new-session --unshare-all --clearenv \
+      --ro-bind /usr /usr --ro-bind /bin /bin --ro-bind /lib /lib \
+      --ro-bind /lib64 /lib64 \
+      --ro-bind "$bun" /run/cmux-bun \
+      --ro-bind "$sdk" /run/cmux-sdk \
+      --ro-bind "$script" /run/cmux-script.ts \
+      --ro-bind "$proxy_socket" /run/cmux.sock \
+      --proc /proc --dev /dev --tmpfs /tmp --chdir /run \
+      --setenv HOME /tmp --setenv CMUX_TUI_SOCKET /run/cmux.sock \
+      --setenv CMUX_TUI_SESSION "$session" \
+      /run/cmux-bun /run/cmux-sdk/code-mode/run.ts \
+      /run/cmux-script.ts "$@" &
+  fi
+  sandbox_pid=$!
+  if wait "$sandbox_pid"; then
+    status=0
+  else
+    status=$?
+  fi
+  sandbox_pid=
+  exit "$status"
+fi
+
+echo 'cmux run: no supported locked-down sandbox (Linux bwrap) is available' >&2
+exit 2

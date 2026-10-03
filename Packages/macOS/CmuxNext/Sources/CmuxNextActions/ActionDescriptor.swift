@@ -65,6 +65,14 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// needs (Connect to CodeRouter): the CLI runs it with `wait` and the
     /// control socket gives it ``ActionDescriptor/resultDeadline``.
     public var waitsForResult: Bool = false
+    /// Only a person in the app runs it (palette, menu, keyboard): the
+    /// control socket refuses it whatever origin the caller claims, so no
+    /// script or agent can start it (Import Passwords from CSV).
+    public var isPersonOnly: Bool = false
+    /// Registered system-wide (a Carbon hot key) with its effective
+    /// shortcut, so it runs while another app is frontmost. The App's
+    /// `GlobalHotKeyService` owns registration and follows rebinds.
+    public var isGlobalHotKey: Bool = false
     /// How long `action.run` with `wait` may take for such an action.
     public static let resultDeadline: Duration = .seconds(40)
 

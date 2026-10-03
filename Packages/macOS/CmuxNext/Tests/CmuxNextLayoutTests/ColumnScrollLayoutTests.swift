@@ -3,7 +3,7 @@ import CoreGraphics
 import Testing
 @testable import CmuxNextLayout
 
-/// Layout changes under the column scroll (plans/cmux-next/niri.md,
+/// Layout changes under the column scroll (plans/cmux-next/column-scroll.md,
 /// "Layout changes"): close, open, resize, move, window resize.
 struct ColumnScrollLayoutTests {
     @Test func closingTheRightmostColumnSpringsBackWithNoJump() {
@@ -67,8 +67,8 @@ struct ColumnScrollLayoutTests {
         #expect(state.screenX(of: "c1") == CGFloat(184))
         #expect(state.spring.target == 432)
         state.runToRest()
-        // Closing it returns focus left and restores the old view (niri
-        // activate_prev_column_on_removal), not merely a minimal reveal (408).
+        // Closing it returns focus left and restores the old view (the
+        // restore point), not merely a minimal reveal (408).
         state.reduce(.sync(makeStrip([400, 400, 400, 400]), focused: "p1", source: .programmatic, animated: true))
         #expect(state.spring.target == 232)
     }
@@ -138,7 +138,7 @@ struct ColumnScrollLayoutTests {
     }
 }
 
-/// A column-edge drag keeps the view (niri interactive resize) and fits the
+/// A column-edge drag keeps the view and fits the
 /// focused column once the drag ends.
 struct ColumnScrollResizeDragTests {
     @Test func liveResizeHoldsTheViewAndRevealsAtTheEnd() {

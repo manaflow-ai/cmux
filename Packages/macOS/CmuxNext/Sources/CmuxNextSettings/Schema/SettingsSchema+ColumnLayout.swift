@@ -24,7 +24,7 @@ extension SettingsSchema {
                     SettingChoice(NewColumnWidthMode.fitScreen.rawValue, SettingsText.text("settings.choice.fitScreen", "Fit Visible Columns")),
                     SettingChoice(NewColumnWidthMode.fixed.rawValue, SettingsText.text("settings.choice.fixedWidth", "Fixed Width")),
                 ]),
-                default: .string(ColumnLayoutSettings.newColumnWidthFallback.rawValue), keywords: ["niri", "width", "column"]
+                default: .string(ColumnLayoutSettings.newColumnWidthFallback.rawValue), keywords: ["width", "column"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.stickyEdgePath, section: .general, group: columns,
@@ -40,9 +40,18 @@ extension SettingsSchema {
                 title: SettingsText.text("settings.layout.stickyColumnMode", "Sticky Column Mode"),
                 kind: .choice([
                     SettingChoice(StickyDefaultMode.docked.rawValue, SettingsText.text("settings.choice.docked", "Docked")),
-                    SettingChoice(StickyDefaultMode.overlay.rawValue, SettingsText.text("settings.choice.overlay", "Overlay")),
+                    SettingChoice(StickyDefaultMode.overlay.rawValue, SettingsText.text("settings.choice.overlay", "Floating")),
                 ]),
-                default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "overlay", "dock"]
+                default: .string(ColumnLayoutSettings.stickyModeFallback.rawValue), keywords: ["sticky", "floating", "overlay", "dock"]
+            ),
+            SettingDescriptor(
+                ColumnLayoutSettings.frameOrientationPath, section: .general, group: columns,
+                title: SettingsText.text("settings.layout.frameOrientation", "Dock Corners"),
+                kind: .choice([
+                    SettingChoice(FrameOrientation.columnMajor.rawValue, SettingsText.text("settings.choice.columnMajor", "Side Docks Full Height")),
+                    SettingChoice(FrameOrientation.rowMajor.rawValue, SettingsText.text("settings.choice.rowMajor", "Top and Bottom Docks Full Width")),
+                ]),
+                default: .string(ColumnLayoutSettings.frameOrientationFallback.rawValue), keywords: ["dock", "frame", "orientation", "corner", "sticky"]
             ),
             SettingDescriptor(
                 ColumnLayoutSettings.minimumPaneWidthPath, section: .general, group: columns,

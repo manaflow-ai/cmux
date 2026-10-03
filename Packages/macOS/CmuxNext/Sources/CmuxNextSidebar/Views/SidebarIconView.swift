@@ -2,11 +2,12 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// Workspace icon, shown only when the user chose one: an SF Symbol, or a
-/// color shown as a small dot.
+/// Workspace icon, shown only when the user chose one: an SF Symbol, one
+/// emoji, or a color shown as a small dot.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
+    private let emoji = NSTextField(labelWithString: "")
     private var icon: WorkspaceIcon?
 
     /// Rows reserve room only for a chosen icon.
@@ -21,6 +22,8 @@ final class SidebarIconView: NSView {
         layer?.addSublayer(swatch)
         imageView.imageScaling = .scaleProportionallyDown
         addSubview(imageView)
+        emoji.alignment = .center
+        addSubview(emoji)
     }
 
     @available(*, unavailable)
@@ -28,10 +31,18 @@ final class SidebarIconView: NSView {
 
     override var wantsUpdateLayer: Bool { true }
 
+    /// The emoji drawn now, or nil (tests).
+    var emojiText: String? { emoji.isHidden ? nil : emoji.stringValue }
+
     func configure(icon: WorkspaceIcon?) {
         self.icon = icon
         isHidden = !Self.showsIcon(icon)
+        emoji.isHidden = true
         switch icon {
+        case let .emoji(text)?:
+            emoji.stringValue = text
+            emoji.isHidden = false
+            imageView.isHidden = true
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
@@ -64,6 +75,9 @@ final class SidebarIconView: NSView {
     override func layout() {
         super.layout()
         imageView.frame = bounds
+        emoji.font = .systemFont(ofSize: max(8, bounds.height * 0.72))
+        let height = ceil(emoji.intrinsicContentSize.height)
+        emoji.frame = NSRect(x: 0, y: (bounds.height - height) / 2, width: bounds.width, height: height)
         let side = SidebarStyle.dotSize
         let rect = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         CATransaction.begin()

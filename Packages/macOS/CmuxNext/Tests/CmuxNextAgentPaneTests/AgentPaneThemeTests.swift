@@ -7,7 +7,19 @@ import Testing
         let keys = Set(AgentPaneTheme.values(.fallback).keys)
         #expect(keys == ["isDark", "pageBackground", "surfaceBackground", "surfaceElevatedBackground", "inputBackground", "border",
                          "borderStrong", "text", "mutedText", "softText", "accent", "accentSoft", "accentText", "danger", "warning", "highlight", "highlightText",
-                         "shadow", "palette", "borders"])
+                         "shadow", "palette", "borders", "motion"])
+    }
+
+    /// The page's fades follow the chrome's MotionFade tokens: `normal` is 1.5 times
+    /// `fast`, and `off` sends 0 so every hover applies at once.
+    @Test func sendsTheMotionDurations() {
+        func motion(_ speed: MotionSpeed) -> [String: Double]? {
+            AgentPaneTheme.values(.fallback, motion: MotionPolicy(speed: speed, reduceMotion: false))["motion"] as? [String: Double]
+        }
+        #expect(motion(.fast)?["hover"] == MotionFade.hover.baseDuration)
+        #expect(motion(.fast)?["fadeIn"] == MotionFade.fadeIn.baseDuration)
+        #expect(motion(.normal)?["hover"] == MotionFade.hover.baseDuration * 1.5)
+        #expect(motion(.off) == ["hover": 0, "focus": 0, "fadeIn": 0, "fadeOut": 0])
     }
 
     /// appearance.borders reaches the page as its mode, beside the transparent
@@ -36,7 +48,7 @@ import Testing
     }
 
     /// Code blocks color their syntax from the terminal's ANSI colors, so a theme's
-    /// code looks like its terminal (Catppuccin Mocha's mauve keywords, not Codex's).
+    /// code looks like its terminal (Catppuccin Mocha's mauve keywords, not the built-in dark hues).
     @Test func sendsTheSixteenANSIColorsInOrder() {
         let mocha = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4), palette: [
             0x45475A, 0xF38BA8, 0xA6E3A1, 0xF9E2AF, 0x89B4FA, 0xF5C2E7, 0x94E2D5, 0xA6ADC8,
@@ -89,8 +101,9 @@ import Testing
     /// page must too: its own copy of the color over the sheet (0.8 over 0.8
     /// is 0.96) is a near-solid block over the blur. The field adds only a
     /// faint tint; text and labels on the accent stay opaque. A macOS glass
-    /// style makes the window non-opaque even at opacity 1.
-    @Test(arguments: [(0.8, 20), (1.0, -1)])
+    /// style makes the window non-opaque even at opacity 1; every material
+    /// (frosted, regular and clear glass) keeps the page clear.
+    @Test(arguments: [(0.8, 20), (0.8, 0), (1.0, -1), (0.6, -2)])
     func aTranslucentWindowsPaneLetsAsMuchThroughAsTheTerminal(opacity: Double, blur: Int) throws {
         let tokens = ThemeTokens.derive(from: ThemeInput(background: ThemeRGB(hex: 0x1E1E2E), foreground: ThemeRGB(hex: 0xCDD6F4),
                                                          backgroundOpacity: opacity, backgroundBlur: blur))

@@ -31,7 +31,7 @@ never sticky; column order is unchanged, so older clients render the column in p
 
 - S1. The first sticky column per edge in daemon order holds it; any other sticky column scrolls.
 - S2. A screen whose columns would all be sticky shows them all in the strip.
-- S3. A sticky column's width is a fraction of the whole viewport (niri's `(view - gap) * p -
+- S3. A sticky column's width is a fraction of the whole viewport (column-scroll.md W3: `(view - gap) * p -
   gap`), at least its panes' minimum, at most 3/4 of the viewport (2/5 each with both edges). It
   sits one gap from its edge. Its resize handle is on its own inner edge, so the gap beside it
   keeps the neighboring strip column's handle.
@@ -40,7 +40,7 @@ never sticky; column order is unchanged, so older clients render the column in p
   of the column's width plus a gap at that end, so at rest nothing hides under the column and
   every column can scroll out from under it.
 - S5. The scroll reducer sees only the scrolling columns and the strip viewport
-  (plans/cmux-next/niri.md rules apply unchanged inside the strip).
+  (plans/cmux-next/column-scroll.md rules apply unchanged inside the strip).
 - S6. Sticky panes and dividers are in view coordinates and never scroll; strip content is in
   strip space starting at `stripMinX`.
 
@@ -88,7 +88,7 @@ never sticky; column order is unchanged, so older clients render the column in p
 
 Palette and CLI (`cmux action run` or the verbs): Make Column Sticky (`column make-sticky`,
 optional `edge` left|right, `mode` docked|overlay), Make Column Sticky on Left
-(`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Sticky Overlay
+(`column make-sticky-left`), Unstick Column (`column unstick`), Toggle Floating Sticky Column
 (`column toggle-sticky-overlay`: the targeted column if sticky, else the screen's sticky column,
 else the column as a right overlay), Toggle Column Scroll Bar (`settings toggle-column-scrollbar`).
 Column and pane context menus. Directional focus treats the left sticky column as before the
@@ -101,7 +101,7 @@ path. No default shortcut.
 - Chromium pages are child windows above the window content: a Chromium page in a strip pane that
   scrolls under an overlay or docked sticky column draws above it, and the scrollbar draws under
   a Chromium page at the bottom of the strip. At rest neither overlaps (S4).
-- In overlay mode the focus reveal (niri.md F1) still treats the full width as visible, so a
+- In overlay mode the focus reveal (column-scroll.md F1) still treats the full width as visible, so a
   focused column scrolled under the overlay is not moved out automatically.
 - `SplitRoom` sizes docked strip columns against the whole viewport, so a split near the minimum
   pane width may be refused or allowed a little early.

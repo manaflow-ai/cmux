@@ -2,161 +2,362 @@
   "$schema": "https://cmux.dev/schemas/cmux-app/1.json",
   "manifestVersion": 1,
   "id": "cmux/notes",
-  "name": { "en": "Notes", "ja": "メモ" },
-  "version": "0.1.0",
-  "description": {
-    "en": "Plain-text and markdown notes in cmux: a scratchpad per workspace, quick capture, pins, search, and tools so agents can keep notes for you.",
-    "ja": "cmuxのテキストとMarkdownのメモ。ワークスペースごとのスクラッチパッド、クイックキャプチャ、ピン留め、検索、エージェントがメモを残せるツール。"
+  "name": {
+    "en": "Notes",
+    "ja": "メモ"
   },
-  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "version": "0.2.0",
+  "description": {
+    "en": "Markdown notes in cmux, kept by the notes server and synced to your devices: a scratchpad per workspace, quick capture, pins, search, Markdown import and export, and tools so agents can keep notes for you.",
+    "ja": "cmux の Markdown メモ。メモのサーバーが保存し、各デバイスに同期します。ワークスペースごとのスクラッチパッド、クイックキャプチャ、ピン留め、検索、Markdown の読み込みと書き出し、エージェントがメモを残せるツール。"
+  },
+  "publisher": {
+    "name": "cmux",
+    "url": "https://cmux.dev"
+  },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
   "icon": "assets/icon.svg",
-  "categories": ["sidebar", "productivity", "agents"],
-  "keywords": ["notes", "markdown", "scratchpad", "todo"],
-  "engines": { "cmux": "^1.0" },
+  "categories": [
+    "sidebar",
+    "productivity",
+    "agents"
+  ],
+  "keywords": [
+    "notes",
+    "markdown",
+    "scratchpad",
+    "todo"
+  ],
+  "engines": {
+    "cmux": "^1.0"
+  },
   "main": "dist/main.js",
   "scopes": {
     "workspace:read": "Show the scratchpad of the workspace you are in and label notes with workspace names.",
-    "mcp:expose": "Let agents you run list, read, create and append to your notes."
+    "mcp:expose": "Let agents you run list, read, search, create, capture and append to your notes."
   },
   "contributes": {
     "sidebarSections": [
-      { "id": "notes", "title": { "en": "Notes", "ja": "メモ" }, "symbol": "note.text", "defaultRegion": "middle", "render": "renderNotes" }
-    ],
-    "paneKinds": [
-      { "id": "notesPane", "title": { "en": "Notes", "ja": "メモ" }, "symbol": "note.text", "render": "renderNotesPane" }
+      {
+        "id": "notes",
+        "title": {
+          "en": "Notes",
+          "ja": "メモ"
+        },
+        "symbol": "note.text",
+        "defaultRegion": "middle",
+        "render": "renderNotes"
+      }
     ],
     "commands": [
       {
         "id": "newNote",
-        "title": { "en": "New Note", "ja": "新規メモ" },
+        "title": {
+          "en": "New Note",
+          "ja": "新規メモ"
+        },
         "symbol": "square.and.pencil",
         "run": "newNote",
-        "keywords": ["note", "create"],
-        "contexts": ["palette", "sidebarSection:notes"],
+        "keywords": [
+          "note",
+          "create"
+        ],
+        "contexts": [
+          "palette",
+          "sidebarSection:notes"
+        ],
         "x-cmux-mcp": false
       },
       {
         "id": "capture",
-        "title": { "en": "Quick Capture Note", "ja": "メモをすばやく記録" },
+        "title": {
+          "en": "Quick Capture Note",
+          "ja": "メモをすばやく記録"
+        },
         "symbol": "text.badge.plus",
         "run": "capture",
-        "keywords": ["note", "capture", "jot"],
-        "contexts": ["palette"],
+        "keywords": [
+          "note",
+          "capture",
+          "jot"
+        ],
+        "contexts": [
+          "palette"
+        ],
         "arguments": {
           "type": "object",
-          "required": ["text"],
+          "required": [
+            "text"
+          ],
           "properties": {
-            "text": { "type": "string", "description": "Note text. The first line becomes the title." },
-            "workspace": { "type": "string", "description": "Attach to this workspace: an id, a name, or \"current\"." }
+            "text": {
+              "type": "string",
+              "description": "Note text. The first line becomes the title."
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Attach to this workspace: an id, a name, or \"current\" (your workspace)."
+            }
           }
         }
       },
       {
         "id": "list",
-        "title": { "en": "List Notes", "ja": "メモを一覧表示" },
+        "title": {
+          "en": "List Notes",
+          "ja": "メモを一覧表示"
+        },
         "run": "list",
         "contexts": [],
         "arguments": {
           "type": "object",
           "properties": {
-            "query": { "type": "string", "description": "Only notes matching every word." },
-            "workspace": { "type": "string", "description": "Only notes attached to this workspace: an id, a name, or \"current\"." },
-            "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
+            "query": {
+              "type": "string",
+              "description": "Only notes matching every word."
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Only notes attached to this workspace: an id, a name, or \"current\" (your workspace)."
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
           }
         }
       },
       {
         "id": "read",
-        "title": { "en": "Read Note", "ja": "メモを読む" },
+        "title": {
+          "en": "Read Note",
+          "ja": "メモを読む"
+        },
         "run": "read",
         "contexts": [],
-        "arguments": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } }
+        "arguments": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        }
       },
       {
         "id": "create",
-        "title": { "en": "Create Note", "ja": "メモを作成" },
+        "title": {
+          "en": "Create Note",
+          "ja": "メモを作成"
+        },
         "run": "create",
         "contexts": [],
         "arguments": {
           "type": "object",
           "properties": {
-            "title": { "type": "string" },
-            "body": { "type": "string", "description": "Markdown." },
-            "workspace": { "type": "string", "description": "An id, a name, or \"current\"." },
-            "pinned": { "type": "boolean", "default": false }
+            "title": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "description": "Markdown."
+            },
+            "workspace": {
+              "type": "string",
+              "description": "An id, a name, or \"current\"."
+            },
+            "pinned": {
+              "type": "boolean",
+              "default": false
+            }
           }
         }
       },
       {
         "id": "append",
-        "title": { "en": "Append to Note", "ja": "メモに追記" },
+        "title": {
+          "en": "Append to Note",
+          "ja": "メモに追記"
+        },
         "run": "append",
         "contexts": [],
         "arguments": {
           "type": "object",
-          "required": ["text"],
+          "required": [
+            "text"
+          ],
           "properties": {
-            "id": { "type": "string", "description": "The note. Give this or workspace." },
-            "workspace": { "type": "string", "description": "Append to this workspace's scratchpad (created on first use): an id, a name, or \"current\"." },
-            "text": { "type": "string" }
+            "id": {
+              "type": "string",
+              "description": "The note. Give this or workspace."
+            },
+            "workspace": {
+              "type": "string",
+              "description": "Append to this workspace's scratchpad (created on first use): an id, a name, or \"current\" (your workspace)."
+            },
+            "text": {
+              "type": "string"
+            }
           }
         }
       },
       {
-        "id": "pin",
-        "title": { "en": "Pin Note", "ja": "メモをピン留め" },
-        "run": "pin",
-        "contexts": [],
-        "arguments": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" }, "pinned": { "type": "boolean", "default": true } } }
-      },
-      {
         "id": "search",
-        "title": { "en": "Search Notes", "ja": "メモを検索" },
+        "title": {
+          "en": "Search Notes",
+          "ja": "メモを検索"
+        },
         "run": "search",
         "contexts": [],
-        "arguments": { "type": "object", "required": ["query"], "properties": { "query": { "type": "string" }, "limit": { "type": "integer", "minimum": 1, "maximum": 50, "default": 20 } } }
+        "arguments": {
+          "type": "object",
+          "required": [
+            "query"
+          ],
+          "properties": {
+            "query": {
+              "type": "string"
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        }
       },
       {
         "id": "export",
-        "title": { "en": "Export Notes as Markdown", "ja": "メモをMarkdownで書き出す" },
+        "title": {
+          "en": "Export Notes as Markdown…",
+          "ja": "メモをMarkdownで書き出す…"
+        },
         "run": "exportNotes",
-        "contexts": [],
-        "arguments": { "type": "object", "properties": { "id": { "type": "string", "description": "One note; every note when absent." } } }
+        "contexts": [
+          "palette"
+        ],
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "One note; every note when absent."
+            }
+          }
+        },
+        "x-cmux-mcp": false
+      },
+      {
+        "id": "import",
+        "title": {
+          "en": "Import Markdown Files as Notes…",
+          "ja": "Markdownファイルをメモとして読み込む…"
+        },
+        "symbol": "square.and.arrow.down",
+        "run": "importNotes",
+        "keywords": [
+          "note",
+          "import",
+          "markdown"
+        ],
+        "contexts": [
+          "palette"
+        ],
+        "x-cmux-mcp": false
       },
       {
         "id": "open",
-        "title": { "en": "Open Note", "ja": "メモを開く" },
+        "title": {
+          "en": "Open Note",
+          "ja": "メモを開く"
+        },
         "run": "open",
         "contexts": [],
-        "arguments": { "type": "object", "required": ["id"], "properties": { "id": { "type": "string" } } },
+        "arguments": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          }
+        },
         "x-cmux-mcp": false
       },
       {
         "id": "cycleVariant",
-        "title": { "en": "Next Notes Variant", "ja": "メモの次のバリアント" },
+        "title": {
+          "en": "Next Notes Variant",
+          "ja": "メモの次のバリアント"
+        },
         "run": "cycleVariant",
-        "contexts": ["palette"],
+        "contexts": [
+          "palette"
+        ],
         "x-cmux-mcp": false
       }
     ],
-    "mcpServers": [{ "id": "notesTools", "title": { "en": "Notes", "ja": "メモ" }, "tools": "commands" }],
+    "mcpServers": [
+      {
+        "id": "notesTools",
+        "title": {
+          "en": "Notes",
+          "ja": "メモ"
+        },
+        "tools": "commands"
+      }
+    ],
     "settings": {
       "type": "object",
       "properties": {
         "variant": {
           "type": "string",
-          "enum": ["scratchpad", "list", "split"],
+          "enum": [
+            "scratchpad",
+            "list",
+            "editor"
+          ],
           "default": "scratchpad",
           "title": "Design variant",
-          "description": "scratchpad: this workspace's scratchpad, then other notes. list: notes with the selected one open inline. split: list, then the note in its place.",
+          "description": "scratchpad: this workspace's scratchpad, then other notes. list: notes with the selected one shown inline. editor: rows only; a click opens the note in the editor pane.",
           "x-cmux-devOnly": true
         },
-        "sort": { "type": "string", "enum": ["updated", "created", "title"], "default": "updated", "title": "Sort notes by" },
-        "bodyLines": { "type": "integer", "minimum": 1, "maximum": 400, "default": 12, "title": "Lines shown before Show More" }
+        "sort": {
+          "type": "string",
+          "enum": [
+            "updated",
+            "created",
+            "title"
+          ],
+          "default": "updated",
+          "title": "Sort notes by"
+        },
+        "bodyLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 400,
+          "default": 12,
+          "title": "Lines shown before Show More"
+        }
       }
     }
   },
-  "files": ["dist/", "assets/"]
+  "files": [
+    "dist/",
+    "assets/",
+    "strings/"
+  ],
+  "optionalScopes": {
+    "fs:read": "Import the Markdown files you pick.",
+    "fs:write": "Export notes as Markdown files into a folder you pick."
+  }
 }

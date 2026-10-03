@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextOnboarding
 import CmuxNextSettings
 import CmuxNextTerminal
+import LocalAuthentication
 import SwiftUI
 
 /// `OnboardingServices` over the app: cmux.json for the theme, the importer
@@ -20,6 +21,19 @@ final class AppOnboardingServices: OnboardingServices {
         self.owner = owner
     }
 
+    var savedProfile: OnboardingProfile? { owner.profile }
+
+    var canRunFirstTask: Bool { services.agentTabs.canHostChat }
+    var firstTaskFolder: FirstTaskFolder { .live() }
+
+    func makeFirstTaskView(cwd: URL, prompt: String) -> NSView? {
+        owner.firstTaskView(cwd: cwd, prompt: prompt)
+    }
+
+    func saveProfile(_ profile: OnboardingProfile) {
+        owner.saveProfile(profile)
+    }
+
     var ghosttyTheme: ThemeInput { ThemeStore.shared.input }
     var ghosttyHasOwnTheme: Bool { GhosttyOwnTheme.isSet() }
     var selectedThemeName: String? { services.settings?.snapshot.root.value(at: TerminalThemeSetting.path)?.stringValue }
@@ -29,18 +43,71 @@ final class AppOnboardingServices: OnboardingServices {
         await Task.detached { ThemeChoice.loadCurated(resourcesDirectory: GhosttyRuntime.resourcesDirectory()) }.value
     }
 
+    /// The last write `applyAppearance` started; each waits for the one
+    /// before, so a revert never lands ahead of the try it undoes.
+    private var lastWrite: Task<Void, Never>?
+
+    /// Waits for every write `applyAppearance` started (tests).
+    func flush() async {
+        await lastWrite?.value
+    }
+
     func applyAppearance(themeName: String?, density: Density) {
         guard let settings = services.settings else { return }
-        let current = selectedThemeName
-        Task {
+        let previous = lastWrite
+        lastWrite = Task {
+            await previous?.value
+            // Compare with the file, not `snapshot`: the watcher may not
+            // have reloaded the previous write yet.
+            let current = try? await settings.file.value(at: TerminalThemeSetting.path)?.stringValue
+            // Both through the validated `setSetting`, as the Settings window
+            // and the palette write them.
             if themeName != current {
-                if let themeName {
-                    try? await settings.set(.string(themeName), at: TerminalThemeSetting.path)
-                } else {
-                    try? await settings.file.remove(TerminalThemeSetting.path)
+                try? await settings.setSetting(at: TerminalThemeSetting.path, to: themeName.map(JSONValue.string))
+            }
+            // Compact applies when the file has no density (`SettingsApplier`).
+            let currentDensity = (try? await settings.file.value(at: ["appearance", "density"]))?
+                .stringValue.flatMap(Density.init(rawValue:)) ?? .compact
+            if density != currentDensity { try? await settings.setDensity(density) }
+        }
+    }
+
+    func scanAgentProjects() async -> [AgentProject] {
+        await Task.detached { AgentProjectScan.live().run() }.value
+    }
+
+    func chooseFolder() async -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        // A sheet on the onboarding window, so the step stays in front and one panel opens at a time.
+        let response = await withCheckedContinuation { done in
+            if let window = owner.controller?.window {
+                panel.beginSheetModal(for: window) { done.resume(returning: $0) }
+            } else {
+                panel.begin { done.resume(returning: $0) }
+            }
+        }
+        return response == .OK ? panel.url : nil
+    }
+
+    /// One workspace per folder, named after it, in the current window
+    /// (a new one when none is open). They are created one after another so
+    /// the sidebar keeps the list's order; any macOS privacy prompts for
+    /// Desktop or Documents come now, together, as the step said.
+    func openProjects(_ folders: [URL]) {
+        guard let windows = services.windows else { return }
+        let target = windows.targetWindow(preferring: windows.active?.state.id)
+        let logger = services.daemon.logger
+        Task {
+            for folder in folders {
+                do {
+                    _ = try await windows.createWorkspace(WorkspaceSpawn(cwd: folder.path, name: folder.lastPathComponent), into: target)
+                } catch {
+                    logger.error("onboarding project workspace failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            if density != DesignSettings.shared.density { try? await settings.setDensity(density) }
         }
     }
 
@@ -79,11 +146,36 @@ final class AppOnboardingServices: OnboardingServices {
         await services.cache?.cef.canImportPasswords() ?? false
     }
 
+    /// Touch ID, or the Mac's password where there is none. Only a Mac with
+    /// no login password at all goes on without it; any other failure stops
+    /// the import, since an "Always Allow" on the Keychain prompt means no
+    /// prompt follows.
+    func authorizePasswordRead(reason: String) async -> Bool {
+        let context = LAContext()
+        var unavailable: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
+            return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
+        }
+        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+    }
+
     var defaultApps: any DefaultAppRegistering { owner.defaultApps }
 
     func openExternal(_ url: URL) {
         NSWorkspace.shared.open(url)
     }
+
+    /// The cmux-cua daemon's grants; nil (no step) without its socket. A
+    /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
+    /// grants `debug.onboarding grant` flips instead.
+    private(set) lazy var computerUsePermissions: (any ComputerUsePermissionSource)? = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
+            return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)
+        }
+        #endif
+        return AppComputerUsePermissionSource.local()
+    }()
 
     var hasAccountsStep: Bool { true }
 

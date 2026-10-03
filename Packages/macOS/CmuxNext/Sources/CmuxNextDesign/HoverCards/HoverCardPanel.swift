@@ -9,7 +9,8 @@ public enum HoverCardPlacement: Sendable {
 }
 
 /// The one hover card window of the app: a borderless, non-activating,
-/// click-through child window holding a glass card. The coordinator owns
+/// click-through child window holding a glass card (opaque under Reduce
+/// Transparency, `OverlaySurfaceView`). The coordinator owns
 /// the only instance and swaps the card's body (a tab card or a workspace
 /// card view, each reused) into it.
 @MainActor
@@ -17,8 +18,8 @@ final class HoverCardPanel: NSPanel {
     /// Live instances (the debug single-card check counts them).
     nonisolated(unsafe) static var liveInstances = 0
 
-    private let glass: NSGlassEffectView
-    private let container = NSView()
+    /// The card's material; its `contentView` holds the body.
+    let glass: OverlaySurfaceView
     private weak var body: NSView?
     private weak var parentWindowRef: NSWindow?
     private var anchor: CGRect = .zero
@@ -26,7 +27,7 @@ final class HoverCardPanel: NSPanel {
     private var applyTheme: (() -> Void)?
 
     init() {
-        glass = Glass.makePanel(content: container, cornerRadius: Metrics.panelCornerRadius)
+        glass = Glass.makeOverlayPanel(cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         Self.liveInstances += 1
@@ -60,6 +61,7 @@ final class HoverCardPanel: NSPanel {
         if body !== newBody {
             body?.removeFromSuperview()
             newBody.translatesAutoresizingMaskIntoConstraints = false
+            let container = glass.contentView
             container.addSubview(newBody)
             NSLayoutConstraint.activate([
                 newBody.topAnchor.constraint(equalTo: container.topAnchor),
@@ -95,7 +97,7 @@ final class HoverCardPanel: NSPanel {
 
     /// Recolors the glass and the body in the card's theme scope.
     func themeDidChange() {
-        glass.performWithTheme { glass.tintColor = Palette.glassTint }
+        glass.applyTheme()
         applyTheme?()
     }
 

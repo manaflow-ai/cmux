@@ -11,7 +11,9 @@ enum SettingsStyle {
     static var text: Color { color(tokens.textPrimary) }
     static var secondary: Color { color(tokens.textSecondary) }
     static var tertiary: Color { color(tokens.textTertiary) }
-    static var background: Color { color(tokens.windowBackground) }
+    /// Opaque, like `Palette.utilityWindowBackground`: a translucent main
+    /// window never makes Settings hard to read.
+    static var background: Color { color(tokens.windowBackground.withAlpha(1)) }
     static var card: Color { color(tokens.chromeBackground) }
     static var selection: Color { color(tokens.selectionFill) }
     static var hover: Color { color(tokens.hoverFill) }
@@ -32,6 +34,8 @@ enum SettingsStyle {
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + Metrics.space2 }
     static var corner: CGFloat { Metrics.itemCornerRadius }
     static var cardCorner: CGFloat { Metrics.panelCornerRadius }
+    /// Strength of the tint on a row a search jump or deep link opened.
+    static var highlightOpacity: Double { 0.22 }
 }
 
 /// A rounded group of rows under a small heading.

@@ -61,7 +61,7 @@ struct IncognitoRecordTests {
     }
 }
 
-/// A new incognito tab showed "about:blank" as its title; Chrome shows
+/// A new incognito tab showed "about:blank" as its title; it must show
 /// "New Tab".
 struct IncognitoTabTitleTests {
     @Test func aBlankPageHasNoTitleOfItsOwn() {

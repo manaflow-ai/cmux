@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Chrome's nine group colors, shared by tab groups and workspace groups so
+/// The nine group colors, shared by tab groups and workspace groups so
 /// both render identically. The raw value is the stable token the daemon
 /// stores and `cmux.json` / the CLI accept.
 ///

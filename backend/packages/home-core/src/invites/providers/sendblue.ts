@@ -30,6 +30,7 @@ export const sendblueRequest = (config: SendblueConfig, to: string, sms: Rendere
       number: to,
       from_number: config.fromNumber,
       content: sms.body,
+      ...(sms.mediaUrl ? { media_url: sms.mediaUrl } : {}),
       ...(config.statusCallback ? { status_callback: config.statusCallback } : {})
     })
   }

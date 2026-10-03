@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Observation
 import QuartzCore
 
-/// Chrome-style tab strip for one pane.
+/// The tab strip for one pane.
 ///
 /// Reads a `TabStripModel`, lays tabs out with `TabLayoutEngine`, and animates
 /// between layouts with per-tab springs on a display link, so open, close,
@@ -48,7 +48,7 @@ public final class TabStripView: NSView {
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
-    /// group editor bubble, as in Chrome.
+    /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
     /// Inline rename state (`TabStripView+InlineRename.swift`).
     let inlineRename = TabInlineRename()
@@ -351,7 +351,7 @@ public final class TabStripView: NSView {
         layoutButtonGroup(width: groupWidth)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
-            // Chrome resizes tabs with the window instantly.
+            // Tabs resize with the window instantly.
             relayout(animated: false)
         } else {
             applyFrames()

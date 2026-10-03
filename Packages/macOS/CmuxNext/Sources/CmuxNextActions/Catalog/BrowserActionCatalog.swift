@@ -142,6 +142,22 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "hand.point.up.left", surfaces: [.palette, .keyboard, .menu], requires: [.browserFocused],
                 targets: [.pane], cliName: "browser toggle-react-grab", mainMenu: .view
             ),
+            // Single letters in a Chromium page with no text field focused
+            // (the page saw the key first): label the links on screen.
+            ActionDescriptor(
+                id: "browserLinkHints",
+                title: String(localized: "action.browserLinkHints", defaultValue: "Open Link by Hint", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "click"], defaultShortcut: Shortcut("f", modifiers: []),
+                category: .browser, symbol: "character.cursor.ibeam", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints"
+            ),
+            ActionDescriptor(
+                id: "browserLinkHintsNewSplit",
+                title: String(localized: "action.browserLinkHintsNewSplit", defaultValue: "Open Link by Hint in New Split", bundle: .module),
+                keywords: ["browser", "link", "hint", "vimium", "keyboard", "split"], defaultShortcut: Shortcut("f", modifiers: [.shift]),
+                category: .browser, symbol: "rectangle.righthalf.inset.filled", surfaces: [.palette, .keyboard],
+                requires: [.browserFocused], targets: [.pane], cliName: "browser link-hints-split"
+            ),
             ActionDescriptor(
                 id: "splitBrowserRight",
                 title: String(localized: "action.splitBrowserRight", defaultValue: "Split Browser Right", bundle: .module),
@@ -181,6 +197,17 @@ nonisolated enum BrowserActionCatalog: ActionCatalogGroup {
                 symbol: "square.and.arrow.down.on.square", surfaces: [.menu, .contextMenu], targets: [.pane],
                 cliName: "browser import-data", mainMenu: .view
             ),
+            {
+                var importCSV = ActionDescriptor(
+                    id: "password.importCSV",
+                    title: String(localized: "action.password.importCSV", defaultValue: "Import Passwords from CSV…", bundle: .module),
+                    keywords: ["passwords", "import", "csv", "chrome", "edge", "safari", "firefox", "1password", "bitwarden"],
+                    category: .browser, symbol: "key", surfaces: [.palette, .keyboard, .menu], mainMenu: .file
+                )
+                // An agent must not be able to put the file picker in front of the person.
+                importCSV.isPersonOnly = true
+                return importCSV
+            }(),
             ActionDescriptor(
                 id: "palette.enableBrowser",
                 title: String(localized: "action.palette.enableBrowser", defaultValue: "Enable cmux Browser", bundle: .module),

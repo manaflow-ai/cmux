@@ -1,9 +1,14 @@
-import type { OwnerFrame, Principal } from "@cmux/ownership"
+import type { Domain, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { installActive, userDomain, type UserState } from "./domains/user.ts"
 import type { Env } from "./env.ts"
-import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
+import { SecondaryStream } from "./secondary-stream.ts"
+
+/** Inbox entries a list scans at most (p99 2,000 conversations per user, design section 6). */
+const INBOX_SCAN_LIMIT = 10_000
 
 const CHALLENGE_TTL_MS = 2 * 60_000
 
@@ -16,13 +21,86 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
  * credentials, not shared entity state.
  */
 export class UserDO extends OwnerDO<UserState> {
+  /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
+  private readonly inbox: SecondaryStream<homeInbox.InboxHead>
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env, userDomain, "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
+    this.inbox = new SecondaryStream(ctx, this.sqlStore, {
+      prefix: "inbox",
+      tablePrefix: "inbox_",
+      // Params arrive as untrusted JSON; the inbox reducer validates them (validBump, userOp).
+      domain: homeInbox.inboxDomain as Domain<homeInbox.InboxHead>,
+      // Entries are unordered rows (n = null): snapshots carry the head; clients page with inbox.list.
+      engine: { rowMode: { snapshotTable: homeInbox.TABLE_ENTRY, snapshotTail: 0 } },
+      owns: (op) => op.startsWith("inbox."),
+      maySubscribe: (_head, principal, entity) => principal.user === entity
+    })
+  }
+
+  /** The inbox engine of the bound user, opened on first use (also after hibernation). */
+  private boundInbox() {
+    const engine = this.existing()
+    return engine ? this.inbox.open(engine.stream.slice("user:".length)) : undefined
+  }
+
+  protected override routeFrame(ws: WebSocket, a: Attachment, frame: { readonly t?: string; readonly stream?: unknown; readonly op?: unknown } & Record<string, unknown>): boolean {
+    if (!this.inbox.handles(frame)) return false
+    const engine = this.existing()
+    if (!engine) return false
+    this.inbox.onFrame(ws, a, engine.stream.slice("user:".length), frame)
+    this.scheduleAlarm()
+    return true
+  }
+
+  protected override systemEngine(op: string, entity: string) {
+    if (!op.startsWith("inbox.")) return super.systemEngine(op, entity)
+    return { engine: this.inbox.open(entity) as OwnerEngine<unknown>, publish: (f: OwnerFrame) => this.inbox.publish(f) }
+  }
+
+  protected override nextWakeAt(): number | null {
+    this.boundInbox()
+    return this.inbox.nextWakeAt()
+  }
+
+  protected override onPrune(): void {
+    this.boundInbox()
+    this.inbox.prune(Date.now())
+  }
+
+  /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
+  async submitInbox(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
+    this.bind(entity)
+    this.inbox.open(entity)
+    const frames: Array<OwnerFrame> = []
+    this.inbox.submit(principal, frame, (f) => frames.push(f))
+    this.scheduleAlarm()
+    return { frames }
+  }
+
+  /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
+  async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
+    if (principal.user !== entity) return { ok: false, code: "auth.forbidden", message: "not this user's inbox" }
+    this.bind(entity)
+    const engine = this.inbox.open(entity)
+    if (op === "inbox.dm_peer") {
+      const peer = typeof params.peer === "string" ? params.peer : ""
+      return { ok: true, value: { conversation: homeInbox.dmPeer(engine.rows, peer) }, revision: String(engine.currentSeq) }
+    }
+    if (op === "inbox.list") {
+      const entries = engine.rows.scan<homeInbox.InboxEntry>(homeInbox.TABLE_ENTRY, INBOX_SCAN_LIMIT).map((r) => r.row)
+      const limit = typeof params.limit === "number" && params.limit > 0 ? Math.min(params.limit, 200) : 200
+      const query: homeInbox.InboxListQuery = { limit, include_archived: params.include_archived === true }
+      return { ok: true, value: { entries: homeInbox.listInbox(entries, query) }, revision: String(engine.currentSeq) }
+    }
+    return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
   }
 
   protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
+    // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
+    if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }
@@ -33,10 +111,23 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** A revoked install loses its open sockets at once, not at token expiry. */
   protected override afterOp(_principal: Principal, op: string, frames: ReadonlyArray<OwnerFrame>) {
-    if (op !== "install.revoke") return
+    if (op !== "install.revoke" && op !== "install.revoke_by_team") return
     const result = frames.find((f) => f.t === "result")
     const revoked = result && result.t === "result" ? (result.value as { id?: string }).id : undefined
     if (revoked) this.closeSockets((p) => p.install === revoked, "install revoked")
+  }
+
+  /**
+   * RPC from TeamDO only (plans/cmux-next/server.md 6.5): the team revoked a
+   * server whose install is bound to it. Revokes the grant and closes the
+   * install's sockets in the same commit; refuses an install not bound to `team`.
+   */
+  async revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "selector.not_found", message: "unknown user" }
+    const res = this.submitSystem("install.revoke_by_team", { install, team, by }, idempotencyKey, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    return reply && reply.t === "result" ? { ok: true } : { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
   }
 
   /** Bound user state, or undefined for an id this object never served (no storage is created). */

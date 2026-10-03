@@ -6,7 +6,7 @@ chords for new columns and new rows; check whether the auto-layout pane chord (C
 needs a new shortcut; keep ownership in Rust as for columns; design it to be cohesive.
 
 Binding: OWNERSHIP-PRINCIPLES.md, layout-invariants.md, column-sizing.md, sticky-column.md,
-the column scroll plan. Formal model: `formal/LayoutRows.tla`.
+column-scroll.md. Formal model: `formal/LayoutRows.tla`.
 
 ## Answer: Cmd-Ctrl-N needs no new shortcut
 
@@ -68,7 +68,7 @@ terminal belongs to scrollback, so rows cannot take plain vertical wheel events 
 ```
 Screen { columns: [Column] }                          // horizontal strip, unchanged
 Column { id, width_permille, sticky?, rows: [Row] }    // rows non-empty
-Row    { id, height_permille, root: SplitTree, auto_layout_order? }  // id never reused
+Row    { id, height_permille, root: SplitTree, creation_order_auto_layout? }  // id never reused
 SplitTree = Leaf(pane) | Split { id, dir, ratio_permille, a, b } | Stack { panes, expanded }
 ```
 
@@ -198,7 +198,7 @@ Daemon (cmux-tui) under capability `rows-v1`:
 
 - Undo: `ScreenLayoutSnapshot` holds the columns with their rows, so `undo-layout` covers rows.
 - Model change in `model.rs`: `LayoutColumn.root` becomes `rows: Vec<LayoutRow>` (non-empty by
-  construction, like `StackPanes`); the column's auto-layout order field moves to the row. `Screen::root` stays
+  construction, like `StackPanes`); `creation_order_auto_layout` moves to the row. `Screen::root` stays
   the compat projection for split-tree consumers. The TUI frontend renders rows as a vertical
   chain that fits the height until it gets row scrolling (step 6).
 
@@ -358,6 +358,18 @@ cmux-tui serves `rows-v1` (awaitingPin until the pin owner cuts a pin).
 - Live (tagged no-activate build, screenshots): New Row reveal, row scroll with the modifier,
   drop between rows, close of the last pane of a row, rows inside a sticky column, an old app
   against a `rows-v1` daemon.
+
+## Step 2 status (2026-10-02)
+
+Reducer rows are implemented on branch `feat-cmux-next-layoutmodel` (5188b2e4f21, review
+fixes 4da1547bf3e): `Column.rows` partitions the column's ordered panes into consecutive runs
+(`Row { id, height_permille, len }`; empty = one implicit row, so the daemon projection and
+every existing op are unchanged); ops `InsertRow` (refuses content already placed),
+`MoveTabToRow` (respawn; own place per R6), `SetRowHeights` (stale row set refused, `fit` sums
+to 1000), `FlattenRows`; invariant `Violation::RowLayout`. 23 crate tests including a property
+test (5000 cases on nx-remote) pass, fmt and clippy are clean. Not landed: the hosted cmux-tui
+verification could not be dispatched (GitHub API 403 on 2026-10-02 22:41 UTC); it lands when
+that run is green. `Destination::Row` is `MoveTabToRow` (no Destination enum exists yet).
 
 ## Steps (each lands alone; feat-cmux-next stays shippable)
 

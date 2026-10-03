@@ -30,7 +30,7 @@ public final class DesignSettings {
     /// Pane padding, corner radius and border from cmux.json `layout.*`,
     /// clamped by `setPaneChrome`.
     public private(set) var paneChrome = PaneChromeOverrides()
-    /// `layout.centerFocusedColumn` (niri `center-focused-column`).
+    /// `layout.centerFocusedColumn`.
     public var centerFocusedColumn: CenterFocusedColumn = .never
     /// `layout.stripScrollbar`: the column strip's scrollbar.
     public var stripScrollbar: StripScrollbarMode = .auto
@@ -47,6 +47,9 @@ public final class DesignSettings {
     /// `layout.stickyColumnEdge`, `layout.stickyColumnMode`.
     public var stickyColumnEdge: StickyDefaultEdge = .right
     public var stickyColumnMode: StickyDefaultMode = .docked
+    /// `layout.frameOrientation`: column-major (side docks full height) or
+    /// row-major (top and bottom docks full width), plans/cmux-next/layout-model.md.
+    public var frameOrientation: FrameOrientation = .columnMajor
     /// `layout.minimumPaneWidth`, `layout.minimumPaneHeight`: the smallest
     /// content area a pane keeps below its chrome, in points.
     public var minimumPaneContentSize = CGSize(width: 200, height: 64)
@@ -57,6 +60,11 @@ public final class DesignSettings {
     /// `appearance.statusIndicator.*`: loading and status indicators on
     /// sidebar rows, tabs, sections and pane headers.
     public var statusIndicator = StatusIndicatorSettings()
+    /// cmux's terminal font override (`terminal.fontFamily` in cmux.json),
+    /// so chrome that imitates the terminal (the braille status indicator)
+    /// draws in it. Nil (no override; a font set only in the Ghostty config
+    /// is not read) uses the system monospaced font.
+    public var terminalFontFamily: String?
     /// `status.*`: inferred command busy and run notifications.
     public var statusBehavior = StatusBehaviorSettings()
     /// `appearance.borders`: default, or none (no border, hairline or
@@ -66,11 +74,16 @@ public final class DesignSettings {
     public var focusIndicator: FocusIndicator = .both
     /// `appearance.tabBarBackground`: the tab strip's negative space.
     public var tabBarBackground: TabBarBackground = .window
+    /// `focus.inactiveTabStyle`: how an unfocused pane's tabs draw subtler
+    /// when `focusIndicator` marks tabs.
+    public var inactiveTabStyle: InactiveTabStyle = .fade
 
     /// `focusIndicator` unless Debug Settings overrides it.
     public var effectiveFocusIndicator: FocusIndicator { FocusIndicatorTunables.indicator.override ?? focusIndicator }
     /// `tabBarBackground` unless Debug Settings overrides it.
     public var effectiveTabBarBackground: TabBarBackground { FocusIndicatorTunables.tabBarBackground.override ?? tabBarBackground }
+    /// `inactiveTabStyle` unless Debug Settings overrides it.
+    public var effectiveInactiveTabStyle: InactiveTabStyle { FocusIndicatorTunables.inactiveTabStyle.override ?? inactiveTabStyle }
     /// `window.titlebar`: minimal (no titlebar strip) or standard.
     public var titlebar: TitlebarStyle = .minimal
     /// `window.rail`: the window's icon rail, off by default.

@@ -32,6 +32,8 @@ use super::{
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
 };
 
+mod frontend_browser_history;
+
 /// Longest accepted group name or workspace title, in characters.
 pub const MAX_PRESENTATION_TEXT_CHARS: usize = 256;
 /// Longest accepted client-chosen group id, in bytes.
@@ -93,7 +95,8 @@ pub(super) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
          );",
     )?;
     migrate_workspace_presentation_add_pinned(transaction)?;
-    migrate_workspace_presentation_add_marked_unread(transaction)
+    migrate_workspace_presentation_add_marked_unread(transaction)?;
+    frontend_browser_history::create_frontend_browser_history_schema(transaction)
 }
 
 /// Add the sidebar pin to registries created before the column existed.
@@ -235,7 +238,7 @@ pub struct PresentationSnapshot {
     /// (`browser_...`). Rows exist before their browser commits, so a
     /// pending creation is already known when its surface spawns.
     pub frontend_browsers: HashMap<String, FrontendBrowserRecord>,
-    /// Chrome-style tab groups of every pane.
+    /// Tab groups of every pane.
     pub tab_groups: TabGroupState,
     /// Saved (pinned) tab groups, in bar order.
     pub saved_tab_groups: Vec<SavedTabGroupRecord>,
@@ -247,7 +250,7 @@ pub struct PresentationSnapshot {
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
 }
 
-/// Chrome's tab group colors. Frontends render them as muted tints.
+/// The nine tab group colors. Frontends render them as muted tints.
 pub const TAB_GROUP_COLORS: [&str; 9] =
     ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 
@@ -260,7 +263,7 @@ pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A tab group name may be empty (Chrome shows the color dot only).
+/// A tab group name may be empty (the strip then shows only the color dot).
 pub fn validate_tab_group_name(value: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         value.chars().count() <= MAX_PRESENTATION_TEXT_CHARS,
@@ -1261,14 +1264,6 @@ impl WorkspaceRegistry {
         )?;
         tx.commit()?;
         Ok((record, true))
-    }
-
-    /// Forget a frontend browser whose tab creation failed.
-    pub fn delete_frontend_browser(&mut self, browser_id: &str) -> anyhow::Result<()> {
-        validate_browser_public_id(browser_id)?;
-        self.connection
-            .execute("DELETE FROM frontend_browser_tabs WHERE browser_id = ?1", [browser_id])?;
-        Ok(())
     }
 
     /// Notification ids acknowledged as read on the shared console. A
