@@ -69,7 +69,7 @@ struct CloudDirectoryLifecycleTests {
         #expect(sidebar.compactGitBranchSummaryText == nil)
         #expect(sidebar.pullRequestRows.isEmpty)
         let text = try fixture.sidebarText()
-        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("Directory unavailable"))
         #expect(!text.contains("local-checkout"))
         #expect(!text.contains("first"))
         fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
@@ -78,6 +78,55 @@ struct CloudDirectoryLifecycleTests {
         #expect(staleResource.detail == nil)
         let staleRow = CloudTreeTerminalRow(resource: staleResource, isOpen: true, directoryIsCurrent: false)
         #expect(staleRow.directoryText == CloudWorkspaceSidebarPresentation.unavailableDirectory)
+    }
+
+    @Test("Launching Cloud terminals do not render a directory placeholder")
+    func launchingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "launching"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A running Cloud terminal without cwd keeps its own placeholder beside a launching terminal")
+    func mixedLaunchingAndRunningDirectoryStates() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["launching", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A stale Cloud terminal without an accepted cwd does not render a placeholder")
+    func staleMissingDirectoryIsOmitted() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, nil], revision: 2, lifecycles: ["running", "running"])
+        fixture.catalog.markCloudStateStale(on: fixture.machine, reason: "reconnecting")
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates.isEmpty)
+    }
+
+    @Test("A missing terminal cwd uses another accepted terminal cwd on the machine")
+    func missingDirectoryUsesMachineFallback() throws {
+        let fixture = try CloudDirectoryTestFixture()
+        defer { fixture.close() }
+        try fixture.install(paths: [nil, "/home/cmux"], revision: 2, lifecycles: ["running", "running"])
+
+        let presentation = try #require(CloudWorkspaceSidebarPresentation(
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
+        ))
+        #expect(presentation.directoryCandidates == ["cwd-machine · /home/cmux"])
     }
 
     @Test("An unconfirmed Cloud terminal withholds its requested cwd until the machine's state is current")
@@ -178,7 +227,7 @@ struct CloudDirectoryLifecycleTests {
         #expect(fixture.catalog.snapshot.resources.contains { $0.id == fixture.resourceID(1) } == false)
         #expect(fixture.workspace.reportedPanelDirectory(panelId: fixture.panels[1]) == nil)
         let text = try fixture.sidebarText()
-        #expect(text.contains("Directory unavailable"))
+        #expect(!text.contains("Directory unavailable"))
         #expect(!text.contains("/home/cmux/second"))
     }
 
@@ -285,7 +334,7 @@ struct CloudDirectoryLifecycleTests {
         for usesLastSegmentPath in [false, true] {
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
                 workspace: fixture.workspace, orderedPanelIDs: fixture.panels,
-                usesLastSegmentPath: usesLastSegmentPath
+                usesLastSegmentPath: usesLastSegmentPath, catalog: fixture.catalog
             ))
             let full = "\(expected) · /home/cmux/a, /home/cmux/b"
             if usesLastSegmentPath {
@@ -321,9 +370,9 @@ struct CloudDirectoryLifecycleTests {
             let expected = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? fixture.machine.rawValue : name
             let presentation = try #require(CloudWorkspaceSidebarPresentation(
-                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true
+                workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: true, catalog: fixture.catalog
             ))
-            #expect(presentation.directoryCandidates == ["\(expected) · \(CloudWorkspaceSidebarPresentation.unavailableDirectory)"])
+            #expect(presentation.directoryCandidates.isEmpty)
             #expect(fixture.workspace.cloudVMID == fixture.machine.rawValue)
         }
     }
@@ -380,7 +429,7 @@ struct CloudDirectoryLifecycleTests {
         info.name = "Build server"
         fixture.catalog.updateMachine(info, from: fixture.provider)
         let singleMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(singleMachine.directoryCandidates == ["Build server · /home/cmux/a, /home/cmux/b"])
 
@@ -410,13 +459,13 @@ struct CloudDirectoryLifecycleTests {
             workspaceID: fixture.workspace.id, panelID: otherPanel
         ))
         let collision = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: fixture.panels, usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(collision.directoryCandidates == [
             "Build server (cwd-machine) · /home/cmux/a | Build server (other-machine) · /srv/other"
         ])
         let hiddenOtherMachine = try #require(CloudWorkspaceSidebarPresentation(
-            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false
+            workspace: fixture.workspace, orderedPanelIDs: [fixture.panels[0]], usesLastSegmentPath: false, catalog: fixture.catalog
         ))
         #expect(hiddenOtherMachine.directoryCandidates == ["Build server · /home/cmux/a"])
     }
