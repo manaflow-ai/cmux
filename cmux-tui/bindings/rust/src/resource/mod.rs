@@ -15,6 +15,8 @@ pub use client::{Client, Config};
 pub use handles::state_ops::{
     CONVERSATION_TABS_CAPABILITY, ColumnEdge, ColumnMode, TAB_HISTORY_MAX_URLS, TabUpdateOptions,
     WINDOW_RECORD_MAX_BYTES, WindowRecordDeleteResult, WindowRecordSnapshot,
+    WorkspaceGroupCreateOptions, WorkspaceGroupDeleteResult, WorkspaceGroupSnapshot,
+    WorkspaceGroupUpdateOptions, WorkspacePlaceOptions, WorkspacePlacementSnapshot, WorkspaceRef,
     WorkspaceUpdateOptions,
 };
 pub use handles::{
