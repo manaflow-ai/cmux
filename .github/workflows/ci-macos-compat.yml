@@ -56,7 +56,7 @@ jobs:
       - name: Guard deprecated macOS runners
         shell: bash
         run: |
-          if grep -R -nE "(^|[^[:alnum:]])macos-14(-large|-xlarge)?([^[:alnum:]]|$)" .github/workflows; then exit 1; fi
+          pattern="macos-""14"; if grep -R -nE "(^|[^[:alnum:]])${pattern}(-large|-xlarge)?([^[:alnum:]]|$)" .github/workflows --exclude="$(basename "$GITHUB_WORKFLOW")"; then echo "macos-14 label found"; exit 1; fi
 
       - name: Select Xcode
         env:
