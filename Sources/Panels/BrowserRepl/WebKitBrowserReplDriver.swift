@@ -33,6 +33,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Set while WebKit refuses the latest policy's content rules: every
     /// call fails with it until a policy that compiles replaces it.
     @MainActor private var policyFailure: BrowserReplDriverError?
+    /// Applies the domain policy to each frame a call reads or acts on, by
+    /// WebKit's record of the frame and its document read in the driver's
+    /// own content world.
+    @MainActor private lazy var frameGate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -99,6 +103,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
         BrowserReplNavigationGuard.shared.setPolicy(policy, sessionID: sessionID)
+        frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
         do {
             let rules = policy.contentRules
@@ -127,7 +132,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private static func isGuarded(_ method: String) -> Bool {
         method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
             || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
-            || method.hasPrefix("cookies.")
+            || method.hasPrefix("cookies.") || method == "auth.request"
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {
@@ -247,9 +252,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "auth.request":
             // sites.browserAuth: a native sheet collects credentials; see BrowserReplCredentialRequest.
             let panel = try panel(params)
-            let frameInfo = try await frame(panel, params).info
+            let frame = try await frame(panel, params)
+            // The sheet names the frame's origin as WebKit recorded it, and
+            // the fill writes only into a document of that origin, so both
+            // the record and the document the frame shows now must be ones
+            // the domain policy allows.
+            if let reason = frameGate.recordedBlockReason(of: frame, in: panel.webView) {
+                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
+            }
+            try await frameGate.authorize(frame, in: panel.webView)
             return await BrowserReplCredentialRequest.run(
-                webView: panel.webView, frameInfo: frameInfo, params: params,
+                webView: panel.webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js")
             )
         default:

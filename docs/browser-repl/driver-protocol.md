@@ -170,7 +170,7 @@ native (`BrowserReplBoundary` in the session, and the driver):
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`,
+  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`, `auth.request`,
   `input.*`, captures, clipboard, file chooser answers) on a tab that shows
   a blocked page, cancels main-frame navigations to blocked URLs in tabs
   the session created (`navigation.blocked`), and never navigates a user's

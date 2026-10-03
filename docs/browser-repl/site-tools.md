@@ -212,7 +212,10 @@ or `submission_failed`. The fill script is read from the signed app bundle,
 never from the REPL, so an agent cannot substitute code that receives the
 values. The sheet says what holds: the agent does not receive the values,
 but the page's scripts, and code the agent runs in the page, can read a
-filled field.
+filled field. Under a domain policy the driver refuses the request
+(`blocked`) when the tab's page, or the frame that holds the fields (by
+WebKit's record of it and by the document it shows when the request
+arrives), is on a domain the policy blocks.
 
 ## Decisions for the user
 
