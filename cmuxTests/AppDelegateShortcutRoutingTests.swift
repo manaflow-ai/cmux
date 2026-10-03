@@ -1042,6 +1042,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    func testCreateMainWindowAppliesFullscreenSourceTilingOptOut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.titled, .resizable, .fullScreen],
+            backing: .buffered,
+            defer: false
+        )
+        sourceWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.test-source")
+        sourceWindow.isReleasedWhenClosed = false
+        defer { sourceWindow.close() }
+
+        let windowId = appDelegate.createMainWindow(shouldActivate: false, sourceWindow: sourceWindow)
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        XCTAssertTrue(
+            window.collectionBehavior.contains(.fullScreenDisallowsTiling),
+            "A window created from native fullscreen should temporarily opt out of tiling"
+        )
+    }
+
     func testCreateMainWindowTemporarilyDisallowsFullScreenTilingFromFullscreenSource() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

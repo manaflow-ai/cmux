@@ -10,7 +10,7 @@ import Testing
 struct CodexForkMonitorArgumentTests {
     @Test
     func forwardsForkParentClaimToDetachedMonitor() {
-        let arguments = CmuxTuiRemoteRouting.codexForkMonitorArguments(environment: [
+        let arguments = CMUXCLI.codexForkMonitorArguments(environment: [
             "CMUX_AGENT_FORK_PARENT_SESSION_ID": "parent-session",
             "CMUX_AGENT_FORK_LAUNCH_ID": "launch-id",
             "CMUX_CODEX_PID": "1234",
