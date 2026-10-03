@@ -911,15 +911,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the machine is unreachable, not that the terminal ended.
     private func closePanesForVanishedRemoteTerminals(observation: CloudVMStateObservation) {
         guard !manualMirrorSessions.isEmpty else { return }
-        let live = Set(
-            catalog.authoritativeSnapshot.resources(on: machine)
-                .filter { $0.id.kind == .terminal }
-                .map(\.id.key)
-        )
+        let resources = catalog.authoritativeSnapshot.resources(on: machine)
+        let live = Set(resources.filter { $0.kind == .terminal }.map(\.id.key))
+        let boundTerminalIDs = Set(manualMirrorSessions.values.map(\.terminalID))
+        let hasMissingTerminalCandidate = !boundTerminalIDs.isSubset(of: live)
+        // A complete-graph scan is only needed when cleanup has a terminal it
+        // might close. Row-local publications can retire pending overlays, so a
+        // cached completeness result would be stale precisely in this case.
+        let graphComplete = !hasMissingTerminalCandidate || cloudState.map {
+            CloudVMGraphCompleteness(state: $0, resources: resources).isComplete()
+        } ?? false
         let closing = CloudTerminalPaneClosure.panelsToClose(
             boundTerminals: manualMirrorSessions.mapValues(\.terminalID),
             liveTerminalKeys: live,
-            freshness: observation.freshness
+            freshness: observation.freshness,
+            graphComplete: graphComplete
         )
         for panelID in closing {
             guard let terminalID = manualMirrorSessions[panelID]?.terminalID else { continue }
