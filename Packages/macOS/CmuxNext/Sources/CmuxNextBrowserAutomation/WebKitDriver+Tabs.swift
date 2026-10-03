@@ -31,7 +31,7 @@ extension WebKitDriver {
         }
         let session = session(for: tab)
         if let url {
-            let ticket = session.waits.beginNavigation { tab.startLoad(url) }
+            let ticket = session.waits.beginNavigation(requestedURL: url) { tab.startLoad(url) }
             do {
                 try await session.waits.reach(.commit, for: ticket, timeout: try params.timeout(), what: "tabs.open")
             } catch {
@@ -94,7 +94,7 @@ extension WebKitDriver {
         let raw = try params.string("url")
         let url = try Self.navigableURL(raw, method: "tab.navigate")
         let until = LoadState(name: try params.optionalString("waitUntil") ?? "load") ?? .load
-        let ticket = session.waits.beginNavigation { tab.startLoad(url) }
+        let ticket = session.waits.beginNavigation(requestedURL: url) { tab.startLoad(url) }
         try await session.waits.reach(until, for: ticket, timeout: try params.timeout(), what: "page.goto")
         return .object(["url": .string(tab.webView.url?.absoluteString ?? raw)])
     }

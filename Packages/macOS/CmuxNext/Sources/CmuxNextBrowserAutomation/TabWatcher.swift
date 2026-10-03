@@ -19,6 +19,7 @@ final class TabWatcher {
     private var lastExit: BrowserProcessExit?
     private var stopped = false
     private var urlObservation: NSKeyValueObservation?
+    private var loadingObservation: NSKeyValueObservation?
     private var navigationObserver: UUID?
 
     init(tab: WebKitTab, session: TabSession, emit: @escaping (String, [String: DriverJSON]) -> Void) {
@@ -30,6 +31,10 @@ final class TabWatcher {
         observe()
         // Commits, finishes and failures, keyed by navigation (LoadWaits).
         navigationObserver = tab.observeNavigationEvents { [weak session] event in session?.waits.navigationEvent(event) }
+        // A load that never started a navigation ended: same-document (LoadWaits).
+        loadingObservation = tab.webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+            MainActor.assumeIsolated { if !webView.isLoading { self?.session?.waits.loadingEnded() } }
+        }
         // Same-document navigations change only the web view's URL.
         urlObservation = tab.webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
             MainActor.assumeIsolated { self?.urlChanged(webView.url, loading: webView.isLoading) }
@@ -40,6 +45,8 @@ final class TabWatcher {
         stopped = true
         urlObservation?.invalidate()
         urlObservation = nil
+        loadingObservation?.invalidate()
+        loadingObservation = nil
         if let navigationObserver { tab?.removeNavigationObserver(navigationObserver) }
         navigationObserver = nil
     }

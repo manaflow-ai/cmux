@@ -3,10 +3,10 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowserAutomation
 
-/// A load wait belongs to the navigation its call started. On macOS 26 a
-/// fresh web view reports its initial about:blank document after the call
-/// started a load; when waits counted commits, that document met the wait
-/// and a refused navigation returned about:blank with no error.
+/// A load wait belongs to the navigation its call started. The macOS 26
+/// cases come from a WKWebView probe on macOS 26.5: a refused load commits
+/// and finishes about:blank instead of failing, and a fragment load gets no
+/// delegate callbacks and shows `#` as `%23` in the web view's URL.
 @MainActor
 @Suite struct LoadWaitsTests {
     static let refused = BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost, message: "refused")
@@ -75,6 +75,51 @@ import Testing
         #expect(waits.pendingCount == 1)
         waits.navigationEvent(.finished(nav(5)))
         try await task.value
+    }
+
+    @Test func aRefusedLoadThatCommitsABlankDocumentFails() async throws {
+        let waits = LoadWaits()
+        let ticket = waits.beginNavigation(requestedURL: URL(string: "http://127.0.0.1:9/refused")) { nav(7) }
+        let task = await wait(waits, .load, ticket)
+        waits.navigationEvent(.started(nav(7), url: URL(string: "http://127.0.0.1:9/refused")))
+        waits.navigationEvent(.committed(nav(7), url: URL(string: "about:blank")))
+        let error = await #expect(throws: DriverError.self) { try await task.value }
+        #expect(error?.code == .invalid)
+    }
+
+    @Test func aRequestedAboutBlankMayCommitAboutBlank() async throws {
+        let waits = LoadWaits()
+        let ticket = waits.beginNavigation(requestedURL: URL(string: "about:blank")) { nav(8) }
+        let task = await wait(waits, .commit, ticket)
+        waits.navigationEvent(.started(nav(8), url: nil))
+        waits.navigationEvent(.committed(nav(8), url: URL(string: "about:blank")))
+        try await task.value
+    }
+
+    @Test func aLoadThatNeverStartedIsMetWhenLoadingEnds() async throws {
+        let waits = LoadWaits()
+        let ticket = waits.beginNavigation(requestedURL: URL(string: "data:text/html,a#x")) { nav(9) }
+        let task = await wait(waits, .load, ticket)
+        waits.loadingEnded()
+        try await task.value
+    }
+
+    @Test func aStartedLoadIsNotMetWhenLoadingEnds() async throws {
+        let waits = LoadWaits()
+        let ticket = waits.beginNavigation { nav(10) }
+        let task = await wait(waits, .load, ticket)
+        waits.navigationEvent(.started(nav(10), url: nil))
+        waits.loadingEnded()
+        #expect(waits.pendingCount == 1)
+        waits.navigationEvent(.finished(nav(10)))
+        try await task.value
+    }
+
+    @Test func loadingThatEndedBeforeTheWaitExistsMeetsANeverStartedLoad() async throws {
+        let waits = LoadWaits()
+        let ticket = waits.beginNavigation { nav(11) }
+        waits.loadingEnded()
+        try await waits.reach(.load, for: ticket, timeout: nil, what: "page.goto")
     }
 
     /// WebKit changes the URL of a same-document load inside the `load`
