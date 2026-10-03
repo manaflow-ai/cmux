@@ -16,12 +16,29 @@ public nonisolated struct ShortcutChord: Hashable, Sendable {
     @MainActor public var keycaps: [String] { first.keycaps + second.keycaps }
 }
 
+/// One binding under a chord's first key: the second key and its action.
+public nonisolated struct ChordBinding: Hashable, Sendable {
+    public let second: Shortcut
+    public let id: ActionID
+
+    public init(second: Shortcut, id: ActionID) {
+        self.second = second
+        self.id = id
+    }
+}
+
 extension ActionRegistry {
     /// `id`'s chord from cmux.json, or nil. A chord replaces the action's
     /// single-key shortcut, so ``effectiveShortcut(for:)`` is nil then.
     public func effectiveChord(for id: ActionID) -> ShortcutChord? {
         chordOverrides[canonicalID(for: id)]
     }
+
+    /// Every binding under `prefix` (the which-key overlay). Stub.
+    public func chords(after prefix: Shortcut) -> [ChordBinding] { [] }
+
+    /// Whether any binding sits under `prefix`. Stub.
+    public func hasChords(after prefix: Shortcut) -> Bool { false }
 
     /// Sets a chord override (replacing any single-key override).
     public func setChordOverride(_ chord: ShortcutChord, for id: ActionID) {

@@ -152,10 +152,16 @@ final class KeyRouter: BrowserKeyRouting {
     /// the focused view, but runs no shortcut there or in the menu.
     private weak var chordMismatch: NSEvent?
 
+    /// Whether a chord may arm in `focus`: where content shortcuts run,
+    /// never in a text field, DevTools or browser focus mode, and never
+    /// while an input method is composing (marked text).
+    nonisolated static func canArm(focus: FocusState, hasMarkedText: Bool) -> Bool {
+        !hasMarkedText && allows(.content, focus: focus)
+    }
+
     /// A chord key in a cmux window: whether it was consumed, or nil to
-    /// route it as usual. Only focus outside text input and browser focus
-    /// mode arms a chord (``allows(_:focus:)`` for content), so the chord's
-    /// action runs whatever its tier.
+    /// route it as usual. Only ``canArm(focus:hasMarkedText:)`` arms a
+    /// chord, so the chord's action runs whatever its tier.
     private func routeChord(_ event: NSEvent, in window: NSWindow?) -> Bool? {
         let (controller, kind) = focus(for: window)
         guard let controller, let window, kind == .content else {
@@ -163,12 +169,13 @@ final class KeyRouter: BrowserKeyRouting {
             return nil
         }
         let step = chords.step(event, window: ObjectIdentifier(window), registry: registry) {
-            Self.allows(.content, focus: controller.focus.state) && (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() != true
+            Self.canArm(focus: controller.focus.state,
+                        hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true)
         }
         switch step {
         case .pass:
             return nil
-        case .armed:
+        case .armed, .dismissed:
             return true
         case .run(let id, let argument):
             lastInterception = (id, controller.state.id)
