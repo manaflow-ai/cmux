@@ -27,6 +27,9 @@ final class SettingsWindowService: SettingsWindowHost, InternalPageProvider {
 
     private struct WeakWebPage { weak var view: SettingsWebPageView? }
 
+    /// The open web Settings pages (debug and tests).
+    var webPageViews: [SettingsWebPageView] { webPages.values.compactMap(\.view) }
+
     init(services: AppServices) {
         self.services = services
     }

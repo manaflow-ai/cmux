@@ -29,6 +29,10 @@ extension AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugTunables.handle(call.params, services: services))
             },
+            // Web Settings page: `action` state (DOM summary) or snapshot (`path`, PNG).
+            .async("debug.settings_web") { [weak services] call in
+                await DebugSettingsWeb.handle(call.params, services: services)
+            },
         ])
         #endif
     }
@@ -89,6 +93,24 @@ enum DebugSettings {
                          "options": .array(recorder.options.map { .string("\($0)") })])
             } ?? .null,
         ])
+    }
+}
+#endif
+
+#if DEBUG
+/// `debug.settings_web` (DEBUG builds): the open web Settings page's DOM
+/// state, or a WebKit snapshot of it written to `path`.
+@MainActor
+enum DebugSettingsWeb {
+    static func handle(_ params: [String: JSONValue], services: AppServices?) async -> JSONValue {
+        guard let page = services?.settingsWindow.webPageViews.first else { return ["error": "no web Settings page is open"] }
+        switch params["action"]?.stringValue ?? "state" {
+        case "snapshot":
+            guard let path = params["path"]?.stringValue else { return ["error": "snapshot requires path"] }
+            return ["written": .bool(await page.debugSnapshot(to: URL(fileURLWithPath: path))), "path": .string(path)]
+        default:
+            return await page.debugState()
+        }
     }
 }
 #endif
