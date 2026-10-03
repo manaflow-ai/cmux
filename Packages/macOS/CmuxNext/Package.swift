@@ -551,6 +551,7 @@ let package = Package(
                 .process("AccountsActions.xcstrings"),
                 .process("AppStoreActions.xcstrings"),
                 .process("BookmarkActions.xcstrings"),
+                .process("ChiefActions.xcstrings"),
                 .process("BrowserProfileActions.xcstrings"),
                 .process("Extensions.xcstrings"),
                 .process("HibernationActions.xcstrings"),

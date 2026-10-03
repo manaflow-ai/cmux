@@ -12956,6 +12956,22 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "chief show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.show",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Chief (experiment)",
+      "title_key" : "action.chief.show",
+      "title_table" : "ChiefActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "link open",
       "context_menu" : "noObject",
       "context_menus" : [

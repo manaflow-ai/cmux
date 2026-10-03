@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextChief
 import CmuxNextSidebar
 
@@ -52,10 +53,20 @@ nonisolated enum ChiefExperimentItem {
     static var info: SidebarItemInfo { SidebarItemInfo(title: ChiefStrings.title, symbol: "brain") }
 }
 
+/// `chief.show`: the one path the sidebar item, the palette and the CLI share.
+enum ChiefExperimentHandlers {
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        services.pages.register(ChiefExperimentPage.shared)
+        registry.bind("chief.show", run: { invocation in
+            _ = services.pages.show(.chiefExperiment, in: services.windows.active, focus: invocation.allowsViewChange)
+        })
+    }
+}
+
 extension SidebarBridge {
     /// Opens (or selects) the chief tab in the active window.
     func showChiefExperiment() {
-        services.pages.register(ChiefExperimentPage.shared)
-        _ = services.pages.show(.chiefExperiment, in: services.windows.active, focus: true)
+        _ = services.registry.perform("chief.show", invocation: ActionInvocation(origin: .user))
     }
 }

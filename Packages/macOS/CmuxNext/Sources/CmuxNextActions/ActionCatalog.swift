@@ -96,6 +96,7 @@ public nonisolated enum ActionCatalog {
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
         AppStoreActionCatalog.self,
+        ChiefActionCatalog.self,
         LinkActionCatalog.self,
         ServerActionCatalog.self,
     ]
