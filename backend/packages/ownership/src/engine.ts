@@ -4,6 +4,7 @@ import { channelOf, Outbox, type OutboxRow } from "./outbox.ts"
 import { checkWrites, EMPTY_ROWS, readOnly, SqlRows, type RowWrite } from "./rows.ts"
 import { migrate, tablesFor, type Tables } from "./schema.ts"
 import { scrubStoredParams } from "./events-scrub.ts"
+import { type LedgerReplyRedaction, ledgerReplyText, replayedReply, scrubStoredReplies } from "./ledger-reply.ts"
 import type { SqlStore } from "./sql.ts"
 import type {
   DecidedKey,
@@ -68,6 +69,8 @@ export interface EngineOptions {
    * attaches to each event, as FeedDO does). Allows `redact.params` without row mode.
    */
   readonly eventsNotReplayed?: boolean
+  /** What the request ledger keeps of a reply (ledger-reply.ts). Default: the whole reply. */
+  readonly ledgerReply?: LedgerReplyRedaction
   /** What subscribers see of the actor in events. Default: the full principal. */
   readonly eventActor?: (p: Principal) => Principal
 }
@@ -223,7 +226,7 @@ export class OwnerEngine<S, P = unknown> {
       if (prior) {
         if (prior.params_hash !== paramsHash) return reply(reject("idempotency.conflict", "idempotency key reused with different params"), 0)
         const stored = JSON.parse(prior.reply) as ResultFrame | RejectFrame
-        return reply({ ...stored, replayed: true }, Number(prior.sequence))
+        return reply(replayedReply(this.options.ledgerReply, frame.op, stored, this.state), Number(prior.sequence))
       }
     }
 
@@ -316,7 +319,7 @@ export class OwnerEngine<S, P = unknown> {
           frame.op,
           paramsHash,
           decision.ok ? 1 : 0,
-          JSON.stringify(out),
+          ledgerReplyText(this.options.ledgerReply, frame.op, out),
           sequence,
           String(nextSeq),
           JSON.stringify(principal),
@@ -404,9 +407,9 @@ export class OwnerEngine<S, P = unknown> {
     return Number(n) === this.seq - seq
   }
 
-  /** Rewrites stored `op` events with `redact.params`, once per `marker` (events-scrub.ts). */
-  scrubStoredParams(op: string, marker: string): number {
-    return scrubStoredParams(this.sql, this.t, this.options.redact?.params, op, marker)
+  /** Rewrites stored `op` events (`redact.params`) and ledger replies (`ledgerReply.store`) past `marker`; returns the rewritten count. */
+  scrubStored(op: string, marker: string): number {
+    return scrubStoredParams(this.sql, this.t, this.options.redact?.params, op, marker) + scrubStoredReplies(this.sql, this.t, this.options.ledgerReply, op, `${marker}:ledger`)
   }
 
   /** When the oldest kept event was committed (ms), or null. */
