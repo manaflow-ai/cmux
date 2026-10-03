@@ -803,6 +803,39 @@ describe("devbox image template", () => {
     }
   });
 
+  test("concurrent shell starts merge the codex provider once without feeding the merge into itself", async () => {
+    // Several terminals can source agent-config.sh at the same moment. Each
+    // merge must read config.toml once and write a private temp file; a
+    // shared temp name let one shell's rename turn another shell's output
+    // into config.toml, and cat then appended the file to itself forever.
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-agent-config-race-"));
+    try {
+      mkdirSync(path.join(home, ".codex"), { recursive: true });
+      const hooks = '[hooks.state."/home/cmux/.codex/hooks.json:Stop:0:0"]\ntrusted_hash = "3f0c"\n';
+      writeFileSync(path.join(home, ".codex/config.toml"), hooks);
+      const env = {
+        ...process.env,
+        HOME: home,
+        OPENAI_BASE_URL: "https://example.invalid/v1",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
+        CMUX_CODEROUTER_URL: "https://example.invalid",
+      };
+      const results = await Promise.all(Array.from({ length: 8 }, () =>
+        runChild("/bin/bash", ["-c", `ulimit -f 1024; . ${path.join(templateDir, "agent-config.sh")}`], { env, timeout: 30_000 }),
+      ));
+      for (const result of results) expect(result.status).toBe(0);
+      const merged = readFileSync(path.join(home, ".codex/config.toml"), "utf8");
+      expect(merged.length).toBeLessThan(4096);
+      const parsed = Bun.TOML.parse(merged) as Record<string, unknown>;
+      expect(parsed.model_provider).toBe("cmux");
+      expect(merged.match(/^model_provider = /gm)).toHaveLength(1);
+      expect(merged).toContain('trusted_hash = "3f0c"');
+      expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp"))).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
     // seen a boot env, so ~/.codex/config.toml already exists with only the
@@ -848,7 +881,7 @@ describe("devbox image template", () => {
       expect(parsed.history).toEqual({ persistence: "save-all" });
       // The bare key precedes the first table header, or TOML would file it under [hooks].
       expect(merged.indexOf('model_provider = "cmux"')).toBeLessThan(merged.indexOf("[hooks]"));
-      expect(existsSync(path.join(home, ".codex/config.toml.cmux-tmp"))).toBe(false);
+      expect(readdirSync(path.join(home, ".codex")).filter((name) => name.includes("cmux-tmp"))).toEqual([]);
       // Idempotent: a second login sees the provider and rewrites nothing.
       expect((await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}`], { env })).status).toBe(0);
       expect(readFileSync(path.join(home, ".codex/config.toml"), "utf8")).toBe(merged);
