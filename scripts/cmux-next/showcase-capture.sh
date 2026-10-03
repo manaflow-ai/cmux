@@ -84,7 +84,7 @@ fi
 remote "test -x $(printf '%q' "$APP_PATH/Contents/Resources/bin/cmux") && open -n $(printf '%q' "$APP_PATH") --env CMUX_NEXT_SHOWCASE=1 --env CMUX_TAG=$(printf '%q' "$TAG") --env CMUX_NEXT_SOCKET_MODE=automation --args --showcase"
 sleep "$WAIT_SECONDS"; seed; seed_worked_turn; sleep "$WAIT_SECONDS"; still 01-main-rail
 still 02-agent-chat-tools-footer
-cli rpc debug.agent_pane '{"action":"open_changes"}' 
+cli rpc debug.agent_pane '{"action":"open_changes"}'
 sleep 1; still 03-diff-viewer
 surface 04-inbox feed.show; surface 05-sidebar toggleSidebar
 surface 06-settings openSettings
