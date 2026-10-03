@@ -13,13 +13,30 @@ struct CloudTreeRowHoverButtons: View {
     var body: some View {
         switch kind {
         case .devicesSection(let section):
-            CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
-        case .cloudMachinesSection(let canCreateMachine, _):
-            if canCreateMachine {
-                plus(String(localized: "machines.new", defaultValue: "New Machine")) {
-                    nodeActions.newMachine()
+            HStack(spacing: 2) {
+                refresh(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh"), isRefreshing: section.isRefreshing) {
+                    nodeActions.refreshDevices()
                 }
-                .accessibilityIdentifier("CloudMachinesNewMachineButton")
+                .accessibilityIdentifier("DevicesRefreshButton")
+                CloudTreeDevicesMenuButton(section: section, nodeActions: nodeActions)
+            }
+        case .cloudMachinesSection(let canCreateMachine, _, let sectionRefresh):
+            HStack(spacing: 2) {
+                if let sectionRefresh {
+                    refresh(
+                        String(localized: "cloudTree.action.refreshCloudMachines", defaultValue: "Refresh Cloud Machines"),
+                        isRefreshing: sectionRefresh.isRefreshing
+                    ) {
+                        nodeActions.refreshCloudMachines()
+                    }
+                    .accessibilityIdentifier("CloudRefreshMachinesButton")
+                }
+                if canCreateMachine {
+                    plus(String(localized: "machines.new", defaultValue: "New Machine")) {
+                        nodeActions.newMachine()
+                    }
+                    .accessibilityIdentifier("CloudMachinesNewMachineButton")
+                }
             }
         case .machine(let machine, _):
             // Always visible: New Workspace, and the machine's full context
@@ -122,8 +139,8 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .devicesSection:
             return true
-        case .cloudMachinesSection(let canCreateMachine, _):
-            return canCreateMachine
+        case .cloudMachinesSection(let canCreateMachine, _, let refresh):
+            return canCreateMachine || refresh != nil
         case .pendingMachine:
             return true
         case .device(let row):
@@ -138,8 +155,13 @@ struct CloudTreeRowHoverButtons: View {
     /// True when the row's buttons stay visible without hover. Machine rows
     /// keep + and ⋯ on screen so their actions are discoverable at rest.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
-        if case .machine = kind { return true }
-        return false
+        switch kind {
+        case .machine: return true
+        // A running refresh keeps its spinner on screen without hover.
+        case .cloudMachinesSection(_, _, let refresh): return refresh?.isRefreshing == true
+        case .devicesSection(let section): return section.isRefreshing
+        default: return false
+        }
     }
 
     /// The Displays affordance remains visible while guest discovery is pending
@@ -153,6 +175,12 @@ struct CloudTreeRowHoverButtons: View {
 
     private func plus(_ label: String, action: @escaping () -> Void) -> some View {
         MachinesChromeIconButton(symbolName: "plus", accessibilityLabel: label, isBusy: false, action: action)
+    }
+
+    /// Refresh, with a spinner in its place (and clicks ignored) while it runs.
+    private func refresh(_ label: String, isRefreshing: Bool, action: @escaping () -> Void) -> some View {
+        MachinesChromeIconButton(symbolName: "arrow.clockwise", accessibilityLabel: label, isBusy: isRefreshing, action: action)
+            .disabled(isRefreshing)
     }
 
     private func xmark(_ label: String, action: @escaping () -> Void) -> some View {
