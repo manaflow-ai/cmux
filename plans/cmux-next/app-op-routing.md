@@ -1,8 +1,8 @@
 > RESUME NOTE (updated 2026-10-03, Rust lane of the app platform)
-> State: branch feat-cmux-next-apps-routing (pushed, no base push) on top of #17008 without its actor commit (the identity lane owns the actor per identity.md section 3). Provider channel, review fixes and registration gate (agent conversation binding refused, kind app required) are done; provider events carry the section 3 `app` actor struct.
-> Next: in the cmux-tui landing window (after Home, P7, docks): #16872, then #17008, then this branch, each rebased onto origin/feat-cmux-next, exact-head local gates, push with .cmux-scratch/nx-worker/safe-push.sh. When the identity lane's Actor and dispatch API land: the supervisor sets the `app` actor explicitly on routed daemon calls, and the gate refuses terminal/acp_session actors with `agent` set.
-> Open runs: none.
-> Later queue: build-time scopes (fold fs.* and the routed ops into scopes.json), then power assertions.
+> State: branch feat-cmux-next-apps-routing (pushed, no base push) on top of #17008 (no actor commit). Done: provider channel + review fixes + registration gate; `coderouter` family; apps-list `commands`; default apps from the shipped first-party directory (CMUX_APPS_FIRST_PARTY_DIR). Testbox 54/54.
+> BLOCKER (needs the first-party apps lead): first-party manifests do not pass the manifest v2 validator (coderouter has only a v1 cmux-app.json; the cmux-app.v2.json files use an inline catalog and keys the schema rejects), so the supervisor loads none of them yet.
+> Next: landing window (after lane 13 sizing and 17112): first commit regenerates cmux-app-host/generated (chief.*, closed.*, column.update, calendar.*, mail.* ...), then #16872, #17008, routing; exact-head gates incl. check-app-platform; push with .cmux-scratch/nx-worker/safe-push.sh. When the identity lane's Actor/dispatch API lands: set the `app` actor explicitly; gate on terminal/acp_session agent actors.
+> Later queue: build-time scopes, then power assertions.
 
 # App op routing from the supervisor (app platform step 3c)
 
