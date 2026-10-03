@@ -48,10 +48,11 @@ enum SidebarSectionHandlers {
         // Hide is app-level state owned by the app platform (D55): the
         // sidebar forwards to its `app.hide` action and changes no layout.
         registry.bind("sidebar.item.hideApp", run: { [weak registry] invocation in
-            let item = try SidebarSectionResolve.item(invocation.target, in: layout.document)
-            guard item.ref.kind == LayoutItemRef.appKind else { throw ActionFailure(message: SidebarSectionStrings.notAnApp) }
+            guard let app = try SidebarSectionResolve.owningApp(invocation.target, in: layout.document) else {
+                throw ActionFailure(message: SidebarSectionStrings.notAnApp)
+            }
             guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
-            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(item.ref.value)], origin: invocation.origin))
+            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
         })
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
@@ -146,6 +147,15 @@ enum SidebarSectionResolve {
     static func section(_ name: String, in doc: SidebarLayoutDocument) throws -> LayoutSection {
         if let section = doc.section(LayoutSectionID(name)) ?? doc.sections.first(where: { $0.title == name }) { return section }
         throw ActionFailure(message: SidebarSectionStrings.noSuchSection)
+    }
+
+    /// The app an item or section target belongs to (an app item's app, an
+    /// app section's contribution owner), or nil.
+    static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> String? {
+        switch target?.kind {
+        case .sidebarSection?: try section(target, in: doc).owningAppID
+        default: try item(target, in: doc).owningAppID
+        }
     }
 
     /// By item id, else by built-in name (`home`).

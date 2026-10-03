@@ -174,6 +174,17 @@ import Testing
         #expect(reject(defaults, .itemAdd(item, section: SidebarLayoutDocument.topSectionID, index: 0)) == .duplicateID)
     }
 
+    @Test func appSectionsHoldNoItemsAndNameTheirApp() throws {
+        let app = LayoutSection(id: LayoutSectionID("sec_app"), region: .top, content: .app, contribution: "manaflow-ai/github-prs#prs")
+        let doc = try reduce(defaults, .sectionAdd(app, index: 9))
+        #expect(doc.section(app.id)?.owningAppID == "manaflow-ai/github-prs")
+        let item = LayoutItem(id: LayoutItemID("itm_x"), ref: .builtIn(.history))
+        #expect(reject(doc, .itemAdd(item, section: app.id, index: 0)) == .itemsNotAllowed)
+        #expect(reject(doc, .itemMove(home, section: app.id, index: 0)) == .itemsNotAllowed)
+        #expect(LayoutItem(id: LayoutItemID("i"), ref: .app("a/b")).owningAppID == "a/b")
+        #expect(defaults.section(SidebarLayoutDocument.topSectionID)?.owningAppID == nil)
+    }
+
     @Test func removeRefTakesEveryCopyOutOfTheSidebar() throws {
         let copy = LayoutItem(id: LayoutItemID("itm_h2"), ref: .builtIn(.home))
         let two = try reduce(defaults, .itemAdd(copy, section: SidebarLayoutDocument.bottomSectionID, index: 0))

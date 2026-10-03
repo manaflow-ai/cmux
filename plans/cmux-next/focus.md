@@ -577,7 +577,7 @@ the user."):
   keep the plain colors), and the scope repaint is the same path a theme change uses.
   No Tabs code changes; no accent hue.
 - Debug Settings (Focus): `focus.indicator` and `focus.tabBarBackground` override the
-  settings; `focus.inactiveTabStyle` is the prototype switch (`fade` default: text, icons
+  settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
   and pills fade toward the background; `tonal`: every text tier steps down, the selected
   pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
   `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),

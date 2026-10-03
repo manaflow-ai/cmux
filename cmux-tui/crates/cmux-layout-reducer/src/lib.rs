@@ -171,7 +171,11 @@ pub enum LayoutOpKind {
     /// Close `tab`.
     CloseTab { tab: TabId },
     /// The session host reports that `runtime` exited. Its tabs stay where
-    /// they are and are marked dead.
+    /// they are and are marked dead. In the daemon this is
+    /// `TerminalEnd::HostLost` (host died, outcome unknown, or a signal
+    /// during a session shutdown) and a process end under a keep policy; a
+    /// process end without keep is a [`Self::CloseTab`] of each of its tabs
+    /// (cmux-tui-core `terminal_end.rs`).
     RuntimeExited { runtime: u64 },
 }
 

@@ -8,7 +8,7 @@ public nonisolated enum FocusIndicatorTunables {
         default: .both, code: "FocusIndicatorTunables.indicator")
     public static let inactiveTabStyle = Tunable<InactiveTabStyle>.choice(
         "focus.inactiveTabStyle", .focus, "Unfocused pane tabs",
-        help: "Prototype: how an unfocused pane's tabs draw subtler.",
+        help: "How an unfocused pane's tabs draw subtler (overrides focus.inactiveTabStyle in cmux.json).",
         default: .fade, code: "FocusIndicatorTunables.inactiveTabStyle")
     public static let inactiveTabStrength = Tunable<CGFloat>.number(
         "focus.inactiveTabStrength", .focus, "Unfocused tabs strength",
