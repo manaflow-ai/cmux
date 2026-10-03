@@ -89,7 +89,7 @@ func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> (Bool, Strin
             let tail = Array(l.1.dropFirst(103)) != Array(r.1.dropFirst(103)) ? ["tabs/palette/pwd/title"] : []
             diffs.append("TERMINAL[\((fields + tail).joined(separator: "+"))]")
         } else if let l = left, let r = right {
-            let first = zip(l.1, r.1).firstIndex { $0 != $1 } ?? min(l.1.count, r.1.count)
+            let first = zip(l.1, r.1).enumerated().first { $0.element.0 != $0.element.1 }?.offset ?? min(l.1.count, r.1.count)
             diffs.append("\(name)#\(i)@\(first) (\(l.1.count) vs \(r.1.count) B)")
         } else {
             diffs.append("\(name)#\(i) missing")
