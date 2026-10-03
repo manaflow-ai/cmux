@@ -128,9 +128,11 @@ jobs:
         run: echo "TMPDIR=/tmp" >> "$GITHUB_ENV"
 
       - name: Init ghostty submodule
-        run: git submodule update --init --depth 1 ghostty
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Install zig
+        env:
+          GHOSTTY_ZIG_SOURCE: ghostty-next
         run: ./scripts/install-zig-ci.sh
 
       - name: Set up pinned Rust
