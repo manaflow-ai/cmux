@@ -288,6 +288,7 @@ struct MachinesPanelView: View {
             listStatus: toolbarListStatus,
             listError: viewModel.lastErrorDescription,
             treeError: visibleTreeErrorDescription,
+            treeNotice: viewModel.treeNoticeDescription,
             onDismissStale: { bannerDismissals.dismiss(id: "machines.stale", signature: $0) },
             onDismissTreeError: { error in
                 bannerDismissals.dismiss(id: "machines.tree-error", signature: error)
@@ -469,6 +470,7 @@ struct MachinesPanelView: View {
             },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
             onFailure: { [weak viewModel] description in viewModel?.noteTreeFailure(description) },
+            onNotice: { [weak viewModel] description in viewModel?.noteTreeNotice(description) },
             refresh: { refreshMachines() },
             refreshMachine: { [weak viewModel] in viewModel?.refreshMachine($0) },
             workspaceCreationHost: { tabManager.map { CloudWorkspaceCreationHost(manager: $0) } }

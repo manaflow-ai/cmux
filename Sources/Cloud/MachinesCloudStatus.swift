@@ -10,6 +10,7 @@ struct MachinesCloudStatus: View {
     /// Dismissal identity only; upstream details are never presented.
     let listError: String?
     let treeError: String?
+    let treeNotice: String? = nil
     let onDismissStale: (String) -> Void
     let onDismissTreeError: (String) -> Void
     /// Runs the fix the status names. The notice and the empty state route the
@@ -18,11 +19,16 @@ struct MachinesCloudStatus: View {
 
     /// The same safe recovery copy is used for text, hover help and copying.
     var treeErrorMessage: String {
-        String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again.")
+        guard let treeError,
+              treeError.localizedCaseInsensitiveContains("share URL") ||
+                treeError.localizedCaseInsensitiveContains("publication already uses") else {
+            return String(localized: "cloud.operation.failedAction", defaultValue: "This operation did not complete. Check the machine state before you try it again.")
+        }
+        return treeError
     }
 
     var body: some View {
-        if listStatus != nil || treeError != nil {
+        if listStatus != nil || treeError != nil || treeNotice != nil {
             HStack(spacing: 6) {
                 persistentMessage
                 Spacer(minLength: 0)
@@ -41,6 +47,19 @@ struct MachinesCloudStatus: View {
                 onDismiss: onDismissStale,
                 perform: performListStatusAction
             )
+        } else if let notice = treeNotice {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                Text(notice)
+                    .cmuxFont(size: 11)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .foregroundColor(.green.opacity(0.9))
+            .help(notice)
+            .cloudErrorCopyMenu(notice)
         } else if let error = treeError {
             let safeMessage = treeErrorMessage
             HStack(alignment: .firstTextBaseline, spacing: 5) {

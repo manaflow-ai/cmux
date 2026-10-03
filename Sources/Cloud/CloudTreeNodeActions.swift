@@ -93,6 +93,7 @@ struct CloudTreeNodeActions {
         onWillMutate: @escaping @MainActor (String) -> Void = { _ in },
         onDidMutate: @escaping @MainActor () -> Void,
         onFailure: @escaping @MainActor (String) -> Void,
+        onNotice: @escaping @MainActor (String) -> Void = { _ in },
         refresh: @escaping @MainActor () -> Void,
         refreshMachine: @escaping @MainActor (SurfaceMachineID) -> Void = { _ in }, operationController: CloudWorkspaceOperationController? = nil,
         workspaceCreationHost: @escaping @MainActor () -> CloudWorkspaceCreationHost? = { nil }
@@ -520,7 +521,10 @@ struct CloudTreeNodeActions {
                             vmID: resource.machine.rawValue,
                             port: port
                         )
-                        Self.copyToPasteboard(publication.url)
+                        guard Self.copyToPasteboardResult(publication.url) else {
+                            throw CloudTreeSharePortError.copyFailed
+                        }
+                        onNotice(String(localized: "cloudTree.operation.sharePort.copied", defaultValue: "Share URL copied to clipboard."))
                     } catch let error as CloudPortShareError {
                         switch error {
                         case .publicPublication(let hostname):
@@ -613,18 +617,25 @@ struct CloudTreeNodeActions {
     }
     @MainActor
     private static func copyToPasteboard(_ text: String) {
+        _ = copyToPasteboardResult(text)
+    }
+
+    @MainActor
+    private static func copyToPasteboardResult(_ text: String) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         let ok = pasteboard.setString(text, forType: .string)
         #if DEBUG
         cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
         #endif
+        return ok
     }
 }
 
 private enum CloudTreeSharePortError: LocalizedError {
     case provisioning(state: String)
     case publicPublication(hostname: String)
+    case copyFailed
 
     var errorDescription: String? {
         switch self {
@@ -632,6 +643,8 @@ private enum CloudTreeSharePortError: LocalizedError {
             return String(format: String(localized: "cloudTree.operation.sharePort.provisioning", defaultValue: "The share URL is still being provisioned (state: %@). Try again in a moment."), state)
         case .publicPublication(let hostname):
             return String(format: String(localized: "cloudTree.operation.sharePort.publicMismatch", defaultValue: "An unprotected publication already uses %@. Remove it or create a protected share first."), hostname)
+        case .copyFailed:
+            return String(localized: "cloudTree.operation.sharePort.copyFailed", defaultValue: "The share URL was ready, but cmux could not copy it. Try again or use the context menu.")
         }
     }
 }
