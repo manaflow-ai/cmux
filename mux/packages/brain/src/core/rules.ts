@@ -1,5 +1,6 @@
 import type { SessionStatus, SessionSummary } from "./acp.ts";
 import { utf16Prefix } from "./acp.ts";
+import { canonicalJson } from "./text.ts";
 import { AGENT_MUX, type Message, messageText, type Part, type ParticipantId, type Summary, type WorkStatus } from "./conversation.ts";
 
 // Pure rules of the brain host: the wake rule (plans/cmux-next/home.md
@@ -78,12 +79,22 @@ export function childFinishedPrompt(child: SessionSummary, reply: string): strin
   return `${EVENT_PREFIX} child ${child.name} finished: ${excerpt(reply) || "(no reply text)"}\n(${child.harness}, ${child.cwd}; full reply: \`acpmux last ${child.name}\`.) Tell the user what matters, briefly, and take the next step yourself if there is one.`;
 }
 
+/**
+ * The prompt for a child's permission request. Only string fields count
+ * (a missing or non-string optionId prints as ""; name, else kind, else "");
+ * rawInput is canonical JSON (sorted keys), cut to 600 UTF-16 units.
+ */
 export function childPermissionPrompt(child: SessionSummary, request: Record<string, unknown>): string {
-  const toolCall = (request.toolCall ?? {}) as { title?: string; rawInput?: unknown };
-  const options = ((request.options ?? []) as PermissionOption[]).map((o) => `${o.optionId} (${o.name ?? o.kind ?? ""})`);
-  const input =
-    toolCall.rawInput === undefined ? "" : `\nInput: ${utf16Prefix(JSON.stringify(toolCall.rawInput), 600)}`;
-  return `${EVENT_PREFIX} child ${child.name} asks permission: ${toolCall.title ?? "a tool call"}${input}\nOptions: ${options.join(", ") || "(none)"}\nAnswer with \`mux agents allow ${child.name} OPTION_ID\` or \`mux agents deny ${child.name}\`. Ask the user first if it is destructive or outward-facing.`;
+  const str = (value: unknown) => (typeof value === "string" ? value : undefined);
+  const field = (value: unknown, key: string) =>
+    value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+  const toolCall = request.toolCall;
+  const rawInput = field(toolCall, "rawInput");
+  const options = (Array.isArray(request.options) ? request.options : []).map(
+    (o: unknown) => `${str(field(o, "optionId")) ?? ""} (${str(field(o, "name")) ?? str(field(o, "kind")) ?? ""})`,
+  );
+  const input = rawInput === undefined ? "" : `\nInput: ${utf16Prefix(canonicalJson(rawInput), 600)}`;
+  return `${EVENT_PREFIX} child ${child.name} asks permission: ${str(field(toolCall, "title")) ?? "a tool call"}${input}\nOptions: ${options.join(", ") || "(none)"}\nAnswer with \`mux agents allow ${child.name} OPTION_ID\` or \`mux agents deny ${child.name}\`. Ask the user first if it is destructive or outward-facing.`;
 }
 
 /** The work card status for an acpmux session status. */

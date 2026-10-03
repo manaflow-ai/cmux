@@ -5,6 +5,8 @@
 // `turn_end` or `turn_error`. Replayed (attach) and live events fold the same
 // way; events at or below the last folded seq are ignored. Pure: no I/O.
 
+import { canonicalJson } from "./text.ts";
+
 export type SessionStatus = "idle" | "ready" | "running" | "waiting" | "disconnected" | "closed";
 
 /** `_acpmux/session_changed` and `_acpmux/sessions` rows. */
@@ -63,6 +65,11 @@ export function utf16Prefix(text: string, limit: number): string {
   return text.slice(0, end);
 }
 
+/** A prompt id from an event: a non-empty string, else none. */
+function promptIdOf(msg: Record<string, unknown>): string | undefined {
+  return typeof msg.promptId === "string" && msg.promptId !== "" ? msg.promptId : undefined;
+}
+
 export class TurnFolder {
   private lastSeq: number;
   private current?: Turn;
@@ -87,28 +94,29 @@ export class TurnFolder {
     }
     const out: TurnOutput[] = [];
     if (event.dir === "mux" && event.kind === "user_message") {
-      const promptId = typeof event.msg.promptId === "string" ? event.msg.promptId : undefined;
+      const promptId = promptIdOf(event.msg);
       // A steered prompt joins the running turn; any other starts the next one.
       if (event.msg.steer !== true || !this.current) this.lastPromptId = promptId;
       if (promptId) out.push({ type: "accepted", promptId, seq: event.seq });
     } else if (event.dir === "mux" && event.kind === "queued") {
       // Queued behind the running turn: acpmux holds it, so it is accepted.
-      const promptId = typeof event.msg.promptId === "string" ? event.msg.promptId : undefined;
+      const promptId = promptIdOf(event.msg);
       if (promptId) out.push({ type: "accepted", promptId, seq: event.seq });
     } else if (event.dir === "mux" && event.kind === "turn_started") {
       this.current = { turnSeq: event.seq, promptId: this.lastPromptId, text: "" };
       this.lastPromptId = undefined;
       out.push({ type: "started", turn: { ...this.current }, seq: event.seq });
     } else if (event.kind === "agent_message_chunk") {
-      const update = (event.msg.params as { update?: { content?: { type?: string; text?: string } } } | undefined)
+      const update = (event.msg.params as { update?: { content?: { type?: unknown; text?: unknown } } } | undefined)
         ?.update;
-      if (this.current && update?.content?.type === "text" && update.content.text)
-        this.current.text += update.content.text;
+      // Only string text counts; anything else in `text` is skipped.
+      const text = update?.content?.type === "text" ? update.content.text : undefined;
+      if (this.current && typeof text === "string") this.current.text += text;
     } else if (event.dir === "mux" && (event.kind === "turn_end" || event.kind === "turn_error")) {
       if (this.current) {
         const error =
           event.kind === "turn_error"
-            ? utf16Prefix(String(event.msg.error ?? JSON.stringify(event.msg)), ERROR_UNITS)
+            ? utf16Prefix(String(event.msg.error ?? canonicalJson(event.msg)), ERROR_UNITS)
             : undefined;
         out.push({ type: "ended", turn: this.current, seq: event.seq, ...(error ? { error } : {}) });
         this.current = undefined;

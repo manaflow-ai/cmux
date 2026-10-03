@@ -441,13 +441,28 @@ function turnCases(): CorpusCase[] {
     fail(1, { error: "boom" }, ["persist", "conversation_op", "typing"], "(turn failed: boom)");
     fail(3, { error: 42 }, ["persist", "conversation_op", "typing"], "(turn failed: 42)");
     fail(5, { error: { code: "x" } }, ["persist", "conversation_op", "typing"], "(turn failed: [object Object])");
-    fail(7, { reason: "overloaded", code: 529 }, ["persist", "conversation_op", "typing"], '(turn failed: {"reason":"overloaded","code":529})');
+    fail(7, { reason: "overloaded", code: 529, detail: { z: 1, a: [{ d: 1, c: 2 }] } }, ["persist", "conversation_op", "typing"], '(turn failed: {"code":529,"detail":{"a":[{"c":2,"d":1}],"z":1},"reason":"overloaded"})');
     fail(9, { error: "" }, ["persist", "typing"]);
     c.step(mux(ev(11, "turn_started")), ["typing"]);
     c.step(mux(chunk(12, "partial answer")), []);
     c.step(mux(ev(13, "turn_error", { error: "cut off" })), ["persist", "conversation_op", "typing"], (e) => {
       const op = c.get(e, "conversation_op");
       c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "partial answer", "text wins over the error");
+    });
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("turns: an empty promptId is no prompt id (no acceptance, nothing answered); non-string chunk text is skipped");
+    boot(c);
+    c.step(mux(ev(1, "user_message", { promptId: "" })), []);
+    c.step(mux(ev(2, "turn_started")), ["typing"]);
+    c.step(mux(ev(3, "agent_message_chunk", { params: { update: { content: { type: "text", text: 5 } } } }, "agent")), []);
+    c.step(mux(chunk(4, "only text")), []);
+    c.step(mux(ev(5, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.conversation === "conv_a" && op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "only text", "default conversation, text only");
+      c.check(c.persisted(e).answered.length === 0, "nothing answered");
     });
     cases.push(c.end());
   }
@@ -561,7 +576,7 @@ function outboxCases(): CorpusCase[] {
       c.check(entry.rateRetried === true && entry.notBefore === c.now + 2_200, "retry after the 2.2 s gap");
       c.check(c.get(e, "arm_timer").at === c.now + 2_250 && c.get(e, "arm_timer").key === "outbox", "one-shot timer");
     });
-    c.step({ kind: "timer", key: "outbox" }, [], undefined, 1_000);
+    c.step({ kind: "timer", key: "outbox" }, ["arm_timer"], (e) => c.check(c.get(e, "arm_timer").at === c.now + 1_250, "an early fire arms the timer again"), 1_000);
     c.step({ kind: "timer", key: "outbox" }, ["conversation_op"], undefined, 1_250);
     c.step({ kind: "op_result", idempotency_key: "turn:s_mux:2", reason: "conversation-op: agent_rate (conversation_rejected)" }, ["persist"], (e) =>
       c.check(c.persisted(e).outbox.length === 0, "dropped after one retry"),
@@ -598,6 +613,23 @@ function outboxCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("outbox: a not_before in the future at connect arms the timer again (once); a connect while up drops the inflight op", {
+      defaultConversation: "conv_a",
+      outbox: [{ ...reply("turn:s_mux:2", "Hi there"), rateRetried: true, notBefore: T0 + 5_000 }],
+    });
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, ["arm_timer"], (e) =>
+      c.check(c.get(e, "arm_timer").at === T0 + 5_050 && c.get(e, "arm_timer").key === "outbox", "armed after a restart"),
+    );
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, []);
+    c.step({ kind: "timer", key: "outbox" }, ["conversation_op"], undefined, 5_100);
+    c.step({ kind: "daemon_connected", conversation: summary("conv_a") }, ["conversation_op"], (e) =>
+      c.check(opKey(c, e) === "turn:s_mux:2", "the old connection's op is sent again"),
+    );
+    c.step({ kind: "op_result", idempotency_key: "turn:s_mux:2" }, ["persist"]);
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("outbox: an edit of a work card whose send was never confirmed is dropped; a confirmed one gets its message id", {
       defaultConversation: "conv_a",
       children: {
@@ -623,6 +655,57 @@ function outboxCases(): CorpusCase[] {
 
 function childCases(): CorpusCase[] {
   const cases: CorpusCase[] = [];
+
+  {
+    const c = new CaseBuilder("children: changes of a child whose finish waits for its events are held and replayed in order");
+    boot(c);
+    c.step({ kind: "session_changed", session: session("s_c", "fixer", "running") }, ["persist", "conversation_op"]);
+    const card = msg("conv_a", 1, AGENT_MUX, "", { id: "m_card", client_msg_id: "work:s_c", parts: [{ type: "work", session: "fixer", status: "running" }] });
+    c.step({ kind: "op_result", idempotency_key: "work:s_c", change: { kind: "message", message: card } }, ["persist"]);
+    c.step({ kind: "session_changed", session: session("s_c", "fixer", "ready", { turnCount: 1, lastSeq: 4 }) }, ["fetch_child_events"]);
+    c.step({ kind: "session_changed", session: session("s_c", "fixer", "running", { turnCount: 1, lastSeq: 5 }) }, []);
+    c.step({ kind: "session_changed", session: session("s_c", "fixer", "ready", { turnCount: 2, lastSeq: 9 }) }, []);
+    const turn = (text: string) => [ev(1, "turn_started", {}, "mux", "s_c"), chunk(2, text, "s_c"), ev(3, "turn_end", {}, "mux", "s_c")];
+    c.step({ kind: "child_events", session_id: "s_c", events: turn("first done") }, ["persist", "prompt", "conversation_op", "fetch_child_events"], (e) => {
+      c.check(c.get(e, "prompt").prompt_id === "child:s_c:1", "the first finish");
+      c.check(opKey(c, e) === "work:s_c:1", "its card edit");
+      c.check(c.get(e, "fetch_child_events").after === 4, "the held turn end fetches after the first turn");
+      c.check(c.persisted(e).outbox.length === 2, "the held running edit is queued behind");
+    });
+    c.step({ kind: "child_events", session_id: "s_c", events: turn("second done") }, ["persist", "prompt"], (e) =>
+      c.check(c.get(e, "prompt").prompt_id === "child:s_c:2", "the second finish"),
+    );
+    cases.push(c.end((s) => c.check(s.children.s_c.edits === 3 && s.children.s_c.status === "done", "three edits, done")));
+  }
+
+  {
+    const c = new CaseBuilder("children: a permission option without an optionId prints an empty id; nested rawInput keys are sorted");
+    boot(c, [summary("conv_a")], [session("s_w", "writer", "running")]);
+    const request = {
+      toolCall: { title: 7, rawInput: { z: 1, b: { y: true, a: [{ d: 1, c: 2 }] }, "10": "x", "2": "y" } },
+      options: [{ name: "Allow" }, { optionId: "deny", kind: "reject_once" }, "junk"],
+    };
+    c.step({ kind: "permission_pending", session_id: "s_w", permission_id: "p1", request }, ["persist", "conversation_op", "prompt"], (e) =>
+      c.check(
+        c.get(e, "prompt").text.startsWith(
+          '[mux-event] child writer asks permission: a tool call\nInput: {"10":"x","2":"y","b":{"a":[{"c":2,"d":1}],"y":true},"z":1}\nOptions:  (Allow), deny (reject_once),  ()\n',
+        ),
+        "string-only fields, canonical rawInput",
+      ),
+    );
+    cases.push(c.end());
+  }
+
+  {
+    const c = new CaseBuilder("acpmux connected while up counts as a disconnect first: the waiting prompt settles and is resent");
+    boot(c);
+    const m1 = msg("conv_a", 1, USER_LOCAL, "hello");
+    c.step(live(m1), ["persist", "prompt"]);
+    c.step({ kind: "acpmux_connected", session_id: MUX_SESSION, sessions: [], events: [] }, ["conversation_op", "prompt", "list_conversations"], (e) =>
+      c.check(opKey(c, e) === "cursor:agent_mux:1" && c.get(e, "prompt").prompt_id === m1.id, "settled, then resent"),
+    );
+    cases.push(c.end());
+  }
 
   {
     const c = new CaseBuilder("children: a child started during a turn gets a work card there; its turn end prompts the Chief and marks the card done");
@@ -694,8 +777,8 @@ function childCases(): CorpusCase[] {
       c.check(prompt.prompt_id === "perm:s_w:perm-1", "permission prompt id");
       c.check(
         prompt.text ===
-          '[mux-event] child writer asks permission: Write /tmp/x\nInput: {"path":"/tmp/x","content":"hi"}\nOptions: allow-once (Allow), reject-once (reject_once)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.',
-        "permission text keeps the request's key order",
+          '[mux-event] child writer asks permission: Write /tmp/x\nInput: {"content":"hi","path":"/tmp/x"}\nOptions: allow-once (Allow), reject-once (reject_once)\nAnswer with `mux agents allow writer OPTION_ID` or `mux agents deny writer`. Ask the user first if it is destructive or outward-facing.',
+        "permission text: rawInput as canonical JSON (sorted keys)",
       );
       const state = c.persisted(e);
       c.check(state.children.s_w.status === "waiting" && state.outbox.length === 2, "card sent, waiting edit queued");
@@ -777,6 +860,7 @@ function memoryCases(): Promise<MemoryCase[]> {
     ["to_lines counts UTF-8 bytes of two-byte text", "to_lines", { text: "é".repeat(300) }],
     ["to_lines counts UTF-8 bytes of three-byte text with spaces", "to_lines", { text: "漢字かな ".repeat(40) }],
     ["to_lines keeps four-byte characters whole", "to_lines", { text: "😀".repeat(100) }],
+    ["to_lines never cuts a surrogate pair in mixed text", "to_lines", { text: `é${"😀".repeat(100)}` }],
     ["to_lines prefers a space only past half the line", "to_lines", { text: `${"a".repeat(100)} ${"b".repeat(400)}` }],
     ["decompose 0", "decompose", { length: 0 }],
     ["decompose 1", "decompose", { length: 1 }],
@@ -800,6 +884,8 @@ function memoryCases(): Promise<MemoryCase[]> {
     ["zoom shows both child summaries", "zoom", { lines: ["a", "b", "c", "d", "e", "f", "g", "h"], nodes: { "0-3": "abcd", "4-7": "efgh" }, range: "0-7" }],
     ["zoom of two lines is the raw lines", "zoom", { lines: ["a", "b", "c", "d"], range: "2-3" }],
     ["zoom of an unaligned range is the raw lines", "zoom", { lines: ["a", "b", "c", "d", "e"], range: "1-4" }],
+    ["wake treats an empty summary as missing", "wake", { lines: ["a", "b", "c", "d"], nodes: { "0-3": "" }, budget: 1 }],
+    ["zoom treats an empty child summary as missing", "zoom", { lines: ["a", "b", "c", "d", "e", "f", "g", "h"], nodes: { "0-3": "", "4-7": "efgh" }, range: "0-7" }],
   ];
   return Promise.all(
     specs.map(async ([name, fn, args]) => {
@@ -827,6 +913,8 @@ function checkMemory(cases: MemoryCase[]): void {
   expect("wake shows a summary", { text: "#0-3 abcd", missing: [] });
   expect("zoom mixes a child summary and numbered lines", ["#0-1 ab", "#2 c", "#3 d"]);
   expect("zoom of an unaligned range is the raw lines", ["b", "c", "d", "e"]);
+  expect("wake treats an empty summary as missing", { text: "#0 a\n#1 b\n#2 c\n#3 d", missing: ["0-3"] });
+  expect("zoom treats an empty child summary as missing", ["#0 a", "#1 b", "#2 c", "#3 d", "#4-7 efgh"]);
   const encoder = new TextEncoder();
   for (const c of cases.filter((x) => x.fn === "to_lines")) {
     const lines = c.result as string[];
@@ -842,7 +930,9 @@ export const NOTES = [
   "A case: {name, state, steps [{now, input, effects}], state_after}. Start a core from `state` (host.json shape, camelCase), feed each input at `now` (ms since the epoch), and compare the effects as JSON values in order; `log` effects are not compared; object key order does not matter; optional fields are omitted when absent.",
   "Inputs and effects are tagged by snake_case `kind`. `persist` carries the whole durable state and is the first effect of every step that changed it (write-ahead).",
   "A memory case: {name, fn, args, result}; fn is to_lines, decompose, wake_cover, wake or zoom; ranges are `lo-hi`; wake returns {text, missing}.",
-  "Strings that come from JSON.stringify (a turn_error without an `error` field, a permission's rawInput) keep the wire's key order; String(value) of a non-string error is JavaScript's ([object Object] for an object).",
+  "JSON text inside prompts and replies (a turn_error without an `error` field, a permission's rawInput) is canonical: compact, object keys sorted by code point (serde_json Value::to_string). A non-string turn_error `error` is JavaScript String(value): [object Object] for an object, items joined by commas for an array.",
+  "Text rules: trim and to_lines whitespace is the JavaScript set (\\s, String.prototype.trim); cuts count UTF-16 units and never split a surrogate pair; an empty promptId is no prompt id; an empty memory summary counts as missing; only string fields of a permission request count.",
+  "A connected input while that port is up counts as a disconnect first. A child's session_changed inputs wait behind its pending finish (fetch_child_events) and are replayed in order.",
 ];
 
 export async function buildCorpus(): Promise<Corpus> {

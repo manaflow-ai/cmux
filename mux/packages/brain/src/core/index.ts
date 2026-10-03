@@ -5,3 +5,4 @@ export * from "./core.ts";
 export * from "./corpus.ts";
 export * from "./rules.ts";
 export * from "./state.ts";
+export { canonicalJson, compareCodePoints } from "./text.ts";

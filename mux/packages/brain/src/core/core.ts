@@ -17,6 +17,7 @@ import {
   workStatus,
 } from "./rules.ts";
 import { type ChildRecord, type HostStateData, isAnswered, loadState, markAnswered, plainState } from "./state.ts";
+import { compareCodePoints as compare, plain } from "./text.ts";
 
 // The sans-I/O brain host (plans/cmux-next/chief-mac.md section 3):
 // `core.step(input, nowMs) -> effects`. The single behavior source for the
@@ -29,6 +30,12 @@ import { type ChildRecord, type HostStateData, isAnswered, loadState, markAnswer
 // effect is `persist`: the shell writes it before it runs the other effects
 // (write-ahead), so a crash only replays keyed effects that an owner dedupes.
 // Wire shapes are snake_case `kind` tags; the state is host.json (camelCase).
+//
+// Shell contract: a failed daemon read (list, snapshot, history) is reported
+// as `disconnected {daemon}` (the shell drops that connection and connects
+// again); a failed acpmux read answers with an empty `sessions` or
+// `child_events`. A `*_connected` input while that port is up counts as a
+// disconnect first: the core drops what it held for the old connection.
 
 /** The timer key of the one-shot outbox retry. */
 export const OUTBOX_TIMER = "outbox";
@@ -135,12 +142,16 @@ export class Core {
   private readonly childTurnFloor = new Map<string, number>();
   /** Children whose turn ended, waiting for `child_events`. */
   private readonly pendingChildren = new Map<string, SessionSummary>();
+  /** Later `session_changed` inputs of a child with a pending finish, in order (replayed after it). */
+  private readonly heldChanges = new Map<string, SessionSummary[]>();
   /** Permission requests from sessions not known as children yet, waiting for `sessions`. */
   private pendingPermissions: { sessionId: string; permissionId: string; request: Record<string, unknown> }[] = [];
   private inbox: InboxItem[] = [];
   private task: Task = IDLE;
   /** The outbox head's idempotency key while the owner has not answered it. */
   private outboxInflight?: string;
+  /** When the armed outbox timer fires (cleared when it fires). */
+  private outboxTimerAt?: number;
 
   constructor(state: Partial<HostStateData> = {}) {
     this.state = plainState(loadState(state));
@@ -188,6 +199,7 @@ export class Core {
         if (session) {
           this.pendingChildren.delete(input.session_id);
           this.finishChild(session, lastReply(input.events));
+          this.replayHeld(input.session_id);
           this.flushOutbox();
         }
         break;
@@ -196,7 +208,10 @@ export class Core {
         this.accept(input.prompt_id);
         break;
       case "timer":
-        if (input.key === OUTBOX_TIMER) this.flushOutbox();
+        if (input.key === OUTBOX_TIMER) {
+          this.outboxTimerAt = undefined;
+          this.flushOutbox();
+        }
         break;
       case "disconnected":
         this.disconnected(input.port);
@@ -223,6 +238,7 @@ export class Core {
   // MARK: daemon
 
   private daemonConnected(conversation: Summary): void {
+    if (this.daemonUp) this.disconnected("daemon");
     this.summaries.clear();
     if (this.state.defaultConversation !== conversation.id) {
       this.state.defaultConversation = conversation.id;
@@ -272,7 +288,10 @@ export class Core {
     // A child whose events fetch dies with the connection finishes with no reply text.
     const children = [...this.pendingChildren.values()].sort((a, b) => compare(a.sessionId, b.sessionId));
     this.pendingChildren.clear();
-    for (const session of children) this.finishChild(session, "");
+    for (const session of children) {
+      this.finishChild(session, "");
+      this.replayHeld(session.sessionId);
+    }
     if (children.length > 0) this.flushOutbox();
   }
 
@@ -325,8 +344,7 @@ export class Core {
     const handled = this.handled.get(summary.id) ?? 0;
     if (message.seq <= handled) return;
     if (message.seq > handled + 1) return this.catchUp(summary.id);
-    summary.last_seq = Math.max(summary.last_seq, message.seq);
-    this.task = { type: "handling", summary, queue: [message] };
+    this.task = { type: "handling", summary: plain(summary), queue: [message] };
     this.process();
   }
 
@@ -382,8 +400,9 @@ export class Core {
     this.handleAll(summary, pending);
   }
 
+  /** Handles `pending` in order with a copy of the summary taken now (later summary events do not change it). */
   private handleAll(summary: Summary, pending: Message[]): void {
-    this.task = { type: "handling", summary, queue: [...pending] };
+    this.task = { type: "handling", summary: plain(summary), queue: [...pending] };
     this.process();
   }
 
@@ -448,6 +467,7 @@ export class Core {
   // MARK: acpmux
 
   private acpmuxConnected(sessionId: string, sessions: SessionSummary[], events: AcpmuxEvent[], cursorReset: boolean): void {
+    if (this.acpmuxUp) this.disconnected("acpmux");
     if (this.state.muxSessionId !== sessionId) {
       this.state.muxSessionId = sessionId;
       this.state.acpmuxSeq = 0;
@@ -514,7 +534,11 @@ export class Core {
     while (this.daemonUp && this.outboxInflight === undefined) {
       const entry = this.state.outbox[0];
       if (!entry) return;
-      if (entry.notBefore && this.now < entry.notBefore) return; // its one-shot timer flushes it
+      if (entry.notBefore && this.now < entry.notBefore) {
+        // Its one-shot timer flushes it; armed again here after a restart or an early fire.
+        this.armOutboxTimer(entry.notBefore + AGENT_GAP_TIMER_SLACK_MS);
+        return;
+      }
       let op: Op | undefined = entry.op;
       if (entry.child && entry.op.kind === "message.edit") {
         const messageId = this.state.children[entry.child]?.messageId;
@@ -558,7 +582,7 @@ export class Core {
       head.notBefore = this.now + AGENT_GAP_RETRY_MS;
       this.dirty = true;
       this.log(`op ${key} inside the agent gap; retrying once after it`);
-      this.emit({ kind: "arm_timer", key: OUTBOX_TIMER, at: head.notBefore + AGENT_GAP_TIMER_SLACK_MS });
+      this.armOutboxTimer(head.notBefore + AGENT_GAP_TIMER_SLACK_MS);
       return;
     } else {
       this.log(`dropping rejected op ${key}: ${reason}`);
@@ -568,6 +592,12 @@ export class Core {
     this.flushOutbox();
   }
 
+  private armOutboxTimer(at: number): void {
+    if (this.outboxTimerAt === at) return;
+    this.outboxTimerAt = at;
+    this.emit({ kind: "arm_timer", key: OUTBOX_TIMER, at });
+  }
+
   // MARK: children (sessions tagged mux.parent=mux)
 
   private isChild(session: SessionSummary): boolean {
@@ -575,6 +605,13 @@ export class Core {
   }
 
   private sessionChanged(session: SessionSummary): void {
+    // A child's finish waits for its events: its later changes wait behind it, in order.
+    const held = this.heldChanges.get(session.sessionId);
+    if (held || this.pendingChildren.has(session.sessionId)) {
+      if (held) held.push(session);
+      else this.heldChanges.set(session.sessionId, [session]);
+      return;
+    }
     const before = this.sessionStatus.get(session.sessionId);
     this.sessionStatus.set(session.sessionId, session.status);
     this.sessionInfo.set(session.sessionId, session);
@@ -622,6 +659,20 @@ export class Core {
         op: { kind: "message.edit", message_id: "", parts: [workPart(name, status, preview)] },
       });
     this.dirty = true;
+  }
+
+  /** Replays a child's held changes after its finish, until one starts another finish. */
+  private replayHeld(sessionId: string): void {
+    const held = this.heldChanges.get(sessionId);
+    if (!held) return;
+    this.heldChanges.delete(sessionId);
+    for (let next = held.shift(); next; next = held.shift()) {
+      this.sessionChanged(next);
+      if (this.pendingChildren.has(sessionId)) {
+        if (held.length > 0) this.heldChanges.set(sessionId, held);
+        return;
+      }
+    }
   }
 
   private childFinished(session: SessionSummary): void {
@@ -707,9 +758,4 @@ export class Core {
     }
     this.flushOutbox();
   }
-}
-
-/** Code-unit order: the Rust core's BTreeMap order for ASCII ids. */
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
 }

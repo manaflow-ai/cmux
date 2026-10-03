@@ -1,6 +1,9 @@
 import { ArrayMemoryStore, decompose, key, type Range, toLines, wake, wakeCover, zoom } from "../memory.ts";
 import { Core, type Effect, type Input } from "./core.ts";
 import type { HostStateData } from "./state.ts";
+import { plain } from "./text.ts";
+
+export { plain };
 
 // The shared behavior corpus, format `cmux-chief-corpus/1`
 // (plans/cmux-next/chief-mac.md section 4), written by
@@ -41,8 +44,6 @@ export interface Corpus {
   memory: MemoryCase[];
 }
 
-/** A JSON value with undefined fields dropped (what the wire carries). */
-export const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /** Order-sensitive for arrays, order-free for object keys (serde_json Value equality). */
 export function jsonEqual(a: unknown, b: unknown): boolean {
