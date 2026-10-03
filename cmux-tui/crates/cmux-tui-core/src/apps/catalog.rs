@@ -211,7 +211,7 @@ pub fn load(sources: &Sources) -> Catalog {
         let Ok(entries) = std::fs::read_dir(&root) else { continue };
         let mut paths: Vec<PathBuf> = entries
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.join("cmux-app.json").is_file())
+            .filter(|p| p.join("cmux-app.json").is_file() || p.join(V2_MANIFEST).is_file())
             .collect();
         paths.sort();
         for dir in paths {
@@ -238,8 +238,20 @@ pub fn load(sources: &Sources) -> Catalog {
     catalog
 }
 
+/// First-party bundles carry their manifest v2 here next to the v1 file the
+/// in-app prototype still reads; the supervisor prefers it.
+pub const V2_MANIFEST: &str = "cmux-app.v2.json";
+
+/// The manifest file the supervisor reads in `dir`.
+pub fn manifest_file(dir: &Path, first_party_dir: bool) -> &'static str {
+    if first_party_dir && dir.join(V2_MANIFEST).is_file() { V2_MANIFEST } else { "cmux-app.json" }
+}
+
 fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
-    let report = cmux_app_manifest::validate_package(dir);
+    let report = cmux_app_manifest::validate_package_file(
+        dir,
+        manifest_file(dir, kind == DirKind::FirstParty),
+    );
     if !report.is_valid() {
         let first = report.issues.iter().find(|i| i.severity == cmux_app_manifest::Severity::Error);
         return Err(first
