@@ -1,13 +1,109 @@
 import { describe, expect, test } from "bun:test";
-import { currentEvent, currentFrameEvent, groups, initialActivityState, reduceActivity, scrubToEnd, scrubToStart, step } from "./model";
-const session = (id: string, patch: any = {}): any => ({ id, machine: "local", machineName: "This Mac", label: "run", agentKind: "claude", agentName: "Claude Code", attribution: "process_tree", colorHex: "#E5484D", targetApps: ["TextEdit"], status: "active", startedAt: 1, lastActionAt: 1, acts: 0, observes: 0, errors: 0, foregroundOnly: false, ...patch });
-const event = (seq: number, frame = true): any => ({ seq, time: seq, kind: "act", ok: true, ...(frame ? { afterFrame: { blob: `b${seq}`, width: 320, height: 200 } } : {}) });
-function stateWith(sessions: any[], events: any[] = []) { let s = initialActivityState(); s = reduceActivity(s, { type: "sessions", machine: "local", sessions }); return reduceActivity(s, { type: "events", session: sessions[0].id, events }); }
+import {
+  currentEvent,
+  currentFrameEvent,
+  groups,
+  initialActivityState,
+  reduceActivity,
+  scrubToEnd,
+  scrubToStart,
+  step,
+} from "./model";
+const session = (id: string, patch: any = {}): any => ({
+  id,
+  machine: "local",
+  machineName: "This Mac",
+  label: "run",
+  agentKind: "claude",
+  agentName: "Claude Code",
+  attribution: "process_tree",
+  colorHex: "#E5484D",
+  targetApps: ["TextEdit"],
+  status: "active",
+  startedAt: 1,
+  lastActionAt: 1,
+  acts: 0,
+  observes: 0,
+  errors: 0,
+  foregroundOnly: false,
+  ...patch,
+});
+const event = (seq: number, frame = true): any => ({
+  seq,
+  time: seq,
+  kind: "act",
+  ok: true,
+  ...(frame ? { afterFrame: { blob: `b${seq}`, width: 320, height: 200 } } : {}),
+});
+function stateWith(sessions: any[], events: any[] = []) {
+  let s = initialActivityState();
+  s = reduceActivity(s, { type: "sessions", machine: "local", sessions });
+  return reduceActivity(s, { type: "events", session: sessions[0].id, events });
+}
 describe("agent activity reducer", () => {
-  test("orders live sessions then newest activity", () => expect(groups(stateWith([session("end", { status: { ended: "agent_end" }, lastActionAt: 100 }), session("old", { lastActionAt: 1 }), session("new", { lastActionAt: 50 }), session("paused", { status: "paused", lastActionAt: 10 })]))[0].sessions.map((s) => s.id)).toEqual(["new", "paused", "old", "end"]));
-  test("filters agent and target metadata", () => { let s = stateWith([session("a", { agentName: "Codex", targetApps: ["Safari"] }), session("b", { label: "slides", targetApps: ["Keynote"] })]); s = reduceActivity(s, { type: "filter", value: "codex" }); expect(groups(s)[0].sessions.map((x) => x.id)).toEqual(["a"]); s = reduceActivity(s, { type: "filter", value: "KEYNOTE" }); expect(groups(s)[0].sessions.map((x) => x.id)).toEqual(["b"]); });
-  test("keeps the local machine first and preserves connection state", () => { let s = initialActivityState(); s = reduceActivity(s, { type: "sessions", machine: "remote", sessions: [session("remote", { machine: "remote", machineName: "Remote" })] }); s = reduceActivity(s, { type: "sessions", machine: "local", sessions: [session("local")] }); s = reduceActivity(s, { type: "connection", machine: "remote", connection: "unreachable" }); expect(groups(s).map((group) => group.id)).toEqual(["local", "remote"]); expect(groups(s)[1].connection).toBe("unreachable"); });
-  test("falls back to the first session when the selected one disappears", () => { let s = stateWith([session("a"), session("b", { lastActionAt: 2 })]); expect(s.selectedSessionID).toBe("b"); s = reduceActivity(s, { type: "select", id: "a" }); s = reduceActivity(s, { type: "sessions", machine: "local", sessions: [session("b", { lastActionAt: 2 })] }); expect(s.selectedSessionID).toBe("b"); });
-  test("deduplicates events and scrubs frames", () => { let s = stateWith([session("a")], [event(0), event(1, false), event(2), event(3, false)]); s = reduceActivity(s, { type: "events", session: "a", events: [event(1), event(4)] }); expect(s.eventsBySession.a.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]); expect(currentEvent(s)?.seq).toBe(4); s = reduceActivity(s, { type: "scrub", seq: 3 }); expect(currentFrameEvent(s)?.seq).toBe(2); });
-  test("steps events and frame-only events while preserving a scrubbed position", () => { let s = stateWith([session("a")], [event(0), event(1, false), event(2), event(3, false)]); s = step(s, -1); expect(currentEvent(s)?.seq).toBe(2); s = step(s, -1, true); expect(currentEvent(s)?.seq).toBe(0); s = step(s, -5); expect(currentEvent(s)?.seq).toBe(0); s = step(s, 1, true); expect(currentEvent(s)?.seq).toBe(2); s = reduceActivity(s, { type: "events", session: "a", events: [event(4)] }); expect(currentEvent(s)?.seq).toBe(2); s = scrubToEnd(s); expect(currentEvent(s)?.seq).toBe(4); s = scrubToStart(s); expect(currentEvent(s)?.seq).toBe(0); });
+  test("orders live sessions then newest activity", () =>
+    expect(
+      groups(
+        stateWith([
+          session("end", { status: { ended: "agent_end" }, lastActionAt: 100 }),
+          session("old", { lastActionAt: 1 }),
+          session("new", { lastActionAt: 50 }),
+          session("paused", { status: "paused", lastActionAt: 10 }),
+        ]),
+      )[0].sessions.map((s) => s.id),
+    ).toEqual(["new", "paused", "old", "end"]));
+  test("filters agent and target metadata", () => {
+    let s = stateWith([
+      session("a", { agentName: "Codex", targetApps: ["Safari"] }),
+      session("b", { label: "slides", targetApps: ["Keynote"] }),
+    ]);
+    s = reduceActivity(s, { type: "filter", value: "codex" });
+    expect(groups(s)[0].sessions.map((x) => x.id)).toEqual(["a"]);
+    s = reduceActivity(s, { type: "filter", value: "KEYNOTE" });
+    expect(groups(s)[0].sessions.map((x) => x.id)).toEqual(["b"]);
+  });
+  test("keeps the local machine first and preserves connection state", () => {
+    let s = initialActivityState();
+    s = reduceActivity(s, {
+      type: "sessions",
+      machine: "remote",
+      sessions: [session("remote", { machine: "remote", machineName: "Remote" })],
+    });
+    s = reduceActivity(s, { type: "sessions", machine: "local", sessions: [session("local")] });
+    s = reduceActivity(s, { type: "connection", machine: "remote", connection: "unreachable" });
+    expect(groups(s).map((group) => group.id)).toEqual(["local", "remote"]);
+    expect(groups(s)[1].connection).toBe("unreachable");
+  });
+  test("falls back to the first session when the selected one disappears", () => {
+    let s = stateWith([session("a"), session("b", { lastActionAt: 2 })]);
+    expect(s.selectedSessionID).toBe("b");
+    s = reduceActivity(s, { type: "select", id: "a" });
+    s = reduceActivity(s, { type: "sessions", machine: "local", sessions: [session("b", { lastActionAt: 2 })] });
+    expect(s.selectedSessionID).toBe("b");
+  });
+  test("deduplicates events and scrubs frames", () => {
+    let s = stateWith([session("a")], [event(0), event(1, false), event(2), event(3, false)]);
+    s = reduceActivity(s, { type: "events", session: "a", events: [event(1), event(4)] });
+    expect(s.eventsBySession.a.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4]);
+    expect(currentEvent(s)?.seq).toBe(4);
+    s = reduceActivity(s, { type: "scrub", seq: 3 });
+    expect(currentFrameEvent(s)?.seq).toBe(2);
+  });
+  test("steps events and frame-only events while preserving a scrubbed position", () => {
+    let s = stateWith([session("a")], [event(0), event(1, false), event(2), event(3, false)]);
+    s = step(s, -1);
+    expect(currentEvent(s)?.seq).toBe(2);
+    s = step(s, -1, true);
+    expect(currentEvent(s)?.seq).toBe(0);
+    s = step(s, -5);
+    expect(currentEvent(s)?.seq).toBe(0);
+    s = step(s, 1, true);
+    expect(currentEvent(s)?.seq).toBe(2);
+    s = reduceActivity(s, { type: "events", session: "a", events: [event(4)] });
+    expect(currentEvent(s)?.seq).toBe(2);
+    s = scrubToEnd(s);
+    expect(currentEvent(s)?.seq).toBe(4);
+    s = scrubToStart(s);
+    expect(currentEvent(s)?.seq).toBe(0);
+  });
 });
