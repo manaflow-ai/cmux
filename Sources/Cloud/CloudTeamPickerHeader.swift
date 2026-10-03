@@ -79,25 +79,6 @@ struct CloudTeamPickerHeader<Status: View>: View {
                 }
                 .accessibilityIdentifier("CloudTeamInviteButton")
             }
-            switch actions {
-            case .inline:
-                MachinesChromeIconButton(
-                    symbolName: "arrow.clockwise",
-                    accessibilityLabel: refreshLabel,
-                    isBusy: isRefreshing,
-                    action: onRefresh
-                )
-                .accessibilityIdentifier("CloudHeaderRefreshButton")
-                MachinesChromeIconButton(
-                    symbolName: "plus",
-                    accessibilityLabel: newMachineLabel,
-                    isBusy: false,
-                    action: onNewMachine
-                )
-                .accessibilityIdentifier("CloudHeaderNewMachineButton")
-            case .overflowMenu:
-                machineActionsMenu
-            }
         }
     }
 
