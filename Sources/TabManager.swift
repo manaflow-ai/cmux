@@ -3612,6 +3612,20 @@ class TabManager: ObservableObject {
             return
         }
 
+        // A local Ghostty callback carries the exact runtime surface that lost
+        // its child. Treat that as a recoverable runtime failure, not an implicit
+        // tab close. Keeping the panel preserves its workspace/panel identity and
+        // the persisted agent/session resume binding so the user can recover it.
+        if let runtimeSurface, !runtimeSurface.isRemoteTerminal {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.close.childExited.keepLocal tab=\(tabId.uuidString.prefix(5)) " +
+                "surface=\(surfaceId.uuidString.prefix(5)) reason=runtimeFailure"
+            )
+#endif
+            return
+        }
+
         if keepSurfaceVisible { return }
 
         // Workspace owns remote active -> disconnected transitions and preserves pane history.
