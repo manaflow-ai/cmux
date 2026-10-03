@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test";
-import { defaultRow, matchScore, MAX_ROWS, omnibarRows, type OmnibarContext } from "./omnibar";
+import {
+  defaultRow,
+  matchScore,
+  MAX_NEW_TAB_ENTRIES,
+  MAX_ROWS,
+  omnibarContext,
+  omnibarRows,
+  type OmnibarContext,
+} from "./omnibar";
 
 const context: OmnibarContext = {
   tabs: [
@@ -36,6 +44,28 @@ test("the empty bar lists open tabs and workspaces first, then recent things", (
   ]);
   expect(rows[0]).toMatchObject({ type: "tab", detail: "web-app · ~/code/web-app" });
   expect(defaultRow(rows, "browser", "")).toBe(-1);
+});
+
+test("the web bridge validates and caps each NewTab source", () => {
+  const value = omnibarContext({
+    tabs: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `tab-${index}`,
+      kind: "terminal",
+      title: `tab ${index}`,
+    })),
+    workspaces: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({
+      id: `workspace-${index}`,
+      name: `workspace ${index}`,
+    })),
+    folders: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `/src/${index}`),
+    commands: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => `cmd-${index}`),
+    history: Array.from({ length: MAX_NEW_TAB_ENTRIES + 2 }, (_, index) => ({ url: `https://example.com/${index}` })),
+  });
+  expect(value?.tabs).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.workspaces).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.folders).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.commands).toHaveLength(MAX_NEW_TAB_ENTRIES);
+  expect(value?.history).toHaveLength(MAX_NEW_TAB_ENTRIES);
 });
 
 test("typed text: its own row first, matches from every source, and Ask last", () => {
