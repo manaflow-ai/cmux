@@ -163,7 +163,9 @@ final class WorkspaceRowView: SidebarRowView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
 
-        let indent: CGFloat = grouped ? SidebarStyle.groupIndent : 0
+        // The group rail sits at the shared leading edge. Kind icons provide
+        // the only visual inset for grouped project rows.
+        let indent: CGFloat = 0
         let railWidth = max(Metrics.dividerThickness * 2, 2)
         groupRail.frame = NSRect(
             x: SidebarStyle.horizontalInset - Metrics.space2,
