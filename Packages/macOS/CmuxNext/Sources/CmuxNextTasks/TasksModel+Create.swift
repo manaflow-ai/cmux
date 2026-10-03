@@ -22,6 +22,15 @@ extension TasksModel {
         newTaskFocusRequest += 1
     }
 
+    /// True once per New Task request: the field that honors it consumes
+    /// it, so a field mounted later (another window's tab, the switch out
+    /// of the owner-not-running view) never takes focus for an old request.
+    public func takeNewTaskFocusRequest() -> Bool {
+        guard newTaskFocusRequest > newTaskFocusHandled else { return false }
+        newTaskFocusHandled = newTaskFocusRequest
+        return true
+    }
+
     /// A client-chosen task id the owner accepts (`task_[0-9a-z_-]{1,64}`).
     public nonisolated static func mintTaskID() -> String {
         "task_" + UUID().uuidString.lowercased()
