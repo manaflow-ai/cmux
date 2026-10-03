@@ -156,8 +156,15 @@ struct CloudTreeRowHoverButtons: View {
     /// True when the row's buttons stay visible without hover. Machine rows
     /// keep + and ⋯ on screen so their actions are discoverable at rest.
     static func showsAtRest(for kind: CloudTreeNode.Kind) -> Bool {
-        if case .machine = kind { return true }
-        return false
+        switch kind {
+        case .machine:
+            return true
+        case .port(let resource, _, _):
+            // Sharing is the port row's main action, so it stays discoverable.
+            return shareablePort(resource) != nil
+        default:
+            return false
+        }
     }
 
     /// The Displays affordance remains visible while guest discovery is pending
@@ -187,21 +194,44 @@ private struct CloudPortShareButton: View {
 
     var body: some View {
         let phase = store.phase(for: key)
-        MachinesChromeIconButton(
-            symbolName: symbolName(phase),
-            accessibilityLabel: label(phase),
-            isBusy: phase == .creating,
-            action: action
-        )
-        .help(label(phase))
-        .accessibilityIdentifier("CloudPortShareButton")
+        HStack(spacing: 2) {
+            if let status = status(phase) {
+                Text(status)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .transition(.opacity)
+            }
+            MachinesChromeIconButton(
+                symbolName: symbolName(phase),
+                accessibilityLabel: label(phase),
+                isBusy: phase == .creating,
+                action: action
+            )
+            .help(label(phase))
+            .accessibilityIdentifier("CloudPortShareButton")
+        }
+        .animation(.easeOut(duration: 0.15), value: phase)
     }
 
     private func symbolName(_ phase: CloudPortShareStore.Phase?) -> String {
         switch phase {
         case .copied: return "checkmark"
         case .failed: return "exclamationmark.triangle"
-        case .creating, nil: return "square.and.arrow.up"
+        case .creating, nil: return "link"
+        }
+    }
+
+    /// The short inline note beside the button while sharing runs and right
+    /// after the link lands on the clipboard.
+    private func status(_ phase: CloudPortShareStore.Phase?) -> String? {
+        switch phase {
+        case .creating:
+            return String(localized: "cloudTree.port.share.creating", defaultValue: "Creating link\u{2026}")
+        case .copied:
+            return String(localized: "cloudTree.port.share.copied", defaultValue: "Copied to clipboard")
+        case .failed, nil:
+            return nil
         }
     }
 

@@ -71,6 +71,14 @@ struct CloudPortShareServiceTests {
         }
     }
 
+    @Test("a public link is never probed, since the probe would reach the user's app")
+    func publicSkipsProbe() async throws {
+        let api = FakePublishing(created: publication(state: "active", access: .public))
+        let link = try await service(api, probe: { _ in Issue.record("probed a public link"); return 503 })
+            .share(vmID: "brave-otter", port: 8000, teamID: nil)
+        #expect(link.accessMode == .public)
+    }
+
     private func service(
         _ api: FakePublishing,
         delays: [Duration] = [.seconds(1), .seconds(1), .seconds(1)],
@@ -80,7 +88,12 @@ struct CloudPortShareServiceTests {
     }
 }
 
-private func publication(id: String = "pub-1", port: Int = 8000, state: String) -> VMPublication {
+private func publication(
+    id: String = "pub-1",
+    port: Int = 8000,
+    state: String,
+    access: VMPublicationAccessMode = .team
+) -> VMPublication {
     VMPublication(
         id: id,
         hostname: "brave-otter--team--\(port).cmux.sh",
@@ -88,8 +101,8 @@ private func publication(id: String = "pub-1", port: Int = 8000, state: String) 
         domainKind: "managed",
         vmID: "brave-otter",
         port: port,
-        accessMode: .team,
-        teamID: "team-1",
+        accessMode: access,
+        teamID: access == .team ? "team-1" : nil,
         state: state,
         routingRevision: 1,
         verification: nil

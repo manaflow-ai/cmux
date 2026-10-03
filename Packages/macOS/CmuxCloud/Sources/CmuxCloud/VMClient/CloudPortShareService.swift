@@ -35,8 +35,8 @@ public enum CloudPortShareError: Error, Equatable, Sendable {
 /// it serves before handing it back, so a copied link is never a dead one.
 public struct CloudPortShareService: Sendable {
     public typealias Sleep = @Sendable (Duration) async throws -> Void
-    /// Opens the link once as a signed-out visitor and returns the HTTP
-    /// status, or nil when the edge could not be reached.
+    /// Asks the link once, signed out, whether the edge can serve it, and
+    /// returns the HTTP status, or nil when the edge could not be reached.
     public typealias Probe = @Sendable (URL) async -> Int?
 
     /// Waits between readiness checks. Creation provisions the route right
@@ -86,6 +86,9 @@ public struct CloudPortShareService: Sendable {
         while true {
             switch publication.state {
             case "active":
+                // Only protected links can be probed without side effects; a
+                // public link would send the request to the user's app.
+                guard publication.accessMode != .public else { return publication }
                 if let url = URL(string: publication.url), let status = await probe(url), status < 500 {
                     return publication
                 }
@@ -106,8 +109,10 @@ public struct CloudPortShareService: Sendable {
         try await api.deletePublication(id: publicationID, scopeTeamID: teamID)
     }
 
-    /// A signed-out GET that doesn't follow redirects: a protected link answers
-    /// with its sign-in redirect (302) or 401/403, a public one with the app.
+    /// A signed-out POST to a protected link. cmux's authorization check
+    /// answers it with 401 without starting a sign-in or reaching the machine,
+    /// so a 401 means the edge and its check are both serving; the edge's own
+    /// 503 means they aren't yet.
     public static let signedOutStatus: Probe = { url in
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
@@ -116,7 +121,7 @@ public struct CloudPortShareService: Sendable {
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = "POST"
         guard let (_, response) = try? await session.data(for: request) else { return nil }
         return (response as? HTTPURLResponse)?.statusCode
     }
