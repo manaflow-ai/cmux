@@ -748,6 +748,11 @@ public abstract class GeneratedCmuxClient {
         return ResolveTerminalResult.fromWire(result);
     }
 
+    public final Object restartTab(RestartTabRequest request) throws CmuxException {
+        Object result = execute(Commands.RESTART_TAB, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final RunResult run(RunRequest request) throws CmuxException {
         Object result = execute(Commands.RUN, request.toWire());
         return RunResult.fromWire(result);

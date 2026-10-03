@@ -142,8 +142,13 @@ impl ResourceMutationPlan {
             .map(|kind| layout::model_result(operation, &before_model, kind))
             .transpose()?;
         let before = self.stage(state);
-        let result =
-            layout::validate_layout_transition(operation, &before_model, model.as_ref(), state);
+        let result = layout::validate_layout_transition(
+            operation,
+            &before_model,
+            model.as_ref(),
+            self.layout_op.as_ref(),
+            state,
+        );
         if let Err(error) = result {
             *state = before;
             return Err(error);
