@@ -1362,16 +1362,17 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
-        const send = async (text: string) => {
+        const send = async (text: string, attachments: import("./attachments").ComposerAttachment[] = []) => {
           const sessionId = await client.ensureSession();
           await persistSession(sessionId);
-          const turn = client.send(text);
+          const turn = client.send(text, attachments);
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
           return turn;
         };
         window.cmuxAcpmuxActions = {
-          "chat.send": ({ text }) => send(String(text ?? "")),
+          "chat.send": ({ text, attachments }) =>
+            send(String(text ?? ""), Array.isArray(attachments) ? attachments : []),
           "chat.cancel": () => client.cancel(),
           "chat.permission": ({ permissionId, optionId }) => client.permission(String(permissionId), String(optionId)),
           "chat.permission_group.respond": ({ groupId, revision, decision }) =>
@@ -1579,10 +1580,10 @@ function AcpmuxPane() {
         snapshot={composerSnapshot}
         chips={ComposerChips}
         draft={draft}
-        onSend={(text) => {
+        onSend={(text, attachments) => {
           // Until acpmux connects nothing takes a prompt; the composer keeps it.
           if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-          callNative("chat.send", { text }).then(() => promptLanded.current(), cancelOpenInWindow);
+          callNative("chat.send", { text, attachments }).then(() => promptLanded.current(), cancelOpenInWindow);
         }}
         onStop={() => void callNative("chat.cancel")}
         onProject={(cwd) => void callNative("chat.new", { cwd }).catch(() => undefined)}
