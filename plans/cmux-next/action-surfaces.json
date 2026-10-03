@@ -12956,6 +12956,22 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "app open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "app.open",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "title" : "Open App…",
+      "title_key" : "action.app.open",
+      "title_table" : "AppStoreActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "app run-command",
       "context_menu" : "noObject",
       "context_menus" : [

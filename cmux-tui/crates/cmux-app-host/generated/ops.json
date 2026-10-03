@@ -35,6 +35,7 @@
     "calendar.event.respond",
     "calendar.events.list",
     "chief.create",
+    "chief.list",
     "chief.update",
     "clipboard.write",
     "closed.list",

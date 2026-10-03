@@ -137,6 +137,10 @@
       "scope": "chief:write",
       "class": "mutation"
     },
+    "chief.list": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.update": {
       "scope": "chief:write",
       "class": "mutation"

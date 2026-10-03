@@ -12,14 +12,29 @@ enum AppCommandPalette {
         var command: AppContribution
     }
 
-    /// Commands of the visible apps that the palette offers.
-    @MainActor static func entries(_ registry: AppRegistry) -> [Entry] {
+    /// Commands of the visible apps that the palette offers (or every
+    /// command with `includingNonPalette`, for runs by id).
+    @MainActor static func entries(_ registry: AppRegistry, includingNonPalette: Bool = false) -> [Entry] {
         registry.apps.filter(\.isVisible).flatMap { app in
             app.manifest.contributes.of(.command)
-                .filter { ($0.raw["contexts"]?.arrayValue?.compactMap(\.stringValue) ?? ["palette"]).contains("palette") }
+                .filter { includingNonPalette || ($0.raw["contexts"]?.arrayValue?.compactMap(\.stringValue) ?? ["palette"]).contains("palette") }
                 .filter { $0.raw["x-cmux-devOnly"]?.boolValue != true }
                 .map { Entry(app: app, command: $0) }
         }
+    }
+
+    /// Root palette items: "Open <App>" for apps with a page, then their commands.
+    @MainActor static func rootItems(_ services: AppServices) -> [PaletteItem] {
+        let registry = services.apps.registry
+        let opens = registry.apps.filter(AppPanePage.opens).map { app in
+            let name = app.manifest.name.resolved()
+            return PaletteItem(id: "open:\(app.id)", title: AppsAppStrings.open(name), subtitle: name,
+                               symbol: "square.grid.2x2", keywords: [app.id, name],
+                               primary: PaletteCommand(id: "open", title: AppsAppStrings.run, symbol: "return", effect: .perform {
+                                   try? services.apps.openApp(app.id)
+                               }))
+        }
+        return opens + entries(registry).map { item($0, services) }
     }
 
     @MainActor static func page(_ services: AppServices) -> PalettePageSpec {

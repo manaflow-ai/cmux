@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextPalette
 
 /// App Store actions (plans/cmux-next/app-platform.md section 3). Opening
 /// the window from automation never installs anything; installs are the
@@ -32,6 +33,25 @@ enum AppStoreHandlers {
                 })
             })
         }
+        // First-party app pages: `app.open` (sidebar label item, palette, CLI
+        // `app open <id> [--command <id>]`). Without an app, the palette page lists them.
+        registry.bind("app.open", run: { invocation in
+            let appID = invocation["app"]?.stringValue?.trimmingCharacters(in: .whitespaces) ?? ""
+            guard !appID.isEmpty else {
+                return services.palette.show(page: AppCommandPalette.page(services), relativeTo: context.activeWindow?.window)
+            }
+            let command = invocation["command"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+            do {
+                try services.apps.openApp(appID, command: command, focus: invocation.allowsViewChange)
+            } catch {
+                throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
+            }
+        })
+        // The root palette lists "Open <App>" and the commands of visible apps.
+        services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "apps", showsItemsForEmptyQuery: false) { [weak services] in
+            guard let services else { return [] }
+            return AppCommandPalette.rootItems(services)
+        })
         services.palette.sources.actionPages["app.command.run"] = { [weak services] in services.map(AppCommandPalette.page) }
         registry.bind("app.command.run", run: { invocation in
             let appID = invocation["app"]?.stringValue ?? ""
