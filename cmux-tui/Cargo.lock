@@ -9,6 +9,7 @@ dependencies = [
  "anyhow",
  "base64",
  "clap",
+ "cmux-local-auth",
  "crossterm",
  "dirs",
  "futures",
@@ -845,6 +846,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-local-auth"
+version = "0.1.0"
+dependencies = [
+ "subtle",
+]
+
+[[package]]
 name = "cmux-motion"
 version = "0.1.0"
 dependencies = [
@@ -1104,6 +1112,7 @@ dependencies = [
  "base64",
  "cmux-conversation",
  "cmux-layout-reducer",
+ "cmux-local-auth",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-tui-cdp",

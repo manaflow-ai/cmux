@@ -27,6 +27,7 @@ jsonschema.workspace = true
 flate2.workspace = true
 wait-timeout.workspace = true
 tungstenite.workspace = true
+cmux-local-auth.workspace = true
 getrandom.workspace = true
 rusqlite.workspace = true
 fs4.workspace = true
