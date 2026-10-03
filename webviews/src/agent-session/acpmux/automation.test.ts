@@ -81,6 +81,32 @@ describe("agent pane automation", () => {
     expect(await sendPrompt(failing, "x", 10)).toEqual({ error: "harness unavailable" });
   });
 
+  // Agents often list the "always" options first. Like the card's y and n keys, a default answer
+  // allows or rejects once and never installs a standing rule.
+  test("a default answer never picks an always option", async () => {
+    const permission = {
+      permissionId: "p1",
+      pending: true,
+      options: [
+        { id: "allow_always", name: "Always allow", allow: true },
+        { id: "reject_always", name: "Always reject", allow: false },
+        { id: "allow_once", name: "Allow", allow: true },
+        { id: "reject_once", name: "Reject", allow: false },
+      ],
+    };
+    const { fake } = host(snapshot({ permission }));
+    expect(await answerPermission(fake)).toEqual({ answered: "p1", optionId: "allow_once" });
+    expect(await answerPermission(fake, { allow: false })).toEqual({ answered: "p1", optionId: "reject_once" });
+    expect(await answerPermission(fake, { optionId: "allow_always" })).toEqual({
+      answered: "p1",
+      optionId: "allow_always",
+    });
+    const onlyAlways = { ...permission, options: [permission.options[0]!] };
+    expect(await answerPermission(host(snapshot({ permission: onlyAlways })).fake)).toMatchObject({
+      error: "no matching option",
+    });
+  });
+
   test("a single ask is answered with its first allowing option, or the named one", async () => {
     const permission = {
       permissionId: "p1",
