@@ -55,6 +55,9 @@ final class NewMachineSheetDataCache {
     private let scopes: @MainActor () -> AsyncStream<AuthenticatedTeamScope?>
     private let fetchPage: FetchPage
     private let fetchCatalog: FetchCatalog
+    private let isCloudEnabled: @MainActor () -> Bool
+    private let notificationCenter: NotificationCenter
+    private var featureObserver: CloudFeatureAvailabilityObserver?
     private let clock: ContinuousClock
 
     /// The scope the stored values belong to.
@@ -66,6 +69,8 @@ final class NewMachineSheetDataCache {
 
     private var refreshTask: Task<Void, Never>?
     private var refreshID: UUID?
+    private var catalogTask: Task<Void, Never>?
+    private var catalogRequestID: UUID?
     private var scopeTask: Task<Void, Never>?
     private var activationObserver: NSObjectProtocol?
     private var listeners: [UUID: @MainActor (NewMachineSheetData) -> Void] = [:]
@@ -77,13 +82,17 @@ final class NewMachineSheetDataCache {
         scopes: @escaping @MainActor () -> AsyncStream<AuthenticatedTeamScope?>,
         fetchPage: @escaping FetchPage,
         fetchCatalog: @escaping FetchCatalog,
-        clock: ContinuousClock = ContinuousClock()
+        clock: ContinuousClock = ContinuousClock(),
+        notificationCenter: NotificationCenter = .default,
+        isCloudEnabled: @escaping @MainActor () -> Bool = { true }
     ) {
         self.currentScope = currentScope
         self.scopes = scopes
         self.fetchPage = fetchPage
         self.fetchCatalog = fetchCatalog
         self.clock = clock
+        self.notificationCenter = notificationCenter
+        self.isCloudEnabled = isCloudEnabled
     }
 
     /// Builds the shared cache over the signed-in session and `VMClient`,
@@ -103,7 +112,8 @@ final class NewMachineSheetDataCache {
             fetchCatalog: {
                 guard let client = VMClient.shared else { throw VMClientError.notSignedIn }
                 return try await client.networkPresets()
-            }
+            },
+            isCloudEnabled: { CloudMachinesFeature.isEnabled }
         )
         cache.start(awaitingBootstrap: { [weak auth] in await auth?.awaitBootstrapped() })
         shared = cache
@@ -111,6 +121,13 @@ final class NewMachineSheetDataCache {
     }
 
     func start(awaitingBootstrap: @escaping @MainActor () async -> Void = {}) {
+        featureObserver = CloudFeatureAvailabilityObserver(
+            notificationCenter: notificationCenter, isEnabled: isCloudEnabled
+        ) { [weak self] enabled in
+            guard let self else { return }
+            if enabled { self.refresh() }
+            else { self.adopt(scope: nil) }
+        }
         scopeTask?.cancel()
         scopeTask = Task { @MainActor [weak self] in
             await awaitingBootstrap()
@@ -120,25 +137,26 @@ final class NewMachineSheetDataCache {
                 self.adopt(scope: scope)
             }
         }
-        activationObserver = NotificationCenter.default.addObserver(
+        if let activationObserver { notificationCenter.removeObserver(activationObserver) }
+        activationObserver = notificationCenter.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshIfStale() }
         }
     }
 
-    /// The sheet's data when it can present without waiting: the plan was
-    /// fetched and the catalog either loaded or failed.
+    /// Plan readiness is independent of the network preset catalog.
+    /// The network row receives its own update when presets finish.
     var readyData: NewMachineSheetData? {
-        guard let data = currentData, data.hasPlan, data.catalog != nil || data.catalogFailed else { return nil }
+        guard let data = currentData, data.hasPlan else { return nil }
         return data
     }
 
     /// Whatever is cached for the current scope, complete or not.
     var currentData: NewMachineSheetData? {
-        guard scope != nil, scope == currentScope(), page != nil || catalog != nil || catalogFailed else { return nil }
+        guard isCloudEnabled(), scope != nil, scope == currentScope(), page != nil || catalog != nil || catalogFailed else { return nil }
         return NewMachineSheetData(
-            hasPlan: page != nil,
+            hasPlan: page?.limits != nil,
             limits: page?.limits,
             activeCount: page?.activeCount ?? 0,
             catalog: catalog,
@@ -146,24 +164,31 @@ final class NewMachineSheetDataCache {
         )
     }
 
-    /// Returns the ready data at once. Only a cold cache (the first seconds
-    /// after sign-in, or a failed warm-up) waits, and never longer than
-    /// `limit`: a slow control plane then gets a sheet with what is known,
-    /// and the listener fills in the rest.
-    func data(waitingAtMost limit: Duration = .seconds(1)) async -> NewMachineSheetData? {
-        if let readyData { return readyData }
+    /// Reuses the enable-time preload. A cold caller joins that request;
+    /// network presets never extend the wait for machine sizes.
+    func data(waitingAtMost limit: Duration? = nil) async -> NewMachineSheetData? {
+        guard !Task.isCancelled else { return nil }
+        if let readyData, let fetchedAt, clock.now - fetchedAt < Self.staleAfter {
+            return readyData
+        }
         guard refresh() else { return currentData }
         let id = UUID()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            waiters[id] = continuation
-            let clock = clock
-            waiterDeadlines[id] = Task { @MainActor [weak self] in
-                // Cancelled when the fetch answers first.
-                guard (try? await clock.sleep(for: limit)) != nil else { return }
-                self?.resumeWaiter(id)
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                guard !Task.isCancelled else { continuation.resume(); return }
+                waiters[id] = continuation
+                if let limit {
+                    let clock = clock
+                    waiterDeadlines[id] = Task { @MainActor [weak self] in
+                        guard (try? await clock.sleep(for: limit)) != nil else { return }
+                        self?.resumeWaiter(id)
+                    }
+                }
             }
-        }
-        return currentData
+        }, onCancel: {
+            Task { @MainActor [weak self] in self?.resumeWaiter(id) }
+        })
+        return Task.isCancelled ? nil : currentData
     }
 
     private func resumeWaiter(_ id: UUID) {
@@ -195,41 +220,50 @@ final class NewMachineSheetDataCache {
     /// Returns false when nobody is signed in, so no answer will come.
     @discardableResult
     func refresh() -> Bool {
-        guard let scope = currentScope() else { return false }
+        guard isCloudEnabled(), let scope = currentScope() else { return false }
         // A scope the stream has not delivered yet: adopting it drops the old
         // account's values and its in-flight fetch, and starts this one.
         guard scope == self.scope else {
             adopt(scope: scope)
             return refreshTask != nil
         }
-        guard refreshTask == nil else { return true }
-        let id = UUID()
-        refreshID = id
-        let fetchPage = fetchPage
-        let fetchCatalog = fetchCatalog
-        refreshTask = Task { @MainActor [weak self] in
-            async let pageResult = Self.capture(fetchPage)
-            async let catalogResult = Self.capture(fetchCatalog)
-            let (fetchedPage, fetchedCatalog) = await (pageResult, catalogResult)
-            guard let self, self.refreshID == id else { return }
-            self.refreshTask = nil
-            self.refreshID = nil
-            defer { self.resumeAllWaiters() }
-            guard !Task.isCancelled, self.isCurrent(scope) else { return }
-            if case .success(let page) = fetchedPage {
-                self.page = (page.limits, page.vms.count)
-                self.fetchedAt = self.clock.now
+        if refreshTask == nil {
+            let id = UUID()
+            refreshID = id
+            let fetchPage = fetchPage
+            refreshTask = Task { @MainActor [weak self] in
+                let result = await Self.capture(fetchPage)
+                guard let self, self.refreshID == id else { return }
+                self.refreshTask = nil
+                self.refreshID = nil
+                defer { self.resumeAllWaiters() }
+                guard !Task.isCancelled, self.isCurrent(scope) else { return }
+                if case .success(let page) = result {
+                    self.page = (page.limits, page.vms.count)
+                    self.fetchedAt = self.clock.now
+                }
+                self.notify()
             }
-            switch fetchedCatalog {
-            case .success(let catalog):
-                self.catalog = catalog
-                self.catalogFailed = false
-            case .failure:
-                // Keep an earlier catalog; only a cache that never had one
-                // reports the row as unavailable.
-                if self.catalog == nil { self.catalogFailed = true }
+        }
+        if catalogTask == nil {
+            let id = UUID()
+            catalogRequestID = id
+            let fetchCatalog = fetchCatalog
+            catalogTask = Task { @MainActor [weak self] in
+                let result = await Self.capture(fetchCatalog)
+                guard let self, self.catalogRequestID == id else { return }
+                self.catalogTask = nil
+                self.catalogRequestID = nil
+                guard !Task.isCancelled, self.isCurrent(scope) else { return }
+                switch result {
+                case .success(let catalog):
+                    self.catalog = catalog
+                    self.catalogFailed = false
+                case .failure:
+                    if self.catalog == nil { self.catalogFailed = true }
+                }
+                self.notify()
             }
-            self.notify()
         }
         return true
     }
@@ -242,6 +276,7 @@ final class NewMachineSheetDataCache {
         self.page = (page.limits, page.vms.count)
         fetchedAt = clock.now
         notify()
+        if readyData != nil { resumeAllWaiters() }
     }
 
     /// The scope a caller should capture before a read it will ``ingest(page:scope:)``.
@@ -256,6 +291,9 @@ final class NewMachineSheetDataCache {
             if scope != nil, page == nil { refresh() }
             return
         }
+        catalogTask?.cancel()
+        catalogTask = nil
+        catalogRequestID = nil
         refreshTask?.cancel()
         refreshTask = nil
         refreshID = nil
