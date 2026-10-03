@@ -55,4 +55,14 @@ describe("MUX_HOME lock and pid reuse", () => {
     writeFileSync(path, `${pid}\n${startMs(pid)}\n`);
     expect(takeLock(path)).toBeUndefined();
   });
+
+  test("a live holder whose runtime started well after its exec (slow init) is held", () => {
+    const path = lockPath();
+    const other = bystander();
+    const pid = other.pid ?? 0;
+    // The holder records its runtime time origin, which a loaded host can put
+    // seconds after the exec time that ps reports.
+    writeFileSync(path, `${pid}\n${startMs(pid) + 10_000}\n`);
+    expect(takeLock(path)).toBeUndefined();
+  });
 });
