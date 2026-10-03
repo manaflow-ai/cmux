@@ -12,7 +12,7 @@ struct AppearanceTunerCard: View {
         if let descriptor = SettingsSchema.descriptor(for: ExperimentalAppearanceSetting().configPath),
            model.value(descriptor)?.boolValue == true {
             SettingsCard(title: nil) {
-            AppearanceTunerView(initial: initialTuning, onPeek: onPeek, onChange: onTuningChanged)
+            AppearanceTunerView(initial: initialTuning, onChange: onTuningChanged, onPeek: onPeek)
                 .padding(.horizontal, Metrics.space5)
                 .padding(.vertical, Metrics.space3)
             }
