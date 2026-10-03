@@ -111,6 +111,10 @@ nonisolated enum LayoutActionCatalog: ActionCatalogGroup {
                 .terminal, "arrow.up.to.line", cli: "terminal scroll-to-top", keywords: ["scroll", "scrollback", "start"], targets: [.tab]),
             row("terminal.scrollToBottom", String(localized: "action.terminal.scrollToBottom", defaultValue: "Scroll to Bottom", table: "LayoutActions", bundle: .module),
                 .terminal, "arrow.down.to.line", cli: "terminal scroll-to-bottom", keywords: ["scroll", "scrollback", "end"], targets: [.tab]),
+            // Ghostty's Cmd-J on macOS; Cmd-J J in cmux (`LeaderLayer`).
+            row("terminal.scrollToSelection", String(localized: "action.terminal.scrollToSelection", defaultValue: "Scroll to Selection", table: "LayoutActions", bundle: .module),
+                .terminal, "text.viewfinder", cli: "terminal scroll-to-selection", keywords: ["scroll", "scrollback", "selection", "jump"],
+                targets: [.tab]),
         ]
     }
 }

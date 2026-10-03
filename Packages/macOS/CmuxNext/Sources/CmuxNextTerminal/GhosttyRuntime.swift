@@ -163,10 +163,11 @@ public final class GhosttyRuntime {
     /// workspace or terminal theme; see `themeConfig(named:)`).
     static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
-        // cmux's terminal padding and theme, before the user's files so
-        // theirs win.
+        // cmux's terminal padding, theme and keybinds, before the user's
+        // files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
+        loadKeybindDefaults(into: config)
         if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
             ghostty_config_load_file(config, path)
         } else {
