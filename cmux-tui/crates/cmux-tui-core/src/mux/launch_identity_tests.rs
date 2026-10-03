@@ -1,5 +1,6 @@
 use super::*;
 use cmux_local_auth::ActorKind;
+use serde_json::{Value, json};
 
 /// A fresh directory under the system temp dir, removed on drop.
 struct ScratchDir(PathBuf);
