@@ -20,6 +20,10 @@ const SERVER_PATHS: &[&str] = &[
 pub fn sftp_server() -> Option<PathBuf> {
     let found = SERVER_PATHS.iter().map(PathBuf::from).find(|path| path.is_file());
     if found.is_none() {
+        assert!(
+            std::env::var_os("CMUX_REQUIRE_SSHD").is_none(),
+            "CMUX_REQUIRE_SSHD is set but no sftp-server binary exists"
+        );
         eprintln!("SKIP: no sftp-server binary on this machine");
     }
     found

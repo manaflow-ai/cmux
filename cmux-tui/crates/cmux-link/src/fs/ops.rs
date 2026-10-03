@@ -18,7 +18,7 @@ use super::remote::{SftpRoot, WriteMode};
 use super::sort::{Filter, Sort, sort_entries};
 
 /// Largest snapshot one listing may hold (finder.md 4.2).
-pub const MAX_LISTING_ENTRIES: usize = 1_000_000;
+pub const MAX_LISTING_ENTRIES: usize = super::remote::MAX_DIRECTORY_ENTRIES;
 
 #[derive(Deserialize)]
 struct ListParams {

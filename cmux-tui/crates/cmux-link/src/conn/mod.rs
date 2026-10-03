@@ -114,19 +114,12 @@ pub struct SshTarget {
 }
 
 impl SshTarget {
-    /// Checks that `destination` can only be read as a destination: not
-    /// empty, at most 255 bytes, no leading `-` (an ssh option), and no
-    /// whitespace, control characters or quotes.
+    /// Checks the destination against an allowlist
+    /// ([`crate::names::valid_destination`]): it can only be read as a
+    /// destination, and nothing in it is special to a shell or to a
+    /// known-hosts pattern.
     pub fn validate(&self) -> Result<(), Reject> {
-        let destination = &self.destination;
-        let valid = !destination.is_empty()
-            && destination.len() <= 255
-            && !destination.starts_with('-')
-            && destination
-                .chars()
-                .all(|character| !character.is_whitespace() && !character.is_control())
-            && !destination.contains(['"', '\'', '\\', '%'])
-            && self.port != Some(0);
+        let valid = crate::names::valid_destination(&self.destination) && self.port != Some(0);
         if valid { Ok(()) } else { Err(Reject::TargetInvalid) }
     }
 }
@@ -159,6 +152,9 @@ pub enum HostKeyState {
     /// The host offered a different key from the confirmed one. Hard stop:
     /// connect is refused until the user confirms the new key.
     Changed { confirmed: HostKey, offered: HostKey },
+    /// The offered key is marked `@revoked` in a known-hosts file. Hard
+    /// stop that no confirm lifts; the user removes the connection.
+    Revoked { offered: HostKey },
 }
 
 /// One connection record.
@@ -204,6 +200,9 @@ pub enum Observation {
     /// `known_elsewhere` is a key of the same type for this host in the
     /// user's own known-hosts files (read-only input), if any.
     HostKeyRejected { offered: HostKey, known_elsewhere: Option<HostKey> },
+    /// OpenSSH refused the offered key because a known-hosts file marks it
+    /// `@revoked`.
+    HostKeyRevoked { offered: HostKey },
     /// The key was accepted but authentication failed.
     AuthFailed,
     /// The host could not be reached.
@@ -256,6 +255,11 @@ pub enum ConnChange {
         key_type: String,
         fingerprint: String,
     },
+    /// `host_key.revoked`: hard stop, no confirm.
+    HostKeyRevoked {
+        key_type: String,
+        fingerprint: String,
+    },
 }
 
 /// Why an op was refused. Codes are the wire error codes.
@@ -283,6 +287,8 @@ pub enum Reject {
     /// A changed key is a hard stop.
     #[serde(rename = "host_key.changed")]
     HostKeyChanged { old_fingerprint: String, new_fingerprint: String },
+    #[serde(rename = "host_key.revoked")]
+    HostKeyRevoked { fingerprint: String },
     #[serde(rename = "idempotency.conflict")]
     IdempotencyConflict,
 }
@@ -302,6 +308,7 @@ impl Reject {
             Self::HostKeyNotPending => "host_key.not_pending",
             Self::HostKeyFingerprintMismatch => "host_key.fingerprint_mismatch",
             Self::HostKeyChanged { .. } => "host_key.changed",
+            Self::HostKeyRevoked { .. } => "host_key.revoked",
             Self::IdempotencyConflict => "idempotency.conflict",
         }
     }

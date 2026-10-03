@@ -23,6 +23,7 @@ pub mod fs;
 pub mod host_key;
 pub mod ids;
 pub mod job;
+pub mod names;
 pub mod sftp;
 pub mod ssh;
 pub mod ssh_args;

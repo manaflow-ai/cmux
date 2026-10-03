@@ -96,6 +96,8 @@ pub enum FsError {
     ReadOnly,
     #[serde(rename = "fs.too_large")]
     TooLarge { total: u64 },
+    #[serde(rename = "fs.replace_unsupported")]
+    ReplaceUnsupported,
     #[serde(rename = "fs.not_empty")]
     NotEmpty,
     #[serde(rename = "fs.watch_unsupported")]
@@ -128,6 +130,7 @@ impl FsError {
             Self::NameInvalid => "fs.name_invalid",
             Self::ReadOnly => "fs.read_only",
             Self::TooLarge { .. } => "fs.too_large",
+            Self::ReplaceUnsupported => "fs.replace_unsupported",
             Self::NotEmpty => "fs.not_empty",
             Self::WatchUnsupported => "fs.watch_unsupported",
             Self::CursorExpired => "cursor.expired",
@@ -196,6 +199,20 @@ pub fn check_name(name: &str) -> Result<(), FsError> {
         return Err(FsError::NameInvalid);
     }
     Ok(())
+}
+
+/// A hidden temporary name next to `name`: `.<name>.cmux-<random>.tmp`,
+/// with `name` shortened (on a character boundary) so the whole name stays
+/// within 255 bytes.
+#[must_use]
+pub fn temporary_name(name: &str) -> String {
+    let random = crate::ids::random_id("");
+    let fixed = ".".len() + ".cmux-".len() + random.len() + ".tmp".len();
+    let mut keep = name.len().min(MAX_NAME_BYTES - fixed);
+    while !name.is_char_boundary(keep) {
+        keep -= 1;
+    }
+    format!(".{}.cmux-{random}.tmp", &name[..keep])
 }
 
 /// Permission bits as `ls` shows them (`rwxr-xr-x`).

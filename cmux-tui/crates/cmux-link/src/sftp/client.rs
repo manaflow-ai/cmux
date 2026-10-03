@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use bytes::Bytes;
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use super::proto::{
@@ -20,6 +20,8 @@ use super::proto::{
     SSH_FXP_STAT, SSH_FXP_WRITE, StatusCode, decode_response, decode_version,
 };
 
+/// Empty READDIR batches tolerated before the server is considered broken.
+const MAX_EMPTY_BATCHES: usize = 16;
 const POSIX_RENAME: &str = "posix-rename@openssh.com";
 const FSYNC: &str = "fsync@openssh.com";
 
@@ -31,6 +33,8 @@ pub enum SftpError {
     ConnectionLost(String),
     /// The server sent something this client cannot read.
     Protocol(String),
+    /// A directory holds more entries than the caller allows.
+    TooManyEntries,
 }
 
 impl std::fmt::Display for SftpError {
@@ -39,13 +43,15 @@ impl std::fmt::Display for SftpError {
             Self::Status { code, message } => write!(formatter, "SFTP status {code:?}: {message}"),
             Self::ConnectionLost(reason) => write!(formatter, "SFTP connection lost: {reason}"),
             Self::Protocol(message) => write!(formatter, "SFTP protocol error: {message}"),
+            Self::TooManyEntries => formatter.write_str("directory has too many entries"),
         }
     }
 }
 
 impl std::error::Error for SftpError {}
 
-type Writer = Box<dyn AsyncWrite + Send + Unpin>;
+/// Complete packets waiting for the writer task.
+const PACKET_QUEUE: usize = 64;
 
 #[derive(Default)]
 struct Pending {
@@ -54,11 +60,27 @@ struct Pending {
 }
 
 struct Inner {
-    writer: Mutex<Option<Writer>>,
+    /// One writer task owns the stream and writes whole packets, so a
+    /// request cancelled mid-send never leaves half a packet behind.
+    packets: std::sync::Mutex<Option<mpsc::Sender<Bytes>>>,
+    writer: std::sync::Mutex<Option<JoinHandle<()>>>,
     pending: std::sync::Mutex<Pending>,
     next_id: AtomicU32,
-    extensions: Vec<String>,
+    extensions: std::sync::Mutex<Vec<String>>,
     reader: std::sync::Mutex<Option<JoinHandle<()>>>,
+}
+
+/// Removes a request's waiter when the request is dropped before its
+/// reply, so cancelled requests leak nothing.
+struct WaiterGuard<'a> {
+    inner: &'a Inner,
+    id: u32,
+}
+
+impl Drop for WaiterGuard<'_> {
+    fn drop(&mut self) {
+        lock(&self.inner.pending).waiters.remove(&self.id);
+    }
 }
 
 /// An SFTP session. Cheap to clone; every clone shares the stream.
@@ -87,13 +109,17 @@ impl SftpClient {
         if version != 3 {
             return Err(SftpError::Protocol(format!("server speaks SFTP version {version}")));
         }
+        let (packets, queue) = mpsc::channel(PACKET_QUEUE);
         let inner = Arc::new(Inner {
-            writer: Mutex::new(Some(Box::new(writer))),
+            packets: std::sync::Mutex::new(Some(packets)),
+            writer: std::sync::Mutex::new(None),
             pending: std::sync::Mutex::new(Pending::default()),
             next_id: AtomicU32::new(1),
-            extensions,
+            extensions: std::sync::Mutex::new(extensions),
             reader: std::sync::Mutex::new(None),
         });
+        let writer_task = tokio::spawn(write_packets(writer, queue, Arc::downgrade(&inner)));
+        *lock(&inner.writer) = Some(writer_task);
         let task = tokio::spawn(route_replies(reader, Arc::downgrade(&inner)));
         *lock(&inner.reader) = Some(task);
         Ok(Self { inner })
@@ -102,13 +128,28 @@ impl SftpClient {
     /// True when the server offered the named extension.
     #[must_use]
     pub fn has_extension(&self, name: &str) -> bool {
-        self.inner.extensions.iter().any(|extension| extension == name)
+        lock(&self.inner.extensions).iter().any(|extension| extension == name)
+    }
+
+    /// Requests still waiting for a reply.
+    #[cfg(test)]
+    pub(crate) fn pending_requests(&self) -> usize {
+        lock(&self.inner.pending).waiters.len()
+    }
+
+    /// Forgets an extension the server offered, to test the fallback paths.
+    #[cfg(test)]
+    pub(crate) fn forget_extension(&self, name: &str) {
+        lock(&self.inner.extensions).retain(|extension| extension != name);
     }
 
     /// Closes the stream; pending requests fail with `ConnectionLost`.
     pub async fn shutdown(&self) {
-        if let Some(mut writer) = self.inner.writer.lock().await.take() {
-            let _ = writer.shutdown().await;
+        // Closing the queue lets the writer task flush and shut the stream.
+        lock(&self.inner.packets).take();
+        let writer = lock(&self.inner.writer).take();
+        if let Some(writer) = writer {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), writer).await;
         }
         if let Some(task) = lock(&self.inner.reader).take() {
             task.abort();
@@ -131,19 +172,14 @@ impl SftpClient {
             }
             pending.waiters.insert(id, sender);
         }
-        let written = {
-            let mut writer = self.inner.writer.lock().await;
-            match writer.as_mut() {
-                Some(writer) => match writer.write_all(&packet).await {
-                    Ok(()) => writer.flush().await,
-                    Err(error) => Err(error),
-                },
-                None => Err(std::io::Error::other("client shut down")),
-            }
+        let _guard = WaiterGuard { inner: &self.inner, id };
+        let queue = lock(&self.inner.packets).clone();
+        let Some(queue) = queue else {
+            return Err(SftpError::ConnectionLost("client shut down".into()));
         };
-        if let Err(error) = written {
-            lock(&self.inner.pending).waiters.remove(&id);
-            return Err(lost(error));
+        // A whole packet enters the queue or none of it does.
+        if queue.send(packet).await.is_err() {
+            return Err(SftpError::ConnectionLost("writer stopped".into()));
         }
         receiver.await.map_err(|_| {
             let reason = lock(&self.inner.pending).closed.clone();
@@ -229,7 +265,10 @@ impl SftpClient {
             .request(SSH_FXP_READ, |packet| packet.string(&handle.0).u64(offset).u32(length))
             .await?
         {
-            Response::Data(data) => Ok(Some(data)),
+            Response::Data(data) if data.len() <= length as usize => Ok(Some(data)),
+            Response::Data(data) => {
+                Err(SftpError::Protocol(format!("read of {length} bytes returned {}", data.len())))
+            }
             Response::Status { code: StatusCode::Eof, .. } => Ok(None),
             other => Err(unexpected(other)),
         }
@@ -239,13 +278,33 @@ impl SftpClient {
         self.status(SSH_FXP_WRITE, |packet| packet.string(&handle.0).u64(offset).string(data)).await
     }
 
-    /// Every entry of a directory, `.` and `..` included as the server sends them.
-    pub async fn read_dir(&self, path: &str) -> Result<Vec<NameEntry>, SftpError> {
+    /// Every entry of a directory, `.` and `..` included as the server
+    /// sends them. More than `max_entries` entries is `TooManyEntries`; a
+    /// server that keeps sending empty batches is a protocol error.
+    pub async fn read_dir(
+        &self,
+        path: &str,
+        max_entries: usize,
+    ) -> Result<Vec<NameEntry>, SftpError> {
         let handle = self.handle(SSH_FXP_OPENDIR, |packet| packet.string(path.as_bytes())).await?;
         let mut entries = Vec::new();
+        let mut empty_batches = 0_usize;
         let result = loop {
             match self.request(SSH_FXP_READDIR, |packet| packet.string(&handle.0)).await {
-                Ok(Response::Name(batch)) => entries.extend(batch),
+                Ok(Response::Name(batch)) => {
+                    if batch.is_empty() {
+                        empty_batches += 1;
+                        if empty_batches > MAX_EMPTY_BATCHES {
+                            break Err(SftpError::Protocol(
+                                "server sends empty directory batches".into(),
+                            ));
+                        }
+                    }
+                    entries.extend(batch);
+                    if entries.len() > max_entries {
+                        break Err(SftpError::TooManyEntries);
+                    }
+                }
                 Ok(Response::Status { code: StatusCode::Eof, .. }) => break Ok(()),
                 Ok(other) => break Err(unexpected(other)),
                 Err(error) => break Err(error),
@@ -317,6 +376,26 @@ async fn read_packet<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Bytes, Sftp
     let mut body = vec![0_u8; length];
     reader.read_exact(&mut body).await.map_err(lost)?;
     Ok(Bytes::from(body))
+}
+
+async fn write_packets<W: AsyncWrite + Unpin>(
+    mut writer: W,
+    mut queue: mpsc::Receiver<Bytes>,
+    inner: std::sync::Weak<Inner>,
+) {
+    while let Some(packet) = queue.recv().await {
+        let written = match writer.write_all(&packet).await {
+            Ok(()) => writer.flush().await,
+            Err(error) => Err(error),
+        };
+        if let Err(error) = written {
+            if let Some(inner) = inner.upgrade() {
+                fail_all(&inner, &error.to_string());
+            }
+            return;
+        }
+    }
+    let _ = writer.shutdown().await;
 }
 
 async fn route_replies<R: AsyncRead + Unpin>(mut reader: R, inner: std::sync::Weak<Inner>) {

@@ -39,8 +39,12 @@ impl Drop for Sshd {
 }
 
 fn keygen(path: &Path) {
+    keygen_typed(path, "ed25519");
+}
+
+fn keygen_typed(path: &Path, key_type: &str) {
     let status = Command::new(SSH_KEYGEN)
-        .args(["-q", "-t", "ed25519", "-N", "", "-C", "cmux-link-test", "-f"])
+        .args(["-q", "-t", key_type, "-N", "", "-C", "cmux-link-test", "-f"])
         .arg(path)
         .stdin(Stdio::null())
         .status()
@@ -105,6 +109,10 @@ struct Lab {
 fn lab() -> Option<Lab> {
     let sftp_server = SFTP_SERVERS.iter().find(|path| Path::new(path).is_file());
     if !Path::new(SSHD).is_file() || !Path::new(SSH).is_file() || sftp_server.is_none() {
+        assert!(
+            std::env::var_os("CMUX_REQUIRE_SSHD").is_none(),
+            "CMUX_REQUIRE_SSHD is set but sshd, ssh or sftp-server is missing"
+        );
         eprintln!("SKIP: no sshd, ssh or sftp-server on this machine");
         return None;
     }
@@ -113,6 +121,7 @@ fn lab() -> Option<Lab> {
     keygen(&path.join("host_a"));
     keygen(&path.join("host_b"));
     keygen(&path.join("client"));
+    keygen_typed(&path.join("host_rsa"), "rsa");
     std::fs::copy(path.join("client.pub"), path.join("authorized_keys")).unwrap();
     std::fs::write(path.join("ssh_config"), "").unwrap();
     let user_known_hosts = path.join("user_known_hosts");
@@ -161,12 +170,16 @@ impl Lab {
     }
 
     fn create_conn(&self) -> String {
+        self.create_conn_for(&self.principal)
+    }
+
+    fn create_conn_for(&self, principal: &Principal) -> String {
         let conn = random_id("conn_");
         let user = std::env::var("USER").unwrap_or_else(|_| whoami());
         self.store
             .apply(&ConnRequest {
                 idempotency_key: random_id("idem_"),
-                principal: self.principal.clone(),
+                principal: principal.clone(),
                 origin: Origin::User,
                 op: ConnOp::Create {
                     conn: conn.clone(),
@@ -306,7 +319,7 @@ async fn finder_copies_on_a_plain_ssh_host_and_a_changed_key_is_a_hard_stop() {
     assert_eq!(again.code(), "host_key.changed");
     assert!(lab.confirm(&conn, &fingerprint_b, Origin::Cli).is_err());
     assert!(lab.confirm(&conn, &fingerprint_a, Origin::User).is_err());
-    let known_hosts = std::fs::read_to_string(lab.store.known_hosts_path()).unwrap();
+    let known_hosts = std::fs::read_to_string(lab.store.known_hosts_path(&conn)).unwrap();
     assert!(
         !known_hosts.contains(&key_blob(&lab.path().join("host_b.pub"))),
         "the new key is not trusted"
@@ -350,4 +363,69 @@ async fn the_users_known_hosts_is_trusted_input_and_a_mismatch_there_is_a_change
 
 fn key_blob(public_key: &Path) -> String {
     std::fs::read_to_string(public_key).unwrap().split_whitespace().nth(1).unwrap().to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_one_app_confirmed_does_not_let_another_app_connect() {
+    let Some(lab) = lab() else { return };
+    let fingerprint_a = fingerprint(&lab.path().join("host_a.pub"));
+    let sshd = lab.sshd("host_a");
+    let conn = lab.create_conn();
+    let _ = lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("unknown first");
+    lab.confirm(&conn, &fingerprint_a, Origin::User).unwrap();
+    lab.connector.open_sftp(&lab.principal, &conn).await.expect("app A connects").close().await;
+
+    let other_app = Principal { user: "user_test".into(), app: "app_other".into() };
+    let other = lab.create_conn_for(&other_app);
+    let error = lab.connector.open_sftp(&other_app, &other).await.err().expect("app B must ask");
+    assert_eq!(error.code(), "host_key.unknown", "{error}");
+    assert!(
+        std::fs::read_to_string(lab.store.known_hosts_path(&other))
+            .unwrap()
+            .lines()
+            .all(|line| line.starts_with('#')),
+        "app B's known-hosts file holds no key"
+    );
+    drop(sshd);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_key_type_downgrade_is_a_hard_stop() {
+    let Some(lab) = lab() else { return };
+    // The user trusts an ed25519 key; the host now offers only RSA.
+    let lookup = format!("[127.0.0.1]:{}", lab.port);
+    let line = format!("{lookup} ssh-ed25519 {}\n", key_blob(&lab.path().join("host_a.pub")));
+    std::fs::write(&lab.user_known_hosts, &line).unwrap();
+    let sshd = lab.sshd("host_rsa");
+    let conn = lab.create_conn();
+    let error =
+        lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("downgrade refuses");
+    match &error {
+        ConnectError::HostKeyChanged { old_fingerprint, new_fingerprint } => {
+            assert_eq!(old_fingerprint, &fingerprint(&lab.path().join("host_a.pub")));
+            assert_eq!(new_fingerprint, &fingerprint(&lab.path().join("host_rsa.pub")));
+        }
+        other => panic!("expected host_key.changed, got {other}"),
+    }
+    drop(sshd);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revoked_key_is_a_hard_stop_that_no_confirm_lifts() {
+    let Some(lab) = lab() else { return };
+    let line = format!("@revoked * ssh-ed25519 {}\n", key_blob(&lab.path().join("host_a.pub")));
+    std::fs::write(&lab.user_known_hosts, &line).unwrap();
+    let sshd = lab.sshd("host_a");
+    let conn = lab.create_conn();
+    let error =
+        lab.connector.open_sftp(&lab.principal, &conn).await.err().expect("revoked refuses");
+    assert_eq!(error.code(), "host_key.revoked", "{error}");
+    let fingerprint_a = fingerprint(&lab.path().join("host_a.pub"));
+    assert!(matches!(
+        lab.confirm(&conn, &fingerprint_a, Origin::User),
+        Err(StoreError::Rejected(Reject::HostKeyRevoked { .. }))
+    ));
+    let again = lab.connector.open_sftp(&lab.principal, &conn).await.err().unwrap();
+    assert_eq!(again.code(), "host_key.revoked");
+    drop(sshd);
 }

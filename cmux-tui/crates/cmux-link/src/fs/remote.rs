@@ -11,7 +11,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
-use super::{Entry, EntryKind, FsError, check_name, components, mode_display};
+use super::{Entry, EntryKind, FsError, check_name, components, mode_display, temporary_name};
 use crate::sftp::proto::{SSH_FXF_CREAT, SSH_FXF_EXCL, SSH_FXF_READ, SSH_FXF_TRUNC, SSH_FXF_WRITE};
 use crate::sftp::{Attrs, FileType, Handle, SftpClient, SftpError, StatusCode};
 
@@ -21,6 +21,8 @@ pub const CHUNK_BYTES: u32 = 32 * 1024;
 const IN_FLIGHT: usize = 16;
 /// Largest `fs.read` (finder.md 4.4).
 pub const MAX_READ_BYTES: u64 = 1024 * 1024;
+/// Most entries one directory read may return (finder.md 4.2).
+pub const MAX_DIRECTORY_ENTRIES: usize = 1_000_000;
 /// At most this many symlinks per listing get their target resolved.
 const MAX_RESOLVED_SYMLINKS: usize = 256;
 
@@ -189,10 +191,22 @@ impl SftpRoot {
         }
         let mut entries = Vec::new();
         let mut links = Vec::new();
-        for raw in self.client.read_dir(&path).await? {
-            // Names that are not UTF-8 cannot be addressed by apps.
+        let raw_entries = match self.client.read_dir(&path, MAX_DIRECTORY_ENTRIES).await {
+            Err(SftpError::TooManyEntries) => {
+                return Err(FsError::TooLarge { total: MAX_DIRECTORY_ENTRIES as u64 });
+            }
+            other => other?,
+        };
+        for raw in raw_entries {
+            // Names that are not UTF-8 cannot be addressed by apps; a name
+            // with `/` or a control character comes from a broken or
+            // hostile server and is dropped.
             let Ok(name) = std::str::from_utf8(&raw.filename) else { continue };
-            if name == "." || name == ".." {
+            if name == "."
+                || name == ".."
+                || check_name(name).is_err()
+                || name.chars().any(char::is_control)
+            {
                 continue;
             }
             let entry = Entry::from_attrs(name, &raw.attrs);
@@ -298,12 +312,8 @@ impl SftpRoot {
         let permissions = existing
             .as_ref()
             .and_then(|attrs| attrs.permissions)
-            .map_or(0o644, |mode| mode & 0o7777);
-        let temporary = format!(
-            "{}/.{name}.cmux-{}.tmp",
-            parent.trim_end_matches('/'),
-            crate::ids::random_id("")
-        );
+            .map_or(0o644, |mode| mode & 0o777);
+        let temporary = format!("{}/{}", parent.trim_end_matches('/'), temporary_name(name));
         let flags = SSH_FXF_WRITE | SSH_FXF_CREAT | SSH_FXF_EXCL;
         let handle =
             self.client.open(&temporary, flags, &Attrs::with_permissions(permissions)).await?;
@@ -358,13 +368,12 @@ impl SftpRoot {
                 other => other.into(),
             });
         }
-        if self.client.can_replace_atomically() {
-            return Ok(self.client.posix_rename(temporary, target).await?);
+        // Replacing needs posix-rename@openssh.com. Without it a replace is
+        // remove-then-rename, which can lose both files, so it is refused.
+        if !self.client.can_replace_atomically() {
+            return Err(FsError::ReplaceUnsupported);
         }
-        // Without posix-rename the replace is two steps; the server is too
-        // old for an atomic one.
-        self.client.remove(target).await?;
-        Ok(self.client.rename(temporary, target).await?)
+        Ok(self.client.posix_rename(temporary, target).await?)
     }
 
     /// `fs.mkdir {path, name}`.
@@ -456,7 +465,7 @@ impl SftpRoot {
         self.writable()?;
         let (parent, name) = self.parent_and_name(relative).await?;
         let parent = parent.trim_end_matches('/');
-        let temporary = format!("{parent}/.{name}.cmux-{}.tmp", crate::ids::random_id(""));
+        let temporary = format!("{parent}/{}", temporary_name(name));
         let flags = SSH_FXF_WRITE | SSH_FXF_CREAT | SSH_FXF_EXCL | SSH_FXF_TRUNC;
         let handle = self.client.open(&temporary, flags, &Attrs::with_permissions(0o644)).await?;
         Ok((handle, temporary, format!("{parent}/{name}")))

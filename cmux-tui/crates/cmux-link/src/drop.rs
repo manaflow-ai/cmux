@@ -131,10 +131,44 @@ pub fn plan_terminal_drop(
 }
 
 fn check_absolute(path: &str) -> Result<(), DropError> {
-    if !path.starts_with('/') || path.chars().any(char::is_control) {
+    if !path.starts_with('/') || path.chars().any(is_unsafe_character) {
         return Err(DropError::PathUnsafe);
     }
     Ok(())
+}
+
+/// Control characters, the Unicode line and paragraph separators (Zl,
+/// Zp) and format characters (Cf, such as bidirectional overrides and
+/// zero-width characters): typed into a terminal they can break a line or
+/// hide what the path really is.
+fn is_unsafe_character(character: char) -> bool {
+    const FORMAT: &[(u32, u32)] = &[
+        (0x00AD, 0x00AD),
+        (0x0600, 0x0605),
+        (0x061C, 0x061C),
+        (0x06DD, 0x06DD),
+        (0x070F, 0x070F),
+        (0x0890, 0x0891),
+        (0x08E2, 0x08E2),
+        (0x180E, 0x180E),
+        (0x200B, 0x200F),
+        (0x202A, 0x202E),
+        (0x2060, 0x2064),
+        (0x2066, 0x206F),
+        (0xFEFF, 0xFEFF),
+        (0xFFF9, 0xFFFB),
+        (0x110BD, 0x110BD),
+        (0x110CD, 0x110CD),
+        (0x13430, 0x1343F),
+        (0x1BCA0, 0x1BCA3),
+        (0x1D173, 0x1D17A),
+        (0xE0001, 0xE0001),
+        (0xE0020, 0xE007F),
+    ];
+    let code = u32::from(character);
+    character.is_control()
+        || matches!(character, '\u{2028}' | '\u{2029}')
+        || FORMAT.iter().any(|(start, end)| (*start..=*end).contains(&code))
 }
 
 fn base_name(path: &str) -> Option<&str> {
@@ -266,7 +300,17 @@ mod tests {
     fn unsafe_paths_and_bad_drops_are_refused() {
         let terminal = terminal();
         assert_eq!(plan_terminal_drop(&terminal, &[], "j"), Err(DropError::Empty));
-        for path in ["relative.txt", "/a\nrm -rf ~", "/a\rb", "/a\u{1b}[2J"] {
+        for path in [
+            "relative.txt",
+            "/a\nrm -rf ~",
+            "/a\rb",
+            "/a\u{1b}[2J",
+            "/a\u{2028}b",
+            "/a\u{2029}b",
+            "/report\u{202e}fdp.exe",
+            "/a\u{200b}b",
+            "/a\u{feff}",
+        ] {
             assert_eq!(
                 plan_terminal_drop(&terminal, &[item("host_mac", path)], "j"),
                 Err(DropError::PathUnsafe),

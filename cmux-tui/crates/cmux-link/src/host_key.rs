@@ -55,13 +55,7 @@ impl HostKey {
     /// Builds a key from the three known-hosts fields and checks that the
     /// blob decodes and names the same key type.
     pub fn new(lookup_host: &str, key_type: &str, key_base64: &str) -> Result<Self, HostKeyError> {
-        if lookup_host.is_empty()
-            || lookup_host.len() > 512
-            || lookup_host.starts_with(['#', '@', '|'])
-            || lookup_host.chars().any(|character| {
-                character.is_whitespace() || character.is_control() || character == ','
-            })
-        {
+        if !crate::names::valid_lookup_host(lookup_host) {
             return Err(HostKeyError::LookupHostInvalid);
         }
         if key_type.is_empty()
@@ -156,49 +150,95 @@ pub fn observer_command(observation_file: &Path) -> Result<String, HostKeyError>
     ))
 }
 
-/// Finds a key of `key_type` for `lookup_host` in the user's own
-/// known-hosts files, which the link reads but never writes. Uses
-/// `ssh-keygen -F` so hashed entries match too.
+/// What the user's own known-hosts files say about a host.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct KnownElsewhere {
+    /// A key the user trusts for the host, of any type (the offered type
+    /// first). Any known key that differs from the offer makes the offer a
+    /// change, so a key-type downgrade is a hard stop too.
+    pub key: Option<HostKey>,
+    /// The offered key is marked `@revoked`.
+    pub revoked: bool,
+}
+
+/// Reads the user's own known-hosts files (never writes them) through
+/// `ssh-keygen -F`, so hashed entries match too. A tool that cannot run, or
+/// that fails other than "not found", is an error: the link never treats an
+/// unreadable file as "nothing known".
 pub async fn find_known_elsewhere(
     ssh_keygen: &Path,
     files: &[PathBuf],
-    lookup_host: &str,
-    key_type: &str,
-) -> Option<HostKey> {
+    offered: &HostKey,
+) -> std::io::Result<KnownElsewhere> {
+    let mut found = KnownElsewhere::default();
     for file in files {
         if !file.is_file() {
             continue;
         }
         let output = tokio::process::Command::new(ssh_keygen)
             .arg("-F")
-            .arg(lookup_host)
+            .arg(&offered.lookup_host)
             .arg("-f")
             .arg(file)
             .stdin(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .output()
-            .await
-            .ok()?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        for line in text.lines() {
-            if line.starts_with(['#', '@']) {
-                continue;
+            .await?;
+        // ssh-keygen -F exits 1 when the host is not in the file.
+        match output.status.code() {
+            Some(0) => {}
+            Some(1) if output.stdout.is_empty() => continue,
+            _ => {
+                return Err(std::io::Error::other(format!(
+                    "ssh-keygen -F failed on {}",
+                    file.display()
+                )));
             }
-            let mut fields = line.split_whitespace();
-            let (Some(_), Some(found_type), Some(key)) =
-                (fields.next(), fields.next(), fields.next())
-            else {
-                continue;
-            };
-            if found_type == key_type
-                && let Ok(found) = HostKey::new(lookup_host, found_type, key)
-            {
-                return Some(found);
+        }
+        let parsed = parse_keygen_lines(&String::from_utf8_lossy(&output.stdout), offered);
+        found.revoked |= parsed.revoked;
+        let better = |candidate: &HostKey| candidate.key_type == offered.key_type;
+        match (&found.key, parsed.key) {
+            (None, Some(key)) => found.key = Some(key),
+            (Some(current), Some(key)) if !better(current) && better(&key) => found.key = Some(key),
+            _ => {}
+        }
+    }
+    Ok(found)
+}
+
+/// Reads `ssh-keygen -F` output for `offered`.
+#[must_use]
+pub fn parse_keygen_lines(text: &str, offered: &HostKey) -> KnownElsewhere {
+    let mut found = KnownElsewhere::default();
+    for line in text.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split_whitespace();
+        let Some(first) = fields.next() else { continue };
+        let marker = first.starts_with('@').then_some(first);
+        if marker.is_some() {
+            fields.next();
+        }
+        let (Some(found_type), Some(key)) = (fields.next(), fields.next()) else { continue };
+        match marker {
+            Some("@revoked") => found.revoked |= key == offered.key_base64,
+            Some(_) => {}
+            None => {
+                if let Ok(known) = HostKey::new(&offered.lookup_host, found_type, key) {
+                    let replace = found.key.as_ref().is_none_or(|current| {
+                        current.key_type != offered.key_type && known.key_type == offered.key_type
+                    });
+                    if replace {
+                        found.key = Some(known);
+                    }
+                }
             }
         }
     }
-    None
+    found
 }
 
 /// Creates an empty observation file, 0600, and returns its path.
@@ -245,13 +285,47 @@ mod tests {
             "a blob of another type is refused"
         );
         assert_eq!(HostKey::new("h", "ssh-ed25519", "!!"), Err(HostKeyError::KeyInvalid));
-        for host in ["", "a b", "#x", "|1|hash", "a,b"] {
+        for host in ["", "a b", "#x", "|1|hash", "a,b", "*", "h?", "!h", "h;id"] {
             assert_eq!(
                 HostKey::new(host, "ssh-ed25519", &ed25519_blob(1)),
                 Err(HostKeyError::LookupHostInvalid),
                 "{host:?}"
             );
         }
+    }
+
+    fn blob_of(key_type: &str, fill: u8) -> String {
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&u32::try_from(key_type.len()).unwrap().to_be_bytes());
+        blob.extend_from_slice(key_type.as_bytes());
+        blob.extend_from_slice(&[fill; 40]);
+        STANDARD.encode(blob)
+    }
+
+    #[test]
+    fn any_known_key_type_counts_and_revoked_keys_are_seen() {
+        let offered = HostKey::new("[h]:22", "ssh-rsa", &blob_of("ssh-rsa", 1)).unwrap();
+        // A downgrade: only an ed25519 key is known, the host offers RSA.
+        let text =
+            format!("# Host [h]:22 found: line 1\n|1|salt|hash ssh-ed25519 {}\n", ed25519_blob(5));
+        let found = parse_keygen_lines(&text, &offered);
+        assert_eq!(found.key.unwrap().key_type, "ssh-ed25519", "a key of another type is known");
+        assert!(!found.revoked);
+        // The offered type wins when both are known.
+        let text = format!(
+            "[h]:22 ssh-ed25519 {}\n[h]:22 ssh-rsa {}\n",
+            ed25519_blob(5),
+            blob_of("ssh-rsa", 2)
+        );
+        assert_eq!(parse_keygen_lines(&text, &offered).key.unwrap().key_type, "ssh-rsa");
+        let text = format!(
+            "@revoked * ssh-rsa {}\n@cert-authority * ssh-rsa {}\n",
+            offered.key_base64,
+            blob_of("ssh-rsa", 3)
+        );
+        let found = parse_keygen_lines(&text, &offered);
+        assert!(found.revoked);
+        assert_eq!(found.key, None, "marked lines are not trusted keys");
     }
 
     #[test]

@@ -203,7 +203,7 @@ fn a_changed_key_is_a_hard_stop_until_the_user_confirms_the_new_key() {
         );
     }
     // The old key stays in the known-hosts projection while the stop holds.
-    assert_eq!(state.confirmed_host_keys().next(), Some(&key(1)));
+    assert_eq!(state.confirmed_host_keys().next(), Some((conn.as_str(), &key(1))));
 
     let confirm_old =
         ConnOp::ConfirmHostKey { conn: conn.clone(), fingerprint: key(1).fingerprint };
@@ -323,4 +323,48 @@ proptest! {
             state = next;
         }
     }
+}
+
+#[test]
+fn every_connection_gets_its_own_known_hosts_file() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = ConnStore::open(directory.path()).unwrap();
+    let apply = |request: ConnRequest| store.apply(&request).unwrap();
+    let first = random_id(CONN_PREFIX);
+    let second = random_id(CONN_PREFIX);
+    apply(request("c1", Origin::User, ssh_create(&first)));
+    apply(request("c2", Origin::User, ssh_create(&second)));
+    apply(request("o1", Origin::Link, observe(&first, rejected(1))));
+    apply(request(
+        "k1",
+        Origin::User,
+        ConnOp::ConfirmHostKey { conn: first.clone(), fingerprint: key(1).fingerprint },
+    ));
+    let read = |conn: &str| std::fs::read_to_string(store.known_hosts_path(conn)).unwrap();
+    assert!(read(&first).contains(&key(1).key_base64));
+    assert!(!read(&second).contains(&key(1).key_base64), "a confirm covers one connection only");
+    apply(request("r1", Origin::User, ConnOp::Revoke { conn: first.clone() }));
+    assert!(!store.known_hosts_path(&first).exists(), "a revoked connection's file is removed");
+    assert!(store.known_hosts_path(&second).exists());
+}
+
+#[test]
+fn a_revoked_key_is_never_confirmed() {
+    let conn = random_id(CONN_PREFIX);
+    let state = created(&conn);
+    let (state, _, events) = run(
+        &state,
+        &request(
+            "o1",
+            Origin::Link,
+            observe(&conn, Observation::HostKeyRevoked { offered: key(1) }),
+        ),
+    );
+    assert!(matches!(events[0].change, ConnChange::HostKeyRevoked { .. }));
+    let confirm = ConnOp::ConfirmHostKey { conn: conn.clone(), fingerprint: key(1).fingerprint };
+    assert!(matches!(
+        reduce(&state, &request("c1", Origin::User, confirm)).unwrap_err(),
+        Reject::HostKeyRevoked { .. }
+    ));
+    assert!(connect_gate(state.get(&alice(), &conn).unwrap()).is_err());
 }

@@ -171,8 +171,7 @@ impl Endpoint {
                 if !metadata.is_some_and(|metadata| metadata.is_dir()) {
                     return Err(FsError::NotADirectory);
                 }
-                let temporary =
-                    parent_path.join(format!(".{name}.cmux-{}.tmp", crate::ids::random_id("")));
+                let temporary = parent_path.join(crate::fs::temporary_name(name));
                 let file = tokio::fs::OpenOptions::new()
                     .write(true)
                     .create_new(true)

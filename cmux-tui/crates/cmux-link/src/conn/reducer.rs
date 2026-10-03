@@ -71,14 +71,24 @@ impl LinkState {
         self.records.get(conn).filter(|record| &record.principal == principal)
     }
 
-    /// Every confirmed SSH host key, for the link's known-hosts file.
-    pub fn confirmed_host_keys(&self) -> impl Iterator<Item = &HostKey> {
+    /// Every connection's confirmed SSH host key, for the per-connection
+    /// known-hosts files. A key confirmed for one connection is never
+    /// trusted for another.
+    pub fn confirmed_host_keys(&self) -> impl Iterator<Item = (&str, &HostKey)> {
         self.records.values().filter_map(|record| match &record.host_key {
             HostKeyState::Confirmed { key } | HostKeyState::Changed { confirmed: key, .. } => {
-                Some(key)
+                Some((record.conn.as_str(), key))
             }
             _ => None,
         })
+    }
+
+    /// The ids of every SSH connection.
+    pub fn ssh_conns(&self) -> impl Iterator<Item = &str> {
+        self.records
+            .values()
+            .filter(|record| record.kind == ConnKind::Ssh)
+            .map(|record| record.conn.as_str())
     }
 
     fn lookup(&self, principal: &Principal, conn: &str) -> Result<&ConnRecord, Reject> {
@@ -97,6 +107,9 @@ pub fn connect_gate(record: &ConnRecord) -> Result<(), Reject> {
             old_fingerprint: confirmed.fingerprint.clone(),
             new_fingerprint: offered.fingerprint.clone(),
         }),
+        HostKeyState::Revoked { offered } => {
+            Err(Reject::HostKeyRevoked { fingerprint: offered.fingerprint.clone() })
+        }
         _ => Ok(()),
     }
 }
@@ -202,6 +215,11 @@ fn apply(
             let offered = match &record.host_key {
                 HostKeyState::Unknown { offered } | HostKeyState::Changed { offered, .. } => {
                     offered.clone()
+                }
+                HostKeyState::Revoked { offered } => {
+                    return Err(Reject::HostKeyRevoked {
+                        fingerprint: offered.fingerprint.clone(),
+                    });
                 }
                 _ => return Err(Reject::HostKeyNotPending),
             };
@@ -326,6 +344,17 @@ fn observe(record: &mut ConnRecord, observation: &Observation) -> Result<Vec<Con
                     changes.extend(set_state(record, ConnState::Verifying, None));
                 }
             }
+        }
+        Observation::HostKeyRevoked { offered } => {
+            if !ssh {
+                return Ok(set_state(record, ConnState::Unreachable, None).into_iter().collect());
+            }
+            changes.push(ConnChange::HostKeyRevoked {
+                key_type: offered.key_type.clone(),
+                fingerprint: offered.fingerprint.clone(),
+            });
+            record.host_key = HostKeyState::Revoked { offered: offered.clone() };
+            changes.extend(set_state(record, ConnState::Disconnected, None));
         }
         Observation::AuthFailed => changes.extend(set_state(record, ConnState::NeedsAuth, None)),
         Observation::Unreachable => changes.extend(set_state(record, ConnState::Unreachable, None)),

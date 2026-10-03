@@ -97,6 +97,13 @@ pub enum ConnectError {
         old_fingerprint: String,
         new_fingerprint: String,
     },
+    /// `host_key.revoked`: the offered key is marked `@revoked`. Hard stop.
+    HostKeyRevoked {
+        fingerprint: String,
+    },
+    /// The user's known-hosts files could not be read, so the link cannot
+    /// tell an unknown key from a changed one. Fails closed.
+    KnownHostsUnreadable(String),
     AuthFailed,
     Unreachable(String),
     CredentialUnavailable,
@@ -112,6 +119,8 @@ impl ConnectError {
             Self::Rejected(reject) => reject.code(),
             Self::HostKeyUnknown { .. } => "host_key.unknown",
             Self::HostKeyChanged { .. } => "host_key.changed",
+            Self::HostKeyRevoked { .. } => "host_key.revoked",
+            Self::KnownHostsUnreadable(_) => "link.known_hosts_unreadable",
             Self::AuthFailed => "auth.failed",
             Self::Unreachable(_) => "host.unreachable",
             Self::CredentialUnavailable => "credential.unavailable",
@@ -146,6 +155,9 @@ impl From<StoreError> for ConnectError {
         match error {
             StoreError::Rejected(Reject::HostKeyChanged { old_fingerprint, new_fingerprint }) => {
                 Self::HostKeyChanged { old_fingerprint, new_fingerprint }
+            }
+            StoreError::Rejected(Reject::HostKeyRevoked { fingerprint }) => {
+                Self::HostKeyRevoked { fingerprint }
             }
             StoreError::Rejected(reject) => Self::Rejected(reject),
             other => Self::Store(other.to_string()),
@@ -230,7 +242,7 @@ impl SshConnector {
         observation_file: &Path,
         credential_args: Vec<String>,
     ) -> Result<SftpSession, ConnectError> {
-        let options = self.link_options(observation_file, credential_args)?;
+        let options = self.link_options(&record.conn, observation_file, credential_args)?;
         let mut arguments = background_ssh_arguments(port, &options, destination);
         arguments.push("sftp".to_owned());
         let mut child = Command::new(&self.settings.ssh)
@@ -325,13 +337,14 @@ impl SshConnector {
 
     fn link_options(
         &self,
+        conn: &str,
         observation_file: &Path,
         credential_args: Vec<String>,
     ) -> Result<Vec<String>, ConnectError> {
         let quote = |path: &Path| {
             ssh_config_path(path).map_err(|error| ConnectError::Store(error.to_string()))
         };
-        let known_hosts = quote(&self.store.known_hosts_path())?;
+        let known_hosts = quote(&self.store.known_hosts_path(conn))?;
         let global = self
             .settings
             .user_known_hosts
@@ -362,6 +375,18 @@ impl SshConnector {
         option(format!("ConnectTimeout={}", self.settings.connect_timeout.as_secs().max(1)));
         option("ServerAliveInterval=15".into());
         option("ServerAliveCountMax=3".into());
+        // Errors only: the classifier reads OpenSSH's error lines, and
+        // banners or debug text never reach it.
+        option("LogLevel=ERROR".into());
+        // Nothing from the user's config may run a local or remote command
+        // or ask for a terminal on this run.
+        option("PermitLocalCommand=no".into());
+        option("RemoteCommand=none".into());
+        option("RequestTTY=no".into());
+        // A ProxyJump or ProxyCommand in the user's config is honored. Its
+        // hops are checked by OpenSSH against the user's own known-hosts
+        // files, not the link's; only the final host's key goes through the
+        // link's states (follow-up: route jumps through the slot below).
         if let Some(proxy) = &self.proxy_command {
             option(format!("ProxyCommand={proxy}"));
         }
@@ -380,24 +405,41 @@ impl SshConnector {
         error: &SftpError,
     ) -> ConnectError {
         let conn = &record.conn;
-        if stderr.contains("Host key verification failed")
-            && let Some(offered) = offered
+        if let Some(offered) = offered
+            && (stderr.contains("Host key verification failed")
+                || stderr.contains("REVOKED HOST KEY"))
         {
-            let known_elsewhere = find_known_elsewhere(
+            let elsewhere = match find_known_elsewhere(
                 &self.settings.ssh_keygen,
                 &self.settings.user_known_hosts,
-                &offered.lookup_host,
-                &offered.key_type,
+                &offered,
             )
-            .await;
-            let observation =
-                Observation::HostKeyRejected { offered: offered.clone(), known_elsewhere };
+            .await
+            {
+                Ok(elsewhere) => elsewhere,
+                // Fail closed: an unreadable file never means "unknown".
+                Err(error) => {
+                    let _ = observe(&self.store, principal, conn, Observation::Disconnected);
+                    return ConnectError::KnownHostsUnreadable(error.to_string());
+                }
+            };
+            let observation = if elsewhere.revoked || stderr.contains("REVOKED HOST KEY") {
+                Observation::HostKeyRevoked { offered: offered.clone() }
+            } else {
+                Observation::HostKeyRejected {
+                    offered: offered.clone(),
+                    known_elsewhere: elsewhere.key,
+                }
+            };
             return match observe(&self.store, principal, conn, observation) {
                 Ok(after) => match after.host_key {
                     HostKeyState::Changed { confirmed, offered } => ConnectError::HostKeyChanged {
                         old_fingerprint: confirmed.fingerprint,
                         new_fingerprint: offered.fingerprint,
                     },
+                    HostKeyState::Revoked { offered } => {
+                        ConnectError::HostKeyRevoked { fingerprint: offered.fingerprint }
+                    }
                     _ => ConnectError::HostKeyUnknown {
                         key_type: offered.key_type,
                         fingerprint: offered.fingerprint,

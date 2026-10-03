@@ -15,7 +15,7 @@ use super::reducer::LinkState;
 use super::{ConnEvent, ConnRecord, ConnRequest, Outcome, Principal, Reject, reduce};
 
 const STATE_FILE: &str = "conns.json";
-const KNOWN_HOSTS_FILE: &str = "known_hosts";
+const KNOWN_HOSTS_DIRECTORY: &str = "known_hosts.d";
 const EVENT_BUFFER: usize = 256;
 
 #[derive(Debug)]
@@ -75,10 +75,12 @@ impl ConnStore {
         Ok(store)
     }
 
-    /// The link-owned known-hosts file passed as `UserKnownHostsFile`.
+    /// The link-owned known-hosts file of one connection, passed as
+    /// `UserKnownHostsFile`. Each connection has its own file, so a key one
+    /// (user, app) confirmed never lets another connect without a gesture.
     #[must_use]
-    pub fn known_hosts_path(&self) -> PathBuf {
-        self.directory.join(KNOWN_HOSTS_FILE)
+    pub fn known_hosts_path(&self, conn: &str) -> PathBuf {
+        self.directory.join(KNOWN_HOSTS_DIRECTORY).join(conn)
     }
 
     #[must_use]
@@ -124,8 +126,27 @@ impl ConnStore {
         self.events.subscribe()
     }
 
+    /// Rewrites every connection's known-hosts file from the records and
+    /// removes the files of connections that no longer exist.
     fn write_known_hosts(&self, state: &LinkState) -> std::io::Result<()> {
-        crate::host_key::write_known_hosts(&self.known_hosts_path(), state.confirmed_host_keys())
+        let directory = self.directory.join(KNOWN_HOSTS_DIRECTORY);
+        create_private_directory(&directory)?;
+        let confirmed: std::collections::BTreeMap<&str, &crate::host_key::HostKey> =
+            state.confirmed_host_keys().collect();
+        for conn in state.ssh_conns() {
+            let keys = confirmed.get(conn).copied();
+            crate::host_key::write_known_hosts(&self.known_hosts_path(conn), keys)?;
+        }
+        let live: std::collections::BTreeSet<&str> = state.ssh_conns().collect();
+        for entry in std::fs::read_dir(&directory)? {
+            let entry = entry?;
+            let name = entry.file_name();
+            let keep = name.to_str().is_some_and(|name| live.contains(name));
+            if !keep {
+                std::fs::remove_file(entry.path())?;
+            }
+        }
+        Ok(())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, LinkState> {
