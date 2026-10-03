@@ -66,10 +66,12 @@ struct RemoteRdCoreTests {
         let second = Self.datagrams(
             frame: 2, keyframe: false, accessUnit: pFrame, tCapture: 17_667, shardLen: 64, firstSeq: UInt16(first.count)
         )
-        // The P-frame arrives first and waits for its reference; shards arrive out of order.
+        // Shards arrive out of order: the keyframe misses its first shard while
+        // the whole P-frame arrives, so the P-frame waits for its reference.
+        for d in first.dropFirst().reversed() { try core.push(datagram: d, nowMicros: 10) }
         for d in second.reversed() { try core.push(datagram: d, nowMicros: 10) }
         #expect(try core.popAccessUnit(codec: .h264) == nil)
-        for d in first.reversed() { try core.push(datagram: d, nowMicros: 20) }
+        try core.push(datagram: first[0], nowMicros: 20)
         let a = try #require(try core.popAccessUnit(codec: .h264))
         let b = try #require(try core.popAccessUnit(codec: .h264))
         #expect(try core.popAccessUnit(codec: .h264) == nil)
@@ -120,6 +122,18 @@ struct RemoteRdCoreTests {
         // Feedback on the stream carrier is a stream frame of type 2.
         let framed = try #require(try core.feedback(nowMicros: 2).first)
         #expect(framed.first == 2)
+    }
+
+    @Test func aFrameWithoutItsReferenceIsNeverReleased() throws {
+        let core = try #require(RemoteRdCore(carrier: .datagram))
+        let orphan = Self.datagrams(
+            frame: 5, keyframe: false, accessUnit: Self.annexB(0x41, 40), tCapture: 3, shardLen: 32, firstSeq: 0
+        )
+        for d in orphan { try core.push(datagram: d, nowMicros: 1) }
+        #expect(try core.popAccessUnit(codec: .h264) == nil)
+        let stats = try core.stats()
+        #expect(stats.needRecovery)
+        #expect(stats.ackedFrame == 0)
     }
 
     @Test func badInputIsRefused() throws {
