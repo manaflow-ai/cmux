@@ -93,11 +93,13 @@ public struct TerminalPathResolver: Sendable {
     /// Resolves an open-URL request payload to an existing local file.
     ///
     /// The resolver tries the literal file spelling before interpreting a
-    /// trailing `:line` or `:line:column` suffix. This keeps legitimate file
-    /// names such as `report:42` addressable while still accepting the form
-    /// emitted by compilers, test runners, and coding agents. Local `file://`
-    /// URLs are accepted; URL schemes for remote or non-file resources are
-    /// left to the URL router.
+    /// trailing `:line`, `:line:column`, or GitHub-style `#Lline` suffix. This
+    /// keeps legitimate file names such as `report:42` or `report#L42`
+    /// addressable while still accepting forms emitted by compilers, test
+    /// runners, and coding agents. Local `file://` URLs are accepted; URL
+    /// schemes for remote or non-file resources are left to the URL router.
+    /// GitHub line ranges such as `#L42-L48` are not interpreted as source
+    /// locations; this spelling accepts a single positive line number.
     ///
     /// - Parameters:
     ///   - rawText: The raw open-URL text from the runtime.
@@ -127,8 +129,9 @@ public struct TerminalPathResolver: Sendable {
             // A relative name such as `report:42` is parsed by Foundation as
             // a custom URL scheme. Once its suffix is known to be a location
             // and the location path itself is schemeless, probe the complete
-            // spelling before treating it as `path:line`. This preserves a
-            // real file named `report:42` without admitting non-file URLs.
+            // spelling before treating it as a source location. This
+            // preserves real files named `report:42` or `report#L42` without
+            // admitting non-file URLs.
             if !isExplicitFileURL(normalizedToken),
                let literalPath = resolveQuicklookPath(normalizedToken, cwd: cwd) {
                 return TerminalFileReference(path: literalPath)
@@ -167,8 +170,9 @@ public struct TerminalPathResolver: Sendable {
     /// selection); `nil` and blank
     /// entries are skipped. Each candidate goes through
     /// ``resolveOpenURLFileReference(_:cwd:)``, so absolute, `~`, relative,
-    /// `file://`, and `path:line[:column]` spellings all resolve the same way
-    /// cmd-click does. Multi-line text is never a path and is ignored.
+    /// `file://`, `path:line[:column]`, and `path#Lline` spellings all resolve
+    /// the same way cmd-click does. Multi-line text is never a path and is
+    /// ignored.
     ///
     /// - Parameters:
     ///   - candidates: Raw texts to try, highest priority first.
@@ -206,10 +210,14 @@ public struct TerminalPathResolver: Sendable {
         URL(string: token)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }
 
-    /// Parses a positive `:line` or `:line:column` suffix from a token.
+    /// Parses a positive `:line`, `:line:column`, or `#Lline` suffix.
     private func parseLocationSuffix(
         in token: String
     ) -> (path: String, line: Int, column: Int?)? {
+        if let fragmentLocation = parseGitHubLineFragment(in: token) {
+            return fragmentLocation
+        }
+
         guard let lastColon = token.lastIndex(of: ":") else { return nil }
         let lastComponent = String(token[token.index(after: lastColon)...])
         guard let lastNumber = positiveInteger(lastComponent) else { return nil }
@@ -228,6 +236,18 @@ public struct TerminalPathResolver: Sendable {
         let path = String(pathWithLine[..<lineColon])
         guard !path.isEmpty else { return nil }
         return (path, lineNumber, lastNumber)
+    }
+
+    /// Parses the source-link fragment emitted by GitHub and coding agents.
+    private func parseGitHubLineFragment(
+        in token: String
+    ) -> (path: String, line: Int, column: Int?)? {
+        guard let marker = token.range(of: "#L", options: .backwards),
+              marker.lowerBound != token.startIndex,
+              let line = positiveInteger(String(token[marker.upperBound...])) else {
+            return nil
+        }
+        return (String(token[..<marker.lowerBound]), line, nil)
     }
 
     /// Returns a positive integer for a valid source location component.
