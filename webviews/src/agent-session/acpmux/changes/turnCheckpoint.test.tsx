@@ -2,21 +2,56 @@ import { afterAll, afterEach, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
 const globals = globalThis as Record<string, unknown>;
 const saved = Object.fromEntries(
-  ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"].map((key) => [key, globals[key]]),
+  [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "customElements",
+    "Node",
+    "MutationObserver",
+    "IntersectionObserver",
+    "ResizeObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ].map((key) => [key, globals[key]]),
 );
+class Inert {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 Object.assign(globals, {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
   HTMLElement: dom.window.HTMLElement,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: Inert,
+  ResizeObserver: Inert,
+  requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0) as unknown as number,
+  cancelAnimationFrame: (handle: number) => clearTimeout(handle),
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-afterAll(() => Object.assign(globals, saved));
+// The changes view renders @pierre/diffs and @pierre/trees web components, which reach for
+// DOM classes (HTMLTemplateElement, SVGElement, ...) by their global names.
+const domClasses = Object.getOwnPropertyNames(dom.window).filter(
+  (key) => /^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in globals),
+);
+for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
+afterAll(() => {
+  Object.assign(globals, saved);
+  for (const key of domClasses) delete globals[key];
+});
 
 const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -98,7 +133,9 @@ test("a turn with checkpoints reads its changes between them from the session ho
       }),
     ),
   );
-  await settle(() => doc.body.textContent?.includes("src/a.ts") === true || doc.body.textContent?.includes("a.ts") === true);
+  await settle(
+    () => doc.body.textContent?.includes("src/a.ts") === true || doc.body.textContent?.includes("a.ts") === true,
+  );
   expect(asked).toEqual([["ckpt_a", "ckpt_b"]]);
   expect(doc.querySelector('[data-state="unavailable"]')).toBeNull();
   expect(doc.body.textContent).toContain("a.ts");

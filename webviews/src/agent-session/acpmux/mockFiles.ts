@@ -66,7 +66,11 @@ export function mockFileSearch(
   if (!trees[root])
     throw Object.assign(new Error(`${root} is not in a git repository`), {
       code: "operation.failed",
-      details: { operation: "git.files.search", reason: `${root} is not in a git repository`, extra: { code: OUTSIDE_REPOSITORY } },
+      details: {
+        operation: "git.files.search",
+        reason: `${root} is not in a git repository`,
+        extra: { code: OUTSIDE_REPOSITORY },
+      },
     });
   const text = typeof query === "string" ? query.trim() : "";
   if (!text) return { root, search_root: root, results: [] };
