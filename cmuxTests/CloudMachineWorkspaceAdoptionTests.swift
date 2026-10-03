@@ -118,7 +118,7 @@ struct CloudMachineWorkspaceAdoptionTests {
 
             try provider.install(in: catalog)
             catalog.bindCloudWorkspace(localWorkspaceID: pending.id, machine: provider.machine, remoteWorkspaceID: nil)
-            #expect(CloudWorkspaceSidebarPresentation(workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false)?
+            #expect(CloudWorkspaceSidebarPresentation(workspace: pending, orderedPanelIDs: [loading.id], usesLastSegmentPath: false, catalog: catalog)?
                 .directoryCandidates.first?.hasPrefix("brave-sapphire-lobster") == true)
             let first = try await open(pending, provider: provider, catalog: catalog)
             #expect(first.panelID == loading.id)
