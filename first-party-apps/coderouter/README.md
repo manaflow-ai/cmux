@@ -24,7 +24,7 @@ Settings: `usageWindow` (24h, 7d, 30d), `statusShowsUsage`, and two dev-only key
 | `coderouter:write` | Ask cmux to connect, share or remove an account, set the failover order, and route cmux agents through CodeRouter. |
 | `actions:run` | Open the Accounts screen, sign in, run a provider's own login in a terminal tab, and the fallback for connect and remove on builds without the proposed ops. |
 | `coderouter:execute` (optional) | Send one tiny test prompt. It spends a few tokens. |
-| `coderouter:control` (optional, restricted) | Create and revoke API keys. The intended name is `coderouter:keys`, which the scope grammar rejects (see gaps). Only first-party or reviewed apps should be able to hold it. |
+| `coderouter:keys` (optional, restricted) | Create and revoke API keys. Only first-party or reviewed apps should be able to hold it. The v2 manifest declares it; the legacy v1 `cmux-app.json` keeps the stand-in `coderouter:control` because the v1 grammar has no `keys` verb, and v1 goes away with the in-app registry (app-platform.md 13.3). |
 
 App storage needs no scope. The app keeps setup progress (`onboarding`) and the last test result (`lastTest`, model, latency, request id) there. Nothing stored is secret.
 
@@ -57,8 +57,8 @@ None of these exist yet. The app calls them with `cmux.call` and shows "Not avai
 | `coderouter.accounts.remove` | `{account}` -> `{removed}` | cloud; host confirms | mutate-shared, destructive | `coderouter:write` | yes, confirm | Same as connect. |
 | `coderouter.accounts.share` | `{accounts: [id], visibility: team or private}` -> `[account]` | cloud (`PATCH .../sharing`) | mutate-shared | `coderouter:write` | yes | No action exists. A list makes "Share all" one user action. |
 | `coderouter.keys.list` | `{}` -> `[{id, label, prefix, created_at_ms, last_used_at_ms, revoked, usage_7d}]` | cloud | read | `coderouter:read` | no | No app op. Metadata only. |
-| `coderouter.keys.create` | `{label, present: sheet or none}` -> `{key, handle, handle_expires_at_ms}` | cloud mints; the native host keeps the plaintext in memory and shows it once in its own sheet | mutate-shared (team credential) | `coderouter:control` (restricted) | yes, confirm | A plaintext return would put the key in the app VM. |
-| `coderouter.keys.revoke` | `{key}` -> `{revoked}` | cloud; host confirms | mutate-shared, destructive | `coderouter:control` | yes, confirm | No app op. |
+| `coderouter.keys.create` | `{label, present: sheet or none}` -> `{key, handle, handle_expires_at_ms}` | cloud mints; the native host keeps the plaintext in memory and shows it once in its own sheet | mutate-shared (team credential) | `coderouter:keys` (restricted) | yes, confirm | A plaintext return would put the key in the app VM. |
+| `coderouter.keys.revoke` | `{key}` -> `{revoked}` | cloud; host confirms | mutate-shared, destructive | `coderouter:keys` | yes, confirm | No app op. |
 | `ui.secret.reveal` | `{handle}` -> `{shown}` | native client UI | read (host display only) | the scope that minted the handle | yes | General primitive: show a host-held secret without the app seeing it. |
 | `clipboard.writeSecret` | `{handle}` -> `{copied, clears_at_ms}` | native client (concealed pasteboard type, clears after 60 s) | mutate-own | the scope that minted the handle | yes | `clipboard:write` takes app-provided text, which a secret must never be. |
 | `coderouter.usage.get` | `{window: 24h, 7d or 30d, group_by: account, model or key}` -> `{window, group_by, totals, rows}` | cloud (usage ledger) | read | `coderouter:read` | no | No app op. |
@@ -76,7 +76,7 @@ None of these exist yet. The app calls them with `cmux.call` and shows "Not avai
 3. origin = user ends at the first `await` in a tap handler. A flow that reads, then writes, loses user origin. The proposed ops take lists (`accounts.share`) or do the follow-up themselves (`keys.create` with `present`).
 4. The runtime refuses ops outside its allowed list locally with `scope.missing` and no `details.scope`, so an app cannot tell "this build has no such op" from "scope not granted". Unknown ops should answer `operation.unsupported`.
 5. `actions:run` lets any app run credential actions (`accounts.connect`, `accounts.remove`, sign-in) with no account scope. Actions need their own risk and scope, and must require origin = user.
-6. The scope grammar has no level for minting credentials (`coderouter:keys` is invalid) and no marker for scopes only first-party or reviewed apps may hold. The `storage:local` scope from `scopes.json` is also rejected by the manifest grammar (storage is always allowed, so this app does not declare it).
+6. (Resolved: `coderouter:keys` is in the v2 grammar as a restricted scope.) The scope grammar had no level for minting credentials and no marker for scopes only first-party or reviewed apps may hold. The `storage:local` scope from `scopes.json` is also rejected by the manifest grammar (storage is always allowed, so this app does not declare it).
 7. `x-cmux-devOnly` is not honored, and there is no `app.settings.set`.
 8. No app localization API and no locale in the mount context. The app has `t()` tables and a dev-only `language` override.
 9. A function child tracks every signal read while it builds, so careless reads rebuild whole subtrees and reset local state. `untrack` exists in the runtime but not in `cmux-app.d.ts`. The app uses `computed` gates to narrow rebuilds.
