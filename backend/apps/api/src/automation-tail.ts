@@ -13,11 +13,18 @@ export interface AutomationTailProps {
 const MAX_LOG_CHARS = 2_000
 const MAX_LOG_LINES = 100
 
-/** The run an invocation served: the harness logs the marker before any tenant code runs. */
+const RUN_ID = /^run_[a-z0-9]{20}$/
+const AUTOMATION_ID = /^auto_[a-z0-9]{20}$/
+
+/**
+ * The run an invocation served, from the harness's marker line. Best effort: tenant code
+ * shares the isolate and can forge or hide the marker, which moves usage between runs of
+ * its own team only (the team comes from the loader props). Billing keys never use it.
+ */
 const runOf = (ev: TraceItem): { run: string; automation: string } | undefined => {
   const first = ev.logs[0]?.message as ReadonlyArray<unknown> | undefined
   if (!first || first[0] !== RUN_MARKER || typeof first[1] !== "string" || typeof first[2] !== "string") return undefined
-  return { run: first[1], automation: first[2] }
+  return RUN_ID.test(first[1]) && AUTOMATION_ID.test(first[2]) ? { run: first[1], automation: first[2] } : undefined
 }
 
 /**
@@ -35,12 +42,15 @@ export class AutomationTail extends WorkerEntrypoint<Env, AutomationTailProps> {
     const p = this.ctx.props
     const records: Array<UsageRecord> = []
     const lines: Array<string> = []
+    // Usage keys use only runtime values and a per-call nonce, never tenant-influenced text, so
+    // tenant code cannot make records invalid or make two invocations share a key. The price is
+    // a possible double count if the runtime ever delivers the same tail call twice.
+    const nonce = crypto.randomUUID()
     events.forEach((ev, i) => {
       const r = runOf(ev)
       const run = r?.run ?? "unattributed"
-      // Without a runtime timestamp the key cannot dedupe a redelivery; such events are counted as seen.
       const at = ev.eventTimestamp ?? Date.now()
-      const key = `${run}:${ev.eventTimestamp ?? `now${Date.now()}`}:${i}`
+      const key = `${nonce}:${i}`
       const cpu = Math.max(0, Math.round((ev as TraceItem & { cpuTime?: number }).cpuTime ?? 0))
       const base = { source: "tail" as const, observed_at: at, commit: p.commit, ...(r ? { run: r.run, automation: r.automation } : {}) }
       records.push({ key: `inv:${key}`, meter: "automation.invocations", quantity: 1, ...base }, { key: `cpu:${key}`, meter: "automation.cpu_ms", quantity: cpu, ...base })

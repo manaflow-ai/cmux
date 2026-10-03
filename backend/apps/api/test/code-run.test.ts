@@ -89,12 +89,13 @@ describe("Tier 1 code runs (workerd)", () => {
     const bundle = `
       import { WorkflowEntrypoint } from "cloudflare:workers";
       export default class extends WorkflowEntrypoint {
-        async run(event, step) { let n = 0; for (let i = 0; i < 5; i++) n = await step.do("tick", async () => n + 1); return n; }
+        async run(event, step) { let n = 0; for (let i = 0; i < 5; i++) n = await step.do("tick", async () => n + 1); await step.do("x".repeat(199), async () => 0); return n; }
       }`
     const { t, run } = await runOnce("code-run-6", sha(6), bundle)
     expect(run.state).toBe("succeeded")
     const usage = await read(t, "usage.summary")
-    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(5)
+    // Five ticks and one step with a 199-character name (its key holds a hash, never the name).
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(6)
   })
 
   it("keeps the harness stop when tenant code catches it, and ignores spoofed error names", async () => {

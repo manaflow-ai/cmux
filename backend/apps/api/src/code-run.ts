@@ -156,18 +156,26 @@ export class WrappedStep extends RpcTarget {
   /**
    * Meters one step and enforces the cap. Called when the step really executes (inside the
    * step callback, or before a sleep or wait). One key per step occurrence: a retried attempt
-   * or a replayed sleep counts once.
+   * or a replayed sleep counts once. The key holds a hash of the tenant's step name, so its
+   * length never depends on tenant input; a record the ledger refuses stops the run (a step
+   * must never run unmetered). `inStep`: a meter outage inside step.do is a plain error the
+   * engine retries; outside (sleeps, waits) it stops the run.
    */
-  async #meter(occurrence: string, name: string): Promise<void> {
+  async #meter(occurrence: string, name: string, inStep: boolean): Promise<void> {
+    const [kind, , n] = [occurrence.slice(0, occurrence.indexOf(":")), "", occurrence.slice(occurrence.lastIndexOf("#") + 1)]
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(name)))
+    const hash = Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("")
     let r: RecordResult
     try {
       r = await record(this.#env, this.#run.team, [
-        { key: `step:${this.#run.run}:${occurrence}`, meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now(), run: this.#run.run, automation: this.#run.automation, step: name, commit: this.#run.ref.commit }
+        { key: `step:${this.#run.run}:${kind}:${hash}#${n}`, meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now(), run: this.#run.run, automation: this.#run.automation, step: name, commit: this.#run.ref.commit }
       ])
     } catch (e) {
-      // Inside step.do the engine retries; outside (sleeps, waits) the run stops rather than run unmetered.
-      this.#stop("meter.unavailable", `usage meter unavailable: ${e instanceof Error ? e.message : String(e)}`)
+      const message = `usage meter unavailable: ${e instanceof Error ? e.message : String(e)}`
+      if (inStep) throw new Error(message)
+      this.#stop("meter.unavailable", message)
     }
+    if (r!.invalid > 0 || r!.too_large) this.#stop("meter.invalid", "the usage ledger refused this step's record")
     if (!r!.allowed) this.#stop("budget.cap_reached", `the team's automation spending cap is reached (${r!.summary.stopped})`)
   }
 
@@ -177,7 +185,7 @@ export class WrappedStep extends RpcTarget {
     const occurrence = this.#admit("do", name)
     // The callback context is not forwarded: it holds harness objects; tenant code gets the attempt only.
     return this.#step.do(name, stepConfig(typeof a === "function" ? undefined : a), async (ctx) => {
-      await this.#meter(occurrence, name)
+      await this.#meter(occurrence, name, true)
       return (await callback({ attempt: (ctx as { attempt?: number }).attempt ?? 1 })) as never
     })
   }
@@ -186,7 +194,7 @@ export class WrappedStep extends RpcTarget {
     const occurrence = this.#admit("sleep", name)
     const ms = durationMs(duration)
     if (ms === undefined || ms > MAX_WAIT_MS) this.#stop("step.invalid", `sleep takes a number of milliseconds up to ${MAX_WAIT_MS}`)
-    await this.#meter(occurrence, name)
+    await this.#meter(occurrence, name, false)
     return this.#step.sleep(name, ms)
   }
 
@@ -194,7 +202,7 @@ export class WrappedStep extends RpcTarget {
     const occurrence = this.#admit("sleepUntil", name)
     const at = timestamp instanceof Date ? timestamp.getTime() : durationMs(timestamp)
     if (at === undefined || at - Date.now() > MAX_WAIT_MS) this.#stop("step.invalid", `sleepUntil takes an instant at most ${MAX_WAIT_MS} ms ahead`)
-    await this.#meter(occurrence, name)
+    await this.#meter(occurrence, name, false)
     return this.#step.sleepUntil(name, at)
   }
 
@@ -204,7 +212,7 @@ export class WrappedStep extends RpcTarget {
     if (typeof o.type !== "string" || o.type.length === 0 || o.type.length > 100 || o.type.startsWith("cmux:")) this.#stop("step.invalid", "an event type is 1 to 100 characters and never starts with \"cmux:\"")
     const timeout = o.timeout === undefined ? 24 * 3600_000 : durationMs(o.timeout)
     if (timeout === undefined || timeout > MAX_WAIT_MS) this.#stop("step.invalid", `waitForEvent timeout is a number of milliseconds up to ${MAX_WAIT_MS}`)
-    await this.#meter(occurrence, name)
+    await this.#meter(occurrence, name, false)
     return this.#step.waitForEvent(name, { type: o.type as string, timeout })
   }
 }
