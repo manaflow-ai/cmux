@@ -1,0 +1,32 @@
+@cmux/integrations-core
+Copyright (c) 2026-present Manaflow, Inc.
+Licensed under the MIT License (see LICENSE).
+
+This package contains code adapted from executor
+https://github.com/UsefulSoftwareCo/executor (commit 98d606bd2b47b9dcc2c03a129a14b5134d9852c8)
+MIT License, Copyright (c) 2026 Rhys Sullivan
+
+Adapted files (each keeps a header naming its upstream paths and the changes):
+
+  src/policy.ts         packages/core/sdk/src/policies.ts
+                        packages/plugins/openapi/src/sdk/invoke.ts (annotationsForOperation)
+                        packages/plugins/graphql/src/sdk/plugin.ts (annotationsFor)
+                        packages/plugins/mcp/src/sdk/plugin.ts (toToolDef)
+  src/openapi.ts        packages/plugins/openapi/src/sdk/extract.ts
+                        packages/plugins/openapi/src/sdk/openapi-utils.ts (DocResolver)
+  src/openapi-paths.ts  packages/plugins/openapi/src/sdk/definitions.ts
+  src/openapi-auth.ts   packages/plugins/openapi/src/sdk/preview.ts (security schemes and presets)
+  src/graphql.ts        packages/plugins/graphql/src/sdk/extract.ts
+                        packages/plugins/graphql/src/sdk/introspect.ts (types)
+                        packages/plugins/graphql/src/sdk/plugin.ts (tool naming)
+  src/mcp.ts            packages/plugins/mcp/src/sdk/manifest.ts
+                        packages/plugins/mcp/src/sdk/types.ts (McpToolAnnotations)
+
+cmux files (no upstream code): src/types.ts, src/catalog.ts, src/index.ts and
+the tests.
+
+No telemetry, billing, analytics, registry-fetch or credential-storage code was
+copied.
+
+Any work that bundles or copies this package (for example the cmux/integrations
+app's dist/main.js) must keep this NOTICE and the LICENSE text.

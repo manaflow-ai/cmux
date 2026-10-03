@@ -4,11 +4,10 @@ public import AppKit
 /// one theme tint over it, as the window root's bottom subview.
 ///
 /// It hosts at most one material view: an `NSGlassEffectView` for
-/// ``WindowMaterial/glass(_:)``, an `NSVisualEffectView` (`.behindWindow`,
-/// `.active`, `.underWindowBackground`) for ``WindowMaterial/frosted``, and
-/// none for ``WindowMaterial/translucent`` (only the tint) or
-/// ``WindowMaterial/opaque``, where the root paints the solid background
-/// itself. Neither the material nor the tint draws a border.
+/// ``WindowMaterial/glass(_:)``, and none for ``WindowMaterial/frosted``
+/// or ``WindowMaterial/translucent`` (only the tint; the window's CGS
+/// blur radius frosts what shows through) or ``WindowMaterial/opaque``,
+/// where the root paints the solid background itself. Neither the material nor the tint draws a border.
 /// The owner decides the backdrop (including Reduce Transparency) and calls
 /// ``apply(_:tint:)`` on every theme change.
 ///
@@ -71,14 +70,8 @@ public final class WindowMaterialView: NSView {
 
     private static func makeMaterialView(_ material: WindowMaterial) -> NSView? {
         switch material {
-        case .opaque, .translucent:
+        case .opaque, .translucent, .frosted:
             return nil
-        case .frosted:
-            let effect = NSVisualEffectView()
-            effect.material = .underWindowBackground
-            effect.blendingMode = .behindWindow
-            effect.state = .active
-            return effect
         case .glass(let style):
             let glass = NSGlassEffectView()
             glass.cornerRadius = 0

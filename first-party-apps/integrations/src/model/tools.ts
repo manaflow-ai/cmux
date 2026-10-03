@@ -4,8 +4,7 @@
 // backend's provider ops for first-class providers and to the catalog imported
 // in this session for generic ones, and keeps policy edits for the session only.
 
-import { resolveEffectivePolicy, type EffectivePolicy, type PolicyRule } from "../core/policy.ts"
-import type { Catalog, ToolAction, ToolEntry } from "../core/types.ts"
+import { resolveEffectivePolicy, type EffectivePolicy, type PolicyRule, type Catalog, type ToolAction, type ToolEntry } from "@cmux/integrations-core"
 import { t } from "../l10n.ts"
 import type { Connection } from "./connections.ts"
 import { builtinTools } from "./providers.ts"

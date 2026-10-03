@@ -16,7 +16,7 @@ import Testing
         #expect(!OnboardingModel(services: MockOnboardingServices()).steps.contains(.computerUse))
         let services = MockOnboardingServices()
         services.computerUseSource = MockComputerUsePermissionSource()
-        #expect(OnboardingModel(services: services).steps == [.role, .defaultBrowser, .importData, .theme, .computerUse])
+        #expect(OnboardingModel(services: services).steps == [.role, .projects, .defaultBrowser, .importData, .theme, .computerUse])
     }
 
     @Test func rowsFollowTheGrantsWhileTheStepShows() async {
@@ -34,6 +34,20 @@ import Testing
         source.current.screenRecording = true
         for _ in 0..<50 { await Task.yield() }
         #expect(!model.computerUse.permissions.screenRecording)
+    }
+
+    /// A grant already queued when the step stops is dropped, not applied
+    /// after the step is gone.
+    @Test func aGrantQueuedBeforeStopIsNotApplied() async {
+        let source = MockComputerUsePermissionSource()
+        let model = ComputerUseStepModel(source: source)
+        model.start()
+        source.current.screenRecording = true
+        let following = model.task
+        model.stop()
+        // The cancelled loop runs to its end, so whatever it would apply has been.
+        await following?.value
+        #expect(model.permissions == .none)
     }
 
     @Test func allowOpensTheListAndTheTileGoesWhenTheGrantLands() async {

@@ -172,6 +172,7 @@
     const template = tables[language]?.[key] ?? english;
     return template.replace(/\{(\w+)\}/g, (whole, name) => (name in vars) ? String(vars[name]) : whole);
   }
+  var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var READ_METHODS = new Set(["get", "head", "options"]);
   var opClassForHttp = (method) => {
     const m = method.toLowerCase();
@@ -250,252 +251,6 @@
     return selected ? { action: selected.action, source: selected.owner, pattern: selected.pattern, ruleId: selected.id } : undefined;
   };
   var resolveEffectivePolicy = (address, rules, defaultAction) => resolveToolPolicy(address, rules) ?? { action: defaultAction, source: "default" };
-  var FIRST_CLASS = ["github", "linear", "slack", "google_calendar", "gmail"];
-  var GENERIC = ["openapi", "graphql", "mcp"];
-  var TABLE = {
-    github: { id: "github", name: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", generic: false, ops: [{ op: "github.issue.comment", op_class: "send-external" }] },
-    linear: {
-      id: "linear",
-      name: "Linear",
-      symbol: "checklist",
-      generic: false,
-      ops: [
-        { op: "linear.teams.list", op_class: "read" },
-        { op: "linear.issue.create", op_class: "mutate-shared" }
-      ]
-    },
-    slack: { id: "slack", name: "Slack", symbol: "number", generic: false, ops: [{ op: "slack.post_as_bot", op_class: "send-external" }] },
-    google_calendar: {
-      id: "google_calendar",
-      name: "Google Calendar",
-      symbol: "calendar",
-      generic: false,
-      ops: [
-        { op: "calendar.list", op_class: "read" },
-        { op: "calendar.create", op_class: "mutate-shared" },
-        { op: "calendar.respond", op_class: "send-external" }
-      ]
-    },
-    gmail: {
-      id: "gmail",
-      name: "Gmail",
-      symbol: "envelope",
-      generic: false,
-      ops: [
-        { op: "mail.draft", op_class: "mutate-own" },
-        { op: "mail.send", op_class: "send-external" }
-      ]
-    },
-    openapi: { id: "openapi", name: "OpenAPI", symbol: "curlybraces", generic: true, ops: [] },
-    graphql: { id: "graphql", name: "GraphQL", symbol: "point.3.connected.trianglepath.dotted", generic: true, ops: [] },
-    mcp: { id: "mcp", name: "MCP", symbol: "server.rack", generic: true, ops: [] }
-  };
-  var isProviderId = (v) => typeof v === "string" && (v in TABLE);
-  var providerInfo = (id) => isProviderId(id) ? TABLE[id] : { id, name: id, symbol: "puzzlepiece.extension", generic: false, ops: [] };
-  var providerBlurb = (id) => {
-    switch (id) {
-      case "github":
-        return t("provider.github.blurb", "Issues, pull requests and repository events");
-      case "linear":
-        return t("provider.linear.blurb", "Create issues and follow team updates");
-      case "slack":
-        return t("provider.slack.blurb", "Post to channels as the cmux bot");
-      case "google_calendar":
-        return t("provider.google_calendar.blurb", "Read events and answer invitations");
-      case "gmail":
-        return t("provider.gmail.blurb", "Draft and send mail with your approval");
-      case "openapi":
-        return t("provider.openapi.blurb", "Any REST API with an OpenAPI 3 description");
-      case "graphql":
-        return t("provider.graphql.blurb", "Any GraphQL endpoint, read by introspection");
-      case "mcp":
-        return t("provider.mcp.blurb", "A remote MCP server and its tools");
-      default:
-        return "";
-    }
-  };
-  var builtinTools = (id) => providerInfo(id).ops.map((o) => ({
-    path: o.op.split(".").slice(1).join("."),
-    title: o.op,
-    kind: "provider",
-    target: o.op,
-    op_class: o.op_class,
-    default_action: defaultActionFor(o.op_class)
-  }));
-  var ATTENTION = new Set(["needs_reauth", "error"]);
-  var needsAttention = (c) => ATTENTION.has(c.status);
-  var isLive = (c) => c.status !== "revoked" && c.status !== "expired";
-  var rank = { needs_reauth: 0, error: 1, pending: 2, active: 3, expired: 4, revoked: 5 };
-  var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-  var sortConnections = (list) => [...list].filter(isLive).sort((a, b) => rank[a.status] - rank[b.status] || cmp(displayName(a).toLowerCase(), displayName(b).toLowerCase()) || cmp(a.id, b.id));
-  var providerOf = (c) => c.catalog?.kind ?? c.provider;
-  var displayName = (c) => c.catalog?.title ?? c.account?.name ?? providerInfo(c.provider).name;
-  var subtitle = (c) => {
-    const provider = providerInfo(providerOf(c)).name;
-    return c.sharing === "team" ? t("row.subtitle.team", "{provider} · Shared with team", { provider }) : t("row.subtitle.private", "{provider} · Only you", { provider });
-  };
-  var statusLabel = (s) => {
-    switch (s) {
-      case "active":
-        return t("status.active", "Connected");
-      case "pending":
-        return t("status.pending", "Waiting for approval");
-      case "needs_reauth":
-        return t("status.needsReauth", "Needs sign-in");
-      case "error":
-        return t("status.error", "Error");
-      case "revoked":
-        return t("status.revoked", "Disconnected");
-      case "expired":
-        return t("status.expired", "Link expired");
-    }
-  };
-  var statusTone = (s) => {
-    switch (s) {
-      case "active":
-        return "success";
-      case "needs_reauth":
-        return "warning";
-      case "error":
-        return "danger";
-      default:
-        return "secondary";
-    }
-  };
-  var providerAllowed = (policy, provider) => !policy || policy.allowed_providers === null || policy.allowed_providers.includes(provider);
-  var providerConfigured = (list, provider) => !!list?.providers.some((p) => p.provider === provider && p.configured);
-  var policySourceLabel = (p) => {
-    switch (p.source) {
-      case "sso":
-        return t("policy.source.sso", "Team policy managed by single sign-on");
-      case "mdm":
-        return t("policy.source.mdm", "Team policy managed by device management");
-      case "team_policy":
-        return t("policy.source.team", "Team policy managed by team settings");
-      case "admin":
-        return t("policy.source.admin", "Team policy set by an admin");
-      default:
-        return null;
-    }
-  };
-  var counts = (list) => {
-    const live = list.filter(isLive);
-    return { total: live.length, attention: live.filter(needsAttention).length, pending: live.filter((c) => c.status === "pending").length };
-  };
-  var [list, setList] = signal(null);
-  var [loadProblem, setLoadProblem] = signal(null);
-  var [loading, setLoading] = signal(true);
-  var [teamPolicy, setTeamPolicy] = signal(null);
-  var [route, setRoute] = signal({ screen: "home" });
-  var [notice, setNotice] = signal(null);
-  var codeOf = (e) => e && typeof e === "object" && ("code" in e) ? String(e.code) : "error";
-  var messageOf = (e) => e && typeof e === "object" && ("message" in e) ? String(e.message) : String(e);
-  var problemOf = (op, e) => ({ op, code: codeOf(e), message: messageOf(e) });
-  var problemText = (p) => {
-    switch (p.code) {
-      case "operation.unsupported":
-        return t("error.missing", "{op} is not available yet.", { op: p.op });
-      case "scope.missing":
-        return t("error.scope", "This app may not call {op}.", { op: p.op });
-      case "auth.unauthenticated":
-        return t("error.signedOut", "Sign in to cmux to see your integrations.");
-      case "policy.denied":
-        return t("error.policyDenied", "Your team's policy does not allow this.");
-      case "integration.not_configured":
-        return t("error.notConfigured", "This provider is not set up on this server yet.");
-      case "auth.forbidden":
-        return t("error.forbidden", "Only the person who connected it can do this.");
-      default:
-        return p.message;
-    }
-  };
-  var isMissing = (p) => !!p && (p.code === "operation.unsupported" || p.code === "scope.missing");
-  var say = (text, tone = "secondary") => setNotice({ text, tone });
-  var sayProblem = (p) => setNotice({ text: problemText(p), tone: isMissing(p) ? "secondary" : "danger" });
-  var generation = 0;
-  async function reload() {
-    const mine = ++generation;
-    const [listResult, policyResult] = await Promise.all([
-      cmux.call("integration.list", {}).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error })),
-      cmux.call("integration.policy.get", {}).then((value) => value, () => null)
-    ]);
-    if (mine !== generation)
-      return;
-    if (listResult.ok) {
-      setList(listResult.value);
-      setLoadProblem(null);
-    } else {
-      setLoadProblem(problemOf("integration.list", listResult.error));
-    }
-    setTeamPolicy(policyResult);
-    setLoading(false);
-  }
-  var connections = computed(() => sortConnections(list()?.connections ?? []));
-  var findConnection = (id) => list()?.connections.find((c) => c.id === id) ?? null;
-  function applyOwnerRecord(c) {
-    const cur = list();
-    if (!cur || !c || typeof c.id !== "string" || typeof c.provider !== "string" || typeof c.status !== "string")
-      return;
-    const rest = cur.connections.filter((x) => x.id !== c.id);
-    setList({ ...cur, connections: [...rest, c] });
-  }
-  var open = (r) => {
-    setNotice(null);
-    setRoute(r);
-  };
-  var [confirmingRevoke, setConfirmingRevoke] = signal(null);
-  function approvalNotice(r, provider) {
-    const name = providerInfo(provider).name;
-    if (r.opened === true)
-      say(t("connect.browser", "Approve {provider} in your browser.", { provider: name }));
-    else
-      say(t("connect.notOpened", "This cmux cannot open the {provider} approval page from an app yet.", { provider: name }), "warning");
-  }
-  async function connect(provider, sharing = "private") {
-    try {
-      const r = await cmux.call("integration.connect", { provider, sharing });
-      applyOwnerRecord(r.connection);
-      open({ screen: "detail", id: r.connection.id });
-      approvalNotice(r, provider);
-    } catch (e) {
-      sayProblem(problemOf("integration.connect", e));
-    }
-  }
-  async function reconnect(c) {
-    try {
-      const r = await cmux.call("integration.reauth", { connection: c.id });
-      applyOwnerRecord(r.connection);
-      approvalNotice(r, c.provider);
-    } catch (e) {
-      sayProblem(problemOf("integration.reauth", e));
-    }
-  }
-  async function share(c, sharing) {
-    try {
-      const r = await cmux.call("integration.share", { connection: c.id, sharing });
-      applyOwnerRecord(r);
-      say(sharing === "team" ? t("share.done", "Shared with your team.") : t("share.private", "Only you can use it now."), "success");
-    } catch (e) {
-      sayProblem(problemOf("integration.share", e));
-    }
-  }
-  async function revoke(c) {
-    if (confirmingRevoke() !== c.id) {
-      setConfirmingRevoke(c.id);
-      return;
-    }
-    setConfirmingRevoke(null);
-    try {
-      const r = await cmux.call("integration.revoke", { connection: c.id });
-      applyOwnerRecord(r);
-      open({ screen: "home" });
-      say(t("revoke.done", "Disconnected {name}.", { name: c.account?.name ?? providerInfo(c.provider).name }));
-    } catch (e) {
-      sayProblem(problemOf("integration.revoke", e));
-    }
-  }
-  var cancelRevoke = () => setConfirmingRevoke(null);
-  var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var TYPES = new Set(["http", "apiKey", "oauth2", "openIdConnect"]);
   var scopesOf = (v) => isRecord(v) ? Object.keys(v) : [];
   var extractFlows = (rawFlows) => {
@@ -1163,6 +918,251 @@
       counts[t.default_action]++;
     return counts;
   };
+  var FIRST_CLASS = ["github", "linear", "slack", "google_calendar", "gmail"];
+  var GENERIC = ["openapi", "graphql", "mcp"];
+  var TABLE = {
+    github: { id: "github", name: "GitHub", symbol: "chevron.left.forwardslash.chevron.right", generic: false, ops: [{ op: "github.issue.comment", op_class: "send-external" }] },
+    linear: {
+      id: "linear",
+      name: "Linear",
+      symbol: "checklist",
+      generic: false,
+      ops: [
+        { op: "linear.teams.list", op_class: "read" },
+        { op: "linear.issue.create", op_class: "mutate-shared" }
+      ]
+    },
+    slack: { id: "slack", name: "Slack", symbol: "number", generic: false, ops: [{ op: "slack.post_as_bot", op_class: "send-external" }] },
+    google_calendar: {
+      id: "google_calendar",
+      name: "Google Calendar",
+      symbol: "calendar",
+      generic: false,
+      ops: [
+        { op: "calendar.list", op_class: "read" },
+        { op: "calendar.create", op_class: "mutate-shared" },
+        { op: "calendar.respond", op_class: "send-external" }
+      ]
+    },
+    gmail: {
+      id: "gmail",
+      name: "Gmail",
+      symbol: "envelope",
+      generic: false,
+      ops: [
+        { op: "mail.draft", op_class: "mutate-own" },
+        { op: "mail.send", op_class: "send-external" }
+      ]
+    },
+    openapi: { id: "openapi", name: "OpenAPI", symbol: "curlybraces", generic: true, ops: [] },
+    graphql: { id: "graphql", name: "GraphQL", symbol: "point.3.connected.trianglepath.dotted", generic: true, ops: [] },
+    mcp: { id: "mcp", name: "MCP", symbol: "server.rack", generic: true, ops: [] }
+  };
+  var isProviderId = (v) => typeof v === "string" && (v in TABLE);
+  var providerInfo = (id) => isProviderId(id) ? TABLE[id] : { id, name: id, symbol: "puzzlepiece.extension", generic: false, ops: [] };
+  var providerBlurb = (id) => {
+    switch (id) {
+      case "github":
+        return t("provider.github.blurb", "Issues, pull requests and repository events");
+      case "linear":
+        return t("provider.linear.blurb", "Create issues and follow team updates");
+      case "slack":
+        return t("provider.slack.blurb", "Post to channels as the cmux bot");
+      case "google_calendar":
+        return t("provider.google_calendar.blurb", "Read events and answer invitations");
+      case "gmail":
+        return t("provider.gmail.blurb", "Draft and send mail with your approval");
+      case "openapi":
+        return t("provider.openapi.blurb", "Any REST API with an OpenAPI 3 description");
+      case "graphql":
+        return t("provider.graphql.blurb", "Any GraphQL endpoint, read by introspection");
+      case "mcp":
+        return t("provider.mcp.blurb", "A remote MCP server and its tools");
+      default:
+        return "";
+    }
+  };
+  var builtinTools = (id) => providerInfo(id).ops.map((o) => ({
+    path: o.op.split(".").slice(1).join("."),
+    title: o.op,
+    kind: "provider",
+    target: o.op,
+    op_class: o.op_class,
+    default_action: defaultActionFor(o.op_class)
+  }));
+  var ATTENTION = new Set(["needs_reauth", "error"]);
+  var needsAttention = (c) => ATTENTION.has(c.status);
+  var isLive = (c) => c.status !== "revoked" && c.status !== "expired";
+  var rank = { needs_reauth: 0, error: 1, pending: 2, active: 3, expired: 4, revoked: 5 };
+  var cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
+  var sortConnections = (list) => [...list].filter(isLive).sort((a, b) => rank[a.status] - rank[b.status] || cmp(displayName(a).toLowerCase(), displayName(b).toLowerCase()) || cmp(a.id, b.id));
+  var providerOf = (c) => c.catalog?.kind ?? c.provider;
+  var displayName = (c) => c.catalog?.title ?? c.account?.name ?? providerInfo(c.provider).name;
+  var subtitle = (c) => {
+    const provider = providerInfo(providerOf(c)).name;
+    return c.sharing === "team" ? t("row.subtitle.team", "{provider} · Shared with team", { provider }) : t("row.subtitle.private", "{provider} · Only you", { provider });
+  };
+  var statusLabel = (s) => {
+    switch (s) {
+      case "active":
+        return t("status.active", "Connected");
+      case "pending":
+        return t("status.pending", "Waiting for approval");
+      case "needs_reauth":
+        return t("status.needsReauth", "Needs sign-in");
+      case "error":
+        return t("status.error", "Error");
+      case "revoked":
+        return t("status.revoked", "Disconnected");
+      case "expired":
+        return t("status.expired", "Link expired");
+    }
+  };
+  var statusTone = (s) => {
+    switch (s) {
+      case "active":
+        return "success";
+      case "needs_reauth":
+        return "warning";
+      case "error":
+        return "danger";
+      default:
+        return "secondary";
+    }
+  };
+  var providerAllowed = (policy, provider) => !policy || policy.allowed_providers === null || policy.allowed_providers.includes(provider);
+  var providerConfigured = (list, provider) => !!list?.providers.some((p) => p.provider === provider && p.configured);
+  var policySourceLabel = (p) => {
+    switch (p.source) {
+      case "sso":
+        return t("policy.source.sso", "Team policy managed by single sign-on");
+      case "mdm":
+        return t("policy.source.mdm", "Team policy managed by device management");
+      case "team_policy":
+        return t("policy.source.team", "Team policy managed by team settings");
+      case "admin":
+        return t("policy.source.admin", "Team policy set by an admin");
+      default:
+        return null;
+    }
+  };
+  var counts = (list) => {
+    const live = list.filter(isLive);
+    return { total: live.length, attention: live.filter(needsAttention).length, pending: live.filter((c) => c.status === "pending").length };
+  };
+  var [list, setList] = signal(null);
+  var [loadProblem, setLoadProblem] = signal(null);
+  var [loading, setLoading] = signal(true);
+  var [teamPolicy, setTeamPolicy] = signal(null);
+  var [route, setRoute] = signal({ screen: "home" });
+  var [notice, setNotice] = signal(null);
+  var codeOf = (e) => e && typeof e === "object" && ("code" in e) ? String(e.code) : "error";
+  var messageOf = (e) => e && typeof e === "object" && ("message" in e) ? String(e.message) : String(e);
+  var problemOf = (op, e) => ({ op, code: codeOf(e), message: messageOf(e) });
+  var problemText = (p) => {
+    switch (p.code) {
+      case "operation.unsupported":
+        return t("error.missing", "{op} is not available yet.", { op: p.op });
+      case "scope.missing":
+        return t("error.scope", "This app may not call {op}.", { op: p.op });
+      case "auth.unauthenticated":
+        return t("error.signedOut", "Sign in to cmux to see your integrations.");
+      case "policy.denied":
+        return t("error.policyDenied", "Your team's policy does not allow this.");
+      case "integration.not_configured":
+        return t("error.notConfigured", "This provider is not set up on this server yet.");
+      case "auth.forbidden":
+        return t("error.forbidden", "Only the person who connected it can do this.");
+      default:
+        return p.message;
+    }
+  };
+  var isMissing = (p) => !!p && (p.code === "operation.unsupported" || p.code === "scope.missing");
+  var say = (text, tone = "secondary") => setNotice({ text, tone });
+  var sayProblem = (p) => setNotice({ text: problemText(p), tone: isMissing(p) ? "secondary" : "danger" });
+  var generation = 0;
+  async function reload() {
+    const mine = ++generation;
+    const [listResult, policyResult] = await Promise.all([
+      cmux.call("integration.list", {}).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error })),
+      cmux.call("integration.policy.get", {}).then((value) => value, () => null)
+    ]);
+    if (mine !== generation)
+      return;
+    if (listResult.ok) {
+      setList(listResult.value);
+      setLoadProblem(null);
+    } else {
+      setLoadProblem(problemOf("integration.list", listResult.error));
+    }
+    setTeamPolicy(policyResult);
+    setLoading(false);
+  }
+  var connections = computed(() => sortConnections(list()?.connections ?? []));
+  var findConnection = (id) => list()?.connections.find((c) => c.id === id) ?? null;
+  function applyOwnerRecord(c) {
+    const cur = list();
+    if (!cur || !c || typeof c.id !== "string" || typeof c.provider !== "string" || typeof c.status !== "string")
+      return;
+    const rest = cur.connections.filter((x) => x.id !== c.id);
+    setList({ ...cur, connections: [...rest, c] });
+  }
+  var open = (r) => {
+    setNotice(null);
+    setRoute(r);
+  };
+  var [confirmingRevoke, setConfirmingRevoke] = signal(null);
+  function approvalNotice(r, provider) {
+    const name = providerInfo(provider).name;
+    if (r.opened === true)
+      say(t("connect.browser", "Approve {provider} in your browser.", { provider: name }));
+    else
+      say(t("connect.notOpened", "This cmux cannot open the {provider} approval page from an app yet.", { provider: name }), "warning");
+  }
+  async function connect(provider, sharing = "private") {
+    try {
+      const r = await cmux.call("integration.connect", { provider, sharing });
+      applyOwnerRecord(r.connection);
+      open({ screen: "detail", id: r.connection.id });
+      approvalNotice(r, provider);
+    } catch (e) {
+      sayProblem(problemOf("integration.connect", e));
+    }
+  }
+  async function reconnect(c) {
+    try {
+      const r = await cmux.call("integration.reauth", { connection: c.id });
+      applyOwnerRecord(r.connection);
+      approvalNotice(r, c.provider);
+    } catch (e) {
+      sayProblem(problemOf("integration.reauth", e));
+    }
+  }
+  async function share(c, sharing) {
+    try {
+      const r = await cmux.call("integration.share", { connection: c.id, sharing });
+      applyOwnerRecord(r);
+      say(sharing === "team" ? t("share.done", "Shared with your team.") : t("share.private", "Only you can use it now."), "success");
+    } catch (e) {
+      sayProblem(problemOf("integration.share", e));
+    }
+  }
+  async function revoke(c) {
+    if (confirmingRevoke() !== c.id) {
+      setConfirmingRevoke(c.id);
+      return;
+    }
+    setConfirmingRevoke(null);
+    try {
+      const r = await cmux.call("integration.revoke", { connection: c.id });
+      applyOwnerRecord(r);
+      open({ screen: "home" });
+      say(t("revoke.done", "Disconnected {name}.", { name: c.account?.name ?? providerInfo(c.provider).name }));
+    } catch (e) {
+      sayProblem(problemOf("integration.revoke", e));
+    }
+  }
+  var cancelRevoke = () => setConfirmingRevoke(null);
   var [byConnection, setByConnection] = signal({});
   var sessionCatalogs = new Map;
   var toolsOf = (id) => byConnection()[id] ?? null;
