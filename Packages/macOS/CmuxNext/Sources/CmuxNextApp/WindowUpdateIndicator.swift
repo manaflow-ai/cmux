@@ -66,6 +66,7 @@ final class WindowUpdateIndicator {
     /// keeps its distance from the window's bottom-left corner on resize.
     private func showPill(_ text: String) {
         pill.text = text
+        pill.isHidden = true
         guard let column, let content = column.window?.contentView else { return }
         column.layoutSubtreeIfNeeded()
         guard let slot = column.layoutResult.accessory else { return }

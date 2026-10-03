@@ -156,4 +156,17 @@ import Testing
         _ = await updater.checkForUpdates()?.value
         #expect(presented == 1)
     }
+
+    /// A note's timeout leaves the state alone while the sheet shows its details.
+    @Test func aNoteOutlivesItsTimeoutWhileTheSheetIsOpen() async {
+        let (updater, _) = service(AppcastFixtures.identity(bundle: "com.cmuxterm.app.debug.t"), data: nil)
+        _ = await updater.checkForUpdates()?.value
+        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
+        updater.isSheetPresented = { true }
+        updater.dismissIndicatorNote()
+        #expect(updater.indicatorPhase == .note(UpdaterStrings.checkFailed, isError: true))
+        updater.isSheetPresented = { false }
+        updater.dismissIndicatorNote()
+        #expect(updater.indicatorPhase == .hidden)
+    }
 }

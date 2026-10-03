@@ -39,10 +39,17 @@ public final class UpdateIndicatorView: NSView {
     override public var wantsUpdateLayer: Bool { true }
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
+    override public func hitTest(_ point: NSPoint) -> NSView? {
+        phase.showsCircle ? super.hitTest(point) : nil
+    }
+
     public func show(_ phase: UpdateIndicatorPhase, toolTip: String?) {
         self.phase = phase
-        self.toolTip = toolTip
+        // A note keeps the slot empty: no hover, clicks or VoiceOver button there.
+        self.toolTip = phase.showsCircle ? toolTip : nil
+        setAccessibilityElement(phase.showsCircle)
         setAccessibilityLabel(toolTip)
+        if !phase.showsCircle { hover.state = .init() }
         needsLayout = true
         needsDisplay = true
     }
@@ -122,7 +129,10 @@ public final class UpdateIndicatorView: NSView {
         needsDisplay = true
     }
 
-    override public func mouseEntered(with event: NSEvent) { changeHover { $0.hovering = true } }
+    override public func mouseEntered(with event: NSEvent) {
+        guard phase.showsCircle else { return }
+        changeHover { $0.hovering = true }
+    }
     override public func mouseExited(with event: NSEvent) { changeHover { $0.hovering = false; $0.pressed = false } }
     override public func mouseDown(with event: NSEvent) { changeHover { $0.pressed = true } }
 

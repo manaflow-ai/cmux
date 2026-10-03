@@ -36,9 +36,10 @@ public final class UpdatePillView: NSView {
         }
     }
 
-    /// The capsule's size for `text` at `height`.
+    /// The capsule's width for `text` at `height`: the label, a half-height
+    /// cap at each end, and room for the material's own content inset.
     public func fittingWidth(height: CGFloat) -> CGFloat {
-        (label.intrinsicContentSize.width + height).rounded(.up)
+        (label.intrinsicContentSize.width + height + Metrics.space2 * 2).rounded(.up)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -50,9 +51,13 @@ public final class UpdatePillView: NSView {
         super.layout()
         surface.frame = bounds
         surface.cornerRadius = bounds.height / 2
+        // Glass lays `contentView` out itself (it may be inset): center in it.
+        surface.layoutSubtreeIfNeeded()
+        let box = surface.contentView.bounds
         let size = label.intrinsicContentSize
-        label.frame = CGRect(x: bounds.height / 2, y: ((bounds.height - size.height) / 2).rounded(),
-                             width: max(0, bounds.width - bounds.height), height: size.height)
+        let width = min(size.width.rounded(.up), box.width)
+        label.frame = CGRect(x: ((box.width - width) / 2).rounded(), y: ((box.height - size.height) / 2).rounded(),
+                             width: width, height: size.height)
         performWithTheme { label.textColor = Palette.textPrimary }
     }
 }

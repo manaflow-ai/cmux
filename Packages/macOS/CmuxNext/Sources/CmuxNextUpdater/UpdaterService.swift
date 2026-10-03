@@ -46,6 +46,9 @@ public final class UpdaterService {
     /// false while the window rail is off). Without it, checks and installs
     /// open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
+    /// Whether the update sheet is on screen (set by the App): a note's
+    /// timeout then leaves the state alone so the sheet keeps its details.
+    @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
     @ObservationIgnored private let policy: ManagedUpdatePolicy
     @ObservationIgnored private let prober: UpdateProber
     @ObservationIgnored private let defaults: UserDefaults

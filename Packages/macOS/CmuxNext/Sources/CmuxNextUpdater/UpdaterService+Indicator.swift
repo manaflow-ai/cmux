@@ -32,6 +32,7 @@ extension UpdaterService {
 
     /// The note beside the circle timed out (up to date clears itself).
     public func dismissIndicatorNote() {
+        guard !isSheetPresented() else { return }
         if case .note = debugIndicatorPhase { debugIndicatorPhase = nil }
         showsProbeResult = false
         if let state = controller?.model.effectiveState, case .error = state { state.cancel() }
