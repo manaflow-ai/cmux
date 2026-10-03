@@ -6341,6 +6341,13 @@
       "id" : "home.show",
       "mcp" : "focusMove",
       "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
       "title" : "Go to Home",
       "title_key" : "action.home.show",
       "title_table" : "Localizable"

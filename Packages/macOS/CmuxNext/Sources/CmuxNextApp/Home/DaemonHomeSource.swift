@@ -1,18 +1,23 @@
 import CmuxHomeCore
 import CmuxNextDaemon
 import Foundation
+import Synchronization
 
 /// The shared Home core's `HomeSource` over the local daemon's conversation
 /// owner (`local-conversations-v1`, plans/cmux-next/home-mac.md 1). The owner
 /// is the daemon; this adapter only reads its replies and events and sends
 /// typed ops with the intent's idempotency key. `HomeService` feeds the
 /// owner's events (side events and connection changes) through `publish`.
-nonisolated final class DaemonHomeSource: HomeSource, @unchecked Sendable {
-    // @unchecked: `continuations` and `connection` change only under `lock`.
-    private let lock = NSLock()
-    private var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
-    private var connection: DaemonConnection?
-    private var lastEvent: [HomeEvent] = []
+nonisolated final class DaemonHomeSource: HomeSource {
+    private struct State {
+        var continuations: [UUID: AsyncStream<HomeEvent>.Continuation] = [:]
+        var connection: DaemonConnection?
+        var lastEvent: [HomeEvent] = []
+    }
+    private let state = Mutex(State())
+    /// Per subscriber. A subscriber that falls this far behind loses the
+    /// oldest events; the store sees the revision gap and refetches.
+    private static let eventBuffer = 1024
 
     /// The local user: the only `me` of the local owner.
     let me: Participant
@@ -26,7 +31,7 @@ nonisolated final class DaemonHomeSource: HomeSource, @unchecked Sendable {
     /// A new connection (or none): the stream restarts with `.connection`
     /// and, when online, the full inbox.
     func connectionChanged(_ connection: DaemonConnection?) {
-        lock.withLock { self.connection = connection }
+        state.withLock { $0.connection = connection }
         guard connection != nil else {
             publish(.connection(.offline(since: Date())))
             return
@@ -40,9 +45,9 @@ nonisolated final class DaemonHomeSource: HomeSource, @unchecked Sendable {
     }
 
     func publish(_ event: HomeEvent) {
-        let targets = lock.withLock { () -> [AsyncStream<HomeEvent>.Continuation] in
-            if case .connection = event { lastEvent = [event] } else if case .inbox = event { lastEvent.append(event) }
-            return Array(continuations.values)
+        let targets = state.withLock { state -> [AsyncStream<HomeEvent>.Continuation] in
+            if case .connection = event { state.lastEvent = [event] } else if case .inbox = event { state.lastEvent.append(event) }
+            return Array(state.continuations.values)
         }
         for target in targets { target.yield(event) }
     }
@@ -65,21 +70,21 @@ nonisolated final class DaemonHomeSource: HomeSource, @unchecked Sendable {
 
     func events() async -> AsyncStream<HomeEvent> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<HomeEvent>.makeStream()
-        let replay = lock.withLock { () -> [HomeEvent] in
-            continuations[id] = continuation
-            return lastEvent
+        let (stream, continuation) = AsyncStream<HomeEvent>.makeStream(bufferingPolicy: .bufferingNewest(Self.eventBuffer))
+        let replay = state.withLock { state -> [HomeEvent] in
+            state.continuations[id] = continuation
+            return state.lastEvent
         }
         for event in replay.isEmpty ? [.connection(.connecting)] : replay { continuation.yield(event) }
         continuation.onTermination = { [weak self] _ in
             guard let self else { return }
-            lock.withLock { _ = self.continuations.removeValue(forKey: id) }
+            state.withLock { _ = $0.continuations.removeValue(forKey: id) }
         }
         return stream
     }
 
     private func requireConnection() throws -> DaemonConnection {
-        guard let connection = lock.withLock({ connection }) else { throw HomeRejection.ownerUnreachable }
+        guard let connection = state.withLock({ $0.connection }) else { throw HomeRejection.ownerUnreachable }
         return connection
     }
 
