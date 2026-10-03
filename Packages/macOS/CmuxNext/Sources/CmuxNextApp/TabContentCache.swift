@@ -12,23 +12,22 @@ import Observation
 /// view (`SurfaceLedger`). Surfaces exist for tabs presented on screen or in
 /// the keep-alive band (off-screen columns within one viewport width, paused)
 /// plus an LRU of 8 recently hidden ones; older hidden surfaces are destroyed and re-attach
-/// from the daemon replay when shown. Previews of destroyed surfaces stay in
-/// a 32 MB image LRU.
+/// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:]
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
-    /// Every tab's content phase and visibility generation
-    /// (plans/cmux-next/tab-lifecycle.md): the only source of show and hide
-    /// for terminal surfaces and pages (`TabContentCache+Lifecycle`).
+    /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
+    /// the only source of show and hide for terminal surfaces and pages (`TabContentCache+Lifecycle`).
     var lifecycle = ContentLifecycle<String>()
     /// Shown tabs whose content did not exist yet (a Chromium page being
     /// created): the token of their `mount`, answered when it installs.
     var pendingMounts: [String: ContentLifecycle<String>.Token] = [:]
     /// How many hidden terminal surfaces stay warm (memory budget; pressure).
     var warmBudget = WarmSetBudget.standard
+    var onRelease: ((String) -> Void)?
     /// Hibernates hidden pages (time, memory pressure) and restores them.
     var hibernation: BrowserHibernation?
     /// Hibernated tabs, observed by the tab strips.
@@ -348,8 +347,9 @@ final class TabContentCache {
         browsers.first { $0.value.tab === page }?.key
     }
 
-    /// The tab closed: free everything it held.
+    /// The tab closed: free everything it held (a conversation tab's view: `onRelease`).
     func release(_ key: String) {
+        onRelease?(key)
         if let owner = ledger.remove(key) { presenters[owner]?.value?.surfaceWasDisplaced(key) }
         applyLifecycle(lifecycle.send(.removed(key)))
         pendingMounts[key] = nil

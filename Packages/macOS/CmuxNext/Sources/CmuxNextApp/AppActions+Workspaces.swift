@@ -35,7 +35,12 @@ extension AppActions {
             let pick = number >= 9 ? all[all.count - 1] : all[min(number - 1, all.count - 1)]
             services.windows.show(workspaceID: pick, in: state)
         })
-        registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
+        // Home is the store's home workspace (home.md 7): select it like any workspace.
+        registry.bind("home.show") {
+            guard let state = services.windows.active?.state, let home = services.home.homeWorkspace else { return }
+            services.windows.show(workspaceID: home.id, in: state)
+        }
+                registry.bind("moveWorkspaceUp", invoke: { moveWorkspace(services, $0, by: -1) })
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 

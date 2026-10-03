@@ -289,6 +289,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
+        case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil
         }
@@ -303,6 +304,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
         if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
 
