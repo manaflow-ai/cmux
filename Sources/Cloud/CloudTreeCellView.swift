@@ -288,7 +288,11 @@ final class CloudTreeCellView: NSTableCellView {
         let description = CloudTreeRowToolTip.describe(node: node, style: style, presenceHeads: presenceHeads)
         toolTip = description.toolTip
         setAccessibilityLabel(description.accessibilityLabel)
-        displayHost.interactiveRects = []
+        // A header keeps its icon's clickable spot across reloads: SwiftUI
+        // reports the icon's frame only when it moves, and a reload that
+        // leaves it in place would otherwise leave the header with no
+        // clickable spot, so a click on the icon would toggle the section.
+        if CloudTreeRowContentView.sectionRefresh(for: node.kind) == nil { displayHost.interactiveRects = [] }
         displayHost.rootView = AnyView(
             CloudTreeRowContentView(
                 kind: node.kind, presenceHeads: presenceHeads, style: style, resources: node.resourceSection,
