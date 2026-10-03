@@ -73,10 +73,10 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .downcast_ref::<crate::LayoutUndoError>()
         .map(|error| error.code().to_string())
         .or_else(|| {
-            error.downcast_ref::<crate::LayoutRatioError>().map(|error| error.code().to_string())
+            error.downcast_ref::<super::LayoutRatioError>().map(|error| error.code().to_string())
         })
         .or_else(|| {
-            error.downcast_ref::<crate::ViewportWidthError>().map(|error| error.code().to_string())
+            error.downcast_ref::<super::ViewportWidthError>().map(|error| error.code().to_string())
         })
         .or_else(|| {
             error
