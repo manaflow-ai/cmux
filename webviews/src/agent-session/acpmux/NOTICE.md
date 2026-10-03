@@ -1,7 +1,7 @@
-# Notice: code copied from agent-pane-reference
+# Notice: code copied from a private reference repository
 
-Parts of this directory were copied from the private repository
-`manaflow-ai/agent-pane-reference` and then changed here. The copied code is
+Parts of this directory were copied from a private Manaflow reference
+repository and then changed here. The copied code is
 mainly in `conversation/` and `changes/`, plus the transcript, turn and
 edited-files card code that came with them. Copy commits: bf60795ae57,
 0ee808b0d41, 32f3ea4677e, dbccdf79dc6, fabc08bb57e, 164bb7260e0, 8a44d9210e3,
@@ -9,7 +9,7 @@ edited-files card code that came with them. Copy commits: bf60795ae57,
 
 License record (spec decision S7, 2026-10-01):
 
-- `agent-pane-reference` has no LICENSE file. Lawrence Chen (GitHub
+- The reference repository has no LICENSE file. Lawrence Chen (GitHub
   `lawrencecchen`) is the author of all 74 of its commits (2026-10-01, last
   commit 7aae264b083). It contains no third-party source in the copied
   directories.
