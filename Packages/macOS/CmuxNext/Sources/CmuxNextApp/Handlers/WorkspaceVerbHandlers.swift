@@ -162,7 +162,7 @@ enum WorkspaceVerbHandlers {
 
     private static func select(_ context: AppActionContext, _ pick: ([SidebarWorkspaceID]) -> SidebarWorkspaceID?) throws {
         guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
-        guard let id = pick(window.sidebar.model.allWorkspaces.map(\.id)) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
+        guard let id = pick(window.sidebar.model.selectableWorkspaces.map(\.id)) else { throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn) }
         context.services.windows.show(workspaceID: id.rawValue, in: window.state)
     }
 
