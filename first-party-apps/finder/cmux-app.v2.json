@@ -65,11 +65,30 @@
   },
   "optionalScopes": {
     "fs:write": "Create, rename, copy, move and trash files when you ask, only in folders you gave it write access to.",
-    "agent:write": "Attach files to an agent when you choose Attach to Agent."
+    "agent:write": "Attach files to an agent when you choose Attach to Agent.",
+    "host:control": "Open the connect sheet for a host you choose; cmux asks for any password or key.",
+    "terminal:input": "Insert the path of a file you drop on a terminal."
   },
   "handles": {
-    "root": "Folders you add to Finder.",
-    "host": "Hosts you connect to Finder."
+    "root": {
+      "reason": "Browse and change files in folders you pick.",
+      "rights": [
+        "read",
+        "write"
+      ],
+      "max": 64
+    },
+    "connection": {
+      "reason": "Browse files on hosts you connect: cmux servers, Cloud VMs, the team VM and SSH hosts.",
+      "max": 32,
+      "kinds": [
+        "ssh",
+        "cloud-vm",
+        "team-vm",
+        "cmux-host",
+        "local"
+      ]
+    }
   },
   "strings": "strings/",
   "variants": [
@@ -106,5 +125,41 @@
     "assets/",
     "catalog/",
     "strings/"
-  ]
+  ],
+  "drag": {
+    "provides": [
+      "file",
+      "directory"
+    ]
+  },
+  "drop": {
+    "accepts": [
+      "file",
+      "directory",
+      "url",
+      "text"
+    ]
+  },
+  "consumes": {
+    "ops": [
+      "fs.list",
+      "fs.stat",
+      "fs.read",
+      "fs.write",
+      "fs.mkdir",
+      "fs.rename",
+      "fs.copy",
+      "fs.move",
+      "fs.trash",
+      "fs.delete",
+      "host.list",
+      "host.connect",
+      "terminal.drop",
+      "agent.attach"
+    ],
+    "handles": [
+      "root",
+      "connection"
+    ]
+  }
 }

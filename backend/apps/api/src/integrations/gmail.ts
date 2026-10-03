@@ -1,5 +1,5 @@
 import { ProviderError, type ProviderImpl } from "./provider-core.ts"
-import { googleApi, googleAuthorizeUrl, googleComplete, googleConfigured, googleRefresh, oauthToken, refuseGoogleScopes, restrictedScopesEnabled } from "./google.ts"
+import { googleApi, googleAuthorizeUrl, googleComplete, googleConfigured, googleRefresh, googleGrantKeys, googleRevoke, oauthToken, refuseGoogleScopes, restrictedScopesEnabled } from "./google.ts"
 
 /**
  * Gmail provider (S2, S3). Reads return content at call time only; nothing
@@ -124,6 +124,8 @@ export const gmail: ProviderImpl = {
   authorizeUrl: googleAuthorizeUrl,
   complete: googleComplete("gmail"),
   refresh: googleRefresh,
+  revoke: googleRevoke,
+  grantKeys: googleGrantKeys,
   scopesFor: (op) => SCOPES[op],
   call: async (_env, http, credential, op, params) => {
     const token = oauthToken(credential)

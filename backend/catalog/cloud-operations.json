@@ -2879,6 +2879,13 @@
             "kind": "ref",
             "name": "TeamId"
           }
+        },
+        "sso_team": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
         }
       }
     },
@@ -2964,6 +2971,17 @@
       "kind": "primitive",
       "name": "string",
       "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+    },
+    "Meter": {
+      "kind": "enum",
+      "values": [
+        "automation.steps",
+        "automation.cpu_ms",
+        "automation.invocations",
+        "automation.dynamic_workers",
+        "egress.requests",
+        "model.spend_usd"
+      ]
     },
     "OpClass": {
       "kind": "enum",
@@ -3467,6 +3485,52 @@
         "dead"
       ]
     },
+    "SshCertClass": {
+      "kind": "enum",
+      "values": [
+        "human",
+        "agent"
+      ],
+      "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+    },
+    "SshPresenceProof": {
+      "kind": "object",
+      "fields": {
+        "install": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "InstallId"
+          }
+        },
+        "nonce": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 128
+          }
+        },
+        "signature": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 512
+          }
+        },
+        "app_attest": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 8192
+          }
+        }
+      }
+    },
     "SsoConnection": {
       "kind": "object",
       "fields": {
@@ -3916,6 +3980,15 @@
           }
         }
       }
+    },
+    "TeamJournalStream": {
+      "kind": "enum",
+      "values": [
+        "tasks",
+        "mail",
+        "memory",
+        "files"
+      ]
     },
     "TeamMember": {
       "kind": "object",
@@ -4723,6 +4796,142 @@
         }
       }
     },
+    "TeamVmError": {
+      "kind": "object",
+      "fields": {
+        "code": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
+    "TeamVmLeaseId": {
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 64
+    },
+    "TeamVmStatus": {
+      "kind": "enum",
+      "values": [
+        "none",
+        "provisioning",
+        "starting",
+        "running",
+        "paused",
+        "failed"
+      ],
+      "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+    },
+    "TeamVmView": {
+      "kind": "object",
+      "fields": {
+        "team": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamId"
+          }
+        },
+        "status": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "TeamVmStatus"
+          }
+        },
+        "vm": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "epoch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "leases": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "object",
+              "fields": {
+                "lease": {
+                  "required": true,
+                  "type": {
+                    "kind": "ref",
+                    "name": "TeamVmLeaseId"
+                  }
+                },
+                "holder": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "reason": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                },
+                "expires_at": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "last_error": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamVmError"
+            }
+          }
+        },
+        "updated_at": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      }
+    },
     "Timestamp": {
       "kind": "primitive",
       "name": "string",
@@ -5003,6 +5212,197 @@
           }
         }
       ]
+    },
+    "UsageMeterLine": {
+      "kind": "object",
+      "fields": {
+        "meter": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "Meter"
+          }
+        },
+        "unit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "quantity": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "UsageStopReason": {
+      "kind": "enum",
+      "values": [
+        "cap.reached",
+        "cap.not_configured"
+      ]
+    },
+    "UsageSummary": {
+      "kind": "object",
+      "fields": {
+        "owner": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          }
+        },
+        "month": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "meters": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "UsageMeterLine"
+            }
+          }
+        },
+        "total_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "cap_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "ceiling_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "team_cap_usd": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        "stopped": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "UsageStopReason"
+            }
+          }
+        }
+      }
     },
     "UserId": {
       "kind": "primitive",
@@ -27118,6 +27518,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -27591,6 +27994,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -27844,6 +28250,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -28081,6 +28490,9 @@
               },
               "bound_team": {
                 "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
+                "$ref": "#/$defs/TeamId"
               }
             },
             "required": [
@@ -28296,6 +28708,9 @@
                 ]
               },
               "bound_team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "sso_team": {
                 "$ref": "#/$defs/TeamId"
               }
             },
@@ -35982,6 +36397,1985 @@
         }
       }
     },
+    "team_vm.ensure_awake": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "reason": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 40
+            }
+          },
+          "lease_seconds": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "lease": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmLeaseId"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "status": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmStatus"
+                }
+              },
+              "vm": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.not_configured",
+        "team_vm.plan_gate_missing",
+        "team_vm.provider_failed",
+        "team_vm.provider_refused",
+        "team_vm.slug_conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm wake",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "lease_seconds": {
+            "type": "integer",
+            "minimum": 30,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          },
+          "expires_at": {
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/$defs/TeamVmStatus"
+          },
+          "vm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "lease",
+          "expires_at",
+          "status",
+          "vm",
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "TeamVmStatus": {
+            "type": "string",
+            "enum": [
+              "none",
+              "provisioning",
+              "starting",
+              "running",
+              "paused",
+              "failed"
+            ],
+            "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+          }
+        }
+      }
+    },
+    "team_vm.journal.append": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "first_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "last_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "bytes": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "sha256": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "stream": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamJournalStream"
+                }
+              },
+              "first_seq": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "last_seq": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "epoch": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "high_water": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "replayed": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "journal.conflict",
+        "journal.full",
+        "journal.gap",
+        "journal.stale_epoch",
+        "journal.too_large",
+        "revision.conflict",
+        "team_vm.not_bound",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-own",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team journal append",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "first_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bytes": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "stream",
+          "epoch",
+          "first_seq",
+          "last_seq",
+          "bytes",
+          "sha256"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "first_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "epoch": {
+            "type": "integer"
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stream",
+          "first_seq",
+          "last_seq",
+          "epoch",
+          "high_water",
+          "replayed"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      }
+    },
+    "team_vm.journal.high_water": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "high_water": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "epoch": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "team_vm.not_bound"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team journal high-water",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          }
+        },
+        "required": [
+          "stream"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "epoch": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stream",
+          "high_water",
+          "epoch"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      }
+    },
+    "team_vm.journal.read": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "stream": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamJournalStream"
+            }
+          },
+          "from_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "entries": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "first_seq": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "last_seq": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "epoch": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "int64"
+                    }
+                  },
+                  "sha256": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "bytes": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "high_water": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "more": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "team_vm.not_bound"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team journal read",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/$defs/TeamJournalStream"
+          },
+          "from_seq": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "required": [
+          "stream",
+          "from_seq"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamJournalStream": {
+            "type": "string",
+            "enum": [
+              "tasks",
+              "mail",
+              "memory",
+              "files"
+            ]
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "first_seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "last_seq": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "epoch": {
+                  "type": "integer"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "first_seq",
+                "last_seq",
+                "epoch",
+                "sha256",
+                "bytes"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "high_water": {
+            "type": "integer"
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "entries",
+          "high_water",
+          "more"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.lease.release": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "lease": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamVmLeaseId"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "lease": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "TeamVmLeaseId"
+                }
+              },
+              "released": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "boolean"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team vm release",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Release a wake lease you hold, so the team VM may pause when no other lease is active.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          }
+        },
+        "required": [
+          "lease"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "lease": {
+            "$ref": "#/$defs/TeamVmLeaseId"
+          },
+          "released": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lease",
+          "released"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        }
+      }
+    },
+    "team_vm.ssh_ca": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamId"
+            }
+          },
+          "generation": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "trusted_ca_keys": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          },
+          "krl": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "krl_version": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ssh ca",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "$ref": "#/$defs/TeamId"
+          },
+          "generation": {
+            "type": "integer"
+          },
+          "trusted_ca_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "krl": {
+            "type": "string"
+          },
+          "krl_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "team",
+          "generation",
+          "trusted_ca_keys",
+          "krl",
+          "krl_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      }
+    },
+    "team_vm.ssh_ca.rotate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "compromised": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "previous_trusted_until": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "destructive",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh rotate-ca",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "compromised": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "integer"
+          },
+          "ca_public_key": {
+            "type": "string"
+          },
+          "previous_trusted_until": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "generation",
+          "ca_public_key",
+          "previous_trusted_until"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.ssh_cert": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1000
+            }
+          },
+          "validity_minutes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "class": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "SshCertClass"
+            }
+          },
+          "presence": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "SshPresenceProof"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "certificate": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "serial": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "key_id": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "principals": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "string"
+                  }
+                }
+              },
+              "class": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "SshCertClass"
+                }
+              },
+              "valid_after": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "valid_before": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_generation": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              },
+              "ca_public_key": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_class_refused",
+        "team_vm.ssh_key_invalid",
+        "team_vm.ssh_presence_refused",
+        "team_vm.ssh_presence_required",
+        "team_vm.ssh_rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "execute",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh cert",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "validity_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 60
+          },
+          "class": {
+            "$ref": "#/$defs/SshCertClass"
+          },
+          "presence": {
+            "$ref": "#/$defs/SshPresenceProof"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          },
+          "SshPresenceProof": {
+            "type": "object",
+            "properties": {
+              "install": {
+                "$ref": "#/$defs/InstallId"
+              },
+              "nonce": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128
+              },
+              "signature": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "app_attest": {
+                "type": "string",
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "install",
+              "nonce",
+              "signature"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "certificate": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "integer"
+          },
+          "key_id": {
+            "type": "string"
+          },
+          "principals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "class": {
+            "$ref": "#/$defs/SshCertClass"
+          },
+          "valid_after": {
+            "type": "integer"
+          },
+          "valid_before": {
+            "type": "integer"
+          },
+          "ca_generation": {
+            "type": "integer"
+          },
+          "ca_public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "certificate",
+          "serial",
+          "key_id",
+          "principals",
+          "class",
+          "valid_after",
+          "valid_before",
+          "ca_generation",
+          "ca_public_key"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "SshCertClass": {
+            "type": "string",
+            "enum": [
+              "human",
+              "agent"
+            ],
+            "description": "`human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28)."
+          }
+        }
+      }
+    },
+    "team_vm.ssh_cert.challenge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "public_key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1000
+            }
+          },
+          "validity_minutes": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "presence_install": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "request": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "sign": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "json"
+                }
+              },
+              "message": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "string"
+                }
+              },
+              "expires_at": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_class_refused",
+        "team_vm.ssh_key_invalid",
+        "team_vm.ssh_presence_refused",
+        "team_vm.ssh_rate_limited",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "execute",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh challenge",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          },
+          "validity_minutes": {
+            "type": "integer",
+            "minimum": 15,
+            "maximum": 60
+          },
+          "presence_install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "request": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "public_key",
+          "presence_install",
+          "request"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "sign": {},
+          "message": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sign",
+          "message",
+          "expires_at"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.ssh_cert.revoke": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "serial": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "user": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "install": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "InstallId"
+            }
+          },
+          "reason": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "revoked": {
+                "required": true,
+                "type": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "primitive",
+                    "name": "int64"
+                  }
+                }
+              },
+              "krl_version": {
+                "required": true,
+                "type": {
+                  "kind": "primitive",
+                  "name": "int64"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "team_vm.ssh_ca_not_configured",
+        "team_vm.ssh_revocations_full",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ssh revoke",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "team"
+      },
+      "docs": "Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "serial": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "user": {
+            "$ref": "#/$defs/UserId"
+          },
+          "install": {
+            "$ref": "#/$defs/InstallId"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "InstallId": {
+            "type": "string",
+            "pattern": "^inst_[a-z0-9]{20}$",
+            "description": "One app, CLI or daemon install with its own keypair."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "krl_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked",
+          "krl_version"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "team_vm.status": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "TeamVmView"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamVmDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team vm status",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "team"
+      },
+      "docs": "Show the team VM: its state, epoch and active wake leases.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/TeamVmView",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TeamVmStatus": {
+            "type": "string",
+            "enum": [
+              "none",
+              "provisioning",
+              "starting",
+              "running",
+              "paused",
+              "failed"
+            ],
+            "description": "Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries."
+          },
+          "TeamVmLeaseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "TeamVmError": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "message",
+              "at"
+            ],
+            "additionalProperties": true
+          },
+          "TeamVmView": {
+            "type": "object",
+            "properties": {
+              "team": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "status": {
+                "$ref": "#/$defs/TeamVmStatus"
+              },
+              "vm": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "epoch": {
+                "type": "integer"
+              },
+              "leases": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "lease": {
+                      "$ref": "#/$defs/TeamVmLeaseId"
+                    },
+                    "holder": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "expires_at": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "lease",
+                    "holder",
+                    "reason",
+                    "expires_at"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "last_error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamVmError"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "updated_at": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "team",
+              "status",
+              "vm",
+              "epoch",
+              "leases",
+              "last_error",
+              "updated_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
     "team.device.compliance": {
       "class": "read",
       "idempotency": "forbidden",
@@ -41368,6 +43762,448 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "usage.cap.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "usage",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "cap_usd": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "owner": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "ref",
+                    "name": "TeamId"
+                  }
+                }
+              },
+              "team_cap_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "team.roles_required",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UsageMeterDO",
+      "risk": "money",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "usage cap set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "usage"
+      },
+      "docs": "Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "cap_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "cap_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/TeamId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "team_cap_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "owner",
+          "team_cap_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          }
+        }
+      }
+    },
+    "usage.summary": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "usage",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "UsageSummary"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:UsageMeterDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "usage",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "usage"
+      },
+      "docs": "This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/UsageSummary",
+        "$defs": {
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "Meter": {
+            "type": "string",
+            "enum": [
+              "automation.steps",
+              "automation.cpu_ms",
+              "automation.invocations",
+              "automation.dynamic_workers",
+              "egress.requests",
+              "model.spend_usd"
+            ]
+          },
+          "UsageMeterLine": {
+            "type": "object",
+            "properties": {
+              "meter": {
+                "$ref": "#/$defs/Meter"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "quantity": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "meter",
+              "unit",
+              "quantity",
+              "usd"
+            ],
+            "additionalProperties": true
+          },
+          "UsageStopReason": {
+            "type": "string",
+            "enum": [
+              "cap.reached",
+              "cap.not_configured"
+            ]
+          },
+          "UsageSummary": {
+            "type": "object",
+            "properties": {
+              "owner": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TeamId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "month": {
+                "type": "string"
+              },
+              "meters": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/UsageMeterLine"
+                }
+              },
+              "total_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "cap_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "ceiling_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "team_cap_usd": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "stopped": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/UsageStopReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "owner",
+              "month",
+              "meters",
+              "total_usd",
+              "cap_usd",
+              "ceiling_usd",
+              "team_cap_usd",
+              "stopped"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "user.ensure": {

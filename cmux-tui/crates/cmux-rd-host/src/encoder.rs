@@ -12,7 +12,7 @@ use std::os::raw::{c_int, c_void};
 /// One in-process low-latency H.264 encoder producing Annex-B access units.
 pub trait H264Encoder: Send {
     /// Encodes one picture into `out` (empty when the encoder skipped the frame).
-    /// Returns true for an IDR.
+    /// `pts` is the capture time in microseconds. Returns true for an IDR.
     fn encode(&mut self, pic: &I420, force_idr: bool, pts: i64, out: &mut Vec<u8>) -> Res<bool>;
     /// Retargets the bitrate (congestion control); small changes may be ignored.
     fn set_bitrate(&mut self, kbps: u32);
@@ -53,6 +53,14 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.threads,
             cfg.preset,
             cfg.profile,
+        )?)),
+        #[cfg(target_os = "macos")]
+        "videotoolbox" => Ok(Box::new(crate::vt::VideoToolbox::new(
+            cfg.width,
+            cfg.height,
+            cfg.fps,
+            cfg.kbps,
+            cfg.profile == "baseline",
         )?)),
         other => Err(format!("codec {other} not available in this build").into()),
     }
@@ -186,7 +194,7 @@ impl H264Encoder for OpenH264 {
             ],
             iPicWidth: pic.width as c_int,
             iPicHeight: (pic.y.len() / pic.width.max(1)) as c_int,
-            uiTimeStamp: pts.saturating_mul(16),
+            uiTimeStamp: pts.max(0) / 1000,
             bPsnrY: false,
             bPsnrU: false,
             bPsnrV: false,

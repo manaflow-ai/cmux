@@ -1,14 +1,10 @@
-import { env, exports } from "cloudflare:workers"
 import type { ReduceContext } from "@cmux/ownership"
-import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
-import { beginProofMessage, codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
+import { codeFromRandom, displayCode, normalizeCode } from "../src/domains/pairing.ts"
 import { teamDomain, type TeamState } from "../src/domains/team.ts"
 import { userDomain, type UserState } from "../src/domains/user.ts"
-import { pairApprove } from "../src/pair-routes.ts"
-
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; ENVIRONMENT: string }
-const worker = (exports as unknown as { default: Fetcher }).default
+import { handlePairWait, pairApprove } from "../src/pair-routes.ts"
+import { b64u, beginPairing, call, op, read, sessionToken, testEnv, waitFor } from "./pairing-harness.ts"
 
 const OWNER = "user_00000000000000000001"
 const MEMBER = "user_00000000000000000002"
@@ -72,6 +68,34 @@ describe("servers in the team directory (TeamDO reducer)", () => {
   })
 })
 
+describe("approver role loss (server.enrolled reducer)", () => {
+  it("refuses an approver who lost the role and revokes the install in the same commit; the refusal replays", () => {
+    const lost = { ...enrolled, owner_user: MEMBER, approved_by: MEMBER }
+    const r = teamDomain.reduce(base(), "server.enrolled", lost, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    expect(r.value).toMatchObject({ refused: true, install: INSTALL })
+    const state = r.state as TeamState
+    expect(Object.values(state.hosts)).toHaveLength(0)
+    expect(state.server_revocations?.[INSTALL]).toMatchObject({ install: INSTALL, owner_user: MEMBER, by: MEMBER })
+    expect(r.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
+    expect(r.outbox?.[0]?.payload).toMatchObject({ op: "server.enroll_refused", detail: { install: INSTALL, refused: true } })
+    expect(teamDomain.reduce(state, "server.enrolled", lost, ctx(null))).toMatchObject({ ok: true, changed: false, value: { refused: true } })
+    // Removed from the team entirely: the same refusal and revocation.
+    const gone = "user_00000000000000000077"
+    const removed = teamDomain.reduce(base(), "server.enrolled", { ...enrolled, owner_user: gone, approved_by: gone }, ctx(null))
+    if (!removed.ok) throw new Error(removed.message)
+    expect((removed.state as TeamState).server_revocations?.[INSTALL]).toMatchObject({ owner_user: gone })
+  })
+
+  it("keeps a host committed while the approver had the role; a later refusal changes nothing", () => {
+    const r = teamDomain.reduce(base(), "server.enrolled", enrolled, ctx(null))
+    if (!r.ok) throw new Error(r.message)
+    const state = r.state as TeamState
+    const demoted: TeamState = { ...state, members: { ...state.members, [OWNER]: { ...state.members[OWNER]!, role: "member" } } }
+    expect(teamDomain.reduce(demoted, "server.enrolled", enrolled, ctx(null))).toMatchObject({ ok: false, code: "auth.forbidden" })
+  })
+})
+
 describe("install.revoke_by_team (UserDO reducer)", () => {
   const user = (bound?: string): UserState =>
     ({
@@ -99,11 +123,11 @@ describe("install.revoke_by_team (UserDO reducer)", () => {
 })
 
 describe("approval order (pairApprove)", () => {
-  it("checks the approver's role before it claims the code or writes any owner", async () => {
+  it("checks the approver's role before it claims the code or writes any owner (claimedBy only reads)", async () => {
     const calls: Array<string> = []
     const fakeEnv = {
       TEAM_DO: { idFromName: (n: string) => n, get: () => ({ canEnrollServer: async () => (calls.push("role"), false), enrollServer: async () => (calls.push("enroll"), { ok: true, host: "host_x" }) }) },
-      PAIRING_DO: { idFromName: (n: string) => n, get: () => ({ claim: async () => (calls.push("claim"), { ok: false, reason: "unknown" }), complete: async () => (calls.push("complete"), { ok: true }) }) }
+      PAIRING_DO: { idFromName: (n: string) => n, get: () => ({ claimedBy: async () => (calls.push("claimedBy"), false), claim: async () => (calls.push("claim"), { ok: false, reason: "unknown" }), complete: async () => (calls.push("complete"), { ok: true }) }) }
     } as never
     const member = { identity: `user:${MEMBER}`, user: MEMBER, team: TEAM, kind: "session" as const }
     const r = await pairApprove(fakeEnv, member, { op: "server.pair.approve", params: { code: "76KJ982X", team: TEAM, name: "x" }, idempotency_key: "k" }, async () => {
@@ -111,63 +135,9 @@ describe("approval order (pairApprove)", () => {
       return { frames: [] }
     })
     expect(r).toMatchObject({ ok: false, error: { code: "auth.forbidden" } })
-    expect(calls).toEqual(["role"])
+    expect(calls).toEqual(["role", "claimedBy"])
   })
 })
-
-const sessionToken = async (stackUser: string) => {
-  const key = await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256")
-  return new SignJWT({ email: `${stackUser}@example.com`, email_verified: true, name: stackUser })
-    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
-    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
-    .setAudience(testEnv.STACK_PROJECT_ID)
-    .setSubject(stackUser)
-    .setIssuedAt()
-    .setExpirationTime("10m")
-    .sign(key)
-}
-
-const call = async (path: string, token: string | undefined, body?: unknown) => {
-  const res = await worker.fetch(`https://api.test${path}`, {
-    method: body === undefined ? "GET" : "POST",
-    headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
-  })
-  return { status: res.status, json: (await res.json()) as any }
-}
-const op = (token: string, name: string, params: unknown, key = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "user" })
-const read = (token: string, name: string, params: unknown) => call("/v1/read", token, { op: name, params })
-const b64u = (buf: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-
-/** What a fresh `cmux server up` does: make an install key and a WireGuard key, prove possession, begin. */
-const beginPairing = async (issuedAt = Date.now(), forge = false) => {
-  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair
-  const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey
-  const public_jwk = { kty: "EC", crv: "P-256", x: jwk.x!, y: jwk.y! }
-  const wg = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
-  const thumb = b64u(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`{"crv":"P-256","kty":"EC","x":"${jwk.x}","y":"${jwk.y}"}`)))
-  const signer = forge ? ((await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair).privateKey : pair.privateKey
-  const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, signer, new TextEncoder().encode(beginProofMessage(testEnv.ENVIRONMENT, thumb, wg, issuedAt)))
-  const info = { name: "Studio", platform: "linux", os_version: "Ubuntu 24.04", arch: "x86_64", cmux_version: "0.1.0" }
-  const res = await call("/v1/pair/begin", undefined, { public_jwk, wg_public_key: wg, info, issued_at: issuedAt, signature: b64u(sig) })
-  return { res, pair, public_jwk, wg, thumb }
-}
-
-const waitFor = async (code: string, secret: string) => {
-  const res = await worker.fetch(`https://api.test/v1/pair/wait?code=${code}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.pair.v1, collect.${secret}` } })
-  const ws = res.webSocket
-  const frames: Array<any> = []
-  let wake: (() => void) | null = null
-  ws?.addEventListener("message", (e) => {
-    frames.push(JSON.parse(e.data as string))
-    wake?.()
-  })
-  ws?.accept()
-  const until = async (pred: () => boolean) => {
-    while (!pred()) await new Promise<void>((r) => (wake = r))
-  }
-  return { status: res.status, frames, until }
-}
 
 describe("server pairing over the API (workerd)", () => {
   it("begins with proof, previews, approves once, pushes the result, lets the server mint a narrow token, and revokes", async () => {
@@ -266,5 +236,37 @@ describe("server pairing over the API (workerd)", () => {
     // Signed by a key other than the one it asks to pair.
     expect((await beginPairing(Date.now(), true)).res.status).toBe(403)
     expect((await read(owner, "server.pair.preview", { code: "ZZZZ-ZZZZ" })).status).toBe(400)
+  })
+
+
+  it("refuses a forged code or collect secret on wait before any PairingDO wakes; the issued secret works", async () => {
+    const { res } = await beginPairing(Date.now(), false, "203.0.113.15")
+    const code = res.json.code as string
+    const secret = res.json.collect_secret as string
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{22}\.[0-9a-f]{64}$/)
+    let gets = 0
+    const counting = {
+      ENVIRONMENT: testEnv.ENVIRONMENT,
+      JWT_PRIVATE_JWK: testEnv.JWT_PRIVATE_JWK,
+      PAIRING_DO: { idFromName: (n: string) => testEnv.PAIRING_DO.idFromName(n), get: (id: DurableObjectId) => ((gets += 1), testEnv.PAIRING_DO.get(id)) }
+    } as never
+    const wait = (c: string, s: string) =>
+      handlePairWait(new Request(`https://api.test/v1/pair/wait?code=${c}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.pair.v1, collect.${s}` } }), counting)
+    const [nonce, mac] = secret.split(".") as [string, string]
+    const otherCode = code === "00000000" ? "11111111" : "00000000"
+    const forged = [
+      [otherCode, secret], // another code with a real secret
+      [code, "forged"],
+      [code, `${nonce}.${"0".repeat(64)}`],
+      [code, `${"A".repeat(22)}.${mac}`], // the MAC under another nonce
+      [code, `${nonce}.${mac}.x`]
+    ]
+    for (const [c, s] of forged) expect((await wait(c!, s!)).status).toBe(404)
+    expect(gets).toBe(0)
+    const ok = await wait(code, secret)
+    expect(ok.status).toBe(101)
+    expect(gets).toBe(1)
+    ok.webSocket?.accept()
+    ok.webSocket?.close()
   })
 })

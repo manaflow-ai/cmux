@@ -1044,6 +1044,43 @@ Result<ColorHex> Codec<ColorHex>::decode(const Json& value) {
     return ColorHex{std::move(decoded).value()};
 }
 
+Result<Json> Codec<ColumnPin>::encode(const ColumnPin& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_edge = encode_value(value.edge);
+    if (!encoded_edge) return std::move(encoded_edge).error();
+    object.emplace("edge", std::move(encoded_edge).value());
+    auto encoded_mode = encode_value(value.mode);
+    if (!encoded_mode) return std::move(encoded_mode).error();
+    object.emplace("mode", std::move(encoded_mode).value());
+    return Json(std::move(object));
+}
+
+Result<ColumnPin> Codec<ColumnPin>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ColumnPin result{};
+    const Json* field_edge = value.find("edge");
+    if (!field_edge) {
+        return make_error(ErrorCode::decode, "missing required field 'edge'");
+    }
+    if (field_edge) {
+        auto decoded = decode_value<std::string>(*field_edge);
+        if (!decoded) return std::move(decoded).error();
+        result.edge = std::move(decoded).value();
+    }
+    const Json* field_mode = value.find("mode");
+    if (!field_mode) {
+        return make_error(ErrorCode::decode, "missing required field 'mode'");
+    }
+    if (field_mode) {
+        auto decoded = decode_value<std::string>(*field_mode);
+        if (!decoded) return std::move(decoded).error();
+        result.mode = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<CopyResult>::encode(const CopyResult& value) {
     (void)value;
     Json::Object object;
@@ -14590,10 +14627,20 @@ Result<Json> Codec<MoveTabToColumnRequest>::encode(const MoveTabToColumnRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("pane", std::move(encoded).value());
     }
+    if (!value.respawn.is_absent()) {
+        auto encoded = encode_value(value.respawn);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("respawn", std::move(encoded).value());
+    }
     if (!value.screen.is_absent()) {
         auto encoded = encode_value(value.screen);
         if (!encoded) return std::move(encoded).error();
         object.emplace("screen", std::move(encoded).value());
+    }
+    if (!value.sticky.is_absent()) {
+        auto encoded = encode_value(value.sticky);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("sticky", std::move(encoded).value());
     }
     auto encoded_surface = encode_value(value.surface);
     if (!encoded_surface) return std::move(encoded_surface).error();
@@ -14635,6 +14682,16 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             result.pane = Field<Id>(std::move(decoded).value());
         }
     }
+    const Json* field_respawn = value.find("respawn");
+    if (field_respawn) {
+        if (field_respawn->is_null()) {
+            result.respawn = Field<SplitRespawn>::null();
+        } else {
+            auto decoded = decode_value<SplitRespawn>(*field_respawn);
+            if (!decoded) return std::move(decoded).error();
+            result.respawn = Field<SplitRespawn>(std::move(decoded).value());
+        }
+    }
     const Json* field_screen = value.find("screen");
     if (field_screen) {
         if (field_screen->is_null()) {
@@ -14643,6 +14700,16 @@ Result<MoveTabToColumnRequest> Codec<MoveTabToColumnRequest>::decode(const Json&
             auto decoded = decode_value<Id>(*field_screen);
             if (!decoded) return std::move(decoded).error();
             result.screen = Field<Id>(std::move(decoded).value());
+        }
+    }
+    const Json* field_sticky = value.find("sticky");
+    if (field_sticky) {
+        if (field_sticky->is_null()) {
+            result.sticky = Field<ColumnPin>::null();
+        } else {
+            auto decoded = decode_value<ColumnPin>(*field_sticky);
+            if (!decoded) return std::move(decoded).error();
+            result.sticky = Field<ColumnPin>(std::move(decoded).value());
         }
     }
     const Json* field_surface = value.find("surface");
@@ -27332,6 +27399,10 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand58FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand95FieldRequirements{{
     {"transaction", 12U, "tab-drag-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 2> kCommand100FieldRequirements{{
+    {"respawn", 12U, "tab-column-respawn-v1"},
+    {"sticky", 12U, "edge-docks-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand102FieldRequirements{{
     {"respawn", 12U, "tab-split-respawn-v1"},
 }};
@@ -27531,7 +27602,7 @@ constexpr std::array<CommandMetadata, 208> kCommands{{
     {"move-tab-group-to-column", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-group-to-new-workspace", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-group-to-split", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"move-tab-to-column", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"move-tab-to-column", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand100FieldRequirements)},
     {"move-tab-to-new-workspace", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"move-tab-to-split", "control", 12U, "tab-drag-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand102FieldRequirements)},
     {"move-tab-to-workspace", "control", 12U, "tab-workspace-move-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand103FieldRequirements)},

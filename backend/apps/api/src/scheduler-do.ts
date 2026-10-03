@@ -29,6 +29,10 @@ export interface RunReport {
 }
 
 const MAX_RETRY_MS = 5 * 60_000
+/** Retry delay after a run limit refused a fire or a delivery (the bucket refills 5 tokens a second). */
+const RATE_RETRY_MS = 1000
+/** Deferred provider deliveries one team may hold. */
+const MAX_DEFERRED = 1000
 /** How long a delivery id is remembered for dedupe (longer than any provider's redelivery window). */
 export const DELIVERY_RETENTION_MS = 30 * 24 * 3600_000
 /** Trigger payloads kept for a run's input; larger ones are replaced by a truncation marker. */
@@ -65,6 +69,9 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS seen_deliveries (key TEXT PRIMARY KEY, run TEXT, at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS seen_deliveries_at ON seen_deliveries (at)`)
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS run_inputs (run TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)`)
+    // Provider events refused by the team's run limits: providers do not redeliver after a 2xx, so the
+    // owner keeps them and retries from its alarm (same ledger key, so a later success replays once).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS deferred_deliveries (key TEXT PRIMARY KEY, automation TEXT NOT NULL, trigger TEXT NOT NULL, delivery TEXT NOT NULL, input TEXT NOT NULL, at INTEGER NOT NULL)`)
   }
 
   protected read(state: SchedulerState, op: string, params: unknown, principal: Principal): ReadResult {
@@ -135,6 +142,58 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     this.ctx.storage.sql.exec(`DELETE FROM retry_state WHERE key = ?`, key)
   }
 
+  /** A run limit (not a failure): try again in a second, without backoff or an error log. */
+  private retrySoon(key: string, now: number) {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO retry_state (key, attempts, at) VALUES (?, 0, ?) ON CONFLICT (key) DO UPDATE SET at = excluded.at`,
+      key,
+      now + RATE_RETRY_MS
+    )
+  }
+
+  /**
+   * One event delivery for one trigger. "limited" when the team's run limits refused it (the
+   * caller defers it); "done" otherwise (started, replayed, stale or skipped).
+   */
+  private deliverOne(automation: string, trigger: string, delivery: string, input: string): "started" | "done" | "limited" {
+    const key = deliverKey(automation, trigger, delivery)
+    if (this.seen(key)) return "done"
+    const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, key)
+    const out = res.frames.find((f): f is ResultFrame => f.t === "result")
+    if (!out) return rejected(res)?.code === "rate.limited" ? "limited" : "done"
+    const value = out.value as { id?: string; state?: string; stale?: boolean } | undefined
+    if (!value?.stale) this.remember(key, value?.id)
+    if (out.replayed || !value?.id || value.stale || value.state === "skipped") return "done"
+    this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
+    return "started"
+  }
+
+  private defer(automation: string, trigger: string, delivery: string, input: string, now: number) {
+    const count = Number(this.ctx.storage.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM deferred_deliveries`).toArray()[0]?.n ?? 0)
+    if (count >= MAX_DEFERRED) {
+      console.error(JSON.stringify({ msg: "deferred delivery dropped: too many waiting", stream: this.boundEngine?.stream, automation, trigger }))
+      return
+    }
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO deferred_deliveries (key, automation, trigger, delivery, input, at) VALUES (?, ?, ?, ?, ?, ?)`,
+      deliverKey(automation, trigger, delivery), automation, trigger, delivery, input, now + RATE_RETRY_MS
+    )
+  }
+
+  /** Retries deferred deliveries that are due, oldest first, until the limits refuse again. */
+  private retryDeferred(now: number) {
+    const due = this.ctx.storage.sql.exec<{ key: string; automation: string; trigger: string; delivery: string; input: string }>(
+      `SELECT key, automation, trigger, delivery, input FROM deferred_deliveries WHERE at <= ? ORDER BY at LIMIT 50`, now
+    ).toArray()
+    for (const d of due) {
+      if (this.deliverOne(d.automation, d.trigger, d.delivery, d.input) === "limited") {
+        this.ctx.storage.sql.exec(`UPDATE deferred_deliveries SET at = ? WHERE at <= ?`, now + RATE_RETRY_MS, now)
+        return
+      }
+      this.ctx.storage.sql.exec(`DELETE FROM deferred_deliveries WHERE key = ?`, d.key)
+    }
+  }
+
   /** Inputs of runs that are gone or finished, and stale backoff rows, leave with the replay window. */
   protected override onPrune(before: number): void {
     const runs = this.boundEngine?.currentState.runs ?? {}
@@ -160,6 +219,8 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       }
     }
     for (const r of dispatchable(state)) take(this.retryAt(dispatchKey(r.id)) ?? now)
+    const deferred = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM deferred_deliveries`).toArray()[0]?.at
+    if (deferred !== null && deferred !== undefined) take(Number(deferred))
     const oldestSeen = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM seen_deliveries`).toArray()[0]?.at
     if (oldestSeen !== null && oldestSeen !== undefined) take(Number(oldestSeen) + DELIVERY_RETENTION_MS)
     // One wake per open run at its deadline; a run that reports its end never causes it.
@@ -218,9 +279,11 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       const key = fireKey(f.automation, f.trigger, f.scheduled_at)
       if ((this.retryAt(key) ?? 0) > now) continue
       const r = rejected(this.submitSystem("automation.fire", f, key))
-      if (r) this.failed(key, now, `${r.code}: ${r.message}`)
+      if (r?.code === "rate.limited") this.retrySoon(key, now)
+      else if (r) this.failed(key, now, `${r.code}: ${r.message}`)
       else this.succeeded(key)
     }
+    this.retryDeferred(now)
     for (const run of dispatchable(engine.currentState)) {
       const key = dispatchKey(run.id)
       if ((this.retryAt(key) ?? 0) > now) continue
@@ -267,7 +330,7 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     if (prior) return { status: "duplicate", ...(prior.run ? { run: prior.run } : {}) }
     const res = this.submitSystem("automation.deliver", { automation: a.id, trigger, delivery_id: delivery }, key)
     const out = res.frames.find((f): f is ResultFrame => f.t === "result")
-    if (!out) return { status: "disabled" }
+    if (!out) return { status: rejected(res)?.code === "rate.limited" ? "rate_limited" : "disabled" }
     const value = out.value as { id?: string; state?: string; stale?: boolean }
     if (value.stale) return { status: "disabled" }
     this.remember(key, value.id)
@@ -291,20 +354,16 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
     if (!bound || bound.entity !== entity) return { runs: 0 }
     const engine = this.bind(entity)
     let runs = 0
+    const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
+    const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
+    const now = Date.now()
     for (const { automation, trigger } of matchingEventTriggers(engine.currentState, ev)) {
       const delivery = `${ev.connection}:${ev.delivery_id}`
-      const key = deliverKey(automation, trigger, delivery)
-      if (this.seen(key)) continue
-      const res = this.submitSystem("automation.deliver", { automation, trigger, delivery_id: delivery }, key)
-      const out = res.frames.find((f): f is ResultFrame => f.t === "result")
-      const value = out?.value as { id?: string; state?: string; stale?: boolean } | undefined
-      if (out && !value?.stale) this.remember(key, value?.id)
-      if (!out || out.replayed || !value?.id || value.stale || value.state === "skipped") continue
-      runs++
-      const text = JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, body: ev.payload })
-      const input = new TextEncoder().encode(text).byteLength <= MAX_INPUT_BYTES ? text : JSON.stringify({ provider: ev.provider, event: ev.event, delivery_id: ev.delivery_id, truncated: true })
-      this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
+      const r = this.deliverOne(automation, trigger, delivery, input)
+      if (r === "started") runs++
+      if (r === "limited") this.defer(automation, trigger, delivery, input, now)
     }
+    this.scheduleAlarm()
     return { runs }
   }
 

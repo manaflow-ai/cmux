@@ -4,9 +4,8 @@ import CmuxNextDesign
 @testable import CmuxNextTabs
 import Testing
 
-/// The tab strip's negative space is the window's own background unless
-/// `appearance.tabBarBackground` is darker, and an unfocused pane's strip
-/// draws in its scope's subtler colors.
+/// An unfocused pane's strip draws in its scope's subtler colors (the
+/// strip's negative space is always the window's one background).
 @MainActor
 @Suite(.serialized)
 struct PaneTabBarTests {
@@ -16,18 +15,6 @@ struct PaneTabBarTests {
         pane.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         pane.layoutSubtreeIfNeeded()
         return pane
-    }
-
-    @Test func theStripPaintsNoFillByDefaultAndADarkerOneOnRequest() {
-        let saved = DesignSettings.shared.tabBarBackground
-        defer { DesignSettings.shared.tabBarBackground = saved }
-        DesignSettings.shared.tabBarBackground = .window
-        let view = pane()
-        #expect(!view.showsStripFill)
-        DesignSettings.shared.tabBarBackground = .darker
-        view.needsLayout = true
-        view.layoutSubtreeIfNeeded()
-        #expect(view.showsStripFill)
     }
 
     @Test func anUnfocusedPanesStripDrawsSubtler() {

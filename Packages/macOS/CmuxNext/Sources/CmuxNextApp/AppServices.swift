@@ -78,12 +78,15 @@ final class AppServices {
     private(set) lazy var historyPage = HistoryPageService(services: self)
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
+    private(set) lazy var remoteViewPages = RemoteViewPageService()
     /// Recently closed workspaces (history lists).
     private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
+    private(set) lazy var tasks = TasksPageService(services: self)
     /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
     private(set) lazy var serverMenuBar = ServerMenuBarController()
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
@@ -166,6 +169,7 @@ final class AppServices {
         self.environment = environment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
+        machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
         feed = FeedService(auth: cloud.auth)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
@@ -179,6 +183,7 @@ final class AppServices {
             await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
+        cache.onRelease = { [weak self] key in self?.home.releaseTabView(key) }
         cache.machineBadge = { [weak self] key, url in
             guard let self, let tab = remoteLocalhost.tab(id: key) else { return nil }
             let engine: BrowserEngineKind = tab.browserEngine == BrowserEngineTag.cef.rawValue ? .cef : .webkit

@@ -85,7 +85,7 @@ exclude = ["vendor/crossterm", "crates/cmux-rd-host"]
 [workspace.package]
 edition = "2024"
 rust-version = "1.91"
-license = "MIT"
+license = "GPL-3.0-or-later"
 publish = false
 
 [workspace.lints.rust]

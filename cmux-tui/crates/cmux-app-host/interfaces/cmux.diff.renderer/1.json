@@ -13,5 +13,26 @@
     "hunkAction",
     "requestOpen"
   ],
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "inputs": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": {
+          "enum": [
+            "worktree",
+            "refs",
+            "resource",
+            "feedItem",
+            "run",
+            "documents"
+          ]
+        },
+        "description": "Diff inputs the renderer accepts."
+      }
+    }
+  },
   "status": "draft: shapes are refined with the first implementing app before the interface is public"
 }

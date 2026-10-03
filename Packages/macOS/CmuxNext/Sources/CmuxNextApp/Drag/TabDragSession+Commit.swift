@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
 import QuartzCore
@@ -77,6 +78,10 @@ extension TabDragSession {
         case .newColumn(let screenID, let after):
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
+        case .newDock(let screenID, let edge):
+            guard let anchor = screenAnchor(screenID: screenID, in: dropWindow),
+                  let edge = CmuxNextLayout.StickyEdge(rawValue: edge) else { return settle(false) }
+            TabMoves.toNewStickyColumn(tab, anchor: anchor, edge: edge, services: services, transaction: transaction, completion: settle)
         case .newWorkspace:
             // Made unplaced, then put at the gap by the sidebar's own path
             // (personal order, or move-workspace-to-group at the slot).
@@ -120,6 +125,9 @@ extension TabDragSession {
             guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return settle(false) }
             TabGroupMoves.toNewColumn(group, anchor: anchor, afterColumn: column, services: services, transaction: transaction,
                                       completion: settle)
+        case .newDock:
+            // A tab group has no dock move yet; the group springs back.
+            settle(false)
         case .newWorkspace:
             let slot = gapSlot(drag)
             Task {
@@ -207,6 +215,14 @@ extension TabDragSession {
 
     /// The pane to anchor a new column on (the last pane of the column the
     /// new one follows) and that column's daemon id.
+    /// Any pane of `screenID` in `window` (a dock opens on the anchor's screen).
+    func screenAnchor(screenID: String, in window: WindowController?) -> PaneModel? {
+        guard let content = window?.content,
+              let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
+              let anchor = screen.layout.panes.first, let handle = content.handles.panes[anchor] else { return nil }
+        return content.daemon.store.pane(handle)
+    }
+
     func columnAnchor(screenID: String, after: String, in window: WindowController?) -> (PaneModel, DaemonColumnID?)? {
         guard let content = window?.content,
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),

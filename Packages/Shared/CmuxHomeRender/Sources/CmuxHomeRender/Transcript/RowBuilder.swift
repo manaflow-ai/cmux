@@ -11,12 +11,18 @@ struct RowContext {
     var readByOthers: Seq?
     /// Someone other than me is typing.
     var othersTyping: Bool
+    /// Display names by participant; with `showsNames` (a group
+    /// conversation) the first bubble of another sender's run is labeled.
+    var names: [ParticipantID: String] = [:]
+    var showsNames = false
 }
 
 /// Derives the transcript rows from CmuxHomeCore items.
 @MainActor
 final class RowBuilder {
-    static let groupGap: TimeInterval = 60
+    /// Consecutive messages from one sender closer than this form a run:
+    /// tight gaps, one tail on the last bubble, one name on the first.
+    static let groupGap: TimeInterval = 5 * 60
     static let separatorGap: TimeInterval = 15 * 60
 
     let format: RowFormat
@@ -46,6 +52,11 @@ final class RowBuilder {
                 let separator = RowSpec.Kind.separator(bold: format.day(item.createdAt, now: ctx.now), rest: format.time(item.createdAt))
                 rows.append(RowSpec(key: "sep:\(item.key.rawValue)", kind: separator, gap: prev == nil ? 12 : 0, height: 35.5))
                 gap = 0
+            }
+            let startsRun = prev.map { $0.author != item.author || item.createdAt.timeIntervalSince($0.createdAt) >= Self.groupGap } ?? true
+            if ctx.showsNames, !outgoing, startsRun, !item.isRetracted, let name = ctx.names[item.author], !name.isEmpty {
+                rows.append(RowSpec(key: "name:\(item.key.rawValue)", kind: .senderName(name), gap: gap, height: 14))
+                gap = 1
             }
             prev = item
             if item.isRetracted {
@@ -92,15 +103,7 @@ final class RowBuilder {
     }
 
     static func glyph(_ kind: Reaction.Kind) -> String {
-        switch kind {
-        case .emoji(let emoji): emoji
-        case .tapback(.love): "\u{2764}\u{FE0F}"
-        case .tapback(.like): "\u{1F44D}"
-        case .tapback(.dislike): "\u{1F44E}"
-        case .tapback(.laugh): "\u{1F602}"
-        case .tapback(.emphasize): "\u{203C}\u{FE0F}"
-        case .tapback(.question): "\u{2753}"
-        }
+        HomeReactionStyle.glyph(kind)
     }
 
     /// "Read" under my latest send another participant has read; "Delivered"

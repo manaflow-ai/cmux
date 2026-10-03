@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextDesign
 public import Foundation
 
@@ -76,6 +77,11 @@ extension PalettePageSpec {
         // Recency from the location trail ranks these rows; palette usage
         // counts would fight it.
         item.frecencyKey = nil
+        let tab = ActionTargetRef(kind: .tab, id: id)
+        item.actionRefs = entry.isClosed
+            ? [PaletteActionRef("history.reopen", arguments: ["id": .string(id)], title: PaletteStrings.tabSearchReopen)]
+            : [PaletteActionRef("tab.focus", target: tab, title: PaletteStrings.switchToTab),
+               PaletteActionRef("closeTab", target: tab, title: PaletteStrings.closeTab, isDestructive: true)]
         return item
     }
 }

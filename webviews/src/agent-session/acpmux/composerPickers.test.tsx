@@ -76,14 +76,25 @@ const ready = () => act(() => new Promise((resolve) => setTimeout(resolve, 10)))
 describe("acpmux composer pickers", () => {
   let root: ReturnType<typeof createRoot>;
   let calls: string[];
-  // Recents record after the selection settles; tests that read recents settle at once.
-  let settleMs = 60_000;
+  // Recents record after the selection settles. The settle checks wait here until a test runs
+  // them (settle), so a combo the pane only passes through between two renders never counts,
+  // however slowly the machine runs.
+  const pendingSettles = new Set<() => void>();
+  const settleTimer = (run: () => void) => {
+    const job = () => {
+      pendingSettles.delete(job);
+      run();
+    };
+    pendingSettles.add(job);
+    return () => void pendingSettles.delete(job);
+  };
+  const settle = () => act(async () => [...pendingSettles].forEach((job) => job()));
   const render = async (value: AcpmuxSnapshot) =>
     act(async () =>
       root.render(
         createElement(ComposerPickers, {
           snapshot: value,
-          settleMs,
+          settleTimer,
           // Room beside the menu for the cascade; the model picker's tests cover the narrow drill.
           measurePickerRoom: () => 600,
           onModel: (id: string) => {
@@ -117,7 +128,7 @@ describe("acpmux composer pickers", () => {
 
   beforeEach(() => {
     calls = [];
-    settleMs = 60_000;
+    pendingSettles.clear();
     root = createRoot(doc.getElementById("root")!);
   });
   afterEach(async () => {
@@ -224,8 +235,6 @@ describe("acpmux composer pickers", () => {
     ];
     const long = (summary: Parameters<typeof snapshot>[0]) => ({ ...snapshot(summary), catalog });
     const medium = { ...effort, currentValue: "medium" };
-    settleMs = 0;
-    const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 5)));
     // The session runs Astra on High, then Sol on Medium: both become recents.
     await render(long({ configOptions: [effort] }));
     await settle();

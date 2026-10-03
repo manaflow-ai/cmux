@@ -39,6 +39,8 @@ export type AcpmuxDebug = {
     decision?: PermissionDecision;
   }): Promise<Record<string, unknown>>;
   openChanges(): Record<string, unknown>;
+  setModel(model: string, effort?: string): Promise<Record<string, unknown>>;
+  models(): Record<string, unknown>;
 };
 
 const NO_AUTOMATION = { error: "the page has no automation host" };
@@ -195,6 +197,14 @@ export function createAcpmuxDebug(
     },
     openChanges() {
       return host.automation ? automation.openChanges(host.automation) : NO_AUTOMATION;
+    },
+    async setModel(model, effort) {
+      return host.automation
+        ? automation.setModel(host.automation, String(model ?? ""), effort || undefined)
+        : NO_AUTOMATION;
+    },
+    models() {
+      return host.automation ? automation.models(host.automation) : NO_AUTOMATION;
     },
   };
 }

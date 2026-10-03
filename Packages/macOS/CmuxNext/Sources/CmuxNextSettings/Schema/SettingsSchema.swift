@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + appearance + terminal + sidebarSections + browser + notifications
+        general + columnLayout + palette + tasks + appearance + terminal + sidebarSections + browser + notifications
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -225,17 +225,6 @@ public nonisolated enum SettingsSchema {
                     SettingChoice(FocusIndicator.none.rawValue, SettingsText.keyed("settings.choice.none", "None")),
                 ]),
                 default: .string(PaneFocusSettings.focusIndicatorFallback.rawValue), keywords: ["focus", "active", "pane", "tab", "ring"]
-            ),
-            SettingDescriptor(
-                PaneFocusSettings.tabBarBackgroundPath, section: .appearance, group: look,
-                title: SettingsText.keyed("settings.appearance.tabBarBackground", "Tab Bar Background"),
-                help: SettingsText.keyed("settings.appearance.tabBarBackground.help",
-                                        "Window uses the window's own background around the tabs; Darker shades the tab bar."),
-                kind: .choice([
-                    SettingChoice(TabBarBackground.window.rawValue, SettingsText.keyed("settings.choice.window", "Window")),
-                    SettingChoice(TabBarBackground.darker.rawValue, SettingsText.keyed("settings.choice.darker", "Darker")),
-                ]),
-                default: .string(PaneFocusSettings.tabBarBackgroundFallback.rawValue), keywords: ["tab", "strip", "background", "bar"]
             ),
             SettingDescriptor(
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,

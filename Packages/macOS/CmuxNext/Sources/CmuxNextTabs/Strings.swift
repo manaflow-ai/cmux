@@ -16,12 +16,6 @@ enum Strings {
     static func axTheme(_ name: String) -> String {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
-    /// The strip's location field, spoken: "Location, example.com".
-    static func axLocation(_ host: String) -> String {
-        String(localized: "tabs.ax.location", defaultValue: "Location, \(host)", bundle: .module)
-    }
-    /// Added to the location field's label for an http page.
-    static var axNotSecure: String { String(localized: "tabs.ax.notSecure", defaultValue: "Not Secure", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
     static var axHibernated: String { String(localized: "tabs.ax.hibernated", defaultValue: "Hibernated", bundle: .module) }

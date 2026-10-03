@@ -492,6 +492,7 @@ export type Install = {
   readonly created_at: number
   readonly revoked_at: number | null
   readonly bound_team?: TeamId
+  readonly sso_team?: TeamId
 }
 
 /** One app, CLI or daemon install with its own keypair. */
@@ -512,6 +513,8 @@ export type ManagedDevice = {
 }
 
 export type MessageId = string
+
+export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive"
 
@@ -609,6 +612,16 @@ export type RunId = string
 
 export type RunState = "queued" | "running" | "sleeping" | "waiting" | "succeeded" | "failed" | "cancelled" | "skipped" | "dead"
 
+/** `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28). */
+export type SshCertClass = "human" | "agent"
+
+export type SshPresenceProof = {
+  readonly install: InstallId
+  readonly nonce: string
+  readonly signature: string
+  readonly app_attest?: string
+}
+
 export type SsoConnection = {
   readonly id: SsoConnectionId
   readonly kind: "oidc"
@@ -677,6 +690,8 @@ export type TeamIntegrationPolicy = {
   readonly updated_at: number | null
   readonly updated_by: string | null
 }
+
+export type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
 
 export type TeamMember = {
   readonly user: UserId
@@ -813,6 +828,32 @@ export type TeamPolicyVersion = {
   readonly rollback_of: number | null
 }
 
+export type TeamVmError = {
+  readonly code: string
+  readonly message: string
+  readonly at: number
+}
+
+export type TeamVmLeaseId = string
+
+/** Last observed state of the team VM. `none`: never created. `failed`: the last provider call failed for good; the next ensure_awake retries. */
+export type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+
+export type TeamVmView = {
+  readonly team: TeamId
+  readonly status: TeamVmStatus
+  readonly vm: string | null
+  readonly epoch: number
+  readonly leases: ReadonlyArray<{
+    readonly lease: TeamVmLeaseId
+    readonly holder: string
+    readonly reason: string
+    readonly expires_at: number
+  }>
+  readonly last_error: TeamVmError | null
+  readonly updated_at: number
+}
+
 /** RFC 3339 UTC with milliseconds. */
 export type Timestamp = string
 
@@ -854,6 +895,26 @@ export type TriggerInput = {
   readonly when: "user_active" | "user_returns_after"
   readonly idle_minutes?: number
   readonly earliest?: CronSpec
+}
+
+export type UsageMeterLine = {
+  readonly meter: Meter
+  readonly unit: string
+  readonly quantity: number | "Infinity" | "-Infinity" | "NaN"
+  readonly usd: number | "Infinity" | "-Infinity" | "NaN"
+}
+
+export type UsageStopReason = "cap.reached" | "cap.not_configured"
+
+export type UsageSummary = {
+  readonly owner: TeamId | null
+  readonly month: string
+  readonly meters: ReadonlyArray<UsageMeterLine>
+  readonly total_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly stopped: UsageStopReason | null
 }
 
 /** A cmux user (Stack user id kept as an external id). */
@@ -2071,6 +2132,152 @@ export interface CloudOps {
     }
     readonly result: SsoConnection
   }
+  /** Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
+  readonly "team_vm.ensure_awake": {
+    readonly params: {
+      readonly reason: string
+      readonly lease_seconds?: number
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly expires_at: number
+      readonly status: TeamVmStatus
+      readonly vm: string | null
+      readonly epoch: number
+    }
+  }
+  /** Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.append": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly epoch: number
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly bytes: string
+      readonly sha256: string
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly first_seq: number
+      readonly last_seq: number
+      readonly epoch: number
+      readonly high_water: number
+      readonly replayed: boolean
+    }
+  }
+  /** The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.high_water": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+    }
+    readonly result: {
+      readonly stream: TeamJournalStream
+      readonly high_water: number
+      readonly epoch: number
+    }
+  }
+  /** Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+  readonly "team_vm.journal.read": {
+    readonly params: {
+      readonly stream: TeamJournalStream
+      readonly from_seq: number
+    }
+    readonly result: {
+      readonly entries: ReadonlyArray<{
+        readonly first_seq: number
+        readonly last_seq: number
+        readonly epoch: number
+        readonly sha256: string
+        readonly bytes: string
+      }>
+      readonly high_water: number
+      readonly more: boolean
+    }
+  }
+  /** Release a wake lease you hold, so the team VM may pause when no other lease is active. */
+  readonly "team_vm.lease.release": {
+    readonly params: {
+      readonly lease: TeamVmLeaseId
+    }
+    readonly result: {
+      readonly lease: TeamVmLeaseId
+      readonly released: boolean
+    }
+  }
+  /** The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
+  readonly "team_vm.ssh_ca": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: TeamId
+      readonly generation: number
+      readonly trusted_ca_keys: ReadonlyArray<string>
+      readonly krl: string
+      readonly krl_version: number
+    }
+  }
+  /** Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes). */
+  readonly "team_vm.ssh_ca.rotate": {
+    readonly params: {
+      readonly compromised?: boolean
+    }
+    readonly result: {
+      readonly generation: number
+      readonly ca_public_key: string
+      readonly previous_trusted_until: number | null
+    }
+  }
+  /** Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+  readonly "team_vm.ssh_cert": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly class?: SshCertClass
+      readonly presence?: SshPresenceProof
+    }
+    readonly result: {
+      readonly certificate: string
+      readonly serial: number
+      readonly key_id: string
+      readonly principals: ReadonlyArray<string>
+      readonly class: SshCertClass
+      readonly valid_after: number
+      readonly valid_before: number
+      readonly ca_generation: number
+      readonly ca_public_key: string
+    }
+  }
+  /** Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key. */
+  readonly "team_vm.ssh_cert.challenge": {
+    readonly params: {
+      readonly public_key: string
+      readonly validity_minutes?: number
+      readonly presence_install: InstallId
+      readonly request: string
+    }
+    readonly result: {
+      readonly sign: unknown
+      readonly message: string
+      readonly expires_at: number
+    }
+  }
+  /** Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's. */
+  readonly "team_vm.ssh_cert.revoke": {
+    readonly params: {
+      readonly serial?: number
+      readonly user?: UserId
+      readonly install?: InstallId
+      readonly reason?: string
+    }
+    readonly result: {
+      readonly revoked: ReadonlyArray<number>
+      readonly krl_version: number
+    }
+  }
+  /** Show the team VM: its state, epoch and active wake leases. */
+  readonly "team_vm.status": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: TeamVmView
+  }
   /** Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
   readonly "team.device.compliance": {
     readonly params: Readonly<Record<string, never>>
@@ -2256,6 +2463,21 @@ export interface CloudOps {
       readonly client_public_key: string
     }
   }
+  /** Set the team's own monthly hard cap for automations (team admins). The cap in force is the lower of it and the deployment ceiling. */
+  readonly "usage.cap.set": {
+    readonly params: {
+      readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+    readonly result: {
+      readonly owner: TeamId | null
+      readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+  }
+  /** This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */
+  readonly "usage.summary": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: UsageSummary
+  }
   /** Create or refresh the caller's user record from the Stack session. */
   readonly "user.ensure": {
     readonly params: Readonly<Record<string, never>>
@@ -2409,6 +2631,17 @@ export const cloudOpMeta = {
   "sso.connection.disable": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "sso.connection.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "sso.connection.set_secret": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.ensure_awake": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-shared" },
+  "team_vm.journal.append": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.journal.high_water": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.journal.read": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
+  "team_vm.lease.release": { class: "mutation", owner: "cloud:TeamVmDO", risk: "mutate-own" },
+  "team_vm.ssh_ca": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team_vm.ssh_ca.rotate": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team_vm.ssh_cert": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.challenge": { class: "mutation", owner: "cloud:TeamDO", risk: "execute" },
+  "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "team.device.policy": { class: "read", owner: "cloud:TeamDO", risk: "read" },
@@ -2427,6 +2660,8 @@ export const cloudOpMeta = {
   "tunnel.attach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.detach": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "tunnel.rotate-key": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "usage.cap.set": { class: "mutation", owner: "cloud:UsageMeterDO", risk: "money" },
+  "usage.summary": { class: "read", owner: "cloud:UsageMeterDO", risk: "read" },
   "user.ensure": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.presence_key.revoke": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "user.text_confirm.get": { class: "read", owner: "cloud:UserDO", risk: "read" },

@@ -20,6 +20,12 @@ nonisolated enum UpdaterStrings {
     static var checkFailed: String { text("updater.title.checkFailed", "Couldn't Check for Updates") }
     static var updateFailed: String { text("updater.title.updateFailed", "Update Failed") }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
+    static func managedChannel(_ channel: String) -> String {
+        format("updater.managed.channel", "Your organization keeps this Mac on the %@ channel.", channel)
+    }
+    static func updateRequired(_ version: String) -> String {
+        format("updater.required", "Your organization requires cmux %@ or newer.", version)
+    }
     static var startingDownload: String { text("updater.title.startingDownload", "Starting Download…") }
     static var downloading: String { text("updater.title.downloading", "Downloading Update") }
     static var preparing: String { text("updater.title.preparing", "Preparing Update") }

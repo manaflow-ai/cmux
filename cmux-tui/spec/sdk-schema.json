@@ -6180,6 +6180,28 @@
     }
    },
    "additional_properties": false
+  },
+  "ColumnPin": {
+   "kind": "object",
+   "fields": {
+    "edge": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "mode": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -14476,6 +14498,28 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "sticky": {
+      "type": {
+       "kind": "ref",
+       "name": "ColumnPin"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "edge-docks-v1"
+     },
+     "respawn": {
+      "type": {
+       "kind": "ref",
+       "name": "SplitRespawn"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-column-respawn-v1"
      },
      "transaction": {
       "type": {

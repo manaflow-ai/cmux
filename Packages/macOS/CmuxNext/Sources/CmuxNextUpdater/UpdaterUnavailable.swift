@@ -21,6 +21,11 @@ nonisolated public struct UpdaterUnavailable: Error, Equatable, CustomStringConv
         cannotSwitch(to: target.rawValue, from: track)
     }
 
+    /// `UpdateChannel` pins this Mac to `channel`.
+    static func managedChannel(_ channel: String) -> UpdaterUnavailable {
+        UpdaterUnavailable(description: UpdaterStrings.managedChannel(channel))
+    }
+
     static func cannotSwitch(to target: String, from track: UpdateTrack) -> UpdaterUnavailable {
         UpdaterUnavailable(description: UpdaterStrings.cannotSwitch(to: target, from: track.rawValue))
     }

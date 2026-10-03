@@ -9,12 +9,22 @@ import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from 
 import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
 import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
 import { ssoExternal } from "./team-sso-external.ts"
-import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { ssoCallback, ssoSessionConnection, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
 import { stackServer, type StackServer } from "./stack-server.ts"
 import { connectionForDomain } from "./domains/team-sso.ts"
-import { mayEnrollServer } from "./domains/team-servers.ts"
+import { mayEnrollServer, type ServerEnrollRefused } from "./domains/team-servers.ts"
+import { sshCaView } from "./domains/team-ssh.ts"
+import { revokeInstallCerts, sshExternal } from "./team-ssh-ca.ts"
+import type { SshPresence } from "./team-ssh-presence.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
+/** TeamDO.signInRules result (policy-gate.ts). */
+export interface SignInRules {
+  readonly sso_required: boolean
+  readonly minimum_version: string | null
+  readonly allowed_classes: ReadonlyArray<string>
+}
+
 export class TeamDO extends OwnerDO<TeamState> {
   constructor(ctx: DurableObjectState, env: Env) {
     // Members see each other's public ids and display name in events, never email,
@@ -72,6 +82,9 @@ export class TeamDO extends OwnerDO<TeamState> {
         const d = devicePolicyFor(state, principal.install)
         return { ok: true, value: { team: state.team?.id, team_name: state.team?.display_name ?? "", ...d }, revision: "" }
       }
+      case "team_vm.ssh_ca":
+        // Public material only: CA public keys and the revocation list, for the team VM's sshd.
+        return { ok: true, value: sshCaView(state.team?.id ?? "", state, Date.now()), revision: String(state.ssh_krl?.version ?? 0) }
       default:
         return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     }
@@ -243,6 +256,57 @@ export class TeamDO extends OwnerDO<TeamState> {
     )
   }
 
+  /** RPC from the Worker: team_vm.ssh_cert.challenge, team_vm.ssh_cert, team_vm.ssh_cert.revoke and team_vm.ssh_ca.rotate (the team SSH CA, team-ssh-ca.ts). */
+  async sshOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return sshExternal(
+      {
+        state: () => this.boundEngine?.currentState ?? engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        now: () => Date.now(),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        presence: this.presenceOwner(entity),
+        running: this.sshRunning
+      },
+      principal,
+      frame
+    )
+  }
+
+  /** SSH CA requests running in this instance (team-ssh-ca.ts); a reset object starts with none, so its stored requests resume. */
+  private readonly sshRunning = new Set<string>()
+
+  /** The person's UserDO checks presence proofs (keys, nonces, App Attest counters live there); tests replace it. */
+  presenceOwner = (team: string): SshPresence => ({
+    challenge: (user, install, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceChallenge(user, team, install, purpose),
+    assert: (user, proof, purpose) => this.env.USER_DO.get(this.env.USER_DO.idFromName(user)).presenceAssert(user, team, proof, purpose)
+  })
+
+  /**
+   * RPC from UserDO only (S4): `user` revoked `install`. Every unexpired team SSH certificate of
+   * that install (and only that user's) goes into the KRL, and the install gets no new one.
+   */
+  async revokeInstallCerts(entity: string, user: string, install: string): Promise<{ ok: boolean; revoked: Array<number> }> {
+    const engine = this.bind(entity)
+    return revokeInstallCerts(
+      {
+        state: () => this.boundEngine?.currentState ?? engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        now: () => Date.now(),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        running: this.sshRunning
+      },
+      user,
+      install
+    )
+  }
+
   /**
    * RPC from sign-in discovery (unauthenticated): whether this team serves
    * `domain` through an active connection. Answers only yes or no, never the
@@ -254,31 +318,70 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   /**
-   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2):
-   * the approver must be a signed-in owner or admin of this team, never an install
-   * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
-   * pairing code, so a retried approval returns the same host.
+   * Sign-in rules of this team for one user (enterprise P17-4): whether a Stack session needs this
+   * team's SSO (sso.enforce; owners exempt unless sso.enforceForOwners), the minimum client
+   * version, and the agent classes grants may be minted for. Read by the Worker, cached briefly.
    */
-  /** May this signed-in principal add a server to this team? Checked before the approval writes anything. */
+  async signInRules(entity: string, user: string): Promise<SignInRules> {
+    const state = this.bind(entity).currentState
+    const values = currentPolicy(state).values as Record<string, { value: unknown } | undefined>
+    const role = state.members?.[user]?.role
+    const enforce = values["sso.enforce"]?.value === true
+    const owners = values["sso.enforceForOwners"]?.value === true
+    const min = values["updates.minimumVersion"]?.value
+    const classes = values["agents.allowedClasses"]?.value
+    return {
+      sso_required: enforce && (role !== "owner" || owners),
+      minimum_version: typeof min === "string" ? min : null,
+      allowed_classes: Array.isArray(classes) ? (classes as Array<string>) : ["mux", "agent", "run"]
+    }
+  }
+
+  /** Whether this team's SSO created the Stack session `refreshTokenId` for `stackUser` (sso.enforce, P17-4). */
+  async ssoSession(entity: string, refreshTokenId: string, stackUser: string): Promise<boolean> {
+    const state = this.bind(entity).currentState
+    const connection = ssoSessionConnection(this.ctx.storage.sql, refreshTokenId, stackUser, Date.now())
+    // A disabled or deleted connection ends its sessions' standing.
+    return connection !== undefined && state.sso_connections?.[connection]?.state === "active"
+  }
+
+  /** May this signed-in principal add a server to this team? An early refusal before the approval writes anything. */
   async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
     const engine = this.bind(entity)
     return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
   }
 
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2),
+   * after UserDO registered the server's install. `server.enrolled` checks the
+   * approver's role in the same commit as the host; when the role is gone it
+   * commits a refusal and the install's revocation instead, which this call
+   * pushes to UserDO at once (the alarm retries). Keyed by the pairing code, so
+   * a retried approval replays the same host or the same refusal.
+   */
   async enrollServer(
     entity: string,
     principal: Principal,
     params: { install: string; name: string; platform: string; wg_public_key: string },
     idempotencyKey: string
-  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string }> {
-    const engine = this.bind(entity)
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string; refused?: true }> {
+    this.bind(entity)
     if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
-    if (!mayEnrollServer(engine.currentState, principal.user)) return { ok: false, code: "auth.forbidden", message: "only team owners and admins may add a server" }
     const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
     const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
     if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
-    return { ok: true, host: (reply.value as { id: string }).id }
+    const value = reply.value as { id: string } | ServerEnrollRefused
+    if ("refused" in value) {
+      // Push this install's revocation now unless pushes are backing off; the alarm retries the rest.
+      if (this.revokeRetryAt === null || Date.now() >= this.revokeRetryAt) await this.flushServerRevocations(entity, value.install)
+      return { ok: false, code: "auth.forbidden", message: value.message, refused: true }
+    }
+    return { ok: true, host: value.id }
   }
+
+  /** The owner's UserDO for revocation pushes; tests replace it to fail the RPC. */
+  userOwner = (user: string): { revokeByTeam(entity: string, team: string, install: string, by: string, idempotencyKey: string): Promise<unknown> } =>
+    this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
 
   /** Backoff after a failed revocation push (in memory: a restart retries at once). */
   private revokeRetryAt: number | null = null
@@ -288,15 +391,16 @@ export class TeamDO extends OwnerDO<TeamState> {
    * Pushes every pending server install revocation to its owner's UserDO
    * (`install.revoke_by_team`, which also closes the install's sockets), then
    * records the confirmation. Called by the Worker right after `server.revoke`
-   * and by the alarm until it succeeds. Returns the installs revoked now.
+   * and by the alarm until it succeeds (`only`: one install, after a refused
+   * enrollment). Returns the installs revoked now.
    */
-  async flushServerRevocations(entity: string): Promise<{ revoked: Array<string> }> {
+  async flushServerRevocations(entity: string, only?: string): Promise<{ revoked: Array<string> }> {
     if (!entity) return { revoked: [] }
     const engine = this.bind(entity)
-    const pending = Object.values(engine.currentState.server_revocations ?? {})
+    const pending = Object.values(engine.currentState.server_revocations ?? {}).filter((r) => only === undefined || r.install === only)
     const revoked: Array<string> = []
     for (const r of pending) {
-      const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
+      const user = this.userOwner(r.owner_user)
       let res: { ok: boolean; code?: string }
       try {
         res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }

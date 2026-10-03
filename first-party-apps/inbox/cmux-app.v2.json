@@ -78,7 +78,8 @@
     "actions:run": "Open an item through the feed: the agent's tab, a pull request, or the browser copy for a sign-in."
   },
   "optionalScopes": {
-    "workspace:read": "Show workspace names on items and group headers."
+    "workspace:read": "Show workspace names on items and group headers.",
+    "feed:answer": "Answer a request when you choose an answer; only your own tap answers."
   },
   "strings": "strings/",
   "variants": [
@@ -125,5 +126,18 @@
     "assets/",
     "catalog/",
     "strings/"
-  ]
+  ],
+  "consumes": {
+    "ops": [
+      "feed.list",
+      "feed.get",
+      "feed.counts",
+      "feed.read",
+      "feed.archive",
+      "feed.unarchive",
+      "feed.snooze",
+      "feed.answer",
+      "feed.cancel"
+    ]
+  }
 }

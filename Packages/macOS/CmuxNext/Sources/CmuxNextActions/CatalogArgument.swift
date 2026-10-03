@@ -79,9 +79,10 @@ nonisolated enum CatalogArgument {
     }
 
     /// A sticky column's viewport edge (plans/cmux-next/sticky-column.md).
+    /// Top and bottom are edge docks (layout-model.md, edge-docks-v1).
     static var edgeChoice: ActionArgument {
         ActionArgument(name: "edge", title: String(localized: "argument.edge", defaultValue: "Edge", bundle: .module),
-                       kind: .enumeration([choice("right"), choice("left")]))
+                       kind: .enumeration([choice("right"), choice("left"), choice("top"), choice("bottom")]))
     }
 
     /// Docked (the strip makes room) or overlay (floats over the strip).

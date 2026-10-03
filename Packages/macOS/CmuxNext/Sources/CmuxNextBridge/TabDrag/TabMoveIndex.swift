@@ -24,4 +24,13 @@ public nonisolated enum TabMoveIndex {
         let after = shown.drop { $0 != moving }.dropFirst()
         return after.lazy.compactMap { others.firstIndex(of: $0) }.first ?? others.count
     }
+
+    /// The position inside `group` for a strip drop that puts `moving` at
+    /// `displayIndex` of the strip's display order: the members of `group`
+    /// shown before it. `add-tabs-to-group` takes a position inside the
+    /// group, the strip reports a display index.
+    public static func groupIndex(display: [String], members: Set<String>, moving: String, displayIndex: Int) -> Int {
+        let shown = display.filter { $0 != moving }
+        return shown.prefix(min(max(displayIndex, 0), shown.count)).filter(members.contains).count
+    }
 }

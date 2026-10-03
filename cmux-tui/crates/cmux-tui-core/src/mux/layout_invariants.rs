@@ -81,15 +81,12 @@ pub(crate) fn project(state: &State) -> LayoutState {
                         // While columns are active, `root` is a derived
                         // projection of them.
                         columns: if screen.layout_columns.is_empty() {
-                            vec![Column { id: 0, panes: screen.root.pane_ids_vec() }]
+                            vec![Column::single(0, screen.root.pane_ids_vec())]
                         } else {
                             screen
                                 .layout_columns
                                 .iter()
-                                .map(|column| Column {
-                                    id: column.id,
-                                    panes: column.root.pane_ids_vec(),
-                                })
+                                .map(|column| Column::single(column.id, column.root.pane_ids_vec()))
                                 .collect()
                         },
                     })

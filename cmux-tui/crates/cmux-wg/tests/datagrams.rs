@@ -163,6 +163,9 @@ async fn stale_media_is_dropped_oldest_first() {
     assert_eq!(received.first(), Some(&0));
     assert!(received.len() < 101 && received.len() >= 30, "{} delivered", received.len());
     assert_eq!(received.last(), Some(&1000), "the fresh datagram is not starved by stale ones");
+    let drops = client.datagram_drops();
+    assert_eq!(drops.media_stale as usize, 101 - received.len(), "every lost one is counted");
+    assert_eq!((drops.media_full, drops.interactive_full, drops.bulk_full), (0, 0, 0));
     client.shutdown().await;
     server.shutdown().await;
 }

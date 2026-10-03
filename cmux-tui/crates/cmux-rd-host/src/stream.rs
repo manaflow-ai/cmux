@@ -329,7 +329,7 @@ impl MediaSession {
         let t_capture_us = now_us();
         self.enc.set_bitrate((self.cc.target_bps() / 1000) as u32);
         let t0 = now_ns();
-        let idr = self.enc.encode(&self.pic, self.force_idr, i64::from(frame), &mut self.au)?;
+        let idr = self.enc.encode(&self.pic, self.force_idr, t_capture_us as i64, &mut self.au)?;
         self.encode_ms.push_back((now_ns() - t0) as f64 / 1e6);
         if self.encode_ms.len() > 120 {
             self.encode_ms.pop_front();

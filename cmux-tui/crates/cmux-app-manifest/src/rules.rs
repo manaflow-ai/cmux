@@ -1,7 +1,8 @@
 //! Rules the schema cannot express.
 
-use crate::KNOWN_INTERFACES;
+use crate::interfaces::{KNOWN_HOST_CAPABILITIES, KNOWN_INTERFACES, option_errors};
 use crate::issue::{Issue, escape};
+use crate::scopes::{ScopeClass, scope_info};
 use serde_json::Value;
 
 /// Publishers reserved for first-party apps.
@@ -66,6 +67,15 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
                     "an export implementation needs runtime.main",
                 ));
             }
+            if let Some(options) = imp.get("options") {
+                for (path, message) in option_errors(name, options) {
+                    out.push(Issue::error(
+                        format!("{at}/options{path}"),
+                        "interface.options",
+                        message,
+                    ));
+                }
+            }
             if imp.get("web").is_some() && m.pointer("/runtime/web").is_none() {
                 out.push(Issue::error(
                     format!("{at}/web"),
@@ -75,18 +85,49 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
             }
         }
     }
-    if let Some(consumes) = m["consumes"].as_array() {
-        for (i, name) in consumes.iter().enumerate() {
-            let name = name.as_str().unwrap_or_default();
-            if !KNOWN_INTERFACES.contains(&name) {
-                out.push(Issue::error(
-                    format!("/consumes/{i}"),
-                    "interface.unknown",
-                    format!("{name} is not an interface of this cmux version"),
-                ));
-            }
+    for (i, name) in m
+        .pointer("/consumes/interfaces")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let name = name.as_str().unwrap_or_default();
+        if !KNOWN_INTERFACES.contains(&name) {
+            out.push(Issue::error(
+                format!("/consumes/interfaces/{i}"),
+                "interface.unknown",
+                format!("{name} is not an interface of this cmux version"),
+            ));
         }
     }
+    for (i, name) in m
+        .pointer("/requires/hostCapabilities")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let name = name.as_str().unwrap_or_default();
+        if !KNOWN_HOST_CAPABILITIES.contains(&name) {
+            out.push(Issue::error(
+                format!("/requires/hostCapabilities/{i}"),
+                "hostCapability.unknown",
+                format!("{name} is not a host capability of this cmux version"),
+            ));
+        }
+    }
+    for (i, entry) in m["openWith"].as_array().into_iter().flatten().enumerate() {
+        let interface = entry["interface"].as_str().unwrap_or_default();
+        if m.pointer(&format!("/implements/{}", escape(interface))).is_none() {
+            out.push(Issue::error(
+                format!("/openWith/{i}/interface"),
+                "openWith.notImplemented",
+                format!("the app does not implement {interface}"),
+            ));
+        }
+    }
+    check_scopes(m, first_party, &mut out);
     if m.pointer("/server/kind").and_then(Value::as_str) == Some("native") && !first_party {
         out.push(Issue::error(
             "/server/kind",
@@ -108,4 +149,48 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
     out
+}
+
+/// Scope classes: server-only scopes belong in `server.scopes`; restricted
+/// scopes need first party or a Verified review; `process:spawn` needs a
+/// native (first-party) server.
+fn check_scopes(m: &Value, first_party: bool, out: &mut Vec<Issue>) {
+    let native_server = m.pointer("/server/kind").and_then(Value::as_str) == Some("native");
+    for (field, server) in
+        [("/scopes", false), ("/optionalScopes", false), ("/server/scopes", true)]
+    {
+        for scope in m.pointer(field).and_then(Value::as_object).into_iter().flat_map(|o| o.keys())
+        {
+            let at = format!("{field}/{}", escape(scope));
+            let Some(info) = scope_info(scope) else {
+                out.push(Issue::error(
+                    at,
+                    "scope.unclassified",
+                    format!("{scope} has no risk class"),
+                ));
+                continue;
+            };
+            if info.server_only && !server {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.serverOnly",
+                    format!("{scope} is a server scope; declare it in server.scopes"),
+                ));
+            }
+            if scope.starts_with("process:spawn:") && !native_server {
+                out.push(Issue::error(
+                    at.clone(),
+                    "scope.processSpawn",
+                    "process:spawn needs a native server that ships with cmux",
+                ));
+            }
+            if info.class == ScopeClass::Restricted && !first_party {
+                out.push(Issue::warning(
+                    at,
+                    "scope.restricted",
+                    format!("{scope} is restricted: only first-party apps and Verified apps reviewed for it hold it"),
+                ));
+            }
+        }
+    }
 }

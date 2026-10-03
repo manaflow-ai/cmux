@@ -104,6 +104,14 @@ public struct DaemonCapabilities: Sendable {
     /// Sticky columns: `set-column-sticky` and `columns[].sticky`
     /// (plans/cmux-next/sticky-column.md).
     public let stickyColumns = "sticky-columns-v1"
+    /// Top and bottom docks: `set-column-sticky` and `move-tab-to-column`
+    /// accept edges `top` and `bottom`, sent back as `columns[].dock`
+    /// (plans/cmux-next/layout-model.md).
+    public let edgeDocks = "edge-docks-v1"
+    /// `move-tab-to-column` `respawn`: a pane's only tab moves into a new
+    /// column and leaves a fresh tab of the same kind (Dock Column on a
+    /// screen with one tab).
+    public let tabColumnRespawn = "tab-column-respawn-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -117,6 +125,13 @@ public struct DaemonCapabilities: Sendable {
     /// Local conversations owned by the daemon (Home, plans/cmux-next/home.md):
     /// the `conversation-*` commands and `conversation-changed`/`conversation-typing` events.
     public let localConversations = "local-conversations-v1"
+    /// `workspace.ensure_home` and the home workspace (`kind: home`; home.md 7).
+    public let workspaceKind = "workspace-kind-v1"
+    /// Conversation tabs: `new-conversation-tab` and the `conversation` tab kind.
+    /// Echoed so the daemon sends the canonical kind instead of `browser`.
+    public let conversationTabs = "conversation-tabs-v1"
+    /// `conversation-search` on the local conversation owner.
+    public let conversationSearch = "conversation-search-v1"
     public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
@@ -155,9 +170,10 @@ public struct DaemonCapabilities: Sendable {
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
-                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources,
+                                            terminalCommandJournal, stickyColumns, edgeDocks, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
-                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
+                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
+                                            workspaceKind, conversationTabs, conversationSearch] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

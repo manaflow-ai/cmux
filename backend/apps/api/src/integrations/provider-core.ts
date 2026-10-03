@@ -68,6 +68,17 @@ export interface ProviderImpl {
    * one refresh at a time per connection (rotating refresh tokens are single use).
    */
   readonly refresh?: (env: Env, http: Http, credential: Credential) => Promise<Credential | undefined>
+  /**
+   * Revokes the grant at the provider after a disconnect: `done` when the
+   * provider confirmed or the grant was already gone, `retry` otherwise.
+   */
+  readonly revoke?: (env: Env, http: Http, credential: Credential) => Promise<"done" | "retry">
+  /**
+   * Account keys that share one provider grant with this one (Google: the
+   * Gmail and Calendar connections of one Google user share the grant of our
+   * OAuth client). A revoke is skipped while any of them is still linked.
+   */
+  readonly grantKeys?: (accountKey: string) => ReadonlyArray<string>
 }
 
 export const json = async (res: Response): Promise<Record<string, unknown>> => {

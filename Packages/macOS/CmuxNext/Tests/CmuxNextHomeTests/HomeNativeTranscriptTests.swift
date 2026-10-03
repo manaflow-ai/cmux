@@ -122,20 +122,21 @@ import Testing
     }
 
     /// Resolution audit: every layer that shows a bitmap draws it at least at
-    /// the display scale (2x), so nothing is upscaled.
+    /// the window's backing scale (2x on Retina), so nothing is upscaled.
     @Test func everyBitmapLayerIsDrawnAtDisplayScale() async throws {
         let (window, view) = host(messages: 30)
         defer { window.close() }
         await view.controller.bitmapsSettled()
         view.layoutSubtreeIfNeeded()
+        let expected: CGFloat = window.backingScaleFactor
         var checked = 0
         var findings: [String] = []
         func walk(_ layer: CALayer) {
             if let contents = layer.contents, CFGetTypeID(contents as CFTypeRef) == CGImage.typeID {
                 let image = contents as! CGImage // swiftlint:disable:this force_cast
                 checked += 1
-                if layer.contentsScale < 2 { findings.append("\(layer.name ?? "layer") scale \(layer.contentsScale)") }
-                let needed: CGFloat = layer.bounds.width * 2 * layer.contentsRect.width
+                if layer.contentsScale < expected { findings.append("\(layer.name ?? "layer") scale \(layer.contentsScale)") }
+                let needed: CGFloat = layer.bounds.width * expected * layer.contentsRect.width
                 let pixels: CGFloat = CGFloat(image.width) + 1
                 let unit = CGRect(x: 0, y: 0, width: 1, height: 1)
                 if layer.contentsCenter == unit, pixels < needed {
@@ -152,21 +153,18 @@ import Testing
 
 @MainActor
 @Suite struct HomeFieldSpringTests {
-    /// The field's height change follows the shared spring: keyframes start
-    /// at the old size, end at the new one, and track the core's curve.
-    @Test func keyframesFollowTheSharedCurve() throws {
+    /// The field view's keyframes are the render core's: they start at the
+    /// old frame and end at the new one.
+    @Test func keyframesComeFromTheCore() throws {
         let view = NSView(frame: CGRect(x: 0, y: 0, width: 300, height: 79))
-        let curve: (duration: Double, progress: @Sendable (Double) -> Double) = (0.5, { min(1, $0 / 0.5) })
-        HomeFieldSpring.animate(view, from: CGRect(x: 0, y: 0, width: 300, height: 79),
-                                to: CGRect(x: 0, y: 49, width: 300, height: 30), curve: curve)
+        let new = CGRect(x: 0, y: 49, width: 300, height: 30)
+        let frames: [CGRect] = [CGRect(x: 0, y: 0, width: 300, height: 79), CGRect(x: 0, y: 30, width: 300, height: 49), new]
+        HomeFieldSpring.animate(view, to: new, keyframes: (0.5, [0, 0.5, 1], frames))
         let size = try #require(view.animations["frameSize"] as? CAKeyframeAnimation)
         let values = try #require(size.values as? [NSValue])
         #expect(values.first?.sizeValue.height == 79)
         #expect(values.last?.sizeValue.height == 30)
         #expect(size.duration == 0.5)
-        let mid: CGFloat = values[values.count / 2].sizeValue.height
-        let midError: CGFloat = abs(mid - 54.5)
-        #expect(midError < 1, "linear test curve: halfway is halfway")
     }
 }
 
@@ -249,7 +247,8 @@ import Testing
 
 @MainActor
 @Suite struct HomeContextMenuTests {
-    /// A context menu on a bubble offers Copy for that message, nothing on
+    /// A context menu on a bubble offers Copy for that message (below the
+    /// tapback picker, HomeTapbackPickerTests), nothing on
     /// empty space. (The Copy action itself is not run: the user's clipboard stays.)
     @Test func bubbleMenuOffersCopyOfThatMessage() throws {
         let me = ParticipantID("user_me")
@@ -276,9 +275,48 @@ import Testing
         let hits = view.controller.hits(in: view.bounds)
         let last = try #require(hits.last)
         let menu = try #require(view.rowHost.menu(at: CGPoint(x: last.bubble.midX, y: last.bubble.midY)))
-        #expect(menu.items.count == 1)
-        #expect(menu.items.first?.action == #selector(HomeRowHostView.copyMessage(_:)))
+        #expect(menu.items.last?.action == #selector(HomeRowHostView.copyMessage(_:)))
         #expect(view.rowHost.menuHit?.text == "Message 6")
         #expect(view.rowHost.menu(at: CGPoint(x: 2, y: last.bubble.midY)) == nil)
+    }
+}
+
+@MainActor
+@Suite struct HomeSelectionTests {
+    /// A drag from the first to the last of three messages selects all
+    /// three, top to bottom, and draws one highlight. (Copy is not run: the
+    /// user's clipboard stays.)
+    @Test func dragAcrossRowsSelectsEveryMessageItMeets() throws {
+        let me = ParticipantID("user_me")
+        let id = ConversationID("conv_select")
+        let start = Date(timeIntervalSince1970: 1_790_000_000)
+        var messages: [Message] = []
+        for i in 1...3 {
+            let parts: [MessagePart] = [.text("Part \(i)")]
+            let author: ParticipantID = i == 2 ? me : ParticipantID("agent_chief")
+            let message = Message(id: MessageID("msg_\(i)"), conversation: id, seq: Seq(i), clientMessageID: IdempotencyKey("key_\(i)"),
+                                  author: author, parts: parts, createdAt: start.addingTimeInterval(TimeInterval(i) * 30))
+            messages.append(message)
+        }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 628, height: 700), styleMask: [.borderless],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = HomeNativeTranscriptView(conversation: id, me: me)
+        window.contentView = view
+        view.layoutSubtreeIfNeeded()
+        let items = CmuxHomeCore.TranscriptWindow(messages: messages).items(pending: [], me: me)
+        view.controller.update(items: items, summary: nil, typing: [], hasOlder: false)
+        view.layoutSubtreeIfNeeded()
+        let hits = view.controller.hits(in: view.bounds)
+        #expect(hits.count == 3)
+        let first = try #require(hits.first)
+        let last = try #require(hits.last)
+        view.rowHost.dragSelect(from: CGPoint(x: first.bubble.midX, y: first.bubble.midY),
+                                to: CGPoint(x: last.bubble.midX, y: last.bubble.midY))
+        #expect(view.rowHost.selection.map(\.text) == ["Part 1", "Part 2", "Part 3"])
+        #expect(view.rowHost.selectedText == "Part 1\n\nPart 2\n\nPart 3")
+        #expect(view.rowHost.selectionLayer.path != nil)
+        #expect(view.rowHost.acceptsFirstResponder)
     }
 }

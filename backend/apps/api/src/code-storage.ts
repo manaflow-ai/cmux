@@ -20,6 +20,10 @@ export interface CodeStorageEnv {
 export type CodeStorageError =
   | { readonly code: "code.unavailable"; readonly message: string; readonly retryable: boolean }
   | { readonly code: "code.not_found"; readonly message: string; readonly retryable: false }
+  | { readonly code: "code.too_large"; readonly message: string; readonly retryable: false }
+
+/** Largest bundle a run loads (Dynamic Worker modules are held in memory). */
+export const MAX_BUNDLE_BYTES = 5 * 1024 * 1024
 
 export type CodeResult<T> = { readonly ok: true; readonly value: T } | ({ readonly ok: false } & CodeStorageError)
 
@@ -124,4 +128,24 @@ export class CodeStorage {
     }
   }
 
+
+  /** One file at an exact commit, as text; refused above `maxBytes`. */
+  async file(repo: string, commit: string, path: string, maxBytes = MAX_BUNDLE_BYTES): Promise<CodeResult<{ text: string }>> {
+    if (!this.configured) return unavailable("code storage is not configured on this deployment", false)
+    try {
+      const res = await this.call(repo, ["git:read"], `/repos/${encodeURIComponent(repo)}/file?path=${encodeURIComponent(path)}&ref=${encodeURIComponent(commit)}`)
+      if (!res.ok) return await failure(res, `${path} at ${commit}`)
+      const length = Number(res.headers.get("content-length") ?? "0")
+      const tooLarge = { ok: false as const, code: "code.too_large" as const, message: `${path} is larger than ${maxBytes} bytes`, retryable: false as const }
+      if (length > maxBytes) {
+        await res.body?.cancel()
+        return tooLarge
+      }
+      const bytes = new Uint8Array(await res.arrayBuffer())
+      if (bytes.byteLength > maxBytes) return tooLarge
+      return { ok: true, value: { text: new TextDecoder().decode(bytes) } }
+    } catch (e) {
+      return unavailable(`code.storage unreachable: ${e instanceof Error ? e.name : "error"}`, true)
+    }
+  }
 }

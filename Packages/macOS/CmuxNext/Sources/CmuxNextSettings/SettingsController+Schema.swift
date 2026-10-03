@@ -35,9 +35,14 @@ extension SettingsController {
     }
 
     /// `setSetting` for the schema key at `path`: the one write path of the
-    /// palette's typed setters and handlers. Throws `SettingNotInSchema`
-    /// when the schema lists no such key.
+    /// palette's typed setters and handlers. Throws `SettingRetired` for a
+    /// removed key and `SettingNotInSchema` when the schema lists no such key.
     public func setSetting(at path: [String], to value: JSONValue?) async throws {
+        if SettingsSchema.isRetired(path) {
+            // Removing a retired key from an old file is allowed.
+            if value == nil { return try await removePruning(path) }
+            throw SettingRetired(key: path.joined(separator: "."))
+        }
         guard let descriptor = SettingsSchema.descriptor(for: path) else {
             throw SettingNotInSchema(key: path.joined(separator: "."))
         }

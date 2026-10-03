@@ -15,12 +15,20 @@ extension ControlRouter {
                 throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownCLIAction", "No CLI command '%@'", name),
                                    data: ["action": .string(name), "cli": true])
             }
+            try refuseDisabledFeature(action, name)
             return action
         }
         guard let action = catalog.resolve(name) else {
             throw ControlError(code: "not_found", message: ControlStrings.format("control.error.unknownAction", "Unknown action '%@'", name), data: ["action": .string(name)])
         }
+        try refuseDisabledFeature(action, name)
         return action
+    }
+
+    /// `feature.disabled` for an action whose feature an administrator turned off.
+    static func refuseDisabledFeature(_ action: ControlActionInfo, _ name: String) throws {
+        guard let feature = action.disabledFeature else { return }
+        try check(.featureDisabled(feature), action: name)
     }
 
     /// Checks target and arguments against the schema.

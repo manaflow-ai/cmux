@@ -190,3 +190,57 @@ Source: spec-coverage.md P17 and the enterprise review. Each parsed policy key g
 | P17-6 | F3 `integration.policy.set` forwards to `team.policy.update` | ConnectionDO op | automations lead / backend lead |
 
 Order: P17-1, P17-2, P17-3 (Swift client), P17-5, then the backend slices through the backend lead. A review subagent (security) checks each slice before it lands.
+
+### P17-1 and P17-1b (DisabledFeatures), 2026-10-03
+
+Landed in P17-1: the registry gate (palette, context menus, shortcuts, perform, main menu items hidden at validation, the shortcut page, `action.list`, `feature.disabled` from `action.run`, `action.describe` and CLI names), `MachineRegistry.daemon(machine:)`, the root palette's app rows and the Computer Use onboarding step.
+
+P17-1b (coordinator decisions, 2026-10-03):
+- When a feature is turned off, this Mac disconnects that feature's live sessions and refuses reconnects (SSH wake and activation, restored hosts, the Cloud list refresh, restored cloud workspaces, the Cloud tunnel hub). Nothing remote is deleted or stopped: Cloud VMs, SSH host processes and remote daemons keep running. Turning the feature on again reconnects what was connecting before.
+- Terminal tabs on a turned-off machine show the plain banner "Turned off by your organization", with no reconnect hint. Their endpoint refuses re-attaches. A window of such a machine keeps its blocked daemon, so its commands never land on this Mac.
+- `apps`: the app host refuses to start apps and stops running ones, including a start that was in flight. Lifting the policy clears the reason.
+- `server.makeThisMacAServer` and `server.addServer` map to `remoteHosts`. `server.stopServing` stays available, so a running server can still be stopped.
+- The shortcut and chord index (leader overlay) skips disabled actions.
+- `cloud.machines`, `remote.machines` and CodeRouter writes (`coderouter.*.add|set|update|remove|clear`) answer `feature.disabled`. CodeRouter reads stay on. Phone access (`mobile.*`) stays on, because the phone reaches this Mac, not Cloud.
+- A malformed `DisabledFeatures` value (not an array of strings) fails closed: every feature is turned off, and a diagnostic says why. An administrator who set the key meant to restrict, so a typo must not leave everything on. An unknown name is reported and ignored, and the known names still apply. A problem never turns a feature on.
+- At launch, the forced value applies synchronously before Cloud, SSH and apps start.
+
+Open:
+- Rust half (ad349): `cmux mcp serve` and browser automation ops refuse when `mcp` or `browserAutomation` is off, through the config actor.
+- After the policy lifts, an SSH terminal keeps the banner until its next attach event (a click or a key press), and an open app page keeps it until the page is reopened.
+
+### P17-4 and P17-6 status (backend lead, 2026-10-03)
+
+P17-4, enforced against the principal's TeamDO policy (TeamDO.signInRules, cached 30 s per Worker isolate):
+- `sso.enforce`: a Stack session without the team's SSO claim `cmux_sso_team` (the enterprise OIDC callback stamps it) gets 403 `auth.sso_required` on every API request and wire connect; owners are exempt unless `sso.enforceForOwners`.
+- Installs: `install.register` from a session records that session's `sso_team` on the install, and minted install tokens carry it. When the team enforces SSO, token mint, every API call and wire connect refuse installs registered without it, so installs from before enforcement must be registered again through SSO. Requirement for the enterprise lane: `cmux_sso_team` must be a claim users cannot set themselves (Stack server-signed, not client or user metadata); if Stack cannot guarantee that, SSO sessions are recorded server-side instead and the check reads that record.
+- `chief.create` is refused on the user socket (it would skip the class gate); it goes through POST /v1/ops.
+- `updates.minimumVersion`: `/v1/auth/token` and every wire connect read `x-cmux-client-version`; older, or missing while the key is set, answers 403 `client.too_old` with `minimum_version`. Mac, iOS and CLI send the header (coordinator routes).
+- `agents.allowedClasses`, class mapping (enterprise lane checks it):
+  - `mux` = chief creation (`chief.create`, which also binds the chief's MuxDO): enforced in the Worker (403 `policy.denied`).
+  - `agent` = `install.register` for agent install kinds: no agent install kind exists yet (kinds are mac, ios, cli, daemon, web, vm); enforced when one is added.
+  - `run` = automation run grants: NOT yet enforced. Runs start inside SchedulerDO (alarms, webhooks), which has no copy of the team policy; follow-up with the automations lead: TeamDO pushes `agents.allowedClasses` to SchedulerDO as it pushes the integration slice to ConnectionDO, and run creation refuses when `run` is absent.
+P17-6 (accepted by the coordinator, replaces the planned ConnectionDO system forward): `integration.policy.set` is a deprecated alias of `team.policy.update`, forwarded by the Worker with the caller's own principal (TeamDO's admin check applies; a system forward would skip it). An SSO or MDM lock on ConnectionDO still answers `policy.locked`. The answer keeps the old shape (the integration slice, source `team_policy`); ConnectionDO receives it through TeamDO's push within seconds. Remove the alias after one release.
+
+### sso.enforce: SSO sessions recorded server-side (enterprise lane, 2026-10-03)
+
+Hexclave/Stack access tokens carry a fixed set of claims (`sub`, `refresh_token_id`, `email`, ...) with no custom claims or metadata (docs.hexclave.com, guides/apps/authentication/jwts). So `cmux_sso_team` could never come from our OIDC callback. The gate trusted it anyway: a Stack-signed token that carried it passed. Fix: the OIDC callback creates the Stack session server-side, reads its `refresh_token_id`, and records (refresh_token_id, stack user, connection, expiry) in the team's TeamDO. `auth.ts` ignores any SSO claim and carries the Stack-signed `refresh_token_id`. `policy-gate.withSsoSession` asks TeamDO, so the record is the only source.
+Lifecycle, from Stack's source (apps/backend/src/lib/tokens.tsx): `refresh_token_id` is the refresh-token row id, so it stays the same across access-token refreshes. Sign-out and session revocation delete the row, and Stack then mints no new access token for it. A revoked session therefore keeps working only until its last access token expires (10 minutes) plus our 30 s cache. The record expires at `sso.sessionMaxAgeHours`, or after at most 365 days, and it stops counting at once when its connection is disabled or deleted.
+Open (backend lead, blocks turning sso.enforce on): the gate reads the policy of `principal.team`, which is the personal team for every session and install. A member of an SSO team is therefore never checked against that team. sso.enforce also cannot be enabled today, because `team-policy.ts` hard-codes `ssoFacts` to 0 active connections. Lowering `sso.sessionMaxAgeHours` does not shorten records that already exist.
+
+### P17-2: UpdateChannel and MinimumVersion (enterprise lane, 2026-10-03)
+
+The single managed reader (`SettingsController.managedPolicy`) passes both keys to `UpdaterService` through `UpdaterPolicyBridge`.
+- `UpdateChannel` (stable or nightly, either case; an unknown name pins nothing) refuses switching to the other channel. The channel switch action shows the localized reason.
+- `MinimumVersion` (major.minor.patch, missing parts are 0, a pre-release counts as its release): while the running version is older, the updater checks when the requirement starts, when Sparkle starts and on each app activation. The sheet says "Your organization requires cmux X or newer" and has no Later button. Escape still closes it, and it comes back on the next activation.
+- The Mac app sends `x-cmux-client-version` on the feed wire connect. The server answers `client.too_old` (P17-4).
+Open: a pinned channel that differs from the running app only refuses the switch; the app does not move to the pinned channel. The Mac has no `/v1/auth/token` client yet (2b-5); iOS sends the header through `InstallAuthClient` when the iOS lane wires it. A 403 `client.too_old` on the wire is not yet shown as a separate state, because URLSessionWebSocketTask exposes no response body.
+
+### P17-3: RestrictToManagedTeam and AllowedSignInMethods on the client (enterprise lane, 2026-10-03)
+
+- `RestrictToManagedTeam` with `ManagedTeam` (forced values only, through `ManagedPolicyBridge`, applied synchronously at launch): `CloudAuth` lists only the managed team and refuses to select any other. CodeRouter socket and app calls refuse any other team (`managed`). When the account does not belong to the managed team, Cloud sends no request at all. The server-side check belongs to the backend lead (P17-4); the client check only guides the user. Backend question: a request without `X-Cmux-Team-Id` must not fall back to the personal team when the device is restricted.
+- `AllowedSignInMethods`: not enforced on the Mac. Sign-in is the hosted web page (`handler/native-sign-in`), and the app cannot hide Stack's methods. Enforcement needs the server, which must refuse a session from a method the team does not allow (backend lead, P17-4), and the web sign-in page, which must offer only the allowed methods (web lane). DECISION for the coordinator: route both.
+
+### P17-5: the MDM schema ships with each release (enterprise lane, 2026-10-03)
+
+`release.yml` uploads the files in `docs/mdm` as release assets: the ProfileManifests plist, the Jamf JSON schema, the Intune plist, the example `.mobileconfig`, the DDM declaration and the key table. The upload uses the same resumable, immutable uploader as the DMG, and the dry run lists the files. URL: `https://github.com/manaflow-ai/cmux/releases/download/<tag>/com.manaflow.cmux.plist`. `ManagedPreferencesManifestTests` keeps `docs/mdm` current with the catalog on every CI run. The release owner should review the workflow change. The rolling NIGHTLY release does not carry these assets.

@@ -38,8 +38,6 @@ public struct Palette {
     public static var stripBackground: NSColor { color(\.stripBackground, dynamic: PaletteDynamic.stripBackground) }
     /// The sidebar's tonal step over the window backdrop.
     public static var sidebarStep: NSColor { color(\.sidebarStep, dynamic: PaletteDynamic.sidebarStep) }
-    /// The tab strip's tonal step over the window backdrop.
-    public static var stripStep: NSColor { color(\.stripStep, dynamic: PaletteDynamic.stripStep) }
 
     /// Primary text.
     public static var textPrimary: NSColor { color(\.textPrimary, dynamic: PaletteDynamic.textPrimary) }

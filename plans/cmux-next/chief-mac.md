@@ -15,7 +15,9 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 1. Inbox: it reads the conversation owner's `conversation-changed` events, applies the wake rule
    (home.md section 5), and prompts the session (`promptId` = message id).
 2. Replies: it folds the session's acpmux events into turns and posts each turn's text as
-   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`); it sets typing during a turn.
+   `message.send` by `agent_mux` (key `turn:<session>:<turn seq>`, or `turn:<session>:<epoch>:<turn
+   seq>` after the acpmux log was reset; the epoch comes from the log itself, so a lost host.json or a
+   repeated import never reuses a key); it sets typing during a turn.
 3. Supervisor: it tracks child sessions tagged `mux.parent=mux`, posts and edits their `work`
    cards, and sends `[mux-event]` prompts when a child ends a turn or asks for a permission.
 4. Outbox: durable, ordered conversation ops; one retry after `agent_rate`; drop on any other
@@ -23,7 +25,7 @@ harness. The "brain" that P1 ports is the deterministic host around it (today `m
 5. Memory: the OptMem-style log (`LOG.txt`, `TREE/`), the Claude Code hooks that write it, and
    compaction through a summarizer session.
 6. Session setup: the session directory (CLAUDE.md, `.claude/settings.json`, hooks), the tool
-   servers, the pid lock, and catch-up after a reconnect.
+   servers, the host lock, and catch-up after a reconnect.
 
 ## 2. Process placement
 
@@ -42,8 +44,16 @@ Placement: the Chief is an actor in the session daemon process (the conversation
   hub in-process. The core does not change.
 - Lifecycle: the daemon starts the actor when the session has a `kind: home` workspace
   (`workspace.ensure_home`) and stops it with the session. One actor per `$MUX_HOME`: the actor takes
-  the same pid lock as the TypeScript host (`$MUX_HOME/state/host.lock`), so the two hosts never run
-  together. The daemon advertises capability `chief-v1`.
+  the same kernel lock as the TypeScript host, so the two hosts never run together. Lock protocol:
+  open `$MUX_HOME/state/host.lock` and take an exclusive non-blocking flock(2) (TypeScript: bun:ffi
+  `flock(LOCK_EX|LOCK_NB)`; Rust: `std::fs::File::try_lock`, which is flock on Unix), keep the
+  descriptor open for the host's life, never remove the file; the text `<pid>\n<start ms>\n` is
+  diagnostics only, with a `flock` mark line (branch feat-cmux-next-mux-lock). Upgrade check, REMOVE
+  AFTER ONE RELEASE: a lock text without the mark that names a live process whose OS start is no
+  later than the recorded start (or the file mtime) plus 1 s is an older host that holds the lock by
+  text only; the new host logs its pid and does not start. The Rust shell must write the same text
+  with the `flock` mark line, or a TypeScript host reads it as an older host. The daemon advertises
+  capability `chief-v1`.
 - Why not the acpmux process: the conversation owner is the single writer of conversations and its
   owner-stamped actor is the security boundary (home.md section 2). An in-process client of the
   owner removes the token handoff (the 0600 file and the "any same-uid process is user_local" gap
@@ -65,17 +75,22 @@ Both brains get the same sans-I/O core: `step(state, input, now) -> effects`. Ho
 - Rust: crate `cmux-tui/crates/cmux-chief` (core, memory, prompts; serde only, no I/O), plus the
   daemon shell `cmux-tui-core/src/server/chief/` (ports, timers, persistence).
 
-Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {summaries}`,
-`snapshot {summary, messages}`, `history {conversation, messages}`, `conversation_changed {event}`,
-`op_result {idempotency_key, ok | reject}`, `acpmux_connected {session_id, sessions, events}`,
-`acpmux_event {event}`, `session_changed {session}`, `permission_pending {session_id,
-permission_id, request}`, `child_events {session_id, events}`, `prompt_accepted {prompt_id}`,
-`timer {key}`, `disconnected {port}`.
+Inputs (tagged `kind`): `daemon_connected {conversation}`, `conversations_listed {conversations}`,
+`snapshot {conversation, messages}`, `history {conversation, messages}`, `conversation_changed
+{conversation, change}`, `op_result {idempotency_key, reason?, change?}` (`reason` set on a reject),
+`acpmux_connected {session_id, sessions, events, cursor_reset?}`, `acpmux_event {event}`,
+`session_changed {session}`, `permission_pending {session_id, permission_id, request}`,
+`sessions {sessions}`, `child_events {session_id, events}`, `prompt_settled {prompt_id}`,
+`timer {key}`, `disconnected {port}`. Every input carries `now` in milliseconds since the epoch. A
+failed daemon read (list, snapshot, history) is reported as `disconnected {port: daemon}`; the
+reconnect catches up again.
 
-Effects (tagged `kind`, in order): `conversation_op {conversation, idempotency_key, op}`,
-`typing {conversation, on}`, `prompt {prompt_id, text}`, `fetch_snapshot {conversation, tail}`,
-`fetch_history {conversation, before_seq, limit}`, `fetch_child_events {session_id, after}`,
-`reconnect {port}`, `arm_timer {key, at}`, `persist {state}`, `log {line}`.
+Effects (tagged `kind`, in order): `persist {state}` (first, when the step changed the durable
+state; the shell writes it before it runs the rest), `conversation_op {conversation,
+idempotency_key, op}`, `typing {conversation, on}`, `prompt {prompt_id, text}`, `list_conversations`,
+`fetch_snapshot {conversation, tail}`, `fetch_history {conversation, before_seq, limit}`,
+`fetch_sessions`, `fetch_child_events {session_id, after}`, `reconnect {port}`, `arm_timer {key,
+at}`, `ready`, `log {line}`.
 
 Durable state keeps the `host.json` shape of `mux/host/src/state.ts` (field names unchanged), so
 the Rust host takes over a TypeScript host's state and memory with no migration step.
@@ -85,7 +100,7 @@ Conditions (Home lead, 2026-10-03, binding for P1):
 1. The TypeScript step core is the single behavior source. The corpus is generated from it; the
    Rust core follows it, never the other way.
 2. `mux/host` keeps working until `cmux-chief` passes the corpus; then the Rust Chief replaces it in
-   one switch. The Mac never has two live brains (the shared pid lock also enforces this).
+   one switch. The Mac never has two live brains (the shared kernel lock also enforces this).
 3. The Rust Chief acts as `agent_mux` with the agent principal, never `user_local` or the install
    principal. In-process (section 2) the owner stamps the agent principal directly; any socket
    client path binds with the minted agent token.
@@ -101,13 +116,19 @@ the TypeScript core must agree, and the generator records the full effects).
 
 ```
 {"format": "cmux-chief-corpus/1",
- "cases": [{"name", "state": <durable state before>, "volatile": <summaries, cursors, sessions>,
-            "steps": [{"now": RFC 3339 ms, "input": <Input>, "effects": [<Effect>]}],
+ "cases": [{"name", "state": <durable state before>,
+            "steps": [{"now": <ms since the epoch>, "input": <Input>, "effects": [<Effect>]}],
             "state_after": <durable state>}],
- "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"render_wake", "args", "result"}]}
+ "memory": [{"name", "fn": "to_lines"|"decompose"|"wake_cover"|"wake"|"zoom", "args", "result"}]}
 ```
 
-Rules: effects compare as JSON values in order; `persist` compares the whole state; times come only
+JSON text rule (coordinator, 2026-10-03): JSON that the cores render into prompt text (a
+permission's `rawInput`, the `turn_error` fallback) uses sorted keys in both languages. Number text
+still differs for integer-valued floats (TypeScript `1`, Rust `1.0`). This gap is accepted: corpus
+cases carry no floats in that JSON, one unit test per language pins the current text, and no code
+compares that text across the cores (compare parsed values only).
+
+Rules: effects compare as exact JSON values in order (`log` effects are not compared); `persist` compares the whole state; times come only
 from `now`. Case groups: wake rule (1:1, group, DM, mention, reply to the Chief, retracted, own
 message), catch-up from the read cursor with paging, turn folding (steer, queue, error, replay at or
 below the cursor), reply keys, typing, outbox (`agent_rate` once, `agent_budget` drop,

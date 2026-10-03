@@ -10,6 +10,9 @@ nonisolated enum RefusalStrings {
         String(localized: key, defaultValue: value, table: "Refusals", bundle: .module)
     }
 
+    /// A feature an administrator turned off (DisabledFeatures).
+    static var turnedOffByOrganization: String { text("refusal.policy.turnedOff", "Turned off by your organization") }
+
     static func format(_ key: StaticString, _ value: String.LocalizationValue, _ arguments: any CVarArg...) -> String {
         String(format: text(key, value), arguments: arguments)
     }
@@ -95,9 +98,10 @@ nonisolated enum RefusalStrings {
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
     static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
     static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
+    /// Docking a tab whose kind cannot leave a fresh tab behind (an agent
+    /// chat, an incognito page) when it is the screen's only tab.
+    static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
-    /// Top and bottom docks: the wire's sticky edge has only left and right.
-    static var edgeDocksUnsupported: String { text("handlers.refusal.edgeDocksUnsupported", "top and bottom docks are not supported yet") }
     static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     static func moveColumnUnsupported(_ capability: String, _ count: Int) -> String { format("handlers.refusal.moveColumnUnsupported", "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)", capability, count) }
     static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }

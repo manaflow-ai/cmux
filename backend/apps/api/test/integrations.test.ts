@@ -1,5 +1,6 @@
 import { env, exports } from "cloudflare:workers"
 import { evictDurableObject, runInDurableObject } from "cloudflare:test"
+import { settlePolicy } from "./integration-policy-settle.ts"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { aadFor, open, seal } from "../src/integrations/crypto.ts"
@@ -31,6 +32,7 @@ const call = async (path: string, token: string, body: unknown) => {
 }
 const op = (token: string, name: string, params: unknown, key: string = crypto.randomUUID()) => call("/v1/ops", token, { op: name, params, idempotency_key: key, origin: "cli" })
 const read = (token: string, name: string, params: unknown = {}) => call("/v1/read", token, { op: name, params })
+const setIntegrationPolicy = (token: string, team: string, fields: unknown) => settlePolicy(op, read, token, team, fields)
 const signedIn = async (stackUser: string) => {
   const token = await sessionToken(stackUser)
   const e = await op(token, "user.ensure", {})
@@ -311,8 +313,8 @@ describe("connections end to end (workerd)", () => {
     expect(outside.json).toMatchObject({ ok: false, error: { code: "policy.denied" } })
 
     // The allowlist narrows further at call time.
-    const set = await op(token, "integration.policy.set", { github: { repo_allowlist: ["acme/api"] } })
-    expect(set.json.value).toMatchObject({ source: "admin", locked: false, github: { scope: "linking_user_repos", repo_allowlist: ["acme/api"] } })
+    const set = await setIntegrationPolicy(token, team, { github: { repo_allowlist: ["acme/api"] } })
+    expect(set.json.value).toMatchObject({ source: "team_policy", locked: true, github: { scope: "linking_user_repos", repo_allowlist: ["acme/api"] } })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/web", issue: 2, body: "hi" })).json.error.code).toBe("policy.denied")
     expect(posts).toEqual(["/repos/acme/web/issues/1/comments"])
 
@@ -348,7 +350,7 @@ describe("connections end to end (workerd)", () => {
 
   it("a stricter policy narrows existing connections: installation-scope links and denied providers stop working", async () => {
     const { token, team } = await signedIn("conn-gh-2")
-    await op(token, "integration.policy.set", { github: { scope: "installation" } })
+    await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
     const connect = await op(token, "integration.connect", { provider: "github" })
     const conn = connect.json.value.connection.id as string
     const state = new URL(connect.json.value.authorize_url).searchParams.get("state")!
@@ -365,10 +367,10 @@ describe("connections end to end (workerd)", () => {
     const done = await op(token, "integration.complete", { state, code: "c", installation_id: "77" })
     expect(done.json.value.resources).toEqual({ repos: null })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 1, body: "x" })).json.ok).toBe(true)
-    await op(token, "integration.policy.set", { github: { scope: "linking_user_repos" } })
+    await setIntegrationPolicy(token, team, { github: { scope: "linking_user_repos" } })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 2, body: "x" })).json.error.code).toBe("policy.denied")
-    await op(token, "integration.policy.set", { github: { scope: "installation" } })
-    await op(token, "integration.policy.set", { allowed_providers: ["slack"] })
+    await setIntegrationPolicy(token, team, { github: { scope: "installation" } })
+    await setIntegrationPolicy(token, team, { allowed_providers: ["slack"] })
     expect((await op(token, "github.issue.comment", { connection: conn, repo: "acme/any", issue: 3, body: "x" })).json.error.code).toBe("policy.denied")
   })
 

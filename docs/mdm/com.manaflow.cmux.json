@@ -123,16 +123,6 @@
       "title" : "Line Width",
       "type" : "number"
     },
-    "appearance.tabBarBackground" : {
-      "default" : "window",
-      "description" : "Window uses the window's own background around the tabs; Darker shades the tab bar.",
-      "enum" : [
-        "window",
-        "darker"
-      ],
-      "title" : "Tab Bar Background",
-      "type" : "string"
-    },
     "appearance.theme" : {
       "description" : "Colors for cmux and its terminals. A space, workspace or terminal theme overrides it.",
       "title" : "Theme",
@@ -414,11 +404,14 @@
       "type" : "string"
     },
     "layout.stickyColumnEdge" : {
-      "default" : "right",
+      "default" : "nearest",
       "description" : "layout.stickyColumnEdge",
       "enum" : [
+        "nearest",
         "right",
-        "left"
+        "left",
+        "top",
+        "bottom"
       ],
       "title" : "Sticky Column Edge",
       "type" : "string"
@@ -621,6 +614,141 @@
       "title" : "Timeout",
       "type" : "number"
     },
+    "palette.scopes.commands.prefix" : {
+      "default" : ">",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Commands Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.scopes.prefix" : {
+      "default" : "?",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Scope List Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.settings.prefix" : {
+      "default" : ",",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Settings Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.tabs.prefix" : {
+      "default" : "@",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Tabs Prefix",
+      "type" : "string"
+    },
+    "palette.scopes.workspaces.prefix" : {
+      "default" : "#",
+      "description" : "Typed into an empty query, this character enters the scope. A prefix you assign moves from any other scope.",
+      "enum" : [
+        "@",
+        "#",
+        ">",
+        ",",
+        "?",
+        "!",
+        "/",
+        ";",
+        ":",
+        "%",
+        "&",
+        "+",
+        "=",
+        "~",
+        "$",
+        "^",
+        "*",
+        ".",
+        "none"
+      ],
+      "title" : "Workspaces Prefix",
+      "type" : "string"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -701,6 +829,17 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tasks.layout" : {
+      "default" : "inbox",
+      "description" : "Inbox lists what needs you first, with the task beside it. Changes apply at once.",
+      "enum" : [
+        "list",
+        "board",
+        "inbox"
+      ],
+      "title" : "Tasks Layout",
       "type" : "string"
     },
     "terminal.fontFamily" : {

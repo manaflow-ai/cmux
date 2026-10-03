@@ -24,6 +24,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "unicode-width",
@@ -786,6 +787,7 @@ name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
  "jsonschema",
+ "regex",
  "serde_json",
 ]
 

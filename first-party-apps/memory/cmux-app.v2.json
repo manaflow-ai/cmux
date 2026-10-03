@@ -21,7 +21,7 @@
     "cmux.section/1": { "export": "renderSection", "title": { "en": "Memory", "ja": "メモリ" }, "symbol": "brain", "options": { "defaultRegion": "bottom" } },
     "cmux.pane/1": { "export": "renderPane", "title": { "en": "Agent Memory", "ja": "エージェントメモリ" }, "symbol": "brain" }
   },
-  "consumes": ["cmux.diff.renderer/1"],
+  "consumes": { "interfaces": ["cmux.diff.renderer/1"] },
   "scopes": {
     "machine:read": "List this Mac, your cmux servers and the team VM.",
     "memory:read": "List and search agent memory files in your home folder and your workspace folders. Only memory files, never other files.",

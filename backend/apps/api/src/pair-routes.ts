@@ -5,6 +5,7 @@ import { verifyInstallSignature } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normalizeCode, sha256Hex } from "./domains/pairing.ts"
 import { jwkThumbprint } from "./domains/user.ts"
+import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import type { PairingRecord, PairingResult } from "./pairing-do.ts"
 
 /**
@@ -13,7 +14,9 @@ import type { PairingRecord, PairingResult } from "./pairing-do.ts"
  * - `POST /v1/pair/begin` (no account): a server proves it holds its install key
  *   and gets a code plus a collect secret. Rate-limited per client IP.
  * - `GET /v1/pair/wait` (WebSocket, subprotocols `cmux.pair.v1, collect.<secret>`):
- *   the server waits for approval; the result is pushed, never polled.
+ *   the server waits for approval; the result is pushed, never polled. The
+ *   Worker checks the secret (an HMAC over the code, pair-collect.ts) before
+ *   any PairingDO wakes.
  * - `server.pair.preview` / `server.pair.approve` run through `/v1/ops` with a
  *   signed-in session (see http.ts), never an install token or an agent.
  */
@@ -29,8 +32,6 @@ const BeginBody = Schema.Struct({
 })
 
 const pairingStub = (env: Env, code: string) => env.PAIRING_DO.get(env.PAIRING_DO.idFromName(code))
-
-const b64u = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 
 export const handlePairBegin = async (request: Request, env: Env): Promise<Response> => {
   if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
@@ -53,12 +54,12 @@ export const handlePairBegin = async (request: Request, env: Env): Promise<Respo
   const thumbprint = jwkThumbprint(body.public_jwk)
   const proof = beginProofMessage(env.ENVIRONMENT, thumbprint, body.wg_public_key, body.issued_at)
   if (!(await verifyInstallSignature(body.public_jwk, proof, body.signature))) return json({ error: "proof of possession failed" }, 403)
-  const collect = b64u(crypto.getRandomValues(new Uint8Array(32)))
-  const collectHash = await sha256Hex(collect)
   const country = ((request as unknown as { cf?: { country?: string } }).cf?.country ?? null) || null
   // 40-bit codes: a collision with a live code is rare; try a few fresh codes.
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = codeFromRandom(crypto.getRandomValues(new Uint8Array(5)))
+    const collect = await collectSecret(env, code)
+    const collectHash = await sha256Hex(collect)
     const r = await pairingStub(env, code).begin({ code, public_jwk: body.public_jwk, thumbprint, wg_public_key: body.wg_public_key, info: body.info, country, collect_hash: collectHash, now })
     if (r.ok) {
       const origin = (env.DASHBOARD_ORIGIN ?? "").replace(/\/$/, "")
@@ -74,6 +75,8 @@ export const handlePairWait = async (request: Request, env: Env): Promise<Respon
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const secret = protocols.find((p) => p.startsWith("collect."))?.slice("collect.".length)
   if (!code || !secret) return json({ error: "code and collect secret required" }, 400)
+  // Stateless check before any PairingDO wakes: a forged code or secret creates no object.
+  if (!(await collectSecretValid(env, code, secret))) return json({ error: "not found" }, 404)
   const headers = new Headers(request.headers)
   headers.set("x-cmux-collect-hash", await sha256Hex(secret))
   return pairingStub(env, code).fetch(new Request(request.url, { headers, method: "GET" }))
@@ -105,10 +108,15 @@ const fail = (op: string, key: string, code: string, message: string, retryable 
 /** A user-origin session only: never an install token, never an agent acting through one. */
 const isHumanSession = (p: Principal) => p.kind === "session" && !p.agent && Boolean(p.user)
 
-/** Per-user limit on preview and approve (code guessing), on the pairing namespace with user keys. */
-const pairLimited = async (env: Env, principal: Principal): Promise<boolean> => {
+/**
+ * Per-user limits on the pairing namespace (user keys). `user` bounds preview
+ * and approve (code guessing); `user-retry` is spent only after `user` refused,
+ * by an approve that may be a retry of the caller's own claim, so a retry is
+ * never blocked by the guessing budget and PairingDO wakes stay bounded.
+ */
+const pairLimited = async (env: Env, principal: Principal, bucket: "user" | "user-retry" = "user"): Promise<boolean> => {
   if (!env.PAIR_BEGIN_LIMIT) return true
-  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `user:${principal.user}` })
+  const { success } = await env.PAIR_BEGIN_LIMIT.limit({ key: `${bucket}:${principal.user}` })
   return success
 }
 
@@ -126,7 +134,9 @@ export const pairPreview = async (env: Env, principal: Principal, params: unknow
  * server.pair.approve: register the server's install key under the approver
  * (narrow grant), add the host to the team, then push the result to the
  * waiting server. Each step is keyed by the code, so a retry finishes a
- * partial approval and never makes a second install or host.
+ * partial approval and never makes a second install or host. When the
+ * approver loses the role after the install is registered, TeamDO refuses the
+ * host and revokes that install in one commit, and the code is spent.
  */
 export const pairApprove = async (
   env: Env,
@@ -143,15 +153,24 @@ export const pairApprove = async (
   if (params.team !== principal.team) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing into another team is not supported yet")
   const name = typeof params.name === "string" && params.name.length >= 1 && params.name.length <= 80 ? params.name : null
   if (!name) return fail(op, frame.idempotency_key, "validation.invalid", "name must be 1 to 80 characters")
-  if (!(await pairLimited(env, principal))) return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
   const team = principal.team!
-  // Role first: an approver who may not add servers writes nothing anywhere.
-  if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
-    return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
-  }
   const stub = pairingStub(env, code)
+  const now = Date.now()
+  // Limit before any PairingDO wakes. When the guessing budget is spent, a retry of the caller's own
+  // claim may still pass on the retry budget; only then is PairingDO asked (read only).
+  let mine: boolean | undefined
+  if (!(await pairLimited(env, principal))) {
+    mine = (await pairLimited(env, principal, "user-retry")) && (await stub.claimedBy(code, principal.user!, now))
+    if (!mine) return fail(op, frame.idempotency_key, "auth.forbidden", "too many pairing requests, try again in a minute", true)
+  }
+  // Role first: an approver who may not add servers writes nothing anywhere. One exception: the
+  // approver already claimed this code (an earlier attempt may have registered the install), so the
+  // retry goes on and TeamDO refuses in one commit with the install's revocation, then the code is spent.
+  if (!(await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).canEnrollServer(team, principal))) {
+    if (!(mine ?? (await stub.claimedBy(code, principal.user!, now)))) return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
+  }
   // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
-  const claimed = await stub.claim(code, principal.user!, Date.now())
+  const claimed = await stub.claim(code, principal.user!, now)
   if (!claimed.ok) {
     return claimed.reason === "unknown" ? fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown") : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
   }
@@ -173,7 +192,11 @@ export const pairApprove = async (
     { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key },
     `pair:${code}:${rec.thumbprint}:host`
   )
-  if (!enrolled.ok) return fail(op, frame.idempotency_key, enrolled.code, enrolled.message)
+  if (!enrolled.ok) {
+    // TeamDO refused in the same commit as the role check and revoked the install; the code is spent.
+    if (enrolled.refused) await stub.abort(code, principal.user!, Date.now())
+    return fail(op, frame.idempotency_key, enrolled.code, enrolled.message)
+  }
   const result: PairingResult = { host: enrolled.host, team, user: principal.user!, install }
   const c = await stub.complete(code, rec.thumbprint, result, Date.now())
   if (!c.ok) return fail(op, frame.idempotency_key, "validation.invalid", c.message)

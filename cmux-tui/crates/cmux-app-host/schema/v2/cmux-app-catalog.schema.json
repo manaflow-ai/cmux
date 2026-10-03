@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.dev/schemas/cmux-app-catalog/2.json",
+  "title": "cmux app catalog fragment (manifest v2 `catalog`)",
+  "description": "An app's ops in the operation-catalog format (plans/cmux-next/app-platform.md 12.1, V1), plus the app surfaces: palette entries and presets, keyboard shortcuts, gesture requirement and the export that implements the op.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["family", "operations"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schema_version": { "const": 1 },
+    "family": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+    "owner": { "$ref": "#/$defs/owner" },
+    "trigger_events": { "type": "array", "maxItems": 64, "items": { "$ref": "#/$defs/opName" } },
+    "operations": { "type": "array", "maxItems": 256, "items": { "$ref": "#/$defs/operation" } }
+  },
+  "$defs": {
+    "opName": { "type": "string", "maxLength": 96, "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$" },
+    "owner": { "type": "string", "pattern": "^app:(local|[a-z0-9](?:[a-z0-9-]{0,38}))/[a-z0-9][a-z0-9-]{0,63}$" },
+    "when": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Context condition: terms joined by && or ||, each optionally negated with !, for example paneFocused:editor && !readOnly.",
+      "pattern": "^!?[a-zA-Z][a-zA-Z0-9_.-]*(:[a-zA-Z0-9_./-]+)?(\\s*(&&|\\|\\|)\\s*!?[a-zA-Z][a-zA-Z0-9_.-]*(:[a-zA-Z0-9_./-]+)?)*$"
+    },
+    "key": {
+      "type": "string",
+      "description": "One chord: modifiers (cmd, ctrl, alt, shift) then one key, joined by +, for example cmd+s or cmd+shift+k.",
+      "pattern": "^((cmd|ctrl|alt|shift)\\+)*([a-z0-9]|f([1-9]|1[0-9])|enter|escape|tab|space|backspace|delete|up|down|left|right|home|end|pageup|pagedown|[-=\\[\\];',./`\\\\])$"
+    },
+    "text": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 120 },
+        {
+          "type": "object",
+          "required": ["en"],
+          "propertyNames": { "pattern": "^[a-z]{2}(?:-[A-Za-z]{2,4})?$" },
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 120 }
+        }
+      ]
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "owner", "class", "risk", "idempotency", "input", "docs", "since"],
+      "properties": {
+        "name": { "$ref": "#/$defs/opName" },
+        "owner": { "$ref": "#/$defs/owner" },
+        "class": { "enum": ["read", "mutation"] },
+        "risk": { "enum": ["read", "mutate-own", "mutate-shared", "execute", "send-external", "destructive"] },
+        "idempotency": { "enum": ["required", "forbidden"] },
+        "focuses": { "type": "boolean" },
+        "queue_offline": { "type": "boolean" },
+        "remote_relay": { "enum": ["allow", "deny"] },
+        "input": { "type": "object", "description": "JSON Schema of the op's arguments." },
+        "output": { "type": "object", "description": "JSON Schema of the op's result." },
+        "cli": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["path"],
+              "properties": {
+                "path": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "visible": { "type": "boolean" }
+              }
+            }
+          ]
+        },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["expose"],
+          "properties": {
+            "expose": { "enum": ["default", "opt_in", "never"] },
+            "group": { "type": "string", "maxLength": 64 }
+          }
+        },
+        "palette": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title"],
+          "properties": {
+            "title": { "$ref": "#/$defs/text" },
+            "when": { "$ref": "#/$defs/when" },
+            "presets": {
+              "type": "array",
+              "maxItems": 16,
+              "description": "Extra palette entries that run the op with fixed arguments.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "title", "args"],
+                "properties": {
+                  "id": { "type": "string", "pattern": "^[a-z][a-zA-Z0-9-]{0,63}$" },
+                  "title": { "$ref": "#/$defs/text" },
+                  "args": { "type": "object" },
+                  "when": { "$ref": "#/$defs/when" }
+                }
+              }
+            }
+          }
+        },
+        "keyboard": {
+          "type": "array",
+          "maxItems": 4,
+          "description": "Default shortcuts; users rebind them in Settings like built-in shortcuts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["key"],
+            "properties": {
+              "key": { "$ref": "#/$defs/key" },
+              "when": { "$ref": "#/$defs/when" }
+            }
+          }
+        },
+        "gesture": {
+          "enum": ["required", "optional"],
+          "description": "required: the op runs only with a live gesture token (a tap, palette pick or shortcut); agents and scripts get gesture.required."
+        },
+        "docs": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "since": { "type": "string", "maxLength": 64 },
+        "export": { "type": "string", "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$" }
+      }
+    }
+  }
+}

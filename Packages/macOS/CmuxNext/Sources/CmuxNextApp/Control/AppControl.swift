@@ -41,7 +41,7 @@ final class AppControl {
         let probe = frameProbe
         service.router.register(HistoryControl.methods(services: services))
         service.router.register(TabSearchControl.methods())
-        service.router.register(PaletteScopeControl.methods(services: services))
+        service.router.register(PaletteScopeControl.methods(services: services, router: service.router))
         service.router.register(BookmarkControl.methods(services: services))
         service.router.register(FeedControl.methods(services: services))
         service.router.register([
@@ -179,6 +179,10 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(DebugHomeNativeFixture.open(services: services))
+            },
+            .mainActor("debug.window_list") { [weak services] _ in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowList.list(services: services))
             },
             .mainActor("debug.window_snapshot") { [weak services] call in
                 guard let services else { return .value(.null) }

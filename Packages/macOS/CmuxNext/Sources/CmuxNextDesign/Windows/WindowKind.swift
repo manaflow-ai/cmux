@@ -23,13 +23,10 @@ public nonisolated enum WindowKind: String, CaseIterable, Sendable {
         switch self {
         case .main:
             WindowKindTraits(isMain: true, close: .contentFirst, surface: .content, hidesMinimizeAndZoom: false)
-        case .onboarding:
-            // Each step variant draws its own glass or opaque surface.
-            WindowKindTraits(isMain: false, close: .window, surface: .clear, hidesMinimizeAndZoom: true)
-        case .browserPopup:
-            WindowKindTraits(isMain: false, close: .window, surface: .token, hidesMinimizeAndZoom: true)
+        case .onboarding, .browserPopup:
+            WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: true)
         case .settings, .debugSettings, .appStore, .onboardingGallery, .devTools, .pageInfo, .terminalDebug, .browserDebug:
-            WindowKindTraits(isMain: false, close: .window, surface: .token, hidesMinimizeAndZoom: false)
+            WindowKindTraits(isMain: false, close: .window, surface: .backdrop, hidesMinimizeAndZoom: false)
         }
     }
 }

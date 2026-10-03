@@ -75,6 +75,8 @@ Platform gaps found by the earlier v2 sketch (still open):
 - No locale in the web pane init; cmux.t(key) is defined for the script VM only.
 - No pane visibility event to pause work in hidden panes.
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. Web panes: the manifest accepts `web` but nothing hosts it; the bridge (message shape, transport, grant checks, origin stamping) is unspecified.

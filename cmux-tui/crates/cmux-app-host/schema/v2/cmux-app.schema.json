@@ -171,11 +171,41 @@
       }
     },
     "consumes": {
-      "type": "array",
-      "maxItems": 32,
-      "uniqueItems": true,
-      "items": {
-        "$ref": "#/$defs/interfaceName"
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the app uses from others: interfaces other apps implement, ops and events other owners own, handle kinds other apps pass in.",
+      "properties": {
+        "interfaces": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/interfaceName"
+          }
+        },
+        "ops": {
+          "type": "array",
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/opName"
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/opName"
+          }
+        },
+        "handles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/handleKind"
+          }
+        }
       }
     },
     "scopes": {
@@ -187,24 +217,169 @@
     "handles": {
       "type": "object",
       "maxProperties": 16,
-      "description": "Handles the app may ask the user for, with the reason shown when it asks (V6).",
+      "description": "Handles the app may ask the user for (V6): the reason shown when it asks, or the reason with limits.",
       "propertyNames": {
-        "enum": [
-          "root",
-          "host",
-          "credential",
-          "document",
-          "diff"
-        ]
+        "$ref": "#/$defs/handleKind"
       },
       "additionalProperties": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 200
+        "$ref": "#/$defs/handleRequest"
       }
     },
     "server": {
       "$ref": "#/$defs/server"
+    },
+    "requires": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the app needs from the machine it runs on; the supervisor refuses to enable it elsewhere.",
+      "properties": {
+        "hostCapabilities": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/hostCapability"
+          }
+        },
+        "platforms": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "macos",
+              "linux",
+              "ios"
+            ]
+          }
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What the host does with resources the app owns (power assertions, watches, panes) when the app is disabled or uninstalled. Default release-owned.",
+      "properties": {
+        "onDisable": {
+          "enum": [
+            "release-owned",
+            "keep"
+          ]
+        },
+        "onUninstall": {
+          "enum": [
+            "release-owned",
+            "keep"
+          ]
+        }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Document types the app owns (one owner per type; V3).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/localId"
+          },
+          "title": {
+            "$ref": "#/$defs/text"
+          },
+          "types": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "extensions": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.+-]{0,31}$"
+            }
+          },
+          "symbol": {
+            "$ref": "#/$defs/symbol"
+          }
+        }
+      }
+    },
+    "openWith": {
+      "type": "array",
+      "maxItems": 16,
+      "description": "Types the app may ask to open by default; the user answers (ask) or the app never asks (never).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "interface",
+          "types"
+        ],
+        "properties": {
+          "interface": {
+            "$ref": "#/$defs/interfaceName"
+          },
+          "types": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 64,
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          "default": {
+            "enum": [
+              "ask",
+              "never"
+            ]
+          }
+        }
+      }
+    },
+    "drag": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provides"
+      ],
+      "properties": {
+        "provides": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/itemKind"
+          }
+        }
+      }
+    },
+    "drop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepts"
+      ],
+      "properties": {
+        "accepts": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/itemKind"
+          }
+        }
+      }
     },
     "settings": {
       "type": "object",
@@ -273,6 +448,28 @@
         "$ref": "#/$defs/path"
       }
     },
+    "notices": {
+      "type": "array",
+      "maxItems": 32,
+      "description": "Third-party license and notice files shown on the store page.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "$ref": "#/$defs/path"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        }
+      }
+    },
     "x-cmux-devOnly": {
       "type": "boolean"
     }
@@ -336,13 +533,14 @@
       "type": "object",
       "maxProperties": 64,
       "propertyNames": {
-        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external)|actions:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|power:write|mcp:expose)$"
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose)$"
       },
       "additionalProperties": {
         "type": "string",
         "minLength": 1,
         "maxLength": 200
-      }
+      },
+      "description": "Scopes the app asks for, each with the reason shown on the consent sheet. Risk classes: scope-classes.json."
     },
     "implementation": {
       "type": "object",
@@ -490,8 +688,7 @@
           }
         },
         "scopes": {
-          "$ref": "#/$defs/scopes",
-          "description": "The server principal's own scopes."
+          "$ref": "#/$defs/serverScopes"
         },
         "lifecycle": {
           "type": "object",
@@ -527,6 +724,103 @@
           }
         }
       ]
+    },
+    "serverScopes": {
+      "type": "object",
+      "maxProperties": 64,
+      "description": "The server principal's own scopes: app scopes plus the server-only process:spawn:<binary> and op:<op name>.",
+      "propertyNames": {
+        "pattern": "^([a-z][a-z0-9_-]{0,31}:(read|write|execute|external|answer|control|input|keys)|actions:run|embed:run|storage:(local|synced)|net:(\\*\\.)?[a-z0-9.-]{1,253}|integration:[a-z0-9-]{1,32}(:read)?|clipboard:write|mcp:expose|process:spawn:[a-z0-9][a-z0-9-]{0,63}|op:[a-z][a-zA-Z0-9_.-]{0,95})$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200
+      }
+    },
+    "handleKind": {
+      "enum": [
+        "root",
+        "connection",
+        "credential",
+        "document",
+        "diff",
+        "image",
+        "terminal",
+        "task"
+      ]
+    },
+    "handleRequest": {
+      "oneOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reason"
+          ],
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 256,
+              "description": "Most handles of this kind the app holds at once."
+            },
+            "rights": {
+              "type": "array",
+              "uniqueItems": true,
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              }
+            },
+            "kinds": {
+              "type": "array",
+              "uniqueItems": true,
+              "maxItems": 16,
+              "items": {
+                "$ref": "#/$defs/localId"
+              },
+              "description": "Narrower kinds of the handle, for example connection kinds ssh or cloud-vm."
+            }
+          }
+        }
+      ]
+    },
+    "opName": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-zA-Z0-9_-]*)+$",
+      "maxLength": 96
+    },
+    "itemKind": {
+      "enum": [
+        "file",
+        "directory",
+        "text",
+        "url",
+        "image",
+        "document",
+        "diff",
+        "terminal",
+        "task",
+        "connection"
+      ]
+    },
+    "hostCapability": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*/[1-9][0-9]*$"
     }
   }
 }

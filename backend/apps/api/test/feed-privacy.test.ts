@@ -51,5 +51,31 @@ describe("feed event privacy", { timeout: 60_000 }, () => {
     )
     expect(stored).toContain("feed.post")
     for (const text of [SECRET_TITLE, SECRET_COMMAND, "Claude Code · zeta", "Run migration"]) expect(stored).not.toContain(text)
+
+    // The request ledger keeps decided keys 7 days, longer than an evicted item: no text there either,
+    // and a retried key answers with the current item (or selector.not_found once it is gone).
+    const key = crypto.randomUUID()
+    const first = await call("/v1/ops", token, { op: "feed.post", params: { ...post, dedupe_key: "ledger-1" }, idempotency_key: key, origin: "cli" })
+    expect(first.json.value.item.title).toBe(SECRET_TITLE)
+    const stub = testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(user))
+    const ledger = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT op, reply FROM own_ledger").toArray().map((r: any) => `${r.op} ${r.reply}`).join("\n"))
+    expect(ledger).toContain("feed.post")
+    for (const text of [SECRET_TITLE, SECRET_COMMAND, "Claude Code · zeta", "Run migration"]) expect(ledger).not.toContain(text)
+    const retry = await call("/v1/ops", token, { op: "feed.post", params: { ...post, dedupe_key: "ledger-1" }, idempotency_key: key, origin: "cli" })
+    expect(retry.json.replayed).toBe(true)
+    expect(retry.json.value.item.id).toBe(first.json.value.item.id)
+    expect(retry.json.value.item.title).toBe(SECRET_TITLE)
+    // Once the item is gone from the state, the retried key is refused instead of answering with text.
+    const goneId = first.json.value.item.id as string
+    const dropItem = (instance: unknown): void => {
+      const engine = (instance as { boundEngine: { currentState: { items: Record<string, unknown> }; state: unknown } }).boundEngine
+      const items = { ...engine.currentState.items }
+      delete items[goneId]
+      engine.state = { ...engine.currentState, items }
+    }
+    await runInDurableObject(stub as DurableObjectStub, async (instance: unknown) => dropItem(instance))
+    const gone = await call("/v1/ops", token, { op: "feed.post", params: { ...post, dedupe_key: "ledger-1" }, idempotency_key: key, origin: "cli" })
+    expect(gone.json.error?.code ?? gone.json.code).toBe("selector.not_found")
   })
+
 })

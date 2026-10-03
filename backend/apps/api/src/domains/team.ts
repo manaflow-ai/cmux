@@ -7,9 +7,10 @@ import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduc
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
 import { reduceIntegrationLock, reduceIntegrationSeed, reduceIntegrationSynced, reduceReleaseDone, reduceReleaseLock, type IntegrationSyncState } from "./team-integration-sync.ts"
 import { reducePolicyRollback, reducePolicyUpdate } from "./team-policy.ts"
+import { reduceAccountAllocated, reduceCaInstalled, reduceCertsRevoked, type TeamSshState } from "./team-ssh.ts"
 import { reduceServerEnrolled, reduceServerInstallRevoked, reduceServerRevoke, type ServerRevocation } from "./team-servers.ts"
 
-export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState {
+export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncState, DomainState, SsoState, TeamSshState {
   readonly team: { readonly id: string; readonly kind: "personal" | "stack"; readonly display_name: string } | null
   readonly members: Readonly<Record<string, typeof TeamMember.Type>>
   readonly hosts: Readonly<Record<string, typeof Host.Type>>
@@ -23,7 +24,17 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
  * Grants for team ops are checked by UserDO when it mints the token; TeamDO
  * checks membership and the op's principal kind.
  */
-const HTTP_ONLY_OPS: ReadonlySet<string> = new Set(["sso.connection.set_secret", "sso.connection.activate", "domain.verify", "domain.release"])
+const HTTP_ONLY_OPS: ReadonlySet<string> = new Set([
+  "sso.connection.set_secret",
+  "sso.connection.activate",
+  "domain.verify",
+  "domain.release",
+  // The SSH CA signs and seals outside the reducer (team-ssh-ca.ts).
+  "team_vm.ssh_cert.challenge",
+  "team_vm.ssh_cert",
+  "team_vm.ssh_cert.revoke",
+  "team_vm.ssh_ca.rotate"
+])
 
 export const teamDomain: Domain<TeamState> = {
   initial: () => ({ team: null, members: {}, hosts: {} }),
@@ -139,6 +150,13 @@ export const teamDomain: Domain<TeamState> = {
       case "domain.release":
         // External effects: only through the Worker's HTTP route (never the wire), so a secret is never an op param.
         return reject("validation.invalid", `${op} runs through POST /v1/ops only`)
+      case "team_vm.ssh_ca_installed":
+      case "team_vm.ssh_certs_revoked":
+      case "team_vm.ssh_account_allocated": {
+        if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
+        if (op === "team_vm.ssh_account_allocated") return reduceAccountAllocated(state, params)
+        return op === "team_vm.ssh_ca_installed" ? reduceCaInstalled(state, state.team.id, params, ctx) : reduceCertsRevoked(state, state.team.id, params, ctx)
+      }
       case "sso.signed_in": {
         if (p.kind !== "system" || !state.team) return reject("auth.forbidden", "internal op")
         const q = params as { connection?: string; subject?: string; stack_user?: string; linked?: boolean }

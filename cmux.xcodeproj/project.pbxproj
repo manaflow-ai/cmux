@@ -155,6 +155,7 @@
 				CE7A00000000000000000020 /* Bundle acpmux */,
 				CE7A00000000000000000017 /* Embed CEF */,
 				CE7A00000000000000000018 /* Bundle Ghostty resources */,
+				CE7A00000000000000000031 /* Bundle server helper */,
 			);
 			buildRules = (
 			);
@@ -371,6 +372,25 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-ghostty-resources.sh\"\n";
+		};
+		CE7A00000000000000000031 /* Bundle server helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle server helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "exec \"${SRCROOT}/scripts/cmux-next/bundle-server-helper.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

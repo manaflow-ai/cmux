@@ -49,3 +49,31 @@ public nonisolated enum PaletteOpenRefusal: Error, Sendable, Equatable {
         }
     }
 }
+
+/// Why `palette.run` refused a row (palette-scopes.md 6.10), with the
+/// control error code the CLI maps to its exit code.
+public nonisolated enum PaletteRunRefusal: Error, Sendable, Equatable {
+    case unknownItem(scope: String, item: String)
+    /// The row has no typed action (only its palette closures run it).
+    case untyped(title: String)
+    case unknownAction(item: String, action: String)
+
+    public var code: String {
+        switch self {
+        case .unknownItem: "palette.item_unknown"
+        case .untyped: "palette.row_untyped"
+        case .unknownAction: "palette.action_unknown"
+        }
+    }
+
+    public var message: String {
+        switch self {
+        case .unknownItem(let scope, let item):
+            String(localized: "palette.run.refusal.noItem", defaultValue: "No row \(item) in palette scope \(scope)", bundle: .module)
+        case .untyped(let title):
+            String(localized: "palette.run.refusal.untyped", defaultValue: "The row \(title) has no typed action; it runs only in the palette", bundle: .module)
+        case .unknownAction(let item, let action):
+            String(localized: "palette.run.refusal.noAction", defaultValue: "The row \(item) has no action \(action)", bundle: .module)
+        }
+    }
+}

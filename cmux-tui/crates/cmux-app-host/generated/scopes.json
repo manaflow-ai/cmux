@@ -849,6 +849,46 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "team_vm.ensure_awake": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.journal.append": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.journal.high_water": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.journal.read": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.lease.release": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.ssh_ca": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
+    "team_vm.ssh_cert": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
+    "team_vm.ssh_cert.challenge": {
+      "scope": "team_vm:execute",
+      "class": "mutation"
+    },
+    "team_vm.ssh_cert.revoke": {
+      "scope": "team_vm:write",
+      "class": "mutation"
+    },
+    "team_vm.status": {
+      "scope": "team_vm:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"
@@ -988,6 +1028,10 @@
     "tunnel.rotate-key": {
       "scope": "tunnel:write",
       "class": "mutation"
+    },
+    "usage.summary": {
+      "scope": "usage:read",
+      "class": "read"
     },
     "window_record.delete": {
       "scope": "window_record:write",
@@ -1147,11 +1191,13 @@
     "tab.close",
     "tab_group.close",
     "team.enrollment_token.revoke",
+    "team_vm.ssh_ca.rotate",
     "terminal.close",
     "terminal.history.clear",
     "terminal.renderer_grant.create",
     "terminal.viewer.release",
     "terminal.viewer.resize",
+    "usage.cap.set",
     "user.ensure",
     "user.presence_key.revoke",
     "user.text_confirm.get",

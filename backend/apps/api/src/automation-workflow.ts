@@ -1,4 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers"
+import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 
@@ -19,10 +20,10 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         return res.ok
       })
 
-    await report("start", { state: "running", step: -1 })
+    await report("cmux:start-report", { state: "running", step: -1 })
     try {
       if (p.body.type === "agent_prompt") {
-        await report("unsupported", {
+        await report("cmux:unsupported", {
           state: "failed",
           step: -1,
           error: { code: "body.unsupported", message: "agent_prompt runs need the mux (MuxDO) and machine placement, which this backend does not have yet" }
@@ -30,13 +31,16 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         return
       }
       if (p.body.type === "code") {
-        // Tier 1 loader (Dynamic Workers) lands after the usage ledger and the hard cap (automations-plan.md slices 2-3):
-        // no tenant code runs before its usage is metered and capped.
-        await report("unsupported", {
-          state: "failed",
-          step: -1,
-          error: { code: "body.unsupported", message: "code runs need the Tier 1 loader, which this backend does not have yet" }
-        })
+        // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
+        try {
+          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, input: p.input }, event.timestamp)
+        } catch (e) {
+          // Only harness refusals carry a code; a tenant error name never chooses the run's error code.
+          const code = e instanceof CodeRunError ? e.code : "run.failed"
+          await report("cmux:fail", { state: "failed", step: -1, error: { code, message: String(e instanceof Error ? e.message : e).slice(0, 500) } })
+          return
+        }
+        await report("cmux:finish", { state: "succeeded", step: -1 })
         return
       }
       const steps = p.body.steps
@@ -44,17 +48,17 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         const s = steps[i]!
         switch (s.type) {
           case "sleep":
-            await report(`sleeping-${i}`, { state: "sleeping", step: i - 1 })
-            await step.sleep(`sleep-${i}`, s.seconds * 1000)
+            await report(`cmux:sleeping-${i}`, { state: "sleeping", step: i - 1 })
+            await step.sleep(`cmux:sleep-${i}`, s.seconds * 1000)
             break
           case "note":
             break
         }
-        await report(`done-${i}`, { state: "running", step: i })
+        await report(`cmux:done-${i}`, { state: "running", step: i })
       }
-      await report("finish", { state: "succeeded", step: steps.length - 1 })
+      await report("cmux:finish", { state: "succeeded", step: steps.length - 1 })
     } catch (e) {
-      await report("fail", { state: "failed", step: -1, error: { code: "run.failed", message: String(e).slice(0, 500) } })
+      await report("cmux:fail", { state: "failed", step: -1, error: { code: "run.failed", message: String(e).slice(0, 500) } })
     }
   }
 }

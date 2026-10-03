@@ -3,11 +3,14 @@ import type { Env } from "./env.ts"
 import { apiHandler } from "./http.ts"
 import { handleAutomationHook } from "./ingress/automation-hook.ts"
 import { handleProviderHook } from "./ingress/provider-hook.ts"
+import { handleGooglePubsub } from "./ingress/google-hooks.ts"
 import { handleSsoDiscover } from "./sso-discover.ts"
 import { handleInviteCard, handleInvitePreview } from "./home-routes.ts"
+import { signInRules, ssoRefusal, versionRefusal, withSsoSession } from "./policy-gate.ts"
 import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
+import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
 export { AddressDO } from "./address-do.ts"
@@ -16,12 +19,15 @@ export { MuxDO } from "./mux-do.ts"
 export { DomainDO } from "./domain-do.ts"
 export { PairingDO } from "./pairing-do.ts"
 export { HostDO } from "./host-do.ts"
+export { TeamVmDO } from "./team-vm-do.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
+export { AutomationTail } from "./automation-tail.ts"
 export { ConnectionDO } from "./connection-do.ts"
 export { FeedDO } from "./feed-do.ts"
 export { SchedulerDO } from "./scheduler-do.ts"
 export { TeamDO } from "./team-do.ts"
 export { UserDO } from "./user-do.ts"
+export { UsageMeterDO } from "./usage-meter-do.ts"
 
 /**
  * WebSocket gateway: `GET /v1/wire/{user|team|feed}` and `/v1/wire/conv/<conversation>` with subprotocols
@@ -32,8 +38,13 @@ export { UserDO } from "./user-do.ts"
 const wire = async (request: Request, env: Env, scope: string, conversation?: string /* or agent for mux */): Promise<Response> => {
   const protocols = (request.headers.get("Sec-WebSocket-Protocol") ?? "").split(",").map((s) => s.trim())
   const token = protocols.find((p) => p.startsWith("bearer."))?.slice("bearer.".length)
-  const authed = await authenticate(env, token)
-  if (!authed?.user || !authed.team) return new Response("unauthenticated", { status: 401 })
+  const authenticated = await authenticate(env, token)
+  if (!authenticated?.user || !authenticated.team) return new Response("unauthenticated", { status: 401 })
+  // Team policy (P17-4): SSO for sessions, minimum client version for every connect.
+  const rules = await signInRules(env, authenticated.team, authenticated.user)
+  const authed = await withSsoSession(env, authenticated, rules)
+  const refused = ssoRefusal(authed, rules) ?? versionRefusal(request.headers.get("x-cmux-client-version"), rules)
+  if (refused) return Response.json({ error: refused }, { status: 403 })
   // TeamDO and FeedDO cannot see UserDO's revocations; resolve the grant first (UserDO checks its own installs).
   const principal = scope === "user" ? authed : await withGrantClasses(env, authed)
   if (!principal) return new Response("forbidden", { status: 403 })
@@ -62,6 +73,8 @@ const handlePresenceKey = async (request: Request, env: Env): Promise<Response> 
   const auth = request.headers.get("authorization") ?? ""
   const principal = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!principal?.user) return Response.json({ error: { code: "auth.unauthenticated", message: "install token required" } }, { status: 401 })
+  const refused = principal.team ? ssoRefusal(principal, await signInRules(env, principal.team, principal.user)) : undefined
+  if (refused) return Response.json({ ok: false, error: refused }, { status: 403 })
   const body = (await request.json().catch(() => null)) as PresenceKeyBody | null
   if (!body) return Response.json({ error: { code: "validation.invalid", message: "JSON body required" } }, { status: 400 })
   const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { registerPresenceKey(e: string, p: unknown, b: PresenceKeyBody): Promise<unknown> }
@@ -99,8 +112,16 @@ export default {
     const ssoCallbackPath = url.pathname.match(/^\/v1\/sso\/callback\/([^/]+)$/)
     if (ssoCallbackPath) return handleSsoCallback(request, env, ssoCallbackPath[1]!)
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
+    // Google push receivers: staging and development only until the backend lead reviews them for production.
+    if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)
+  },
+  // Cron (wrangler triggers): the feed text sweep (feed-sweep.ts).
+  // Awaited, not waitUntil: the run gets the cron limit, and a throw shows as a failed run.
+  async scheduled(_controller: ScheduledController, env: Env): Promise<void> {
+    const report = await sweepFeedText(sweepDeps(env))
+    console.log(JSON.stringify({ msg: "feed.sweep", ...report }))
   }
 } satisfies ExportedHandler<Env>

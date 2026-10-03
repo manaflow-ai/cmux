@@ -232,6 +232,12 @@ const settle = async (check: () => Promise<boolean>, stub: DurableObjectStub) =>
   }
   throw new Error("TeamDO integration sync did not settle")
 }
+/** A pre-F3 admin integration policy, written on ConnectionDO directly (the public op now forwards to TeamPolicy). */
+const legacyAdminPolicy = async (team: string, user: string, fields: unknown) => {
+  const stub = testEnv.CONNECTION_DO.get(testEnv.CONNECTION_DO.idFromName(team)) as unknown as { submit(e: string, p: unknown, f: unknown): Promise<{ frames: Array<{ t: string }> }> }
+  const r = await stub.submit(team, { identity: `session:${user}`, kind: "session", user, team }, { t: "op", op: "integration.policy.set", params: fields, idempotency_key: crypto.randomUUID(), origin: "user" })
+  expect(r.frames.find((f) => f.t === "result" || f.t === "reject")?.t).toBe("result")
+}
 const settleIntegration = (session: string, stub: DurableObjectStub, ok: (v: any) => boolean) =>
   settle(async () => ok((await call("/v1/read", session, { op: "integration.policy.get", params: {} })).json.value), stub)
 const settleTeamPolicy = (session: string, stub: DurableObjectStub, ok: (p: any) => boolean) =>
@@ -323,21 +329,17 @@ describe("team policy over the API (workerd)", () => {
       locked: true,
       github: { scope: "installation", require_org_admin: false, repo_allowlist: ["manaflow-ai/*"] }
     })
-    // The projection refuses direct edits: TeamPolicy is the single writer.
+    // The old op is an alias of team.policy.update (F3): TeamPolicy stays the single writer.
     const direct = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { scope: "linking_user_repos" } }, idempotency_key: crypto.randomUUID() })
-    expect(direct.json.error.code).toBe("policy.locked")
+    expect(direct.json.value).toMatchObject({ source: "team_policy", locked: true, github: { scope: "linking_user_repos" } })
+    expect((await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.policy.values["github.repoScope"]).toEqual({ value: "linking_user_repos", mode: "enforced" })
   })
 
   it("a first TeamPolicy version never widens an admin-set integration policy (review HIGH 1)", async () => {
     const session = await sessionToken("stack-policy-seed")
     expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
     const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
-    const narrowed = await call("/v1/ops", session, {
-      op: "integration.policy.set",
-      params: { github: { require_org_admin: true, repo_allowlist: ["acme/api"] } },
-      idempotency_key: crypto.randomUUID()
-    })
-    expect(narrowed.json.ok).toBe(true)
+    await legacyAdminPolicy(team, (await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.value.id, { github: { require_org_admin: true, repo_allowlist: ["acme/api"] } })
     // An unrelated key: the integration slice must keep the admin's narrowing.
     const upd = await call("/v1/ops", session, {
       op: "team.policy.update",
@@ -361,22 +363,21 @@ describe("team policy over the API (workerd)", () => {
     const session = await sessionToken("stack-policy-adopt")
     expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
     const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
-    await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { require_org_admin: true } }, idempotency_key: crypto.randomUUID() })
+    await legacyAdminPolicy(team, (await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.value.id, { github: { require_org_admin: true } })
     await call("/v1/ops", session, { op: "team.policy.update", params: { changes: [set("telemetry.level", "off")], expected_version: 0 }, idempotency_key: crypto.randomUUID(), origin: "user" })
     const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
     await settleIntegration(session, stub, (v) => v.source === "team_policy")
     const after = await call("/v1/read", session, { op: "integration.policy.get", params: {} })
     expect(after.json.value).toMatchObject({ source: "team_policy", locked: true, github: { require_org_admin: true } })
     const direct = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { repo_allowlist: ["acme/x"] } }, idempotency_key: crypto.randomUUID() })
-    expect(direct.json.error.code).toBe("policy.locked")
+    expect(direct.json.value).toMatchObject({ source: "team_policy", github: { repo_allowlist: ["acme/x"] } })
   })
 
   it("an empty ConnectionDO allow list (deny all) stays deny all after the seed (review P1-2)", async () => {
     const session = await sessionToken("stack-policy-denyall")
     expect((await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.ok).toBe(true)
     const team = (await call("/v1/read", session, { op: "team.policy.get", params: {} })).json.value.team as string
-    const denied = await call("/v1/ops", session, { op: "integration.policy.set", params: { github: { repo_allowlist: [] } }, idempotency_key: crypto.randomUUID() })
-    expect(denied.json.ok).toBe(true)
+    await legacyAdminPolicy(team, (await call("/v1/ops", session, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID() })).json.value.id, { github: { repo_allowlist: [] } })
     await call("/v1/ops", session, { op: "team.policy.update", params: { changes: [set("telemetry.level", "off")], expected_version: 0 }, idempotency_key: crypto.randomUUID(), origin: "user" })
     const stub = testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team))
     await settleIntegration(session, stub, (v) => v.source === "team_policy")

@@ -22,9 +22,8 @@ VM), never on a Mac: `cargo build --release`.
 
 - cmux-tui, including this crate, is GPL-3.0-or-later (Lawrence, 2026-10-03). The default
   build links x264 (GPL-2.0-or-later, compatible) statically; building needs a static
-  `libx264.a` (Ubuntu's `libx264-dev` ships one). Before a build ships, add x264 and
-  openh264 with the linked versions to THIRD_PARTY_LICENSES.md. The workspace license field
-  in cmux-tui/Cargo.toml still says MIT until the license lane changes it.
+  `libx264.a` (Ubuntu's `libx264-dev` ships one). x264 (r3108, 31e19f9) and OpenH264
+  2.6.0 are listed in THIRD_PARTY_LICENSES.md.
 - The default encoder is x264 `ultrafast` with `zerolatency` (no B-frames, no lookahead,
   scene-cut off, infinite GOP, ABR with a one-frame VBV that follows congestion control).
   Measured on 1080p loopback (Testbox): text scroll 39 fps, G2G p50 9 ms, 6 Mbit/s;

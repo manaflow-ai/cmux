@@ -57,6 +57,8 @@ final class TerminalStatusBanner: NSView {
             return nil
         case .exited:
             return strings.text("terminal.link.exited", defaultValue: "Process exited")
+        case .disconnected(.turnedOffByOrganization, _):
+            return strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
         case .disconnected(_, reconnecting: true):
             return strings.text("terminal.link.reconnecting", defaultValue: "Reconnecting…")
         case .disconnected(let cause, reconnecting: false):
@@ -67,6 +69,8 @@ final class TerminalStatusBanner: NSView {
                 strings.text("terminal.link.connectionLost", defaultValue: "Disconnected: connection lost")
             case .attachFailed:
                 strings.text("terminal.link.attachFailed", defaultValue: "Disconnected: could not attach")
+            case .turnedOffByOrganization:
+                strings.text("terminal.link.turnedOffByOrganization", defaultValue: "Turned off by your organization")
             case .fellBehind:
                 strings.text("terminal.link.fellBehind", defaultValue: "Disconnected: output fell behind")
             }

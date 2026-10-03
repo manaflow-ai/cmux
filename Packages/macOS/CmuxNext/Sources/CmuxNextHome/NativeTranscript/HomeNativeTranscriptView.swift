@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxHomeCore
 public import CmuxHomeRender
 import CmuxNextDesign
+import Observation
 
 /// The Home transcript on the shared render core with native AppKit parts
 /// (plans/cmux-next/home-mac.md, mac-home-rendering.md option B): the rows,
@@ -17,7 +18,9 @@ public final class HomeNativeTranscriptView: NSView {
     let header = HomeGlassHeaderView()
     /// False while the owner is unreachable (H17: offline Send is off; the
     /// text stays a draft). The wiring sets it from `HomeStore.connection`.
-    public var isSendEnabled = true
+    public var isSendEnabled = true {
+        didSet { rowHost.reactionsEnabled = isSendEnabled }
+    }
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -44,8 +47,30 @@ public final class HomeNativeTranscriptView: NSView {
         }
         controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
         controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
+        controller.onRowsChange = { [weak self] in self?.rowHost.rowsChanged() }
+        controller.onRestoreDraft = { [weak self] text in
+            guard let self, self.field.text.isEmpty else { return }
+            self.field.text = text
+        }
         field.onSend = { [weak self] in self?.send() }
         field.onHeightChange = { [weak self] in self?.needsLayout = true }
+        followTextSize()
+    }
+
+    /// The Mac's text size (Settings > Interface Size, the palette's
+    /// Increase, Decrease and Reset Interface Size) scales the transcript and
+    /// the field, live: `DesignSettings` is observed, not polled.
+    private func followTextSize() {
+        withObservationTracking {
+            applyTextScale(Typography.userScale)
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in self?.followTextSize() }
+        }
+    }
+
+    func applyTextScale(_ scale: CGFloat) {
+        controller.textScale = scale
+        field.scale = controller.textScale
     }
 
     required init?(coder: NSCoder) { nil }
@@ -86,8 +111,9 @@ public final class HomeNativeTranscriptView: NSView {
         let f = fieldFrame
         guard field.frame != f || send else { return }
         let old = field.frame
-        if old.height != f.height, old.height > 0, window != nil, let curve = controller.fieldCurve(send: send) {
-            HomeFieldSpring.animate(field, from: old, to: f, curve: curve)
+        if old.height != f.height, old.height > 0, window != nil,
+           let keyframes = controller.fieldKeyframes(from: old, to: f, send: send) {
+            HomeFieldSpring.animate(field, to: f, keyframes: keyframes)
         } else {
             field.animations = [:]
             field.frame = f
@@ -108,6 +134,7 @@ public final class HomeNativeTranscriptView: NSView {
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers = []
         guard let window else { return }
+        controller.contentsScale = window.backingScaleFactor
         let nc = NotificationCenter.default
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
                      NSWindow.didChangeOcclusionStateNotification] {
@@ -116,6 +143,11 @@ public final class HomeNativeTranscriptView: NSView {
             })
         }
         windowStateChanged()
+    }
+
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        controller.contentsScale = window?.backingScaleFactor ?? 2
     }
 
     public override func viewDidChangeEffectiveAppearance() {

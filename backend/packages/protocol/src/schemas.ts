@@ -49,7 +49,9 @@ export const Install = Schema.Struct({
   created_at: Schema.Int,
   revoked_at: Schema.NullOr(Schema.Int),
   /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
-  bound_team: Schema.optionalKey(TeamId)
+  bound_team: Schema.optionalKey(TeamId),
+  /** The team whose SSO session registered this install (enterprise P17-4: sso.enforce keeps installs to SSO-registered ones). */
+  sso_team: Schema.optionalKey(TeamId)
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({

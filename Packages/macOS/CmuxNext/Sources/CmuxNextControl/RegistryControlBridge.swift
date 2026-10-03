@@ -38,6 +38,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
             _ = registry.actions
             _ = registry.shortcutOverrides
             _ = registry.chordOverrides
+            _ = registry.disabledFeatures
             // Reasons read observable app state (daemon capabilities), so a
             // change there republishes `unavailable_reason` too.
             for action in registry.actions { _ = action.unavailableReason?() }
@@ -83,6 +84,8 @@ public final class RegistryControlBridge: ControlActionExecutor {
         let id = registry.canonicalID(for: ActionID(rawValue: request.actionID))
         guard registry.descriptor(for: id) != nil || registry.isBound(id) else { return .unknownAction }
         guard let action = registry.action(for: id) else { return .notBound }
+        // Policy first: a turned-off feature's action does not exist for callers.
+        if let feature = registry.disabledFeature(for: id) { return .featureDisabled(feature.rawValue) }
         // Every socket run lands here, and its `origin` is the caller's claim.
         if registry.descriptor(for: id)?.isPersonOnly == true {
             return .refused(ControlStrings.text("control.error.personOnly", "Only a person in cmux can run this action"))
@@ -165,6 +168,7 @@ public final class RegistryControlBridge: ControlActionExecutor {
         info.contextMenus = surfaces["context_menus"] as? [String] ?? []
         // Snapshot for `action.list`; `action.run` re-reads it live.
         info.unavailableReason = registry.unavailableReason(for: descriptor.id)
+        info.disabledFeature = registry.disabledFeature(for: descriptor.id)?.rawValue
         info.isDestructive = descriptor.isDestructive
         info.startsTerminal = descriptor.startsTerminal
         info.isCLI = descriptor.cli

@@ -20,7 +20,6 @@ struct SettingsRootView: View {
             Rectangle().fill(SettingsStyle.separator).frame(width: Metrics.dividerThickness)
             SettingsDetailView(model: model, layout: layout)
         }
-        .background(SettingsStyle.background)
         .tint(SettingsStyle.tint)
         .foregroundStyle(SettingsStyle.text)
         .font(SettingsStyle.body)

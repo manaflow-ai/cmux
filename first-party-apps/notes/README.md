@@ -100,6 +100,8 @@ The v2 schema cannot hold these parts of the app, so the manifest leaves them ou
 3. The native editor pane and `cmux.search.provider/1`: the app has no native view or search export yet, so it does not claim them.
 4. `consumes.ops` and `consumes.handles`: `consumes` lists interfaces only.
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps (most important first)
 
 1. No notes server, no `document.*` host and no native pane host: the app has nothing to read on today's runtime.

@@ -30,8 +30,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var isVisible: Bool { presence == .visible }
     /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
-    /// A tab this app just created here; selected once the daemon reports it
-    /// (`selectWhenReported`).
+    /// A tab this app just created here; selected once the daemon reports it (`selectWhenReported`).
     private(set) var pendingSelectSurface: SurfaceID?
     /// Same, named by tab resource id (a reopened tab's restored view).
     private(set) var pendingSelectTab: String?
@@ -129,7 +128,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
                     let live = services.cache.incognitoDisplay(tab)
                     item.title = live.title ?? Strings.untitledBrowser
                     item.subtitle = live.url
-                    item.location = TabLocation(address: live.url)
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID)
                 }
@@ -143,7 +141,6 @@ final class PaneController: SurfacePresenter, PresentablePane {
             var item = StripTabItem(id: StripTabID(local.id), title: title, subtitle: page?.url?.absoluteString,
                                     icon: .symbol("globe"))
             item.isDormant = services.cache.dormantTabs.contains(local.id)
-            item.location = TabLocation(page: page?.url)
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
@@ -291,6 +288,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.cache.browser(for: tab).map(TabContent.browser)
         case .remoteTerminal:
             return services.remoteTerminals.content(for: tab, home: daemon)
+        case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:
             return nil
         }
@@ -305,6 +303,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
         if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
+        if let home = services.home.existingTabView(key) { return .conversation(home) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
 

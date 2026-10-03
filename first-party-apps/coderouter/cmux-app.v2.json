@@ -77,7 +77,8 @@
     "actions:run": "Open the Accounts screen, sign in, and start a provider's own login when you click."
   },
   "optionalScopes": {
-    "coderouter:execute": "Send one tiny test prompt through CodeRouter when you click Test. It uses a few tokens."
+    "coderouter:execute": "Send one tiny test prompt through CodeRouter when you click Test. It uses a few tokens.",
+    "coderouter:keys": "Create and revoke CodeRouter API keys. cmux shows the new key once in its own window; this app never sees it."
   },
   "settings": {
     "type": "object",

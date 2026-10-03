@@ -14,29 +14,14 @@ import CmuxNextSettings
 /// daemon serves it, check-daemon-capabilities.sh).
 enum StickyColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
-        let capability = DaemonCapabilities.shared.stickyColumns
-        registry.bind("column.makeSticky", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            let edge = invocation["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? column.sticky?.edge ?? defaultEdge
-            let mode = invocation["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:)) ?? column.sticky?.mode ?? defaultMode
-            try apply(StickyColumn(edge: edge, mode: mode), to: column, in: content)
-        })
-        registry.bind("column.makeStickyLeft", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            try apply(StickyColumn(edge: .left, mode: column.sticky?.mode ?? defaultMode), to: column, in: content)
-        })
-        registry.bind("column.unstick", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            try apply(nil, to: column, in: content)
-        })
-        registry.bind("column.toggleStickyOverlay", requires: capability, daemon: ctx.services.activeDaemon, run: { invocation in
-            guard let (content, column) = ColumnHandlers.column(invocation, ctx) else { return }
-            // The targeted column if sticky, else the screen's sticky column
-            // (from a strip pane), else the targeted column as a right overlay.
-            let screen = content.layoutModel.screens.first { $0.layout.columns.contains { $0.id == column.id } }
-            let target = column.sticky != nil ? column : screen?.layout.columns.first { $0.sticky != nil } ?? column
-            let next = target.sticky.map { StickyColumn(edge: $0.edge, mode: $0.mode.toggled) } ?? StickyColumn(edge: defaultEdge, mode: .overlay)
-            try apply(next, to: target, in: content)
+        DockColumnHandlers.bind(into: registry, context: ctx)
+        registry.bind("tab.moveToNewStickyColumn", requires: DaemonCapabilities.shared.edgeDocks, daemon: ctx.services.activeDaemon,
+                      run: { invocation in
+            guard let (tab, pane) = ctx.daemonTab(invocation) else { return }
+            let edge = invocation["edge"]?.stringValue.flatMap(StickyEdge.init(rawValue:)) ?? defaultEdge
+            let mode = invocation["mode"]?.stringValue.flatMap(StickyMode.init(rawValue:))
+            let reveal = TabHandlers.revealer(ctx, tab: tab, outcome: .newColumn(screenID: "", afterColumnID: ""), workspaceID: nil)
+            TabMoves.toNewStickyColumn(tab, anchor: pane, edge: edge, mode: mode, services: ctx.services, completion: reveal)
         })
         registry.bind("layout.toggleStripScrollbar", run: { _ in
             let next = ctx.design.stripScrollbar.toggled
@@ -45,22 +30,36 @@ enum StickyColumnHandlers {
         })
     }
 
-    /// cmux.json `layout.stickyColumnEdge` / `layout.stickyColumnMode`.
-    static var defaultEdge: StickyEdge { DesignSettings.shared.stickyColumnEdge == .left ? .left : .right }
+    /// cmux.json `layout.stickyColumnEdge` when set to an edge; nil for the
+    /// default `nearest`, which leaves the choice to `DockDefaults`.
+    static var configuredEdge: StickyEdge? {
+        switch DesignSettings.shared.stickyColumnEdge {
+        case .nearest: nil
+        case .left: .left
+        case .right: .right
+        case .top: .top
+        case .bottom: .bottom
+        }
+    }
+    /// The configured edge, else right: for paths with no column to measure
+    /// (a tab moved to a new sticky column, `debug.sticky`).
+    static var defaultEdge: StickyEdge { configuredEdge ?? .right }
+    /// cmux.json `layout.stickyColumnMode` (default docked).
     static var defaultMode: StickyMode { DesignSettings.shared.stickyColumnMode == .overlay ? .overlay : .docked }
 
     /// The one mutation path: checks the workspace's own daemon serves
     /// `sticky-columns-v1`, validates like the daemon, sends
     /// `set-column-sticky`; a refusal throws its reason.
-    static func apply(_ sticky: StickyColumn?, to column: LayoutColumn, in content: WorkspaceContentController) throws {
+    static func apply(_ sticky: StickyColumn?, to column: LayoutColumn, in content: WorkspaceContentController,
+                      transaction: LayoutTransactionID = .make()) throws {
         let capability = DaemonCapabilities.shared.stickyColumns
         guard content.daemon.supports(capability) else { throw ActionFailure(message: content.daemon.missingCapabilityMessage(capability)) }
-        // Top and bottom docks need a daemon `dock` field that neither the
-        // daemon nor the app has yet; the wire's sticky edge has only left and right.
-        if sticky?.edge.isBand == true {
-            throw ActionFailure(message: RefusalStrings.edgeDocksUnsupported)
+        // Top and bottom docks need a daemon that serves edge-docks-v1.
+        let docks = DaemonCapabilities.shared.edgeDocks
+        if sticky?.edge.isBand == true, !content.daemon.supports(docks) {
+            throw ActionFailure(message: content.daemon.missingCapabilityMessage(docks))
         }
-        guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky) else { return }
+        guard let refusal = content.layoutModel.setColumnSticky(column.id, sticky, transaction: transaction) else { return }
         switch refusal {
         case .unknownColumn: throw ActionFailure.invalidTarget(RefusalStrings.noColumnShown(column.id.rawValue))
         case .lastScrollingColumn: throw ActionFailure.invalidTarget(RefusalStrings.lastScrollingColumn)

@@ -34,7 +34,7 @@ export interface ConversationStub {
 }
 
 interface AddressStub {
-  stashSecret(address: string, invite: string, secret: string, expiresAt: number): Promise<void>
+  stashSecret(address: string, invite: string, secret: string, expiresAt: number, channel?: "email" | "sms", value?: string): Promise<void>
 }
 
 export const conversationStub = (env: Env, id: string) => env.CONVERSATION_DO.get(env.CONVERSATION_DO.idFromName(id)) as unknown as ConversationStub
@@ -73,7 +73,7 @@ const createInvite = async (
   if ("ok" in resolved) return reject(frame.idempotency_key, resolved.code, resolved.message)
   const invite = `inv_${digest26(`invite\u0000${conversation}\u0000${actorOf(principal)}\u0000${frame.idempotency_key}`)}`
   const secret = invites.crockford(createHmac("sha256", env.HOME_ADDRESS_KEY!).update(`invite-secret\u0000${invite}`).digest(), invites.SECRET_CHARS)
-  await addressStub(env, resolved.id).stashSecret(resolved.id, invite, secret, Date.now() + STASH_TTL_MS)
+  await addressStub(env, resolved.id).stashSecret(resolved.id, invite, secret, Date.now() + STASH_TTL_MS, resolved.address.channel, resolved.address.value)
   const params = {
     invite_id: invite,
     address: resolved.id,

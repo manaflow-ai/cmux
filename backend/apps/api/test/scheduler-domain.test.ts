@@ -208,8 +208,9 @@ describe("SchedulerDO reducer", () => {
     const active = apply(state, user, "automation.run", { automation: a.id }, T0)
     state = active.state
     for (let i = 0; i < MAX_FINISHED_RUNS + 5; i++) {
-      const r = apply(state, user, "automation.run", { automation: a.id }, T0 + 1 + i)
-      state = apply(r.state, system, "run.report", { run: (r.value as any).id, state: "succeeded", step: 0 }, T0 + 1 + i).state
+      // 200 ms apart: the team's creation bucket refills 5 tokens a second.
+      const r = apply(state, user, "automation.run", { automation: a.id }, T0 + 1 + i * 200)
+      state = apply(r.state, system, "run.report", { run: (r.value as any).id, state: "succeeded", step: 0 }, T0 + 1 + i * 200).state
     }
     const runs = Object.values(state.runs)
     expect(runs.filter((r) => r.state === "succeeded")).toHaveLength(MAX_FINISHED_RUNS)

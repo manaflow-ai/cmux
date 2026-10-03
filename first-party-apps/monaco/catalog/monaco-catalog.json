@@ -68,7 +68,14 @@
       },
       "docs": "Save the focused editor's document, or the document handle given.",
       "since": "monaco/1",
-      "export": "save"
+      "export": "save",
+      "keyboard": [
+        {
+          "key": "cmd+s",
+          "when": "paneFocused:editor"
+        }
+      ],
+      "gesture": "optional"
     },
     {
       "name": "monaco.revert",
@@ -101,7 +108,8 @@
       },
       "docs": "Drop unsaved edits and show the saved revision of the document.",
       "since": "monaco/1",
-      "export": "revert"
+      "export": "revert",
+      "gesture": "required"
     },
     {
       "name": "monaco.toggle_read_only",

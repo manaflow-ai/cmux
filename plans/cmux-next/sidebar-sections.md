@@ -261,6 +261,7 @@ switch (descriptor titles are built once at launch).
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
 
+- Tab drags (coordinator, 2026-10-03): a workspace made from a moved tab takes the tab's name; from a workspace's last tab it keeps the old workspace's name when the user set one (a `workspace-N` name counts as the daemon default). The name rides on `move-tab-to-new-workspace` (`name` field, sidebar store window); a daemon without it gets a rename after the move. A dragged agent tab snaps back for now: agent tabs are app-local, so the daemon has no slot for them. The real fix is the daemon owning agent tabs (ownership-v2).
 - Section collapse state is per window (`WindowState.collapsedSections`, saved with the window), not synced per user. The space bar stays as its own control; sections do not subsume it (batch item 2, s9).
 
 - Default look quiet; name "sections"; spaces model A.

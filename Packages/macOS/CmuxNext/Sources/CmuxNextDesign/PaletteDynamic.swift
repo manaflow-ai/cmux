@@ -13,7 +13,6 @@ enum PaletteDynamic {
     static let elevatedBackground = token(\.elevatedBackground)
     static let stripBackground = token(\.stripBackground)
     static let sidebarStep = token(\.sidebarStep)
-    static let stripStep = token(\.stripStep)
     static let textPrimary = token(\.textPrimary)
     static let textSecondary = token(\.textSecondary)
     static let textTertiary = token(\.textTertiary)

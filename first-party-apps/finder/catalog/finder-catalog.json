@@ -57,7 +57,8 @@
       },
       "docs": "Pick a folder to add to Finder.",
       "since": "finder/1",
-      "export": "addFolder"
+      "export": "addFolder",
+      "gesture": "required"
     },
     {
       "name": "finder.connect_host",
@@ -86,7 +87,8 @@
       },
       "docs": "Open the cmux connect sheet to add a host to Finder.",
       "since": "finder/1",
-      "export": "connectHost"
+      "export": "connectHost",
+      "gesture": "required"
     },
     {
       "name": "finder.cycle_variant",

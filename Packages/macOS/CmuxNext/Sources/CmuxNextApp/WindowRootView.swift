@@ -261,11 +261,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (`applyBackdrop(to:)`).
     private func paintBackground() {
         let backdrop = self.backdrop
-        performWithTheme {
-            let background = Palette.surfaceBackground
-            layer?.backgroundColor = backdrop.isOpaque ? background.withAlphaComponent(1).cgColor : nil
-            backdropView.apply(backdrop, tint: background)
-        }
+        performWithTheme { paintBackdropSheet(backdrop, surface: Palette.surfaceBackground, backdropView: backdropView) }
     }
 
     /// `NSWindow.install(kind:content:scope:)`: the backdrop before the
@@ -280,12 +276,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// (an appearance change while the window installs this view) never
     /// touches the theme frame.
     func applyBackdrop(to window: NSWindow) {
-        let backdrop = self.backdrop
-        let color = backdrop.isOpaque
-            ? performWithTheme { Palette.surfaceBackground.withAlphaComponent(1) }
-            : NSColor.white.withAlphaComponent(backdrop.windowBackgroundAlpha)
-        if window.isOpaque != backdrop.isOpaque { window.isOpaque = backdrop.isOpaque }
-        if window.backgroundColor != color { window.backgroundColor = color }
-        applyWindowBlur(window, backdrop.windowBlurRadius)
+        window.applyBackdrop(backdrop, surface: performWithTheme { Palette.surfaceBackground }, applyBlur: applyWindowBlur)
     }
 }

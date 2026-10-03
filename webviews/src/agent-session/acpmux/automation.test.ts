@@ -5,6 +5,8 @@ import {
   openChanges,
   selectSession,
   sendPrompt,
+  setModel,
+  models,
   type AutomationHost,
 } from "./automation";
 import type { AcpmuxSnapshot } from "./model";
@@ -158,5 +160,35 @@ describe("agent pane automation", () => {
     expect(state.changedFiles).toEqual(["/repo/a.txt"]);
     expect(state.permission).toBeNull();
     expect(state.sessions).toEqual([{ sessionId: "s1", title: "First", harness: "claude", status: null }]);
+  });
+
+  test("setModel switches through chat.model, then chat.effort, and refuses a model the harness does not offer", async () => {
+    const current = snapshot({
+      summary: {
+        sessionId: "s1",
+        harness: "codex",
+        model: "sol",
+        configOptions: [{ id: "reasoning_effort", options: [{ value: "low" }, { value: "high" }] }],
+      },
+      catalog: [{ id: "codex", name: "Codex", models: [{ id: "sol", name: "Sol" }, { id: "luna" }] }],
+    });
+    const { fake, calls } = host(current);
+    expect(await setModel(fake, "nope")).toMatchObject({
+      error: 'model "nope" is not offered',
+      models: ["sol", "luna"],
+    });
+    expect(await setModel(fake, "luna", "high")).toEqual({ model: "luna", effort: "high" });
+    expect(calls).toEqual([
+      ["chat.model", { modelId: "luna" }],
+      ["chat.effort", { configId: "reasoning_effort", value: "high" }],
+    ]);
+    expect(models(fake)).toEqual({
+      harness: "codex",
+      current: "sol",
+      models: [
+        { id: "sol", name: "Sol" },
+        { id: "luna", name: "luna" },
+      ],
+    });
   });
 });

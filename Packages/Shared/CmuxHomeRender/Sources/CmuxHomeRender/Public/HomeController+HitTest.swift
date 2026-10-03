@@ -15,7 +15,8 @@ public struct HomeHit: Hashable, Sendable {
 
 extension HomeController {
     /// The message bubble under `point` (viewport points, top-left origin).
-    public func hit(at point: CGPoint) -> HomeHit? {
+    public func hit(at hostPoint: CGPoint) -> HomeHit? {
+        let point = toDesign(hostPoint)
         let contentY = point.y + scene.offset
         let probe = CGRect(x: point.x, y: contentY - 1, width: 1, height: 2)
         for i in scene.layout.rows(in: probe) where i < scene.model.count {
@@ -32,7 +33,8 @@ extension HomeController {
 
     /// Every message bubble whose vertical span meets `rect` (viewport
     /// points), top to bottom: a drag selection across rows.
-    public func hits(in rect: CGRect) -> [HomeHit] {
+    public func hits(in hostRect: CGRect) -> [HomeHit] {
+        let rect = toDesign(hostRect)
         let content = rect.offsetBy(dx: 0, dy: scene.offset)
         var out: [HomeHit] = []
         for i in scene.layout.rows(in: CGRect(x: 0, y: content.minY, width: scene.size.width, height: max(1, content.height)))
@@ -55,6 +57,6 @@ extension HomeController {
         let raw = String(key[key.index(key.startIndex, offsetBy: 5)..<colon])
         guard let item = items.first(where: { $0.key.rawValue == raw }), index < item.parts.count else { return nil }
         return HomeHit(item: item.key, partIndex: index, text: item.parts[index].plainText, isMine: item.author == me,
-                       bubble: bubble)
+                       bubble: toHost(bubble))
     }
 }

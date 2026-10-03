@@ -63,8 +63,8 @@
   "devEngines": {
     "packageManager": {
       "name": "bun",
-      "version": "1.3.14",
-      "onFail": "download"
+      "version": "1.4.2",
+      "onFail": "error"
     }
   }
 }

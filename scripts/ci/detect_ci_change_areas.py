@@ -935,6 +935,7 @@ def is_web_change(path: str) -> bool:
         "scripts/ci/web_subareas.py",
         "tests/test_web_validation.py",
         "scripts/build-webviews-app.sh",
+        "scripts/check-webviews-bun-version.sh",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
         # the merge driver that keeps it mergeable: react-apps-check verifies

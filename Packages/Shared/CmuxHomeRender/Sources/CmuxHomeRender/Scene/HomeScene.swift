@@ -77,6 +77,12 @@ final class HomeScene {
 
     var palette: HomePalette { bitmaps.palette }
 
+    func setContentsScale(_ new: CGFloat) {
+        guard new != bitmaps.scale else { return }
+        bitmaps.setScale(new)
+        refreshVisibleRows()
+    }
+
     func setPalette(_ new: HomePalette) {
         guard new != palette else { return }
         bitmaps.setPalette(new)

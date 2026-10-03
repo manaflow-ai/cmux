@@ -74,6 +74,7 @@ enum ControlTopologyMapper {
         case .pty: "terminal"
         case .browser: "browser"
         case .remoteTerminal: "remote-terminal"
+        case .conversation: "conversation"
         case .other(let value): value
         }
         var info = ControlTabInfo(

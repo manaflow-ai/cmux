@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxPermission, AcpmuxRow, AcpmuxSnapshot } from "./model";
+import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -507,8 +508,7 @@ export class AcpmuxDirectClient {
             ...(data?.details === undefined ? {} : { details: data.details }),
           }),
         );
-      }
-      else request.resolve(message.result);
+      } else request.resolve(message.result);
       return;
     }
     const notification = message as Notification;
@@ -1311,7 +1311,12 @@ export class AcpmuxDirectClient {
   }
   /** The harness and model catalog. Server state the pane caches with TanStack Query (catalog.ts), so connect does not wait on it. */
   async harnesses(): Promise<AcpmuxSnapshot["catalog"]> {
-    return normalizeCatalog(await this.request("_acpmux/harnesses", {}));
+    // The harness list carries no models; acpmux serves the probed ones apart (modelCatalog.ts).
+    const [names, probed] = await Promise.all([
+      this.request("_acpmux/harnesses", {}),
+      this.request("_acpmux/models", {}).catch(() => undefined),
+    ]);
+    return mergeModelCatalog(names, probed);
   }
   /// Pages older transcript events in without reattaching, so the live summary,
   /// queue and permission stay as they are. A page that lands after the

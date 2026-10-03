@@ -11,6 +11,9 @@ public nonisolated enum TabDragOutcome: Hashable, Sendable {
     case newSplit(paneID: String, edge: TabDropEdge)
     /// New strip column on `screenID` after `afterColumnID`.
     case newColumn(screenID: String, afterColumnID: String)
+    /// New top or bottom dock on `screenID` holding the tab
+    /// (move-tab-to-column with `sticky`, edge-docks-v1).
+    case newDock(screenID: String, edge: String)
     /// New workspace at root `index`, inside `groupID` when non-nil.
     case newWorkspace(groupID: String?, index: Int?)
     /// Into an existing workspace.
@@ -118,6 +121,10 @@ public nonisolated enum TabDragResolver {
             return !(pane == context.sourcePaneID && context.emptiesSourcePane && !context.respawnsOnSplit)
         case .newColumn(_, let after):
             return after != nil
+        case .newDock:
+            // The daemon refuses a dock that would leave no column to scroll;
+            // the drag then springs back.
+            return true
         case .newWorkspace:
             return true
         case .workspace(let id):
@@ -165,6 +172,8 @@ public nonisolated enum TabDragResolver {
         case .newColumn(let screen, let after):
             guard let after else { return .cancel }
             return .newColumn(screenID: screen, afterColumnID: after)
+        case .newDock(let screen, let edge):
+            return .newDock(screenID: screen, edge: edge)
         case .newWorkspace(let group, let index):
             let slot = index < 0 ? nil : index
             return context.emptiesSourceWorkspace ? .moveWorkspace(groupID: group, index: slot) : .newWorkspace(groupID: group, index: slot)

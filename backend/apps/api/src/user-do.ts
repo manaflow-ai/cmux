@@ -59,6 +59,13 @@ export class UserDO extends OwnerDO<UserState> {
   }
 
   protected override routeFrame(ws: WebSocket, a: Attachment, frame: { readonly t?: string; readonly stream?: unknown; readonly op?: unknown } & Record<string, unknown>): boolean {
+    // Ops the Worker gates on team policy (agents.allowedClasses, P17-4) never run from the socket.
+    if (frame.t === "op" && frame.op === "chief.create") {
+      try {
+        ws.send(JSON.stringify({ t: "reject", tx: "", idempotency_key: frame.idempotency_key ?? "", code: "validation.invalid", message: "chief.create goes through POST /v1/ops", retryable: false, replayed: false }))
+      } catch {}
+      return true
+    }
     if (!this.inbox.handles(frame)) return false
     const engine = this.existing()
     if (!engine) return false
@@ -74,7 +81,46 @@ export class UserDO extends OwnerDO<UserState> {
 
   protected override nextWakeAt(): number | null {
     this.boundInbox()
-    return this.inbox.nextWakeAt()
+    const inbox = this.inbox.nextWakeAt()
+    const pending = Object.keys(this.boundEngine?.currentState.ssh_revoke_pending ?? {}).length > 0 ? Math.max(Date.now(), this.sshRetryAt ?? 0) : null
+    return inbox === null ? pending : pending === null ? inbox : Math.min(inbox, pending)
+  }
+
+  /** Backoff after a failed KRL notice (in memory: a restart retries at once). */
+  private sshRetryAt: number | null = null
+  private sshAttempts = 0
+
+  /**
+   * Delivers pending KRL notices for revoked installs to each team's TeamDO and clears each one
+   * when every team confirmed (S4). TeamDO's side is idempotent, so a retry after a crash is safe.
+   */
+  protected override async onWake(now: number): Promise<void> {
+    const engine = this.existing()
+    const pending = Object.entries(engine?.currentState.ssh_revoke_pending ?? {})
+    if (pending.length === 0 || (this.sshRetryAt !== null && now < this.sshRetryAt)) return
+    // Every install and team is tried on each pass: one failing team never holds back the others.
+    let failed = false
+    for (const [install, n] of pending) {
+      let all = true
+      for (const team of n.teams) {
+        try {
+          const r = (await this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)).revokeInstallCerts(team, n.user, install)) as { ok: boolean }
+          if (!r.ok) throw new Error("refused")
+        } catch (e) {
+          all = false
+          console.error(JSON.stringify({ msg: "team ssh krl notice failed", install, team, attempt: this.sshAttempts + 1, error: String(e) }))
+        }
+      }
+      if (all) this.submitSystem("install.ssh_revoke_done", { install }, `ssh-revoke-done:${install}:${n.at}`)
+      else failed = true
+    }
+    if (failed) {
+      this.sshAttempts += 1
+      this.sshRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.sshAttempts)
+    } else {
+      this.sshAttempts = 0
+      this.sshRetryAt = null
+    }
   }
 
   protected override onPrune(): void {
@@ -149,6 +195,45 @@ export class UserDO extends OwnerDO<UserState> {
     }
     const params = { install: inst.id, jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, platform: body.platform, ...(appAttest ? { app_attest: appAttest } : {}) }
     return this.submitSystem("user.presence_key.register", params, `presence-key:${inst.id}:${thumbprint}`, `system:user:${entity}`)
+  }
+
+  /**
+   * RPC from TeamDO only (team-vm-plan.md 3c, decision SSH-1): a presence challenge on one of
+   * this user's devices, bound to one full-shell SSH certificate request of `team`. The challenge
+   * lives in the text confirmation state (same keys, nonces and cooldown as a lowering).
+   */
+  async presenceChallenge(
+    entity: string,
+    team: string,
+    install: string,
+    purpose: unknown
+  ): Promise<{ ok: true; value: { sign: unknown; message: string; expires_at: number } } | { ok: false; code: string; message: string }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { ok: false, code: "selector.not_found", message: "unknown user" }
+    const res = this.submitSystem("user.presence.challenge", { install, purpose }, `presence-challenge:${crypto.randomUUID()}`, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    return { ok: true, value: reply.value as { sign: unknown; message: string; expires_at: number } }
+  }
+
+  /**
+   * RPC from TeamDO only: checks the signed proof for that request and spends its nonce. The
+   * ledger key is the nonce, so a TeamDO retry after a crash gets the same answer, and the same
+   * nonce with another request is an idempotency conflict (never a second approval).
+   */
+  async presenceAssert(
+    entity: string,
+    team: string,
+    proof: { install: string; nonce: string; signature: string; app_attest?: string },
+    purpose: unknown
+  ): Promise<{ asserted: boolean; code?: string; expires_at?: number }> {
+    const engine = this.existing()
+    if (!engine || engine.currentState.user?.id !== entity) return { asserted: false, code: "selector.not_found" }
+    const params = { install: proof.install, nonce: proof.nonce, purpose, presence_sig: proof.signature, ...(proof.app_attest ? { app_attest: proof.app_attest } : {}) }
+    const res = this.submitSystem("user.presence.assert", params, `presence-assert:${proof.nonce}`, `system:team:${team}`)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { asserted: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable" }
+    return reply.value as { asserted: boolean; code?: string; expires_at?: number }
   }
 
   /**
@@ -283,6 +368,6 @@ export class UserDO extends OwnerDO<UserState> {
     const now = engine.currentState
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
-    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id }
+    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
   }
 }

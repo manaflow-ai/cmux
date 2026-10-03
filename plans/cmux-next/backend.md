@@ -80,3 +80,7 @@ production branch, then `pscale branch resize cmux-next main --replicas 2 --org 
 Change request wo8mbi6eghr0 completed: PS_5_AWS_ARM, replicas 0 -> 2 ("highly available",
 $15/month instead of $5). Size kept at PS-5 (no headroom resize). The production API answered 200
 after the change.
+
+## Worker Loader binding (automations lead, 2026-10-03)
+
+`worker_loaders: [{ binding: "LOADER" }]` is in every env block of backend/apps/api/wrangler.jsonc. Only Tier 1 code automations use it (backend/apps/api/src/code-run.ts, plans/cmux-next/automations-plan.md slice 3). The coordinator assigned this line to the automations lead while the backend lead is parked. Tenant Dynamic Workers get no bindings and no network (`globalOutbound: null`) until the egress gateway and env.cmux land (slice 4). `AutomationTail` (a WorkerEntrypoint export of the API Worker) is attached as their tail.

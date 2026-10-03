@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAccounts
 import CmuxNextBrowser
 import CmuxNextBrowserImport
@@ -175,7 +176,12 @@ final class AppOnboardingServices: OnboardingServices {
     /// The cmux-cua daemon's grants; nil (no step) without its socket. A
     /// DEBUG launch with `CMUX_NEXT_ONBOARDING_COMPUTER_USE=mock` gets
     /// grants `debug.onboarding grant` flips instead.
-    private(set) lazy var computerUsePermissions: (any ComputerUsePermissionSource)? = {
+    var computerUsePermissions: (any ComputerUsePermissionSource)? {
+        // Turned off by policy (DisabledFeatures): no step and no prompts.
+        services.registry.disabledFeatures.contains(.computerUse) ? nil : computerUseSource
+    }
+
+    private lazy var computerUseSource: (any ComputerUsePermissionSource)? = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_ONBOARDING_COMPUTER_USE"] == "mock" {
             return MockComputerUsePermissionSource(helperAppURL: AppComputerUsePermissionSource.installedHelper)

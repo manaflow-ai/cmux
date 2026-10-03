@@ -38,11 +38,11 @@ final class CEFDevToolsWindow: NSPanel {
 
     /// Puts `host` in the window, filling it.
     func adopt(_ host: NSView) {
-        guard let contentView else { return }
+        guard let content = installedContent else { return }
         host.removeFromSuperview()
-        host.frame = contentView.bounds
+        host.frame = content.bounds
         host.autoresizingMask = [.width, .height]
-        contentView.addSubview(host)
+        content.addSubview(host)
     }
 
     override func performClose(_ sender: Any?) {

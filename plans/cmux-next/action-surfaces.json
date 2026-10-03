@@ -6330,6 +6330,29 @@
       "title_table" : "Localizable"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "home show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.show",
+      "mcp" : "focusMove",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "title" : "Go to Home",
+      "title_key" : "action.home.show",
+      "title_table" : "Localizable"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "tab-group create",
       "context_menu" : "offered",
@@ -16445,14 +16468,20 @@
     },
     {
       "cli" : "offered",
-      "cli_name" : "column make-sticky",
+      "cli_name" : "column dock",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "column.makeSticky",
+      "default_shortcut" : {
+        "key" : "p",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "column.dock",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16462,20 +16491,20 @@
         "title_key" : "category.pane",
         "title_table" : "Localizable"
       },
-      "title" : "Make Column Sticky",
-      "title_key" : "action.column.makeSticky",
+      "title" : "Dock Column",
+      "title_key" : "action.column.dock",
       "title_table" : "LayoutActions"
     },
     {
       "cli" : "offered",
-      "cli_name" : "column make-sticky-left",
+      "cli_name" : "column dock-left",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "column.makeStickyLeft",
+      "id" : "column.dockLeft",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16485,20 +16514,20 @@
         "title_key" : "category.pane",
         "title_table" : "Localizable"
       },
-      "title" : "Make Column Sticky on Left",
-      "title_key" : "action.column.makeStickyLeft",
+      "title" : "Dock Column Left",
+      "title_key" : "action.column.dockLeft",
       "title_table" : "LayoutActions"
     },
     {
       "cli" : "offered",
-      "cli_name" : "column unstick",
+      "cli_name" : "column dock-right",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "column.unstick",
+      "id" : "column.dockRight",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16508,20 +16537,20 @@
         "title_key" : "category.pane",
         "title_table" : "Localizable"
       },
-      "title" : "Unstick Column",
-      "title_key" : "action.column.unstick",
+      "title" : "Dock Column Right",
+      "title_key" : "action.column.dockRight",
       "title_table" : "LayoutActions"
     },
     {
       "cli" : "offered",
-      "cli_name" : "column toggle-sticky-overlay",
+      "cli_name" : "column dock-top",
       "context_menu" : "offered",
       "context_menus" : [
         "pane"
       ],
       "default_chord" : null,
       "default_shortcut" : null,
-      "id" : "column.toggleStickyOverlay",
+      "id" : "column.dockTop",
       "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
@@ -16531,8 +16560,100 @@
         "title_key" : "category.pane",
         "title_table" : "Localizable"
       },
-      "title" : "Toggle Floating Sticky Column",
-      "title_key" : "action.column.toggleStickyOverlay",
+      "title" : "Dock Column Top",
+      "title_key" : "action.column.dockTop",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "column dock-bottom",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "column.dockBottom",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Dock Column Bottom",
+      "title_key" : "action.column.dockBottom",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "column float",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "column.float",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Float Column",
+      "title_key" : "action.column.float",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "column undock",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "column.undock",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "title" : "Undock Column",
+      "title_key" : "action.column.undock",
+      "title_table" : "LayoutActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "tab move-to-new-sticky-column",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tab.moveToNewStickyColumn",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.tab",
+        "order" : 104,
+        "title" : "Tabs",
+        "title_key" : "category.tab",
+        "title_table" : "Localizable"
+      },
+      "title" : "Move Tab to New Sticky Column",
+      "title_key" : "action.tab.moveToNewStickyColumn",
       "title_table" : "LayoutActions"
     },
     {
@@ -18235,6 +18356,75 @@
       "title" : "Run App Command…",
       "title_key" : "action.app.command.run",
       "title_table" : "AppStoreActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "task open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.show",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "Open Tasks",
+      "title_key" : "action.tasks.show",
+      "title_table" : "TasksActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action tasks-new",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.new",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "New Task",
+      "title_key" : "action.tasks.new",
+      "title_table" : "TasksActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "task mine",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "tasks.showMine",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "title" : "My Tasks",
+      "title_key" : "action.tasks.showMine",
+      "title_table" : "TasksActions"
     },
     {
       "cli" : "offered",

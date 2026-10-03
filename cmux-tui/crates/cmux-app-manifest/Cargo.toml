@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 serde_json.workspace = true
 jsonschema.workspace = true
+regex.workspace = true

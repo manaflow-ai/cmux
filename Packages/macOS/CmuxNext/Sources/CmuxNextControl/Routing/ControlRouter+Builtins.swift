@@ -111,6 +111,7 @@ extension ControlRouter {
         let noun = params["noun"]?.stringValue.map { ControlCatalog.renamedCLIName($0.lowercased()) }
         let availableOnly = params["available_only"]?.boolValue ?? false
         let actions = catalog.actions.filter { action in
+            if action.disabledFeature != nil { return false }
             if let category, action.category.lowercased() != category { return false }
             if let noun, action.cliName.split(separator: " ").first.map(String.init) != noun { return false }
             if availableOnly, !catalog.isAvailable(action) { return false }
@@ -118,7 +119,7 @@ extension ControlRouter {
         }
         var categories: [String] = []
         var seen: Set<String> = []
-        for action in catalog.actions where seen.insert(action.category).inserted { categories.append(action.category) }
+        for action in catalog.actions where action.disabledFeature == nil && seen.insert(action.category).inserted { categories.append(action.category) }
         return [
             "actions": .array(actions.map(catalog.json)),
             "categories": .array(categories.map(JSONValue.string)),

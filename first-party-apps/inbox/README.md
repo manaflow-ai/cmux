@@ -78,6 +78,8 @@ The v2 schema cannot hold these parts of the app, so the manifest leaves them ou
 3. Scope `feed:answer` (restricted answer with a gesture token): not in the v2 scope grammar, as in v1.
 4. `gesture: required` on focus-changing ops: the catalog op format has no gesture field.
 
+Update (2026-10-03): the manifest v2 extensions (app-platform.md 12.5) now hold the items above that this app needed; `cmux-app.v2.json` and its catalog declare them (scopes, handles, keyboard, gestures, presets, requires, lifecycle, documents, openWith, notices, drag/drop and `consumes` as applicable). Items that depend on missing runtime support (embed node, pane-routed commands, native servers) stay open.
+
 ## Platform gaps
 
 1. Palette commands carry no gesture token, so "Next Inbox Item" and "Open Selected Inbox Item" call `feed.openItem` as origin `script` and cannot move focus. Wanted: the host passes a gesture with a user-invoked command.

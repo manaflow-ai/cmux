@@ -299,6 +299,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
 
     from package_contract import (
         NPM_LAUNCHER_FILES,
+        NPM_LICENSE_FILE,
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
     )
@@ -312,6 +313,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
+                NPM_LICENSE_FILE,
                 f"bin/chatmux-relay{extension}",
                 f"bin/cmux-tui{extension}",
             }
@@ -321,6 +323,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         expected = frozenset(
             {
                 "package.json",
+                NPM_LICENSE_FILE,
                 f"bin/cmux-tui{extension}",
                 f"bin/cmux-tui-hook{extension}",
                 NPM_SSH_MANIFEST,

@@ -46,7 +46,10 @@ const sessionPrincipal = async (env: Env, token: string): Promise<Principal | un
       email,
       email_verified: emailVerified,
       ...(typeof payload.exp === "number" ? { expires_at: payload.exp * 1000 } : {}),
-      ...(name ? { display_name: name } : {})
+      ...(name ? { display_name: name } : {}),
+      // SSO is never read from the token (Stack tokens carry no custom claims); policy-gate.ts
+      // resolves it from TeamDO's record of the sessions our OIDC callback created.
+      ...(typeof payload.refresh_token_id === "string" && payload.refresh_token_id ? { stack_session: payload.refresh_token_id } : {})
     }
   } catch {
     return undefined
@@ -74,13 +77,15 @@ export interface InstallClaims {
   readonly team: string
   readonly install: string
   readonly grant: string
+  /** The team whose SSO session registered the install, if any (P17-4). */
+  readonly sso_team?: string
 }
 
 export const mintAccessToken = async (env: Env, c: InstallClaims) => {
   const { key, kid } = await signer(env)
   const now = Math.floor(Date.now() / 1000)
   const exp = now + ACCESS_TOKEN_TTL_SECONDS
-  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant })
+  const token = await new SignJWT({ team: c.team, inst: c.install, grant: c.grant, ...(c.sso_team ? { sso_team: c.sso_team } : {}) })
     .setProtectedHeader({ alg: "ES256", kid, typ: "JWT" })
     .setIssuer(issuer(env))
     .setAudience("api")
@@ -99,9 +104,9 @@ const installPrincipal = async (env: Env, token: string): Promise<Principal | un
       audience: "api",
       clockTolerance: 30
     })
-    const { sub, team, inst, grant, exp } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown }
+    const { sub, team, inst, grant, exp, sso_team } = payload as { sub?: unknown; team?: unknown; inst?: unknown; grant?: unknown; exp?: unknown; sso_team?: unknown }
     if (typeof sub !== "string" || typeof team !== "string" || typeof inst !== "string" || typeof grant !== "string") return undefined
-    return { kind: "install", identity: inst, user: sub, team, install: inst, grant, ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}) }
+    return { kind: "install", identity: inst, user: sub, team, install: inst, grant, ...(typeof exp === "number" ? { expires_at: exp * 1000 } : {}), ...(typeof sso_team === "string" ? { sso_team } : {}) }
   } catch {
     return undefined
   }

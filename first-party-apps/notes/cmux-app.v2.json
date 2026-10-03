@@ -113,5 +113,35 @@
     "assets/",
     "catalog/",
     "strings/"
-  ]
+  ],
+  "documents": [
+    {
+      "id": "note",
+      "title": {
+        "en": "Note",
+        "ja": "ノート"
+      },
+      "types": [
+        "net.daringfireball.markdown"
+      ],
+      "extensions": [
+        "md",
+        "markdown"
+      ],
+      "symbol": "note.text"
+    }
+  ],
+  "consumes": {
+    "ops": [
+      "document.open",
+      "document.edit",
+      "fs.pick",
+      "fs.read",
+      "fs.write"
+    ],
+    "handles": [
+      "root",
+      "document"
+    ]
+  }
 }

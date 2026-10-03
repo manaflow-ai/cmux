@@ -50,7 +50,7 @@ pub(crate) struct SplitRespawnRequest {
 }
 
 impl SplitRespawnRequest {
-    fn into_respawn(self) -> anyhow::Result<crate::mux::SplitRespawn> {
+    pub(super) fn into_respawn(self) -> anyhow::Result<crate::mux::SplitRespawn> {
         match self.kind.as_str() {
             "terminal" => Ok(crate::mux::SplitRespawn::Terminal(placement_spawn_options(
                 self.cwd,

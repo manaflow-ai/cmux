@@ -111,7 +111,7 @@ declare namespace Cmux {
   type HostId = string
   type HostKind = "device" | "server"
   type InputModifier = "shift" | "control" | "alt" | "meta"
-  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId }
+  type Install = { id: Cmux.InstallId; device: Cmux.DeviceId; kind: Cmux.InstallKind; name: string; device_name: string; platform: Cmux.Platform; public_jwk: Cmux.PublicJwk; thumbprint: string; grant: Cmux.GrantId; created_at: number; revoked_at: number | null; bound_team?: Cmux.TeamId; sso_team?: Cmux.TeamId }
   type InstallId = string
   type InstallKind = "mac" | "ios" | "cli" | "daemon" | "web" | "vm"
   type IntegrationProvider = "github" | "linear" | "slack" | "google_calendar" | "gmail"
@@ -160,6 +160,7 @@ declare namespace Cmux {
   type MachineSnapshot = { id: string /* machine_… */; name: string; origin: "local"; status: "running" | "connecting" | "sleeping" | "stopped" | "unavailable"; connectable: boolean; deleted: boolean; recoverable: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ManagedDevice = { install: Cmux.InstallId; user: string; via: "token" | "accept"; token: Cmux.EnrollmentTokenId | null; at: number }
   type MessageId = string
+  type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
   type NotificationAckResult = { client_id: string; acknowledged: Array<string /* notification_… */>; unknown: Array<string /* notification_… */> }
   type NotificationClearResult = { cleared: Array<string /* notification_… */> }
   type NotificationLevel = "info" | "warning" | "error"
@@ -228,6 +229,8 @@ declare namespace Cmux {
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
+  type SshCertClass = "human" | "agent"
+  type SshPresenceProof = { install: Cmux.InstallId; nonce: string; signature: string; app_attest?: string }
   type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
   type SsoConnectionId = string
   type StateDelete = { kind: "state_delete"; sequence: number; resource: Cmux.StateResourceKind; id: string }
@@ -247,10 +250,15 @@ declare namespace Cmux {
   type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
   type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
+  type TeamJournalStream = "tasks" | "mail" | "memory" | "files"
   type TeamMember = { user: Cmux.UserId; role: "owner" | "admin" | "member"; display_name: string }
   type TeamPolicy = { version: number; values: Cmux.TeamPolicyValues; updated_at: number | null; updated_by: string | null }
   type TeamPolicyValues = { "github.repoScope"?: { value: "linking_user_repos" | "installation"; mode: Cmux.PolicyMode }; "github.requireOrgAdmin"?: { value: boolean; mode: Cmux.PolicyMode }; "github.repoAllowList"?: { value: unknown; mode: Cmux.PolicyMode }; "integrations.allowedProviders"?: { value: unknown; mode: Cmux.PolicyMode }; "mcp.server"?: { value: "user_choice" | "disabled"; mode: Cmux.PolicyMode }; "mcp.remoteTransport"?: { value: boolean; mode: Cmux.PolicyMode }; "apps.install"?: { value: "any" | "allow_list" | "disabled"; mode: Cmux.PolicyMode }; "apps.allowedTiers"?: { value: Array<"first-party" | "verified" | "community" | "unverified">; mode: Cmux.PolicyMode }; "apps.allowList"?: { value: Array<string>; mode: Cmux.PolicyMode }; "apps.forcedInstalls"?: { value: Array<string>; mode: Cmux.PolicyMode }; "computerUse.allowed"?: { value: boolean; mode: Cmux.PolicyMode }; "browserAutomation.rawCdp"?: { value: boolean; mode: Cmux.PolicyMode }; "cloud.sandboxes"?: { value: boolean; mode: Cmux.PolicyMode }; "telemetry.level"?: { value: "full" | "crash_only" | "off"; mode: Cmux.PolicyMode }; "updates.channel"?: { value: "stable" | "nightly"; mode: Cmux.PolicyMode }; "updates.minimumVersion"?: { value: string; mode: Cmux.PolicyMode }; "retention.cuaEventsDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.cuaFramesDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.transcriptDays"?: { value: number; mode: Cmux.PolicyMode }; "retention.auditDays"?: { value: number; mode: Cmux.PolicyMode }; "sso.enforce"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.enforceForOwners"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.allowGuests"?: { value: boolean; mode: Cmux.PolicyMode }; "sso.sessionMaxAgeHours"?: { value: number; mode: Cmux.PolicyMode }; "sso.idleTimeoutHours"?: { value: number; mode: Cmux.PolicyMode }; "agents.allowedClasses"?: { value: Array<"mux" | "agent" | "run">; mode: Cmux.PolicyMode }; "device.settings"?: { value: Record<string, never>; mode: Cmux.PolicyMode } }
   type TeamPolicyVersion = { version: number; values: Cmux.TeamPolicyValues; changed: Array<Cmux.PolicyKey>; actor: string | null; at: number; reason: string | null; rollback_of: number | null }
+  type TeamVmError = { code: string; message: string; at: number }
+  type TeamVmLeaseId = string
+  type TeamVmStatus = "none" | "provisioning" | "starting" | "running" | "paused" | "failed"
+  type TeamVmView = { team: Cmux.TeamId; status: Cmux.TeamVmStatus; vm: string | null; epoch: number; leases: Array<{ lease: Cmux.TeamVmLeaseId; holder: string; reason: string; expires_at: number }>; last_error: Cmux.TeamVmError | null; updated_at: number }
   type TerminalAttachItem = unknown
   type TerminalAttachPatch = { kind: "patch"; terminal_id: string /* terminal_… */; render: Cmux.RenderPatch }
   type TerminalAttachScroll = { kind: "scroll"; terminal_id: string /* terminal_… */; scroll: Cmux.RenderScroll }
@@ -276,6 +284,9 @@ declare namespace Cmux {
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
   type TriggerInput = unknown
+  type UsageMeterLine = { meter: Cmux.Meter; unit: string; quantity: unknown; usd: unknown }
+  type UsageStopReason = "cap.reached" | "cap.not_configured"
+  type UsageSummary = { owner: Cmux.TeamId | null; month: string; meters: Array<Cmux.UsageMeterLine>; total_usd: unknown; cap_usd: unknown; ceiling_usd: unknown; team_cap_usd: unknown | null; stopped: Cmux.UsageStopReason | null }
   type UserId = string
   type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
   type ViewAttachmentOutcome = "applied" | "passive" | "superseded"
@@ -896,6 +907,33 @@ interface CmuxGlobal {
       update: CmuxOp<{ changes: Array<Cmux.PolicyChange>; expected_version: number; reason?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamPolicy>>
     }
   }
+  team_vm: {
+    /** `team_vm.ensure_awake` (mutation, scope `team_vm:write`): Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires). */
+    ensure_awake: CmuxOp<{ reason: string; lease_seconds?: number; expected_revision?: string }, Cmux.MutationResult<{ lease: Cmux.TeamVmLeaseId; expires_at: number; status: Cmux.TeamVmStatus; vm: string | null; epoch: number }>>
+    journal: {
+      /** `team_vm.journal.append` (mutation, scope `team_vm:write`): Append one seq range (at most 100,000 seqs, 1 MiB) to a team journal stream; returns after the write is durable. A replay of the same range returns the stored acknowledgement. A writer whose reply was lost and whose epoch has since moved gets journal.stale_epoch even though its row is stored. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+      append: CmuxOp<{ stream: Cmux.TeamJournalStream; epoch: number; first_seq: number; last_seq: number; bytes: string; sha256: string; expected_revision?: string }, Cmux.MutationResult<{ stream: Cmux.TeamJournalStream; first_seq: number; last_seq: number; epoch: number; high_water: number; replayed: boolean }>>
+      /** `team_vm.journal.high_water` (read, scope `team_vm:read`): The last seq a team journal stream holds. Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+      high_water: CmuxOp<{ stream: Cmux.TeamJournalStream }, { stream: Cmux.TeamJournalStream; high_water: number; epoch: number }>
+      /** `team_vm.journal.read` (read, scope `team_vm:read`): Whole journal entries from a seq on, for restore (up to about 4 MiB per call; `more` asks for the next call). Only the team VM's own install for the current epoch may call it (plans/cmux-next/team-vm-plan.md 3b). */
+      read: CmuxOp<{ stream: Cmux.TeamJournalStream; from_seq: number }, { entries: Array<{ first_seq: number; last_seq: number; epoch: number; sha256: string; bytes: string }>; high_water: number; more: boolean }>
+    }
+    lease: {
+      /** `team_vm.lease.release` (mutation, scope `team_vm:write`): Release a wake lease you hold, so the team VM may pause when no other lease is active. */
+      release: CmuxOp<{ lease: Cmux.TeamVmLeaseId; expected_revision?: string }, Cmux.MutationResult<{ lease: Cmux.TeamVmLeaseId; released: boolean }>>
+    }
+    /** `team_vm.ssh_ca` (read, scope `team_vm:read`): The team SSH CA public keys and the current revocation list (KRL), for the team VM's sshd. */
+    ssh_ca: CmuxOp<Record<string, never>, { team: Cmux.TeamId; generation: number; trusted_ca_keys: Array<string>; krl: string; krl_version: number }>
+    /** `team_vm.ssh_cert` (mutation, scope `team_vm:execute`): Sign a short-lived SSH user certificate (15 to 60 minutes) for the team VM. The certificate names the caller's Linux user; `agent` certificates run only `cmux team …` commands; a `human` (full shell) certificate needs a person's session and a fresh presence proof. Replaying the same idempotency key returns the same certificate, also after a crash. */
+    ssh_cert: CmuxOp<{ public_key: string; validity_minutes?: number; class?: Cmux.SshCertClass; presence?: Cmux.SshPresenceProof; expected_revision?: string }, Cmux.MutationResult<{ certificate: string; serial: number; key_id: string; principals: Array<string>; class: Cmux.SshCertClass; valid_after: number; valid_before: number; ca_generation: number; ca_public_key: string }>> & {
+      /** `team_vm.ssh_cert.challenge` (mutation, scope `team_vm:execute`): Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key. */
+      challenge: CmuxOp<{ public_key: string; validity_minutes?: number; presence_install: Cmux.InstallId; request: string; expected_revision?: string }, Cmux.MutationResult<{ sign: string; message: string; expires_at: number }>>
+      /** `team_vm.ssh_cert.revoke` (mutation, scope `team_vm:write`): Revoke unexpired team VM SSH certificates by serial, user or install; the revocation list (KRL) lists them at once. Members revoke their own certificates; owners and admins revoke anyone's. */
+      revoke: CmuxOp<{ serial?: number; user?: Cmux.UserId; install?: Cmux.InstallId; reason?: string; expected_revision?: string }, Cmux.MutationResult<{ revoked: Array<number>; krl_version: number }>>
+    }
+    /** `team_vm.status` (read, scope `team_vm:read`): Show the team VM: its state, epoch and active wake leases. */
+    status: CmuxOp<Record<string, never>, Cmux.TeamVmView>
+  }
   terminal: {
     /** `terminal.attach` (stream_open, scope `terminal:execute`) */
     attach: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; stream_id: string /* stream_… */; cols?: number; rows?: number; read_only?: boolean }, Cmux.ViewAttachmentStreamOpened>
@@ -957,6 +995,10 @@ interface CmuxGlobal {
     detach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
     /** `tunnel.rotate-key` (mutation, scope `tunnel:write`): Rotate an owned tunnel's WireGuard public key without changing its address. */
     "rotate-key": CmuxOp<{ device_fingerprint: string; client_public_key: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; client_public_key: string }>>
+  }
+  usage: {
+    /** `usage.summary` (read, scope `usage:read`): This month's automation usage of the caller's team, its cost estimate and the hard cap that stops runs. */
+    summary: CmuxOp<Record<string, never>, Cmux.UsageSummary>
   }
   window_record: {
     /** `window_record.delete` (mutation, scope `window_record:write`) */
@@ -1086,6 +1128,7 @@ declare function signal<T>(initial: T): [CmuxSignal<T>, (next: T | ((prev: T) =>
 declare function computed<T>(fn: () => T): CmuxSignal<T>
 declare function effect(fn: () => void): () => void
 declare function onCleanup(fn: () => void): void
+declare function untrack<T>(fn: () => T): T
 type Bindable<T> = T | (() => T)
 interface CmuxView {
   font(v: Bindable<string | number>): this; weight(v: Bindable<string>): this; bold(): this; italic(): this; monospaced(): this

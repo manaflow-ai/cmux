@@ -97,7 +97,7 @@ fn publisher_rules() {
 #[test]
 fn interfaces_and_runtimes_must_match() {
     let m = manifest(
-        json!({ "implements": { "cmux.nope/1": { "export": "x" }, "cmux.editor/1": { "web": "w.html" } }, "consumes": ["cmux.nope/2"] }),
+        json!({ "implements": { "cmux.nope/1": { "export": "x" }, "cmux.editor/1": { "web": "w.html" } }, "consumes": { "interfaces": ["cmux.nope/2"] } }),
     );
     assert_eq!(
         codes(&m),

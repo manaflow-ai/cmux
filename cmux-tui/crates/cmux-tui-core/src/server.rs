@@ -107,6 +107,7 @@ mod responses;
 mod screen_json;
 mod session_stream;
 mod split_respawn;
+mod tab_column;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
     start_launch_snapshot_writer_with,
@@ -129,6 +130,9 @@ pub const VIEWPORT_COLUMN_RESIZE_CAPABILITY: &str = "viewport-column-resize-v1";
 /// `set-column-sticky` and the optional `Screen.columns[].sticky` field: at
 /// most one viewport column per edge stays pinned while the others scroll.
 pub const STICKY_COLUMNS_CAPABILITY: &str = "sticky-columns-v1";
+/// Top and bottom docks: `set-column-sticky` and `move-tab-to-column` accept
+/// edges `top` and `bottom`, sent back as `Screen.columns[].dock`.
+pub const EDGE_DOCKS_CAPABILITY: &str = "edge-docks-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
@@ -230,6 +234,7 @@ pub use frontend_browser_history::FRONTEND_BROWSER_HISTORY_CAPABILITY;
 /// same-screen drags, and a client `transaction` id echoed in `tab-changed`.
 pub const TAB_DRAG_CAPABILITY: &str = "tab-drag-v1";
 pub use split_respawn::TAB_SPLIT_RESPAWN_CAPABILITY;
+pub use tab_column::TAB_COLUMN_RESPAWN_CAPABILITY;
 /// Durable notification acknowledgement decoupled from focus:
 /// `ack-tab-notifications`, `list-notifications`, and the workspace `unread_count` rollup.
 pub const NOTIFICATION_ACK_CAPABILITY: &str = "notification-ack-v1";
@@ -380,6 +385,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         VIEWPORT_SPLITS_CAPABILITY,
         VIEWPORT_COLUMN_RESIZE_CAPABILITY,
         STICKY_COLUMNS_CAPABILITY,
+        EDGE_DOCKS_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
@@ -417,6 +423,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
+        TAB_COLUMN_RESPAWN_CAPABILITY,
         NOTIFICATION_ACK_CAPABILITY,
         TAB_GROUPS_CAPABILITY,
         SAVED_TAB_GROUPS_CAPABILITY,
@@ -1983,19 +1990,7 @@ enum Command {
         transaction: Option<String>,
     },
     /// Drop a tab between strip columns: a new column holding the tab.
-    MoveTabToColumn {
-        surface: SurfaceId,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        screen: Option<ScreenId>,
-        #[serde(default)]
-        after_column: Option<SplitId>,
-        #[serde(default)]
-        width: Option<f32>,
-        #[serde(default)]
-        transaction: Option<String>,
-    },
+    MoveTabToColumn(tab_column::MoveTabToColumnParams),
     /// Drop a tab on the sidebar: a new workspace holding the tab.
     MoveTabToNewWorkspace {
         surface: SurfaceId,
@@ -14641,14 +14636,7 @@ fn handle_command_with_cancellation(
             let outcome = split_tab(mux, surface, pane, edge, ratio, respawn, transaction)?;
             Ok(tab_drag_outcome_json(&outcome))
         }
-        Command::MoveTabToColumn { surface, pane, screen, after_column, width, transaction } => {
-            validate_client_transaction(transaction.as_deref())?;
-            get_surface(mux, surface)?;
-            let anchor = column_anchor(mux, pane, screen)?;
-            let outcome =
-                mux.move_tab_to_column(surface, anchor, after_column, width, transaction)?;
-            Ok(tab_drag_outcome_json(&outcome))
-        }
+        Command::MoveTabToColumn(params) => tab_column::move_tab_to_column(mux, params),
         Command::MoveTabToNewWorkspace { surface, group, index, transaction } => {
             validate_client_transaction(transaction.as_deref())?;
             get_surface(mux, surface)?;

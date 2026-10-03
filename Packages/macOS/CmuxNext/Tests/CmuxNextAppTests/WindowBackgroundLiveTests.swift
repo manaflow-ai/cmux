@@ -7,6 +7,7 @@ import CmuxNextSidebar
 import Foundation
 import Testing
 
+extension AppThemeGlobalStateTests {
 /// Settings > Appearance > Window Background applies live: a write through
 /// `SettingsController` (what the Opacity slider and Material menu do)
 /// reaches every open main window with no relaunch. The path under test is
@@ -113,4 +114,5 @@ import Testing
         }
         withExtendedLifetime((follower, settings, windows)) {}
     }
+}
 }

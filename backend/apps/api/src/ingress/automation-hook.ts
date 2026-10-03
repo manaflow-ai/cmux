@@ -51,7 +51,7 @@ export const automationHookSecret = async (env: Env, team: string, trigger: stri
 export const automationHookPath = (team: string, trigger: string) => `/v1/hooks/automation/${team}/${trigger}`
 
 export interface DeliverResult {
-  readonly status: "accepted" | "duplicate" | "unknown" | "disabled" | "skipped"
+  readonly status: "accepted" | "duplicate" | "unknown" | "disabled" | "skipped" | "rate_limited"
   readonly run?: string
 }
 
@@ -101,6 +101,9 @@ export const handleAutomationHook = async (request: Request, env: Env, team: str
       return json(404, { ok: false, code: "selector.not_found" })
     case "disabled":
       return json(409, { ok: false, code: "automation.disabled", delivery, ...label })
+    case "rate_limited":
+      // Not remembered as delivered: the sender's retry (same delivery id) starts the run later.
+      return new Response(JSON.stringify({ ok: false, code: "rate.limited", delivery, ...label }), { status: 429, headers: { "content-type": "application/json", "retry-after": "1" } })
     default:
       return json(202, { ok: true, delivery, ...label, status: r.status, ...(r.run ? { run: r.run } : {}) })
   }

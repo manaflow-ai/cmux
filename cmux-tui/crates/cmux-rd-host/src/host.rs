@@ -173,6 +173,12 @@ fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control
             Some(200_000_000),
         )?;
         reader.fill(stream)?;
+        // Close at once, before any parse or reply, when the peer speaks something else
+        // (an HTTP request from a browser page must never reach the control parser).
+        if reader.foreign_prefix() {
+            let _ = stream.shutdown(std::net::Shutdown::Both);
+            return Err("not the cmux.rd protocol (for example HTTP): closed (reset)".into());
+        }
     }
 }
 
@@ -360,6 +366,32 @@ mod tests {
         let _client = std::net::TcpStream::connect(addr).expect("connect");
         let (accepted, _) = listener.accept().expect("accept");
         assert!(peer_allowed(accepted.peer_addr().expect("peer").ip(), Reach::LoopbackOnly));
+    }
+
+    #[test]
+    fn an_http_request_is_closed_before_any_reply() {
+        for prefix in [
+            "GET / HTTP/1.1\r\n",
+            "POST /x HTTP/1.1\r\n",
+            "OPTIONS * HTTP/1.1",
+            "PUT /",
+            "HEAD /",
+            "CONNECT a:1",
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+            let addr = listener.local_addr().expect("addr");
+            let mut client = std::net::TcpStream::connect(addr).expect("connect");
+            std::io::Write::write_all(&mut client, prefix.as_bytes()).expect("write");
+            let (mut server, _) = listener.accept().expect("accept");
+            server.set_nonblocking(true).expect("nonblocking");
+            let mut reader = FrameReader::default();
+            let err = read_control(&mut server, &mut reader).expect_err("refused");
+            assert!(err.to_string().contains("not the cmux.rd protocol"), "{prefix}: {err}");
+            // Nothing was sent back; the connection is closed.
+            client.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
+            let mut buf = [0u8; 16];
+            assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap_or(0), 0, "{prefix}");
+        }
     }
 
     #[test]

@@ -53,6 +53,12 @@ import PackageDescription
 //   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
+//   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
+//     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
+//   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
+//     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
+//   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
+//     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -107,6 +113,8 @@ let package = Package(
             dependencies: [
                 "CmuxNextMallocZone",
                 "CmuxNextHome",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -132,6 +140,7 @@ let package = Package(
                 "CmuxNextOnboarding",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
+                "CmuxNextRemoteView",
                 "CmuxNextCodeRouter",
                 "CmuxNextAccounts",
                 "CmuxNextBookmarks",
@@ -139,6 +148,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
+                "CmuxNextServerHelper",
                 "CmuxNextFeed",
             ],
             resources: [
@@ -400,6 +410,24 @@ let package = Package(
             dependencies: ["CmuxNextFeed"],
             swiftSettings: uiSwiftSettings
         ),
+        // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
+        // VideoToolbox decode, presenter variants, chrome A, input capture and
+        // a VideoToolbox mock host. Transport neutral. The App shows it in
+        // `remote_view` tabs (cmux://remote-view records, development builds).
+        .target(
+            name: "CmuxNextRemoteView",
+            dependencies: ["CmuxNextDesign"],
+            exclude: ["README.md"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteViewTests",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"],
+            swiftSettings: uiSwiftSettings
+        ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
         // menubar panel, pairing, approver sheet and health prototypes over a
         // projection of `server.status`. The App supplies the source.
@@ -415,6 +443,25 @@ let package = Package(
             name: "CmuxNextServerTests",
             dependencies: ["CmuxNextServer"],
             swiftSettings: uiSwiftSettings
+        ),
+        // The cmux server's privileged helper (plans/cmux-next/server.md 9.4): the XPC
+        // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
+        .target(
+            name: "CmuxNextServerHelper",
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The helper executable. The app bundle does not link it: the Xcode phase
+        // "Bundle server helper" (scripts/cmux-next/bundle-server-helper.sh) compiles
+        // these sources with swiftc into Contents/Resources/libexec/cmux-server-helper.
+        .executableTarget(
+            name: "CmuxNextServerHelperDaemon",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextServerHelperTests",
+            dependencies: ["CmuxNextServerHelper"],
+            swiftSettings: daemonSwiftSettings
         ),
         .target(
             name: "CmuxNextResources",
@@ -745,7 +792,8 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextAppTests",
-            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode"],
+            dependencies: ["CmuxNextWakeups", "CmuxNextApp", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
+                           "CmuxNextDaemon", .product(name: "CmuxHomeCore", package: "CmuxHomeCore")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),

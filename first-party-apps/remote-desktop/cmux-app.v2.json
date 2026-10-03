@@ -1,0 +1,37 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "cmux/remote-desktop",
+  "name": { "en": "Remote Desktop", "ja": "リモートデスクトップ" },
+  "version": "0.1.0",
+  "description": {
+    "en": "View and control the desktop of your Macs, cmux servers and team VMs in a cmux pane. Hosting stays off until a person on that machine turns it on; agents can only open a view for you.",
+    "ja": "Mac、cmux サーバー、チーム VM のデスクトップを cmux のペインで表示、操作します。ホストはそのマシンの人がオンにするまでオフです。エージェントはあなたのために表示を開くことしかできません。"
+  },
+  "publisher": { "name": "cmux", "url": "https://cmux.dev" },
+  "repository": "https://github.com/manaflow-ai/cmux",
+  "license": "GPL-3.0-or-later",
+  "icon": "assets/icon.svg",
+  "categories": ["productivity", "developer-tools"],
+  "keywords": ["remote desktop", "screen", "display", "vm", "control"],
+  "engines": { "cmux": "^2.0" },
+  "catalog": "catalog/rd-catalog.json",
+  "server": {
+    "kind": "native",
+    "binaries": { "linux-arm64": "cmux-rd", "linux-x64": "cmux-rd" },
+    "args": ["host"],
+    "instances": "machine",
+    "hosts": ["local", "cmux-server", "team-vm"],
+    "data": [{ "name": "audit", "class": "ephemeral" }],
+    "lifecycle": { "start": "onDemand" }
+  },
+  "implements": {
+    "cmux.pane/1": {
+      "native": "remote-view",
+      "title": { "en": "Remote Desktop", "ja": "リモートデスクトップ" },
+      "symbol": "display"
+    }
+  },
+  "files": ["assets/", "catalog/"],
+  "x-cmux-devOnly": true
+}
