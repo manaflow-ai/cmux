@@ -18,7 +18,7 @@ final class AppServices {
     /// Each window's last sidebar, drawn before the daemon answers.
     let sidebarSnapshots: SidebarSnapshotStore
     /// Launch load-in by region; tests inject one with their own clock.
-    var launchReveal = LaunchReveal.shared
+    let launchReveal: LaunchReveal
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -153,7 +153,10 @@ final class AppServices {
     /// Remote-terminal tabs: mount, placeholder, snapshot, moves.
     private(set) var remoteTerminals: RemoteTerminalService!
 
-    init(environment: AppEnvironment) {
+    /// - Parameter launchReveal: The launch load-in the windows' sidebars
+    ///   hold for; the app-wide one by default.
+    init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+        self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus

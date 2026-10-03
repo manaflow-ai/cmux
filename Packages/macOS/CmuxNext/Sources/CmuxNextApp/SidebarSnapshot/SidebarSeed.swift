@@ -7,13 +7,18 @@ import CmuxNextSidebar
 /// saved. While the app is launching, saved sections the live sidebar
 /// does not list yet (pinned, Cloud machines before the machine list
 /// arrives) keep their place. A section that stopped loading spends its
-/// saved rows, so they never come back later.
+/// saved rows, so they never come back later. A section given placeholders
+/// at launch keeps them past the launch until its machine connects or
+/// fails, so the end of the launch never empties it in between.
 struct SidebarSeed {
-    /// Placeholder rows in a loading section with nothing saved, only while
-    /// the app launches (never on a later Cloud reconnect).
+    /// Placeholder rows in a loading section with nothing saved, shown from
+    /// the launch only (never on a later Cloud reconnect).
     static let placeholderCount = 3
 
     private(set) var sections: [SidebarSection]
+    /// Sections that showed placeholders at launch and have not stopped
+    /// loading since.
+    private var placeholderSections: Set<SectionID> = []
 
     init(sections: [SidebarSection] = []) {
         self.sections = sections
@@ -21,11 +26,17 @@ struct SidebarSeed {
 
     /// `live` with loading sections filled in. `launching` is true until the
     /// app restored its windows (or the local daemon is unavailable).
+    /// `failed` lists machines whose first connection gave up while their
+    /// header still says connecting: their placeholders end.
     mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
         var result: [SidebarSection] = []
         for section in live {
             let loading = Self.isLoading(section, launching: launching)
-            if !loading { sections.removeAll { $0.id == section.id } }
+            if !loading {
+                sections.removeAll { $0.id == section.id }
+                placeholderSections.remove(section.id)
+            }
+            if let machine = section.machine, failed.contains(machine.id) { placeholderSections.remove(section.id) }
             guard loading, section.workspaces.isEmpty else {
                 result.append(section)
                 continue
@@ -33,7 +44,9 @@ struct SidebarSeed {
             var filled = section
             if let saved = sections.first(where: { $0.id == section.id }) {
                 filled.nodes = saved.nodes
-            } else if launching, let machine = section.machine {
+            } else if let machine = section.machine, !failed.contains(machine.id),
+                      launching || placeholderSections.contains(section.id) {
+                if launching { placeholderSections.insert(section.id) }
                 filled.nodes = Self.placeholders(machine: machine.id).map(SidebarNode.workspace)
             }
             result.append(filled)
@@ -45,6 +58,7 @@ struct SidebarSeed {
             }
         } else {
             sections.removeAll { !listed.contains($0.id) }
+            placeholderSections.formIntersection(listed)
         }
         return result
     }
