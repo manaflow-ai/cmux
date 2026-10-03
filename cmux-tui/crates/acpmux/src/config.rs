@@ -747,6 +747,42 @@ pub fn discover_harnesses() -> BTreeMap<String, HarnessProfile> {
 /// setup fails before Claude starts. Runs once at daemon start, so a
 /// `claude` session never fails over into a launcher that dies at once.
 pub fn verify_launchers(cfg: &mut Config) {
+    let servers =
+        dirs::home_dir().map(|home| home.join(".subrouter/codex/servers.json")).unwrap_or_default();
+    let env_route =
+        std::env::var("SUBROUTER_URL").ok().or_else(|| crate::login_env::var("SUBROUTER_URL"));
+    let route = subrouter_route(env_route.as_deref(), &servers);
+    verify_launchers_with(cfg, route);
+}
+
+/// The subrouter server Claude traffic goes to when `sr` has no `claude proxy`:
+/// `SUBROUTER_URL`, else the default server in `sr`'s own list
+/// (`~/.subrouter/codex/servers.json`, read only). Only an http(s) URL counts.
+pub fn subrouter_route(env_url: Option<&str>, servers_json: &std::path::Path) -> Option<String> {
+    let http = |url: &str| {
+        let url = url.trim().trim_end_matches('/');
+        (url.starts_with("http://") || url.starts_with("https://")).then(|| url.to_owned())
+    };
+    if let Some(url) = env_url.and_then(http) {
+        return Some(url);
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(servers_json).ok()?).ok()?;
+    let default = value.get("default")?.as_str()?;
+    value
+        .get("servers")?
+        .as_array()?
+        .iter()
+        .find(|server| server.get("name").and_then(|n| n.as_str()) == Some(default))?
+        .get("url")?
+        .as_str()
+        .and_then(http)
+}
+
+/// `verify_launchers` with the subrouter route given: a proxy launcher that
+/// fails becomes the `claude` profile routed through that server when there
+/// is one, else it is marked unavailable.
+pub fn verify_launchers_with(cfg: &mut Config, route: Option<String>) {
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
@@ -758,6 +794,36 @@ pub fn verify_launchers(cfg: &mut Config) {
         .collect();
     for (name, argv) in candidates {
         if let Err(reason) = launcher_ok(&argv) {
+            if let Some(url) = &route
+                && let Some(claude) = cfg.harnesses.get("claude").cloned()
+            {
+                tracing::info!(agent = %name, %url, "{reason}; routing Claude through the subrouter server");
+                let mut env = claude.env.clone();
+                env.insert("ANTHROPIC_BASE_URL".into(), url.clone());
+                // The server picks the pooled account and ignores the client token.
+                env.insert("ANTHROPIC_AUTH_TOKEN".into(), "subrouter".into());
+                env.insert("ANTHROPIC_CUSTOM_HEADERS".into(), "X-Subrouter-Agent: claude".into());
+                let previous = cfg.harnesses.get(&name).cloned();
+                cfg.harnesses.insert(
+                    name.clone(),
+                    HarnessProfile {
+                        kind: claude.kind,
+                        argv: claude.argv.clone(),
+                        env,
+                        description: Some(format!("Claude through the subrouter server {url}")),
+                        fallback: None,
+                        family: previous
+                            .as_ref()
+                            .and_then(|p| p.family.clone())
+                            .or(Some("claude".into())),
+                        models: previous.as_ref().map(|p| p.models.clone()).unwrap_or_default(),
+                        model: previous.as_ref().and_then(|p| p.model.clone()),
+                        effort: previous.as_ref().and_then(|p| p.effort.clone()),
+                        policy: previous.as_ref().and_then(|p| p.policy),
+                    },
+                );
+                continue;
+            }
             tracing::warn!(agent = %name, "launcher unavailable: {reason}");
             cfg.unavailable.insert(name.clone(), reason);
             for p in cfg.harnesses.values_mut() {

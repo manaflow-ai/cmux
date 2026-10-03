@@ -349,6 +349,7 @@ impl Hub {
     /// that fail unavailable (and drop fallbacks that point at them).
     async fn verify_launchers(&self) {
         let mut probe = self.config.read().await.clone();
+        let before = probe.harnesses.clone();
         let Ok(probe) = tokio::task::spawn_blocking(move || {
             crate::config::verify_launchers(&mut probe);
             probe
@@ -358,6 +359,18 @@ impl Hub {
             return;
         };
         let mut cfg = self.config.write().await;
+        // Launchers the probe rerouted (claude-sr through the subrouter server), unless a
+        // reload changed them meanwhile.
+        for (name, routed) in &probe.harnesses {
+            let unchanged =
+                cfg.harnesses.get(name).map(|p| &p.argv) == before.get(name).map(|p| &p.argv);
+            if unchanged
+                && before.get(name).map(|p| &p.argv) != Some(&routed.argv)
+                && before.contains_key(name)
+            {
+                cfg.harnesses.insert(name.clone(), routed.clone());
+            }
+        }
         for (name, reason) in &probe.unavailable {
             let argv = |c: &Config| c.harnesses.get(name).map(|p| p.argv.clone());
             if argv(&cfg) != argv(&probe) || cfg.unavailable.contains_key(name) {
