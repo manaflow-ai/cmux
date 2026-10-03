@@ -36,8 +36,8 @@ import Testing
     @Test func toolTipsComeFromTheAppElseTheTitle() throws {
         let newWorkspace = LayoutItemID("itm_new_workspace")
         let view = rail(.defaults, toolTips: [newWorkspace: "New Workspace (⌘N)"])
-        #expect(view.itemView(newWorkspace)?.toolTip == "New Workspace (⌘N)")
-        #expect(view.itemView(LayoutItemID("itm_history"))?.toolTip == SidebarBuiltIn.history.title)
+        #expect(view.itemView(newWorkspace)?.instantTooltip == "New Workspace (⌘N)")
+        #expect(view.itemView(LayoutItemID("itm_history"))?.instantTooltip == SidebarBuiltIn.history.title)
     }
 
     @Test func pressingAButtonActivatesItsItem() throws {
@@ -78,7 +78,7 @@ import Testing
         let view = rail(doc, height: 160)
         let more = try #require(view.moreView)
         #expect(more.frame == view.layoutResult.more)
-        #expect(more.toolTip == SectionStrings.more)
+        #expect(more.instantTooltip == SectionStrings.more)
         var activated: [LayoutItemID] = []
         view.onActivate = { activated.append($0) }
         let menu = view.overflowMenu()

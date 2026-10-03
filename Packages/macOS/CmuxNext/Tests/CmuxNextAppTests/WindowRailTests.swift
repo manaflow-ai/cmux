@@ -138,7 +138,7 @@ struct WindowRailTests {
         registry.setShortcutOverride(Shortcut("s", modifiers: [.control, .option, .command]), for: "history.show")
         try await eventually {
             column.layoutSubtreeIfNeeded()
-            return column.itemView(history)?.toolTip == "\(WindowRail.title(for: "history.show", registry: registry)) (⌃⌥⌘S)"
+            return column.itemView(history)?.instantTooltip == "\(WindowRail.title(for: "history.show", registry: registry)) (⌃⌥⌘S)"
         }
         registry.setShortcutOverride(nil, for: "history.show")
         close(controller)

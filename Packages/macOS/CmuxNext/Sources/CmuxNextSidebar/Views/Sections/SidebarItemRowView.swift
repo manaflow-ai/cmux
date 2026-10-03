@@ -32,6 +32,9 @@ final class SidebarItemRowView: NSView {
 
     private(set) var info = SidebarItemInfo(title: "", symbol: "circle")
     private(set) var style = Style.builtIn
+    /// The rail's instant tooltip text. Native AppKit tooltips are disabled
+    /// for rail buttons because their delayed cache can show the prior item.
+    private(set) var instantTooltip: String?
     private let pill = CALayer()
     private let chip = CALayer()
     private let icon = NSImageView()
@@ -121,6 +124,11 @@ final class SidebarItemRowView: NSView {
         alphaValue = info.isMissing ? 0.5 : 1
         needsLayout = true
         needsDisplay = true
+    }
+
+    func setInstantTooltip(_ text: String?) {
+        instantTooltip = text
+        toolTip = nil
     }
 
     override func updateLayer() {

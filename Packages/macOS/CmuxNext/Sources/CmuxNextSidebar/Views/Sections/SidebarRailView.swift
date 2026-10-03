@@ -95,13 +95,13 @@ final class SidebarRailView: NSView {
                 ?? content.document.item(button.item).map { SidebarItemInfo.fallback(for: $0.ref) }
                 ?? SidebarItemInfo(title: "", symbol: "circle", isMissing: true)
             view.configure(info, style: .icon)
-            view.toolTip = content.toolTips[button.item] ?? info.title
+            view.setInstantTooltip(content.toolTips[button.item] ?? info.title)
             view.frame = button.frame
         }
         if let frame = result.more {
             let view = moreView ?? makeMore()
             view.configure(SidebarItemInfo(title: SectionStrings.more, symbol: "ellipsis"), style: .icon)
-            view.toolTip = SectionStrings.more
+            view.setInstantTooltip(SectionStrings.more)
             view.frame = frame
         } else {
             moreView?.removeFromSuperview()
