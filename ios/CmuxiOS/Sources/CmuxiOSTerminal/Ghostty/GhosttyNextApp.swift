@@ -16,6 +16,13 @@ final class GhosttyNextApp {
 
     private static var current: GhosttyNextApp?
 
+    /// `ios.terminal.scrollbackBytes` (ghostty-next section 7): the local
+    /// scrollback cap. Every snapshot restore applies it (ios-v5).
+    static let scrollbackLimitBytes = 8 * 1024 * 1024
+
+    /// DEBUG diagnostics: config load problems (0 when the product config applied).
+    private(set) var configDiagnostics: UInt32 = 0
+
     /// The shared app, created on first use.
     static func shared() throws -> GhosttyNextApp {
         if let current { return current }
@@ -28,7 +35,9 @@ final class GhosttyNextApp {
         let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
         guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        // No user config files on the phone yet: product defaults only.
+        // No user config files on the phone yet: product defaults plus the
+        // phone's own settings (libghostty loads config from files only).
+        Self.loadProductConfig(config)
         ghostty_config_finalize(config)
         var runtime = ghostty_runtime_config_s()
         runtime.userdata = nil
@@ -52,6 +61,15 @@ final class GhosttyNextApp {
         }
         self.app = app
         self.config = config
+        configDiagnostics = ghostty_config_diagnostics_count(config)
+    }
+
+    /// Writes the phone's product settings to a private file and loads it.
+    private static func loadProductConfig(_ config: ghostty_config_t) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("ghostty-next-product.conf")
+        let text = "scrollback-limit-bytes = \(scrollbackLimitBytes)\n"
+        guard (try? Data(text.utf8).write(to: url, options: .atomic)) != nil else { return }
+        url.path.withCString { ghostty_config_load_file(config, $0) }
     }
 
     /// Drains the app mailbox, then draws every surface that asked for a frame.
