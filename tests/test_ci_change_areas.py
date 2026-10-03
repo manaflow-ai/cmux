@@ -5675,6 +5675,41 @@ def test_merge_groups_stop_at_the_first_failure() -> None:
     assert "exit 1" in fork_guard["run"]
 
 
+def test_cli_xctest_enters_console_session() -> None:
+    """CLI XCTest must reach the console service with its isolated test environment."""
+    jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
+    script = next(step["run"] for job in jobs.values() for step in job.get("steps", [])
+                  if step.get("name") == "Run CLI product tests")
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        (root / "scripts/ci").mkdir(parents=True)
+        (root / "bin").mkdir()
+        fixtures = {
+            "scripts/ci/run-and-capture.sh": '#!/bin/bash\nshift\nexec "$@"\n',
+            "scripts/ci/run-in-console-session.sh": '#!/bin/bash\nexport FIXTURE_CONSOLE=1\nexec "$@"\n',
+            "scripts/ci/require_selected_test_execution.sh": '#!/bin/bash\nexit 0\n',
+            "bin/xcodebuild": r'''#!/bin/bash
+[ "${FIXTURE_CONSOLE:-}" = 1 ] || exit 70
+[ "$TEST_RUNNER_HOME" = "$EXPECTED_HOME" ] || exit 71
+[ "$TEST_RUNNER_CFFIXED_USER_HOME" = "$EXPECTED_HOME" ] || exit 72
+[ "$TEST_RUNNER_CMUX_CLI_PATH" = "$EXPECTED_CLI" ] || exit 73
+printf '%s\n' "$@" > "$RUNNER_TEMP/args"
+''',
+        }
+        for relative, content in fixtures.items():
+            fixture = root / relative
+            fixture.write_text(content)
+            fixture.chmod(0o755)
+        env = dict(os.environ, PATH=f"{root / 'bin'}:{os.environ['PATH']}",
+                   RUNNER_TEMP=str(root), CMUX_CLI_TESTS_HOME=str(root / "home"),
+                   CMUX_CLI_PATH=str(root / "cli"), CMUX_CLI_TESTS_XCTESTRUN="fixture.xctestrun",
+                   EXPECTED_HOME=str(root / "home"), EXPECTED_CLI=str(root / "cli"))
+        result = subprocess.run(["bash", "-e", "-c", script], cwd=root, env=env,
+                                capture_output=True, text=True, timeout=15)
+        assert result.returncode == 0, (result.returncode, result.stderr)
+        assert "-only-testing:cmuxCLITests" in (root / "args").read_text().splitlines()
+
+
 def test_compile_admission_retry_executes_safely() -> None:
     """Execute the admission shell with deterministic compiler and worker fixtures."""
     jobs = yaml.safe_load(MACOS_WORKFLOW.read_text())["jobs"]
