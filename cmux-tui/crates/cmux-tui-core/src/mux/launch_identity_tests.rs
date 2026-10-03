@@ -185,8 +185,8 @@ fn a_terminal_child_receives_its_credential_and_an_inherited_one_never_wins() {
         ],
         ..SurfaceOptions::default()
     };
-    let identity = crate::resource::TabResourceIdentity::terminal(Some(terminal.clone())).unwrap();
-    let (options, _, _reservation) = crate::surface::Surface::spawn_prelude(
+    let identity = TabResourceIdentity::terminal(Some(terminal.clone())).unwrap();
+    let (options, _, _reservation) = Surface::spawn_prelude(
         u64::MAX - 7,
         options,
         &Arc::downgrade(&mux),
@@ -213,7 +213,7 @@ fn a_terminal_child_receives_its_credential_and_an_inherited_one_never_wins() {
         extra_env: vec![(LAUNCH_CREDENTIAL_ENV.into(), "cmuxlc1.forged.value.x".into())],
         ..SurfaceOptions::default()
     };
-    let (options, _, _reservation) = crate::surface::Surface::spawn_prelude(
+    let (options, _, _reservation) = Surface::spawn_prelude(
         u64::MAX - 8,
         options,
         &Arc::downgrade(&mux),
