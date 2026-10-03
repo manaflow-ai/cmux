@@ -177,7 +177,7 @@ fn read_control(stream: &mut TcpStream, reader: &mut FrameReader) -> Res<Control
         // (an HTTP request from a browser page must never reach the control parser).
         if reader.foreign_prefix() {
             let _ = stream.shutdown(std::net::Shutdown::Both);
-            return Err("not the cmux.rd protocol (for example HTTP): closed".into());
+            return Err("not the cmux.rd protocol (for example HTTP): closed (reset)".into());
         }
     }
 }

@@ -194,7 +194,7 @@ impl H264Encoder for OpenH264 {
             ],
             iPicWidth: pic.width as c_int,
             iPicHeight: (pic.y.len() / pic.width.max(1)) as c_int,
-            uiTimeStamp: pts / 1000,
+            uiTimeStamp: pts.max(0) / 1000,
             bPsnrY: false,
             bPsnrU: false,
             bPsnrV: false,
