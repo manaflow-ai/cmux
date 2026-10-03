@@ -251,6 +251,12 @@ int cmux_shim_tab_restore_navigation(int browser_id, const char* state) {
   return fork_api().tab_restore_navigation && state ? fork_api().tab_restore_navigation(browser_id, state) : 0;
 }
 
+int cmux_shim_tab_document_from_post(int browser_id) {
+  auto& map = cmux_shim::MainFrameRequestWasPost();
+  auto it = map.find(browser_id);
+  return it != map.end() && it->second ? 1 : 0;
+}
+
 int cmux_shim_navigation_restore_supported(void) {
   return fork_api().tab_navigation_state && fork_api().tab_restore_navigation ? 1 : 0;
 }

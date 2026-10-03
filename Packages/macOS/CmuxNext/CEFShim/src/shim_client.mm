@@ -122,6 +122,9 @@ class Client : public CefClient,
                       bool, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
+    // The last main-frame request method (a 303 after a POST arrives here
+    // again as GET): a page that shows a POST result never hibernates.
+    MainFrameRequestWasPost()[id] = request->GetMethod().ToString() == "POST";
     std::string url = request->GetURL().ToString();
     if (!NavigationViolatesGuard(id, url)) return false;
     Emit(CMUX_SHIM_NAVIGATION_REROUTE, id, 0, is_redirect ? 1 : 0, 0, url);
@@ -296,6 +299,7 @@ class Client : public CefClient,
   }
 
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
+    MainFrameRequestWasPost().erase(browser->GetIdentifier());
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);

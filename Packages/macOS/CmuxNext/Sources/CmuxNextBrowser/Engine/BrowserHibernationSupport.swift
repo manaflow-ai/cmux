@@ -9,10 +9,14 @@ public protocol BrowserHibernationSource: AnyObject {
     @MainActor func hibernationState() -> BrowserRestoreState?
     /// True when this engine and build can restore a saved history.
     @MainActor var supportsHibernation: Bool { get }
+    /// True when the current document came from a form submission (POST):
+    /// restoring its entry would send the form again, so it never hibernates.
+    @MainActor var showsFormSubmission: Bool { get }
 }
 
 extension WebKitTab: BrowserHibernationSource {
     public var supportsHibernation: Bool { true }
+    public var showsFormSubmission: Bool { formSubmission.showsFormSubmission }
 
     public func hibernationState() -> BrowserRestoreState? {
         (webView.interactionState as? Data).map(BrowserRestoreState.webKit)
@@ -40,6 +44,12 @@ extension CEFTab: BrowserHibernationSource {
     public var supportsHibernation: Bool {
         guard let shim = runtime.shim else { return false }
         return shim.navigationRestoreSupported() == 1 && shim.forkAPIVersion() >= Self.navigationRestoreForkAPI
+    }
+
+    /// From the shim's main-frame request log (OnBeforeBrowse).
+    public var showsFormSubmission: Bool {
+        guard let browserID, let shim = runtime.shim else { return false }
+        return shim.documentFromPost(browserID) != 0
     }
 
     public func hibernationState() -> BrowserRestoreState? {

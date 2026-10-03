@@ -114,6 +114,11 @@ static bool WebURL(const std::string& url, bool* loopback) {
   return true;
 }
 
+std::map<int, bool>& MainFrameRequestWasPost() {
+  static std::map<int, bool> map;
+  return map;
+}
+
 bool NavigationViolatesGuard(int browser_id, const std::string& url) {
   auto it = guards().find(browser_id);
   if (it == guards().end() || it->second == 0) return false;

@@ -283,6 +283,9 @@ CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
 CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int browser_id, const char* state);
 CMUX_SHIM_EXPORT int cmux_shim_navigation_restore_supported(void);
+// 1 when the last main-frame request of browser_id was a POST (its document
+// is a form submission result; restoring it would send the form again).
+CMUX_SHIM_EXPORT int cmux_shim_tab_document_from_post(int browser_id);
 
 // Extension management and commands (fork API v3; 0/NULL on older forks).
 CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);

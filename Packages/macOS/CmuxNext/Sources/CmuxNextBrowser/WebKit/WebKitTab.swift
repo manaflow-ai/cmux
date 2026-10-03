@@ -33,6 +33,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
+    /// Whether the shown document came from a form submission (hibernation).
+    @ObservationIgnored var formSubmission = FormSubmissionTracker()
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]

@@ -137,7 +137,8 @@ final class BrowserHibernation {
         return HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false
+            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
     }
 
@@ -149,6 +150,7 @@ final class BrowserHibernation {
         guard let cache, let entry = cache.browsers[key], cache.lifecycle.phase(key) == .mountedHidden else { return .disabled }
         let facts = candidate(key, entry: entry, hiddenFor: 0)
         guard facts.canRestore else { return .unsupported }
+        guard !facts.showsFormSubmission else { return .formSubmission }
         prepare(key, user: true)
         return nil
     }
@@ -172,6 +174,11 @@ final class BrowserHibernation {
             }
             if let exemption = probe.exemption {
                 self.exemptions[key] = exemption
+                return
+            }
+            // The page may have submitted a form since the plan.
+            if source.showsFormSubmission {
+                self.exemptions[key] = .formSubmission
                 return
             }
             guard let state = source.hibernationState() else {

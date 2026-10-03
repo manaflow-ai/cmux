@@ -17,6 +17,9 @@ struct HibernationPlanner {
         var isCapturing = false
         /// The engine can save and restore its history.
         var canRestore = true
+        /// The shown document came from a form submission (POST): waking
+        /// would send the form again, so the page never hibernates.
+        var showsFormSubmission = false
     }
 
     /// Why a page does not hibernate (reported by `debug.surfaces`).
@@ -24,6 +27,7 @@ struct HibernationPlanner {
         case disabled, excluded, pinned, devTools = "devtools", capturing, unsupported
         /// Found by the probe right before hibernating.
         case audio, formInput = "form_input"
+        case formSubmission = "form_submission"
     }
 
     struct Plan: Equatable {
@@ -47,6 +51,7 @@ struct HibernationPlanner {
     static func exemption(_ candidate: Candidate, setting: BrowserHibernationSetting) -> Exemption? {
         if !setting.isEnabled { return .disabled }
         if !candidate.canRestore { return .unsupported }
+        if candidate.showsFormSubmission { return .formSubmission }
         if candidate.hasDevTools { return .devTools }
         if candidate.isCapturing { return .capturing }
         if candidate.isPinned, !setting.includesPinnedTabs { return .pinned }

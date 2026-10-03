@@ -16,7 +16,7 @@ enum HibernationHandlers {
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
             switch hibernation.hibernateNow(id.rawValue) {
             case nil: break
-            case .unsupported?: context.refuse(RefusalStrings.hibernateUnsupported)
+            case .unsupported?, .formSubmission?: context.refuse(RefusalStrings.hibernateUnsupported)
             case _?: context.refuse(RefusalStrings.hibernateVisibleTab)
             }
         })

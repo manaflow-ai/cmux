@@ -37,6 +37,8 @@ extension WebKitTab: WKNavigationDelegate {
             return
         }
         applySiteSettings(to: preferences, for: navigationAction)
+        formSubmission.decided(method: navigationAction.request.httpMethod,
+                               isMainFrame: navigationAction.targetFrame?.isMainFrame ?? true)
         decisionHandler(.allow, preferences)
     }
 
@@ -50,6 +52,7 @@ extension WebKitTab: WKNavigationDelegate {
             .lowercased()
             .hasPrefix("attachment") ?? false
         if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
+            formSubmission.cancelled()
             decisionHandler(.download)
         } else {
             decisionHandler(.allow)
@@ -76,6 +79,7 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
+        formSubmission.committed()
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
         // The title can arrive before the commit (back/forward cache), and
@@ -101,6 +105,7 @@ extension WebKitTab: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
+        formSubmission.cancelled()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, BrowserLoadError(error)))
