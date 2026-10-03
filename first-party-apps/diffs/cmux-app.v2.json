@@ -76,10 +76,12 @@
       }
     }
   },
-  "consumes": [
-    "cmux.editor/1",
-    "cmux.diff.source/1"
-  ],
+  "consumes": {
+    "interfaces": [
+      "cmux.editor/1",
+      "cmux.diff.source/1"
+    ]
+  },
   "scopes": {
     "workspace:read": "Find the repository of the workspace you are in.",
     "git:read": "Read git status and diffs of that repository.",

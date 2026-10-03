@@ -195,3 +195,86 @@ Debt removed on the way: in-app JSC engine (after 3), `registry.json` (after 3),
 | Remote desktop | host handles, a native streaming surface, input with origin user only, visible control indicator |
 
 Drag and drop: typed items `{kind: file|doc|diff|text|url|task, handle|value, display}`; targets declare accepted kinds; drops between hosts copy or move through `fs.copy` on the owners.
+
+### 12.5 Manifest v2 extensions (2026-10-03, names approved by the coordinator)
+
+The first-party apps found seven things v2 could not hold (`first-party-apps/*/README.md`, "Manifest v2"). The schema, the validator (`cmux-app-manifest`) and the fixtures now hold them; lane 3 restores the dropped behavior in each app.
+
+| Field | Shape | Validator rule |
+| --- | --- | --- |
+| Scopes | verbs `answer`, `control`, `input` join `<family>:read|write|execute|external` (`feed:answer`, `host:control`, `terminal:input`); fixed `embed:run`; server-only `process:spawn:<binary>` and `op:<op name>` in `server.scopes` | every scope has a risk class from `schema/v2/scope-classes.json` (standard, sensitive, restricted); server-only scopes outside `server.scopes` are errors; `process:spawn` needs a native server; restricted scopes in a non-first-party manifest are warnings (a Verified review must cover them) |
+| Restricted scopes | `feed:answer`, `terminal:input`, `fs:write`, `clipboard:write`, `mcp:expose`, `usage:read`, any `<family>:answer|input`, `process:spawn:*` | sensitive: every write, execute, external and control verb, `actions:run`, `net:*`, `integration:*`, `op:*`; standard: every read verb, `storage:*`, `embed:run` |
+| Catalog op surfaces | `keyboard: [{key: "cmd+s", when}]`, `gesture: "required"|"optional"`, `palette: {title, when?, presets?: [{id, title, args, when?}]}` | `schema/v2/cmux-app-catalog.schema.json`; op owner is `app:<id>`, names are in the fragment's family, names and preset ids unique, `export` needs `runtime.main`, a shortcut bound twice for the same condition warns |
+| `requires` | `{hostCapabilities: ["power.assertion/1"], platforms: ["macos", "linux", "ios"]}` | unknown host capability is an error; the supervisor refuses to enable the app elsewhere |
+| `lifecycle` | `{onDisable, onUninstall}`: `release-owned` (default) or `keep` | the host releases resources the app owns (power assertions, watches, panes) |
+| `handles` | kinds `root`, `connection`, `credential`, `document`, `diff`, `image`, `terminal`, `task`; value is a reason or `{reason, max?, rights?: [read, write], kinds?}` | `host` is gone (14.1). There is no credential-connection kind: an app asks for a `connection` handle with `kinds` (for example `ssh`, `cloud-vm`) and, only when it needs the secret itself, a separate `credential` handle |
+| `documents` | `[{id, title, types?, extensions?, symbol?}]`, one owner per type | |
+| `openWith` | `[{interface, types, default: ask|never}]` | the interface must be in `implements` |
+| `notices` | `[{path, title?}]` | the file exists in the package and is in `files` |
+| `drag` / `drop` | `{provides: [kind]}` / `{accepts: [kind]}`; kinds `file`, `directory`, `text`, `url`, `image`, `document`, `diff`, `terminal`, `task`, `connection` | |
+| `consumes` | `{interfaces, ops, events, handles}` (the array form is removed) | interfaces must be known |
+| Interface options | each interface file has an `options` JSON Schema (section: `defaultRegion`, `maxRows`; status: `placement`; editor: `capabilities`, `paneCommands`; diff renderer: `inputs`) | options on an interface without an options schema are errors |
+| Servers | unchanged | `cmux-notes` and `cmux-usage` declarations wait for the binaries; their scopes fit the grammar above |
+
+`validate_package_file(dir, "cmux-app.v2.json")` validates a package that still ships a v1 `cmux-app.json`, the catalog fragment included; a test runs it over every first-party app.
+
+## 13. Step 3 contract: the Rust app host (2026-10-02)
+
+Coordinator answers applied: default first-party apps come from a deployment list and get their required scopes without a consent sheet (visible and revocable in Settings); cards are the default store layout and section look; agents may hide and unhide apps, never install them until the actor stamp lands.
+
+### 13.1 Processes and owners
+- **App supervisor**: a module of the cmux daemon (`cmux-tui-core::apps`, new files only), capability `apps-v1`. Owns, per machine: the install mirror (local `apps.json` in the daemon state dir until the `UserDO` install record syncs down; same fields as V9), grants, scope checks against `scopes.json`, the app bundle cache, per-app KV storage (SQLite, one table per app), the egress gate for `net.fetch`, and the app host processes. It routes app calls to the daemon's own op dispatcher with `actor = app:<id>`, `on_behalf_of = <user>`, origin `script` (or `user` when a live gesture token is presented by a mutation).
+- **App host**: crate `cmux-app-host` (`cmux-tui/crates/cmux-app-host`, binary `cmux-app-host`), one process per running app, QuickJS-ng through rquickjs, embeds `js/dist/cmux-app-runtime.js`, implements the runtime ABI (`js/ABI.md`) natively. Spawned by the supervisor with one end of a socketpair (fd 3); JSON lines both ways; memory limit 32 MiB, interrupt deadline 250 ms per entry, at most 64 pending calls, drains the job queue after every entry point. macOS: `sandbox_init` profile denying network, exec and file reads outside the bundle; Linux: seccomp + Landlock. Idle stop after the last mount closes plus a one-shot timer (setting `apps.idleStopSeconds`, default 60).
+- **Clients** (macOS app, TUI later, iOS via relay): mirror installs and scene streams; render scenes natively and web panes; send user events. No engine, no registry, no grants in the client.
+
+### 13.2 Daemon commands (capability `apps-v1`)
+| cmd | params | result / events |
+| --- | --- | --- |
+| `apps-list` | `{}` | `{apps: [{id, version, tier, installed, enabled, hidden, hidden_access, source: default|user|bundled|local, grants: [scope], sandboxed, manifest}]}` |
+| `apps-set` | `{idempotency_key, app, installed?, enabled?, hidden?, sandboxed?, grant?: {scope, granted}}` | updated app; `installed`/grant changes require origin `user`; `hidden` any origin |
+| `apps-mount` | `{app, interface, mount_id, context}` | starts the host if needed; events `apps-scene {mount_id, ops}` then deltas; `apps-mount-failed {mount_id, reason}` |
+| `apps-unmount` | `{mount_id}` | — |
+| `apps-dispatch` | `{mount_id, node, event, payload}` | the supervisor mints the gesture token for user events from clients with origin `user` |
+| `apps-run` | `{app, op, args, idempotency_key}` | runs a catalog op of the app (palette, CLI `cmux apps run`, MCP); waits for the result |
+| `apps-logs` | `{app, follow?}` | log lines; follow streams `apps-log` events |
+| events | `apps-changed {revision}` (install mirror), `apps-host {app, state: running|stopped|crashed, reason?}` | |
+
+Every mutation carries an idempotency key and ends with `request-settled` like other daemon ops (OWNERSHIP-PRINCIPLES).
+
+### 13.3 What is deleted in the same step
+Swift: `AppEngine`, `AppGrants`, `AppRegistry`/`AppRegistryFile`, `AppOperationRouter` and the deferred sink, `AppManifestValidator*`, the JavaScriptCore watchdog; CmuxNextApps keeps the scene model and renderer, the App Store UI (over an `apps-v1` client), and the section provider. TypeScript: `tools/validate-manifest.ts`, `tools/json-schema.ts` (the Rust crate validates samples in its tests); the v1 schema and fixtures. Samples are rewritten on manifest v2 (`implements` `cmux.section/1`, `cmux.status/1`).
+
+## 14. Folded in: first-party apps round 2 and the file browser proposal (2026-10-02)
+
+Inputs: `first-party-apps.md` section 12 (open points against v2) and `finder.md` (what a third-party file browser needs). Coordinator answers: daemon requests get an actor field; the first-party apps lead moves `first-party-apps/` to manifest v2; the Rust lane's lifecycle choices are accepted; `cmux-app-host` packaging goes to the pin owner and PRs 16871 + 16872 merge together once the binary ships.
+
+### 14.1 Decided now (in the schema on this branch)
+- Connection handles are `conn_…`, not `host_…` (`host_…` is the public enrolled-host id, enumerable, not a capability; plain SSH targets have none). V6 handle kinds: `root`, `connection`, `credential`, `document`, `diff`, `image`.
+- Scope grammar: superseded by 12.5 (`<family>:answer|control|input`, `embed:run`; `power:read|write` and `account:read` are ordinary family scopes).
+- `untrack` is declared in `cmux-app.d.ts`; `files` is a category.
+
+### 14.2 Added to the order of work
+| Item | Owner | Step |
+| --- | --- | --- |
+| **Actor field on daemon requests**: every request carries `actor` (`user`, `app:<id>`, `agent:<id>`) stamped by the connection owner, never by the caller; the owner records it in the replay record; the supervisor stamps `app:<id>` on app calls | daemon (cmux-tui) + supervisor | 3b |
+| Gesture tokens for palette and keybinding invocations of app ops: the client mints the token for the user action and `apps-run` carries it, so user-only ops (export, import, answer) work from the palette | supervisor + Mac app | 3b |
+| Scene: `ScrollView`, semantic `List` with selection, focus, keyboard commands and `onVisibleRange`, `Table` with sortable and resizable columns, `Embed` node (embeds from scenes, not only web panes), `drag` / `drop` props with typed items, `tap {count, modifiers}`, `TextField` styles (`search`, `bordered`), `Image` accepting `img_…` handles | runtime + all renderers | 4 |
+| Pane plumbing: `app.pane.open {kind, input}` with a gesture, `ctx.size` + resize events, the terminal theme in the pane init, pane-routed commands (Cmd-S goes to the focused editor pane's `requestSave`) | supervisor + Mac app | 4 |
+| Web pane CSP default allows `style-src 'self' 'unsafe-inline'` (editors need it); scripts stay `'self'` | Mac app web pane host | 4 |
+| File system ops: `fs.roots.list/pick/release/watch`, `fs.list` with cursor batches and a window, `fs.watch` with revisions, `fs.stat/read`, `fs.mkdir/rename/copy/move/trash/delete/undo`, jobs (`fs.job.*`) with conflict answers, `fs.thumbnail` returning `img_…` | file system owner (session host; `cmux link` SFTP for SSH) | 6 |
+| Connections and credentials: `host.list/connect/disconnect/forget/watch` returning `conn_…`, host key verification sheet, `credential.request/release` returning `cred_…` | transport (lane 12) + credential broker | 6 |
+| Drag and drop targets: `terminal.drop` (local path or remote-safe reference), `agent.attach` (handle into the agent context, intersected with the dragger's grant), cross-host copy through `fs.copy` | session host, ACP owner, shell drag session | 6 |
+| One hunk-decide op for every diff producer (`diff.hunk.decide {diff, hunk, decision}` routed by the diff's producer) | diff producers | 5 |
+| `open.with.list` for the Open With menu | config layer | 4 |
+
+### 14.3 Open
+- Who builds `cmux link` SFTP and the host key sheet (transport lead, lane 12): questions in `finder.md` section 11 go there through the coordinator.
+
+### 14.4 Host capabilities (system features through host ops, never through app code)
+Apps reach system features only through ops owned by the native host of the machine; app code never spawns processes or calls system APIs.
+
+| Capability | Ops | Owner | Rules | Users |
+| --- | --- | --- | --- | --- |
+| Power assertions | `power.assertion.create {kinds: display|idle|disk|system|user, reason, until: {pid|terminal|task|deadline}}` -> `pwr_…`, `power.assertion.release {assertion|all}`, `power.assertion.list`, stream `power.assertion.watch` | the native host on that machine (IOKit power assertions; no process spawn) | scope `power:write` (list: `power:read`); an agent may bind an assertion only to its own terminal and for at most 4 h; `until-stopped` and releasing another actor's assertion need origin user; every assertion ends with its binding (pid exit, terminal idle, task done, deadline) | Caffeinate app (PR 16998), cmux server health, CLI `cmux power keep-awake\|list\|stop\|watch` (accepted by the Rust CLI owner: global `--session` routing, `$CMUX_TUI_TERMINAL_ID`, verbs generated from the catalog, `watch` CLI only, host checks origin user) |
+
+The app supervisor lane adds the power ops after PR 16872 lands; the catalog generates the CLI verbs and MCP tools.

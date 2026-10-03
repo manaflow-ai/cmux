@@ -69,7 +69,7 @@
   },
   "handles": {
     "root": "Folders you add to Finder.",
-    "host": "Hosts you connect to Finder."
+    "connection": "Hosts you connect to Finder."
   },
   "strings": "strings/",
   "variants": [

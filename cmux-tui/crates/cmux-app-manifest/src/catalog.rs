@@ -1,0 +1,104 @@
+//! The app's catalog fragment (`catalog` in the manifest): the structure from
+//! `cmux-app-host/schema/v2/cmux-app-catalog.schema.json`, then the rules
+//! that tie it to the manifest.
+
+use crate::issue::Issue;
+use serde_json::Value;
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+/// The catalog fragment JSON Schema, embedded like the manifest schema.
+pub const CATALOG_SCHEMA: &str =
+    include_str!("../../cmux-app-host/schema/v2/cmux-app-catalog.schema.json");
+
+fn validator() -> &'static jsonschema::Validator {
+    static V: OnceLock<jsonschema::Validator> = OnceLock::new();
+    V.get_or_init(|| {
+        let schema: Value = serde_json::from_str(CATALOG_SCHEMA).expect("catalog schema is JSON");
+        jsonschema::draft202012::new(&schema).expect("catalog schema compiles")
+    })
+}
+
+/// Validates a parsed catalog fragment against `manifest`. Issue paths are
+/// pointers into the fragment, prefixed with `/catalog`.
+pub fn validate_catalog(manifest: &Value, catalog: &Value) -> Vec<Issue> {
+    let mut out: Vec<Issue> = validator()
+        .iter_errors(catalog)
+        .map(|e| {
+            Issue::error(format!("/catalog{}", e.instance_path), "catalog.schema", e.to_string())
+        })
+        .collect();
+    if !out.is_empty() {
+        return out;
+    }
+    let owner = format!("app:{}", manifest["id"].as_str().unwrap_or_default());
+    let family = catalog["family"].as_str().unwrap_or_default();
+    let has_main = manifest.pointer("/runtime/main").is_some();
+    if catalog.get("owner").and_then(Value::as_str).is_some_and(|o| o != owner) {
+        out.push(Issue::error("/catalog/owner", "catalog.owner", format!("owner must be {owner}")));
+    }
+    let mut names = HashSet::new();
+    let mut keys = HashSet::new();
+    for (i, op) in catalog["operations"].as_array().into_iter().flatten().enumerate() {
+        let at = format!("/catalog/operations/{i}");
+        let name = op["name"].as_str().unwrap_or_default();
+        if op["owner"].as_str() != Some(owner.as_str()) {
+            out.push(Issue::error(
+                format!("{at}/owner"),
+                "catalog.owner",
+                format!("owner must be {owner}"),
+            ));
+        }
+        if !name.starts_with(&format!("{family}.")) {
+            out.push(Issue::error(
+                format!("{at}/name"),
+                "catalog.family",
+                format!("{name} is not in family {family}"),
+            ));
+        }
+        if !names.insert(name) {
+            out.push(Issue::error(
+                format!("{at}/name"),
+                "catalog.duplicate",
+                format!("{name} is declared twice"),
+            ));
+        }
+        if op.get("export").is_some() && !has_main {
+            out.push(Issue::error(
+                format!("{at}/export"),
+                "runtime.main.required",
+                "an export implementation needs runtime.main",
+            ));
+        }
+        let mut presets = HashSet::new();
+        for (j, preset) in op
+            .pointer("/palette/presets")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
+            if !presets.insert(preset["id"].as_str().unwrap_or_default()) {
+                out.push(Issue::error(
+                    format!("{at}/palette/presets/{j}/id"),
+                    "catalog.duplicate",
+                    "preset ids are unique within an op",
+                ));
+            }
+        }
+        for (j, binding) in op["keyboard"].as_array().into_iter().flatten().enumerate() {
+            let key = (
+                binding["key"].as_str().unwrap_or_default(),
+                binding["when"].as_str().unwrap_or_default(),
+            );
+            if !keys.insert(key) {
+                out.push(Issue::warning(
+                    format!("{at}/keyboard/{j}"),
+                    "catalog.shortcutConflict",
+                    format!("{} is bound twice in this app for the same condition", key.0),
+                ));
+            }
+        }
+    }
+    out
+}
