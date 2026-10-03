@@ -1,7 +1,7 @@
 import Foundation
 
 /// Live appearance adjustments applied to the shared window backdrop.
-public struct AppearanceTuning: Equatable, Sendable {
+public nonisolated struct AppearanceTuning: Equatable, Sendable {
     /// Extra transparency from 0 (theme opacity) to 1 (clear glass).
     public var glassTransparency: Double
     /// Hue shift, where 0.5 leaves the theme color unchanged.

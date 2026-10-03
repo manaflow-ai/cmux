@@ -1,8 +1,8 @@
-import AppKit
-import Foundation
+public import AppKit
+public import Foundation
 
 /// A selectable image source for the window backdrop.
-public enum BackdropSelection: Equatable, Hashable, Sendable {
+public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
     /// A painting packaged with cmux.
     case art(BackdropArt)
     /// A wallpaper supplied by macOS at an absolute path.
