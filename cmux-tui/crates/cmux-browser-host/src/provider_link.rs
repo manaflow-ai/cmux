@@ -1,0 +1,263 @@
+//! The host side of the app's provider connection (step c).
+//!
+//! The app dials the host and authenticates with the per-launch provider
+//! secret in `hello`; the host answers `hello.ack` with the page agent
+//! bundle. After that, [`ProviderDriver`] forwards driver protocol calls on
+//! the provider's WebKit tabs and receives their results and events.
+
+use crate::driver::{Driver, EventSink};
+use crate::protocol::{DriverError, DriverEvent, timeout_of};
+use crate::provider::{
+    Frame, MAX_HELLO_BYTES, ProviderSecret, TabAnnounce, read_frame, read_frame_limited,
+    write_frame,
+};
+use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
+
+/// The `hello` the provider sent, once accepted.
+#[derive(Debug, Clone)]
+pub struct ProviderInfo {
+    pub provider_id: String,
+    pub install_id: String,
+    pub engines: Vec<String>,
+    pub tabs: Vec<TabAnnounce>,
+}
+
+/// Reads and checks `hello`, then sends `hello.ack`. Frames before
+/// authentication are limited to [`MAX_HELLO_BYTES`].
+pub fn accept(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    expected: &ProviderSecret,
+    agent_bundle: &str,
+) -> Result<ProviderInfo, DriverError> {
+    let first = read_frame_limited(reader, MAX_HELLO_BYTES)
+        .map_err(|e| DriverError::closed(format!("provider hello: {e}")))?
+        .ok_or_else(|| DriverError::closed("provider closed before hello"))?;
+    let Frame::Hello { version, provider_id, install_id, secret, engines, tabs } = first else {
+        return Err(DriverError::new(
+            crate::protocol::ErrorCode::Forbidden,
+            "provider must start with hello",
+        ));
+    };
+    if !secret.matches(expected) {
+        return Err(DriverError::new(
+            crate::protocol::ErrorCode::Forbidden,
+            "provider secret does not match",
+        ));
+    }
+    if version != crate::provider::PROVIDER_VERSION {
+        return Err(DriverError::invalid(format!("provider version {version} is not supported")));
+    }
+    let sha = format!("{:016x}", fnv1a(agent_bundle.as_bytes()));
+    write_frame(
+        writer,
+        &Frame::HelloAck { agent_bundle: agent_bundle.to_owned(), agent_bundle_sha: sha },
+    )
+    .map_err(|e| DriverError::closed(format!("provider hello.ack: {e}")))?;
+    Ok(ProviderInfo { provider_id, install_id, engines, tabs })
+}
+
+/// A cheap content fingerprint so the app can skip reinstalling an unchanged bundle.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+type Waiters = Arc<Mutex<HashMap<u64, mpsc::SyncSender<Result<Value, DriverError>>>>>;
+
+/// Driver protocol calls forwarded to the app's driver for WebKit tabs.
+pub struct ProviderDriver {
+    writer: Mutex<Box<dyn Write + Send>>,
+    waiters: Waiters,
+    next_id: AtomicU64,
+    closed: Arc<Mutex<Option<String>>>,
+}
+
+impl ProviderDriver {
+    /// Starts the reader thread on an accepted connection.
+    pub fn start(
+        mut reader: impl Read + Send + 'static,
+        writer: impl Write + Send + 'static,
+        events: EventSink,
+    ) -> std::io::Result<Arc<ProviderDriver>> {
+        let waiters: Waiters = Arc::new(Mutex::new(HashMap::new()));
+        let closed = Arc::new(Mutex::new(None));
+        let (thread_waiters, thread_closed) = (waiters.clone(), closed.clone());
+        std::thread::Builder::new().name("cmux-browser-host-provider".into()).spawn(move || {
+            let reason = loop {
+                match read_frame(&mut reader) {
+                    Ok(Some(Frame::Event { name, payload })) => {
+                        events(DriverEvent { name, payload });
+                    }
+                    Ok(Some(frame @ Frame::Result { .. })) => {
+                        if let Some((id, result)) = frame.into_call_result()
+                            && let Some(waiter) = thread_waiters
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .remove(&id)
+                        {
+                            let _ = waiter.try_send(result);
+                        }
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) => break "the cmux app disconnected".to_owned(),
+                    Err(error) => break format!("provider connection failed: {error}"),
+                }
+            };
+            *thread_closed.lock().unwrap_or_else(PoisonError::into_inner) = Some(reason.clone());
+            for (_, waiter) in thread_waiters.lock().unwrap_or_else(PoisonError::into_inner).drain()
+            {
+                let _ = waiter.try_send(Err(DriverError::closed(reason.clone())));
+            }
+        })?;
+        Ok(Arc::new(ProviderDriver {
+            writer: Mutex::new(Box::new(writer)),
+            waiters,
+            next_id: AtomicU64::new(1),
+            closed,
+        }))
+    }
+
+    fn closed_reason(&self) -> Option<String> {
+        self.closed.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+impl Driver for ProviderDriver {
+    fn call(&self, method: &str, params: &Value) -> Result<Value, DriverError> {
+        if let Some(reason) = self.closed_reason() {
+            return Err(DriverError::closed(reason));
+        }
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = mpsc::sync_channel(1);
+        self.waiters.lock().unwrap_or_else(PoisonError::into_inner).insert(id, tx);
+        if let Some(reason) = self.closed_reason() {
+            self.waiters.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            return Err(DriverError::closed(reason));
+        }
+        let frame = Frame::Call { id, method: method.to_owned(), params: params.clone() };
+        let written =
+            write_frame(&mut *self.writer.lock().unwrap_or_else(PoisonError::into_inner), &frame);
+        if let Err(error) = written {
+            self.waiters.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+            return Err(DriverError::closed(format!("provider write failed: {error}")));
+        }
+        // A little longer than the call's own deadline, so the app's timeout wins.
+        let wait = timeout_of(params) + std::time::Duration::from_secs(5);
+        match rx.recv_timeout(wait) {
+            Ok(result) => result,
+            Err(_) => {
+                self.waiters.lock().unwrap_or_else(PoisonError::into_inner).remove(&id);
+                // The app may still act on it: input must not be replayed.
+                Err(DriverError::new(
+                    crate::protocol::ErrorCode::Ambiguous,
+                    format!("{method}: no answer from the cmux app; the call may have run"),
+                ))
+            }
+        }
+    }
+
+    fn capabilities(&self) -> Vec<&'static str> {
+        vec!["history"]
+    }
+}
+
+/// `{targetId}` payload helper for provider events.
+pub fn target_payload(target_id: &str) -> Value {
+    json!({"targetId": target_id})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    fn hello(secret: &str) -> Frame {
+        Frame::Hello {
+            version: crate::provider::PROVIDER_VERSION,
+            provider_id: "app".into(),
+            install_id: "inst".into(),
+            secret: ProviderSecret::new(secret),
+            engines: vec!["webkit".into()],
+            tabs: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn hello_needs_the_secret_and_gets_the_bundle() {
+        let (mut app, host) = UnixStream::pair().unwrap();
+        write_frame(&mut app, &hello("right")).unwrap();
+        let (mut r, mut w) = (host.try_clone().unwrap(), host);
+        let info = accept(&mut r, &mut w, &ProviderSecret::new("right"), "agent();").unwrap();
+        assert_eq!(info.engines, vec!["webkit".to_string()]);
+        match read_frame(&mut app).unwrap() {
+            Some(Frame::HelloAck { agent_bundle, .. }) => assert_eq!(agent_bundle, "agent();"),
+            other => panic!("expected hello.ack, got {other:?}"),
+        }
+
+        let (mut app, host) = UnixStream::pair().unwrap();
+        write_frame(&mut app, &hello("wrong")).unwrap();
+        let (mut r, mut w) = (host.try_clone().unwrap(), host);
+        let refused = accept(&mut r, &mut w, &ProviderSecret::new("right"), "x").unwrap_err();
+        assert_eq!(refused.code, crate::protocol::ErrorCode::Forbidden);
+    }
+
+    #[test]
+    fn calls_round_trip_and_events_arrive() {
+        let (app, host) = UnixStream::pair().unwrap();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let sink = events.clone();
+        let driver = ProviderDriver::start(
+            host.try_clone().unwrap(),
+            host,
+            Arc::new(move |e: DriverEvent| sink.lock().unwrap().push(e)),
+        )
+        .unwrap();
+        let mut app_reader = app.try_clone().unwrap();
+        let mut app_writer = app;
+        let fake_app = std::thread::spawn(move || {
+            let Some(Frame::Call { id, method, .. }) = read_frame(&mut app_reader).unwrap() else {
+                panic!("call")
+            };
+            assert_eq!(method, "tab.info");
+            write_frame(
+                &mut app_writer,
+                &Frame::Event { name: "tab.loadState".into(), payload: target_payload("T") },
+            )
+            .unwrap();
+            write_frame(
+                &mut app_writer,
+                &Frame::Result { id, result: Some(json!({"url": "https://a.test/"})), error: None },
+            )
+            .unwrap();
+            drop(app_writer);
+        });
+        let info = driver.call("tab.info", &json!({"targetId": "T"})).unwrap();
+        assert_eq!(info["url"], "https://a.test/");
+        fake_app.join().unwrap();
+        assert_eq!(events.lock().unwrap()[0].name, "tab.loadState");
+    }
+
+    #[test]
+    fn a_disconnect_fails_pending_and_later_calls() {
+        let (app, host) = UnixStream::pair().unwrap();
+        let driver =
+            ProviderDriver::start(host.try_clone().unwrap(), host, crate::driver::discard_events())
+                .unwrap();
+        drop(app);
+        let error =
+            driver.call("tab.info", &json!({"targetId": "T", "timeoutMs": 2000})).unwrap_err();
+        assert!(
+            matches!(
+                error.code,
+                crate::protocol::ErrorCode::Closed | crate::protocol::ErrorCode::Ambiguous
+            ),
+            "{error}"
+        );
+    }
+}

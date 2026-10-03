@@ -158,6 +158,37 @@ it) is out of scope for v1. It helps only on high-RTT paths, it is wrong in
 raw-mode apps, and it needs a reconciliation layer. Revisit with measured
 RTT data from lane 12's path badges.
 
+### 2.1 Frame fields (proposal for sync-and-transport.md sections 3 and 4)
+
+Capability `terminal-snapshot-v1`. One `terminal_bytes` channel per attached
+viewer. Every binary frame keeps the section 4 header (`u32 channel`,
+`u64 seq`, `u8 flags`) and adds a terminal sub-header before the payload:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `kind` | u8 | 0 `bytes` (raw PTY output), 1 `snapshot_ready` (GHOSTSNP up to READY; keyframe flag set), 2 `snapshot_history` (GHOSTSNP HISTORY pages, newest first), 3 `digest` |
+| `generation` | u32 | grid generation (size-state `generation`); a viewer drops `bytes` older than its last restored snapshot |
+| `offset` | u64 | host byte offset of the PTY output stream after this frame (for `snapshot_ready`: the offset the snapshot reflects) |
+| `snapshot_version` | u16 | GHOSTSNP version, present for kinds 1 to 3 |
+
+Rules: the first frame after attach is `snapshot_ready`. A grid change sends
+`snapshot_ready` with the new generation to every viewer. Per-viewer credit:
+when a viewer's unacknowledged backlog would exceed
+`terminal.viewerBacklogBytes` (default 262144), the host drops that
+viewer's pending bytes and sends `snapshot_ready` at the next credit. 2 s
+after output goes idle the host sends `digest` (sha256 of its READY
+encoding). A viewer with a different `snapshot_version` gets the byte
+replay instead (capability fallback). `presence.set` carries `visible` and
+`counts` (section 6).
+
+The same fields map onto cmux-tui raw v12 events for local clients:
+`attach-surface {mode:"bytes", snapshot:"ghostsnp", snapshot_version}`
+answers with event `snapshot {phase:"ready"|"history", generation, offset,
+version, data(b64)}`; `output` gains `generation` and `offset`; `digest
+{generation, offset, version, sha256}`; command `snapshot-request
+{surface}`. `terminal.history` and `terminal.read_range` are in the
+request file `terminal-snapshot-history.md`.
+
 ## 3. Manual IO mode
 
 ghostty-next keeps the desktop fork's C ABI so app code transfers:
@@ -444,9 +475,16 @@ and the live RTT show in the terminal header, so a slow path is visible.
 
 ## 10. GhosttyNextKit pipeline
 
-- Current pin for lane 14 (2026-10-02):
-  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-8562af02889cdb085ad415c6a0ba9a379c78a0c6-ios-v2/GhosttyNextKit.xcframework.zip,
-  sha256 `7d1187486a0a2ecc64bd23854acd2ab6a5a010498e703ac7ee53c71820af6ea2`.
+- Current pin for lane 14 (2026-10-02, ios/CmuxiOS/Package.swift):
+  https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-e71a12e5ab0d1e86751ec021efec3ab5a837f344-ios-v3/GhosttyNextKit.xcframework.zip,
+  sha256 `506fa02ba8d56ac65810d8466b661f889b6338f54b6b77cd10fae1d1358963d8`.
+  `ios-v2` (`xcframework-8562af02889c…-ios-v2`) draws black on iOS: Ghostty's
+  own IOSurfaceLayer (a sublayer of the embedder's view layer) was never
+  sized, so drawFrame returned early. Never pin ios-v2. v3 sizes that layer in
+  set_size and set_content_scale. iOS draw contract: no display link; the
+  renderer thread draws on change (process_output wakes it) and
+  ghostty_surface_draw draws synchronously on main; the embedder view is a
+  plain UIView (no CAMetalLayer) and passes pixel sizes from layoutSubviews.
   It contains the remote IO mode. `next/smoke.sh --release` on the build
   host: sha256 match, all three slices link, C and Swift
   (`import GhosttyNextKit`) binaries run on macOS and in an iOS 27

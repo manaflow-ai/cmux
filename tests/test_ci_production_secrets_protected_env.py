@@ -22,12 +22,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = os.path.join(ROOT, ".github", "workflows")
 FAILURES = []
 
-# Publishing a commit-addressed cmux-tui build is not a production release:
-# cmux-next pins daemon builds from helper branches (cmux-tui-pin-*). That job
-# runs in the `artifacts` environment (policy: main, feat-cmux-next,
+# Publishing a commit- or tree-addressed cmux-tui build is not a production
+# release: cmux-next builds bundle the daemon of their own cmux-tui tree, and
+# helper branches (cmux-tui-pin-*) publish an unmerged branch's tree. Those
+# jobs run in the `artifacts` environment (policy: main, feat-cmux-next,
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
-    "cmux-tui-artifacts.yml": ["publish"],
+    "cmux-tui-artifacts.yml": ["publish", "publish-tree"],
 }
 ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
 
@@ -38,7 +39,6 @@ RELEASE_JOBS = {
     "ios-testflight.yml": ["set-testflight-notes", "assign-internal-group"],
     "ios-appstore-upload.yml": ["set-testflight-notes", "assign-internal"],
     "repair-v0-64-25-helper-rpaths.yml": ["repair"],
-    "iroh-release-gate.yml": ["simulator-e2e"],
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
 }
@@ -66,12 +66,6 @@ def main():
             _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
-    gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)
-    condition = " ".join(str(gate["jobs"]["simulator-e2e"].get("if", "")).split())
-    _check(
-        condition == "${{ needs.resolve-ref.outputs.sha == github.sha }}",
-        "iroh-release-gate simulator-e2e runs only the run's own revision",
-    )
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")
         sys.exit(1)

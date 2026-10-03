@@ -9,86 +9,12 @@ import type { Env } from "../env.ts"
  * Tokens are returned to the ConnectionDO only, which seals them.
  */
 
-export type Http = (request: Request) => Promise<Response>
+import { effectCall, failed, form, json, MAX_LINKED_REPOS, ProviderError, type Credential, type Http, type ProviderImpl } from "./provider-core.ts"
 
-export type Credential =
-  | { readonly kind: "github_installation"; readonly installation_id: number }
-  | { readonly kind: "oauth"; readonly access_token: string; readonly refresh_token?: string; readonly expires_at?: number }
+import { gmail } from "./gmail.ts"
+import { googleCalendar } from "./google-calendar.ts"
 
-export interface Approved {
-  readonly account: { readonly key: string; readonly name: string; readonly url?: string }
-  readonly scopes_granted: ReadonlyArray<string>
-  readonly credential: Credential
-  readonly resources?: { readonly repos: ReadonlyArray<string> | null }
-}
-
-/** The parts of the team integration policy a provider needs while linking. */
-export interface LinkPolicy {
-  readonly githubScope: "linking_user_repos" | "installation"
-  readonly requireOrgAdmin: boolean
-}
-
-/** Repositories recorded per GitHub connection; a larger installation links with installation scope only. */
-export const MAX_LINKED_REPOS = 1000
-
-export class ProviderError extends Error {
-  constructor(
-    readonly code: "provider.error" | "integration.unavailable" | "integration.state_invalid" | "needs_reauth" | "mutation.indeterminate" | "policy.denied",
-    message: string,
-    readonly retryable = false
-  ) {
-    super(message)
-  }
-}
-
-export interface CallResult {
-  readonly value: unknown
-}
-
-export interface ProviderImpl {
-  readonly configured: (env: Env) => boolean
-  readonly defaultScopes: ReadonlyArray<string>
-  readonly authorizeUrl: (env: Env, state: string, scopes: ReadonlyArray<string>, redirectUri: string) => string
-  readonly complete: (env: Env, http: Http, p: { code?: string; installation_id?: string; redirectUri: string; policy: LinkPolicy }) => Promise<Approved>
-  readonly call: (env: Env, http: Http, credential: Credential, op: string, params: Record<string, unknown>) => Promise<CallResult>
-  /**
-   * A fresh credential when this one is (about to be) expired, else undefined.
-   * The ConnectionDO seals the result before any provider call uses it and runs
-   * one refresh at a time per connection (rotating refresh tokens are single use).
-   */
-  readonly refresh?: (env: Env, http: Http, credential: Credential) => Promise<Credential | undefined>
-}
-
-const json = async (res: Response): Promise<Record<string, unknown>> => {
-  try {
-    return (await res.json()) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
-
-/**
- * Never echoes provider bodies (they can hold tokens or content); status and a
- * short code only. For the call that makes the effect (`effect`), a 5xx may
- * come after the provider acted, so it is indeterminate, not retryable; only a
- * 429 (refused before acting) releases the key for a retry.
- */
-const failed = (provider: string, res: Response, what: string, effect = false) => {
-  if (res.status === 401) return new ProviderError("needs_reauth", `${provider} ${what} failed: HTTP 401`)
-  if (effect && res.status >= 500) return new ProviderError("mutation.indeterminate", `${provider} ${what}: HTTP ${res.status}; the provider may have acted`)
-  return new ProviderError("provider.error", `${provider} ${what} failed: HTTP ${res.status}`, res.status === 429 || (!effect && res.status >= 500))
-}
-
-/** The effect request: a network failure after sending is indeterminate too. */
-const effectCall = async (http: Http, provider: string, req: Request): Promise<Response> => {
-  try {
-    return await http(req)
-  } catch {
-    throw new ProviderError("mutation.indeterminate", `${provider}: the request failed in flight; the provider may have acted`)
-  }
-}
-
-const form = (fields: Record<string, string>) => new URLSearchParams(fields).toString()
+export { MAX_LINKED_REPOS, ProviderError, type Approved, type CallResult, type Credential, type Http, type LinkPolicy, type ProviderImpl } from "./provider-core.ts"
 
 // ---------------------------------------------------------------- GitHub App
 
@@ -327,9 +253,14 @@ export const slack: ProviderImpl = {
   }
 }
 
-export const providers: Record<IntegrationProvider, ProviderImpl> = { github, linear, slack }
+export const providers: Record<IntegrationProvider, ProviderImpl> = { github, linear, slack, gmail, google_calendar: googleCalendar }
 
-export const providerForOp = (op: string): IntegrationProvider | undefined => {
-  const p = op.split(".")[0]
-  return p === "github" || p === "linear" || p === "slack" ? p : undefined
-}
+/** Op families to providers: `mail.*` is Gmail and `calendar.*` Google Calendar until a second mail or calendar provider exists. */
+const FAMILY: Readonly<Record<string, IntegrationProvider>> = { github: "github", linear: "linear", slack: "slack", mail: "gmail", calendar: "google_calendar" }
+export const providerForOp = (op: string): IntegrationProvider | undefined => FAMILY[op.split(".")[0] ?? ""]
+
+export const isProvider = (p: unknown): p is IntegrationProvider => typeof p === "string" && Object.hasOwn(providers, p)
+
+/** The scopes a connect asks for: the caller's, or the provider's default for this deployment. */
+export const scopesToRequest = (env: Env, impl: ProviderImpl, requested: ReadonlyArray<string>): ReadonlyArray<string> =>
+  requested.length > 0 ? requested : typeof impl.defaultScopes === "function" ? impl.defaultScopes(env) : impl.defaultScopes

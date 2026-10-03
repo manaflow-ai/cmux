@@ -13,8 +13,9 @@ pub mod keys;
 mod navigation;
 #[cfg(unix)]
 pub mod pipe;
+mod requests;
 mod state;
 
 pub use connection::{CdpConnection, CdpEvent, CdpEventHandler, CdpWire, protocol_error};
 pub use driver::CdpDriver;
-pub use state::AGENT_WORLD;
+pub use state::{AGENT_WORLD, HOST_WORLD};

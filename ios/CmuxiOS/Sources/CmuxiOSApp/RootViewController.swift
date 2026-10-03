@@ -2,6 +2,7 @@ import CmuxHomeCore
 import CmuxHomeUI
 import CmuxiOSAuth
 import CmuxiOSDesign
+import CmuxiOSTerminal
 import UIKit
 
 /// Switches between restoring, sign-in and Home as the auth state changes.
@@ -56,6 +57,7 @@ final class RootViewController: UIViewController {
             install(SignInScreen.make(coordinator: container.auth.coordinator))
         case .signedIn(let account):
             showHome(account: account)
+            container.signedIn(account: account)
             DebugLaunchTasks.signedIn(container: container)
         }
     }
@@ -76,6 +78,17 @@ final class RootViewController: UIViewController {
         navigation.navigationBar.prefersLargeTitles = true
         install(navigation)
         DebugLaunchTasks.homeShown(store: store, window: view.window)
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["CMUX_IOS_TERMINAL_PREVIEW"] == "1" {
+            let terminal = DevTerminal.make()
+            navigation.pushViewController(terminal, animated: false)
+            Task { @MainActor in
+                // Capture once the snapshot had time to arrive (debug capture only).
+                try? await Task.sleep(for: .seconds(3))
+                DevTerminal.writeDiagnostics(terminal)
+            }
+        }
+        #endif
     }
 
     private func install(_ next: UIViewController) {

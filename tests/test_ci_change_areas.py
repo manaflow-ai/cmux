@@ -552,8 +552,11 @@ def test_changelog_runs_web_validation() -> None:
     assert_areas(["CHANGELOG.md"], macos=True, web=True)
 
 
-def test_web_only_runs_web_without_macos() -> None:
-    assert_areas(["web/app/page.tsx", "webviews/src/diff/App.tsx"], macos=False, web=True)
+def test_web_only_runs_web_and_one_native_compile_for_webviews() -> None:
+    # Web app changes stay web-only, while webview sources also feed native
+    # bundles and therefore get one compile admission.
+    assert_areas(["web/app/page.tsx"], macos=False, web=True)
+    assert_areas(["webviews/src/diff/App.tsx"], macos=True, web=True)
     assert_areas(
         [
             "workers/presence/src/index.ts",
@@ -865,16 +868,16 @@ def test_macos_ios_package_closure_matches_current_desktop_graph() -> None:
 
 
 def test_ios_package_tests_skip_macos_compile_but_keep_package_lane() -> None:
-    # Tests are never compiled into the desktop app target. Shared iOS
-    # packages still need their dedicated package-test lane, so only the
-    # macOS area is neutralized here. CmuxMobileShellModel is shared with the
-    # desktop graph and its tests are selected by this branch's package lane.
+    # Tests are never compiled into the desktop app target, so the macOS area
+    # is neutralized here. No package in the macOS package lane depends on
+    # CmuxMobileShellModel since the legacy iOS packages were deleted; its own
+    # suite runs in test-ios.yml's mobile-core-package job instead.
     actual = module.classify_files([
         "Packages/iOS/CmuxMobileShellModel/Tests/CmuxMobileShellModelTests/MacSurfaceRendererTests.swift"
     ])
     assert actual.macos is False, actual
     assert actual.release_build is False, actual
-    assert actual.swift_packages is True, actual
+    assert actual.swift_packages is False, actual
 
 
 def test_ios_package_routing_follows_desktop_dependency_closure() -> None:
@@ -2793,6 +2796,34 @@ def test_ci_status_job_accepts_skipped_routed_jobs() -> None:
 
 # ci.yml's legacy lanes skip PRs into feat-cmux-next, which cmux-next.yml covers.
 FEAT_CMUX_NEXT_PR_SKIP = "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next')"
+
+
+def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
+    block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
+    assert "grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)" in block
+    assert 'echo "macos=$webview_native"' in block
+    assert 'echo "full_suite=false"' in block
+
+
+def test_feat_next_route_preserves_focused_package_lane() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
+    block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
+    assert "package_route=true" in block
+    assert "cmuxnext_route=true" in block
+    assert 'echo "swift_packages=true"' in block
+    assert 'echo "release_build=false"' in block
+
+
+def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
+    workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+    pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
+    assert "      - Packages/macOS/**" not in pull
+    assert "      - Packages/Shared/**" not in pull
+    assert "      - Packages/iOS/**" not in pull
+    assert "      - Packages/macOS/CmuxNext/**" in pull
 
 
 def test_required_tests_status_waits_for_platform_workflows() -> None:

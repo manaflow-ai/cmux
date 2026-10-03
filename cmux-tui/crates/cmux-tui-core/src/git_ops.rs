@@ -1,11 +1,12 @@
-//! `git.diff` and `git.status`: read-only git reads of the repository a path
-//! or a terminal's working directory is in. The session host answers them
+//! `git.diff`, `git.status` and `git.files.search`: read-only git reads of
+//! the repository a path or a terminal's working directory is in. The session host answers them
 //! without store state; each request runs git on its own connection thread,
 //! bounded by a deadline and output limits. `git.checkpoint.*` captures
 //! immutable checkpoints through a separate write runner (`checkpoint`).
 
 mod checkpoint;
 mod diff;
+mod files;
 mod parse;
 mod run;
 mod target;
@@ -31,9 +32,16 @@ const MAX_STATUS_BYTES: usize = 256 * 1024;
 /// `get`, `list`, `pin` and `unpin`.
 pub(crate) const CHECKPOINTS_CAPABILITY: &str = "git-checkpoints-v1";
 
+/// Advertised in identify: the session host answers `git.files.search`.
+pub(crate) const FILES_SEARCH_CAPABILITY: &str = "git-files-search-v1";
+
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
-    matches!(operation, ResourceOperation::GitDiff | ResourceOperation::GitStatus)
-        || checkpoint::handles(operation)
+    matches!(
+        operation,
+        ResourceOperation::GitDiff
+            | ResourceOperation::GitStatus
+            | ResourceOperation::GitFilesSearch
+    ) || checkpoint::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -47,14 +55,15 @@ pub(crate) fn dispatch(
     let operation = match request.envelope.operation {
         ResourceOperation::GitDiff => "git.diff",
         ResourceOperation::GitStatus => "git.status",
+        ResourceOperation::GitFilesSearch => "git.files.search",
         other => unreachable!("git_ops does not handle {other:?}"),
     };
     let directory = target::directory(mux, &request, operation)?;
     let repository = Repository::open(&directory, operation)?;
-    if operation == "git.diff" {
-        diff::read(&repository, &request.fields)
-    } else {
-        status(&repository)
+    match operation {
+        "git.diff" => diff::read(&repository, &request.fields),
+        "git.files.search" => files::search(&repository, &directory, &request.fields),
+        _ => status(&repository),
     }
 }
 

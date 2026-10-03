@@ -15,6 +15,10 @@ import CmuxNextUpdater
 /// here: the daemon owns it, windows own their local state.
 final class AppServices {
     let environment: AppEnvironment
+    /// Each window's last sidebar, drawn before the daemon answers.
+    let sidebarSnapshots: SidebarSnapshotStore
+    /// Launch load-in by region; tests inject one with their own clock.
+    var launchReveal = LaunchReveal.shared
     /// Run marker, restart notice, crash reports (`debug.crashes`).
     let crashRecovery: CrashRecoveryService
     /// The local daemon. Cloud machines are in `machines`; code acting on a
@@ -29,7 +33,12 @@ final class AppServices {
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
     /// Tests replace it to record the intent without ordering windows in.
     var showJumpWindow: @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
+    /// The app's key window. Tests and `debug.key` replace it: a window
+    /// only becomes key in a running, active app.
+    var keyWindowSource: @MainActor () -> NSWindow? = { NSApp.keyWindow }
     private(set) var cloud: CloudService!
+    /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
+    private(set) var feed: FeedService!
     /// SSH machines (Connect to Machine…).
     private(set) var ssh: SSHService!
     /// Phone access; started by the account layer once signed in.
@@ -75,6 +84,8 @@ final class AppServices {
     private(set) lazy var bookmarks = BookmarkService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
+    /// The cmux server menu bar item (DEV and NIGHTLY prototype; plans/cmux-next/server.md 14).
+    private(set) lazy var serverMenuBar = ServerMenuBarController()
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
     /// `cmux://bookmarks`: the manager pages.
@@ -132,6 +143,8 @@ final class AppServices {
     private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
+    /// Internal page tabs (Settings, Debug Settings, the App Store).
+    let pages = InternalPageTabStore()
     /// Where imported bookmarks go (the bookmarks feature sets it); nil keeps
     /// them in the import store only.
     var importedBookmarkSink: (any ImportedBookmarkSink)?
@@ -146,6 +159,7 @@ final class AppServices {
     private(set) var remoteTerminals: RemoteTerminalService!
 
     init(environment: AppEnvironment) {
+        sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
         popups = BrowserPopupPanels(contextMenus: contextMenus)
@@ -153,6 +167,7 @@ final class AppServices {
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun)
         machines = MachineRegistry(local: daemon)
         cloud = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)
+        feed = FeedService(auth: cloud.auth)
         ssh = SSHService(machines: machines, bundleID: environment.launch.bundleID)
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -210,6 +225,7 @@ final class AppServices {
         cache.pageRequests.services = self
         keyRouter = KeyRouter(registry: registry)
         keyRouter.services = self
+        keyRouter.whichKey = WhichKeyController(registry: registry)
         cache.keyRouter = keyRouter
         cache.onPageFocusRequest = { [weak self] key in self?.returnFocusToPage(key) }
         cache.onBrowserEntryCreated = { [registry, unowned self] entry in
@@ -259,8 +275,9 @@ final class AppServices {
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         (NSApp as? CmuxApplication)?.mouseDownObserver = { [weak self] window in
             self?.notifications.noteMouseDown(in: window)
-            // A click anywhere ends link hints (it may move the keyboard).
+            // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
+            self?.keyRouter.cancelChord()
         }
     }
 

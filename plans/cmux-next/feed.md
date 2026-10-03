@@ -259,7 +259,7 @@ In view: no banner, no sound, no ring animation; the client sends `feed.seen`. A
 
 ### 7.3 iPhone push (owner decides)
 
-On post (or snooze wake) of a push-eligible item, the owner sets a push deadline: urgent 0 s, high 20 s, normal 120 s, low never (`feed.prefs.push.delay.*`). At the deadline (`feed.push_due`, owner alarm), it pushes only if the item is still open (requests) or unread (notices), not seen, and no Mac client of the user reported `active` presence in the last 120 s (the user is at the desk and got the Mac banner), unless the item is urgent. Answer actions in the push (Allow/Deny, choice options) call `feed.answer` from the iPhone with origin `user`. Push delivery is an external effect after commit (`push.send` outbox row, APNs sender with its own idempotency key); the APNs sender belongs to the iOS lane.
+On post (or snooze wake) of a push-eligible item, the owner sets a push deadline: urgent 0 s, high 20 s, normal 120 s, low never (`feed.prefs.push.delay.*`). At the deadline (`feed.push_due`, owner alarm), it pushes only if the item is still open (requests) or unread (notices), not seen, and no Mac client of the user reported `active` presence in the last 120 s (the user is at the desk and got the Mac banner), unless the item is urgent. Answer actions in the push (Allow/Deny, choice options) call `feed.answer` from the iPhone with origin `user`. Push delivery is an external effect after commit: the owner commits the decision (`feed.push_due`), then its wake sends to the user's iOS push targets (owned by `UserDO`: only an iOS install registers, topics limited to the cmux apps, a revoked install's tokens are released) through APNs from the Worker (ES256 provider token, collapse id = item id, category `FEED_<KIND>` for answer actions, payload cut under 4 KB, mail items carry no content). Delivery is at most once (decided): a send that fails after the commit is logged, not retried, because a late push for a request that may be answered by then is worse than none; a `push.send` outbox with retries can come later if dogfood shows lost pushes. A send never fails the owner's wake.
 
 ### 7.4 Focus
 
@@ -297,7 +297,7 @@ Kind mapping: permission prompts become `approve` (Claude Code `permission_sugge
 - acpmux mirrors pending permissions into the feed and answers through `_acpmux/permission_respond`. This is the cleanest path: no hook process and no deadline.
 - The Swift compat `feed.push` (`CompatFeed.swift`) answers `timed_out` at once today; it routes to the feed owner once the Rust CLI verb exists.
 
-UNVERIFIED (read from docs and source, no harness run live): whether Claude Code shows its dialog while a `PermissionRequest` hook still runs; `updatedInput.answers` for AskUserQuestion in interactive mode (the old app ships it); whether the `Elicitation` hook delays the dialog; whether a second Codex app-server client receives requests that were pending before it subscribed.
+Live finding: `sr claude` drops hooks passed with `--settings`; project or user `.claude/settings.json` hooks load. UNVERIFIED (read from docs and source): whether Claude Code shows its dialog while a `PermissionRequest` hook still runs; `updatedInput.answers` for AskUserQuestion in interactive mode (the old app ships it); whether the `Elicitation` hook delays the dialog; whether a second Codex app-server client receives requests that were pending before it subscribed.
 
 ## 9. Migration of today's notifications
 
@@ -322,10 +322,10 @@ Steps: (1) bridge: the daemon's `notify` path also posts the notice to the feed 
 | --- | --- | --- |
 | (a) copy cookies and storage into another profile | partial: HttpOnly and SameSite cookies copy through `cmux_shim_import_cookies`; partitioned cookies do not (`cef_cookie_t` has no partition key); no IndexedDB write path; the session must be copied back. Rejected. | partial: `getAllCookies` includes HttpOnly; batch `setCookies` needs macOS 26; no public localStorage or IndexedDB copy. Rejected. |
 | (b) hand the live tab to the user and back | works (`cmux_tab_move_to_window` keeps the WebContents) and keeps in-memory state, but agent shims stay in the page until a reload, the login POST stays in history and the back/forward cache, and the tab must stay sealed for its lifetime, so the agent loses evaluate. Rejected. | works (a WKWebView moves like any NSView); same taint and seal problems. Rejected. |
-| (c) new user-owned tab, same profile, copied history and sessionStorage | **recommended.** Chromium `NavigationController` clone copies history with page state (scroll, form fields; password fields are never saved) and a sessionStorage snapshot; cookies, localStorage, IndexedDB and service workers are shared by the profile. In-memory JS state is lost (the copy reloads). | **recommended.** Same `WKWebsiteDataStore` shares cookies, storage and service workers; `interactionState` (macOS 12) carries history, scroll and form state; sessionStorage is copied by an app-private content world (no public native path). |
+| (c) new user-owned tab, same profile, copied history and sessionStorage | **recommended.** Chromium `NavigationController` clone copies history with page state (scroll, form fields; password fields are never saved) and a sessionStorage snapshot; cookies, localStorage, IndexedDB and service workers are shared by the profile. In-memory JS state is lost (the copy reloads). | **recommended, prototyped** (`plans/cmux-next/feed/prototypes/webkit-duplicate`, 26/26 checks). Same `WKWebsiteDataStore` shares cookies (HttpOnly stays HttpOnly), localStorage and service workers; `interactionState` (macOS 12) carries history and scroll, NOT the current page's form values (WebKit saves them only when a page leaves memory) and NOT sessionStorage; a one-shot app-private seed script writes sessionStorage before page scripts run. Two traps: a restored POST entry is sent again without a prompt (a restore-phase guard must cancel main-frame POST and load the last GET page), and `WKWebViewConfiguration.copy()` shares A's script controller (D needs a fresh one). |
 | (d) a second live view of the same renderer | impossible: a WebContents has one view; a screencast mirror is not interactive and WebAuthn needs the real WebContents `VISIBLE` (K16). | impossible: an NSView has one superview. |
 
-Verdict: CEF feasible with one fork export; WebKit feasible with public API plus an app-private script; both UNVERIFIED until a live prototype.
+Verdict: CEF feasible with one fork export (`cmux_tab_duplicate`, requested from the browser lane); WebKit proven in a prototype with public API plus an app-private seed script, a POST guard and a fresh script controller. The passkey ceremony in D stays UNVERIFIED until a signed build.
 
 ### 10.2 Flow
 
@@ -422,10 +422,14 @@ Screenshots and the recommendation are in section 15 when built.
 | --- | --- | --- |
 | F1 | Owner: `FeedDO`, `feed.*` ops in the cloud catalog, pure reducer with lifecycle, dedupe, expiry, triage, limits; reducer property tests; DO tests (ledger replay, events, alarms); shared conformance vectors for the local owner | this branch |
 | F2 | CLI and MCP verbs (Rust CLI owner, requests in the report); generated MCP tools from the catalog | requested |
+| F3a | App mirror over `FeedDO` (`CloudFeedSource`, `FeedService`), Cmd-I list panel, `feed.request`/`feed.cancel`/`debug.feed` control methods; FeedDO live events carry the changed items | landed 38aa052b4cb..1807fb31d80 |
+| F5a | Prototype Claude Code adapter `scripts/cmux-next/feed-hook.py` (stand-in for `cmux feed hook`); proven live: Claude Code's PreToolUse hook -> app -> FeedDO -> user answer -> allow or deny with reason | landed with F3a |
+| F8a | Push targets on UserDO + Worker-native APNs sender called from FeedDO's push decision (iOS client: CmuxFeedPushCore) | landed with this note |
+| F7a | WebKit duplication prototype | 0438a9f60aa |
 | F3 | Mac: `CmuxNextFeed` module (model mirror + intent log, three prototypes, mock source), app wiring to the DO stream and the local owner, actions and settings | next |
 | F4 | Local feed server (`cmux-feed-core` Rust reducer passing the same vectors, `cmux-feed serve` supervised as a server app, `feed.adopt` handoff, `formal/FeedHandoff.tla`) | after F1 review |
 | F5 | Harness adapters (`cmux feed hook claude-code\|codex\|opencode\|pi`, acpmux `request_permission` bridge) | after F2 |
-| F6 | Migration steps 1 to 3 (section 9) | after F3 |
+| F6 | Migration steps 1 to 3 (section 9) | step 1 landed 1c9b829aeb2 (app-side bridge: the app posts each local daemon notification as a notice, key `notify:<daemon session>:<id>`, and reads it when any client reads the tab; nothing is mirrored while no app runs or while signed out); steps 2 and 3 next |
 | F7 | Sign-in and passkey handover (section 10) | after the browser host lease work |
 | F8 | iPhone: push sender, iOS feed list, answer actions in pushes | iOS lane |
 | F9 | Email as a feed source (11.2): ids-only mail items, gateway peek, triage effects, reply and compose actions | with the integrations lead and lane 3 |

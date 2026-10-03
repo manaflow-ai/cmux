@@ -93,24 +93,25 @@ export const search = (args: Args = {}) =>
 
 /**
  * `exportNotes {id?}` and `importNotes {}` (palette, not MCP tools): the
- * system panel needs a user gesture, which palette commands do not carry yet
- * (README, gaps); the section's menu runs the same flows from a tap.
+ * system panel needs a user gesture; a palette or menu invocation carries the
+ * command's token in `ctx.gesture` (ABI "Gesture tokens"), and the section's
+ * menu runs the same flows from a tap.
  */
-export const exportNotes = (args: Args = {}) =>
+export const exportNotes = (args: Args = {}, ctx?: CmuxCommandContext) =>
   run(async () => {
     const id = str(args, "id")
     try {
-      return await exportFiles(id ? [id] : null, cmux.gesture())
+      return await exportFiles(id ? [id] : null, ctx?.gesture ?? null)
     } catch (e) {
       if (codeOf(e) === CANCELLED) return { folder: null, files: [] }
       throw e
     }
   })
 
-export const importNotes = () =>
+export const importNotes = (_args: Args = {}, ctx?: CmuxCommandContext) =>
   run(async () => {
     try {
-      return await importFiles(cmux.gesture())
+      return await importFiles(ctx?.gesture ?? null)
     } catch (e) {
       if (codeOf(e) === CANCELLED) return { imported: [], skipped: [] }
       throw e

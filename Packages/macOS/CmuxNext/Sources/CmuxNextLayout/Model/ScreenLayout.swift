@@ -136,4 +136,25 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
         self.name = name
         self.layout = layout
     }
+
+    /// Every screen is a column strip: a screen stored as one split tree is
+    /// one implicit column holding that tree, with this id.
+    public var implicitColumnID: ColumnID { ColumnID("implicit:\(id.rawValue)") }
+
+    /// The column holding `pane`: a stored column, or the implicit column of
+    /// a screen stored as one split tree.
+    public func column(containing pane: PaneID) -> LayoutColumn? {
+        switch layout {
+        case let .splits(root): root.contains(pane) ? LayoutColumn(id: implicitColumnID, width: 1, root: root) : nil
+        case .columns: layout.column(containing: pane)
+        }
+    }
+
+    /// The column with `id`, including the implicit one.
+    public func column(id: ColumnID) -> LayoutColumn? {
+        switch layout {
+        case let .splits(root): id == implicitColumnID ? LayoutColumn(id: id, width: 1, root: root) : nil
+        case let .columns(columns): columns.first { $0.id == id }
+        }
+    }
 }

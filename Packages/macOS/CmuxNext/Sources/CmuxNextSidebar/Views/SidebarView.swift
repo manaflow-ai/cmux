@@ -125,6 +125,18 @@ public final class SidebarView: NSView {
         list.showHoverCard(for: id)
     }
 
+    /// Draws the sections apps contribute (`SectionContent.app`); the App
+    /// injects one per window. Without it, app sections draw nothing.
+    public var appSections: (any SidebarAppSectionProvider)? {
+        didSet {
+            appSections?.onContentChange = { [weak self] in self?.needsLayout = true }
+            for region in [aboveRegion, belowRegion] {
+                region.appView = { [weak self] section in section.contribution.flatMap { self?.appSections?.makeView(for: $0) } }
+            }
+            needsLayout = true
+        }
+    }
+
     /// The app's one hover card coordinator (the App injects it).
     public var hoverCards: HoverCardCoordinator {
         get { list.hoverCards }
@@ -369,8 +381,16 @@ public final class SidebarView: NSView {
             || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
+        let previous = lastState?.sections
         lastState = state
-        if listChanged { list.reload(animated: true) }
+        if listChanged { list.reload(animated: Self.animatesReload(from: previous, to: state.sections)) }
         if chromeChanged || profilesChanged { needsLayout = true }
+    }
+
+    /// Whether a sections change animates its rows. Saved or placeholder
+    /// rows turning into live ones (or any change from them) update in
+    /// place without motion, so the launch swap to live data is invisible.
+    static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
+        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
     }
 }

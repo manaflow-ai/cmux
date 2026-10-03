@@ -2,17 +2,23 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// End-to-end checks of the cmux-tui PR 15518 commands against the pinned
-/// branch binary (`scripts/cmux-next/pin-cmux-tui.sh fetch`) or
-/// `CMUX_NEXT_TUI_BIN`. Release clients lack these commands, so the suite is
-/// disabled for them.
-@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the pinned branch cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+/// End-to-end checks of the cmux-tui PR 15518 commands against the hosted
+/// build of this checkout's cmux-tui tree (`scripts/cmux-next/pin-cmux-tui.sh
+/// fetch`) or `CMUX_NEXT_TUI_BIN`. Release clients lack these commands, so the
+/// suite is disabled for them.
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
        .timeLimit(.minutes(2)), .liveDaemon)
 struct BranchDaemonTests {
+    /// The same-tree daemon serves every capability the app relies on
+    /// (scripts/cmux-next/check-daemon-capabilities.sh checks the bundle the
+    /// same way), and none the app still lists as unserved.
     @Test func advertisesEveryCmuxNextCapability() async throws {
         try await BranchDaemonHarness.with { h in
-            let missing = DaemonCapabilities.shared.optional.filter { !h.identity.supports($0) }
+            let capabilities = DaemonCapabilities.shared
+            let missing = (capabilities.required + capabilities.optional).filter { !h.identity.supports($0) }
             #expect(missing.isEmpty, "missing: \(missing)")
+            let nowServed = capabilities.unservedByBundledDaemon.filter { h.identity.supports($0) }
+            #expect(nowServed.isEmpty, "served now, move to optional: \(nowServed)")
         }
     }
 

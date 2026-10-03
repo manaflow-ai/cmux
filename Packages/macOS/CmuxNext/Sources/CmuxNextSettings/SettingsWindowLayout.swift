@@ -21,6 +21,22 @@ public enum SettingsWindowLayout: String, Sendable, CaseIterable, TunableChoice 
     }
 }
 
+/// Where Settings… opens (`settings.presentation`, DEV and NIGHTLY): a tab
+/// in the active window's focused pane (lane 20, Lawrence 2026-10-02), or
+/// the separate window it used to be. Debug Settings follows the same
+/// choice. Release builds open the tab.
+public enum SettingsPresentation: String, Sendable, CaseIterable, TunableChoice {
+    case pane
+    case window
+
+    public var tunableTitle: String {
+        switch self {
+        case .pane: "Tab in the focused pane"
+        case .window: "Separate window"
+        }
+    }
+}
+
 /// Debug Settings declarations of the Settings window.
 extension SettingsWindowLayout {
     public static let tunableSection = TunableSection(id: "settingsWindow", title: "Settings Window", symbol: "gearshape", order: 46)
@@ -29,5 +45,10 @@ extension SettingsWindowLayout {
         "settings.layout", tunableSection, "Layout", help: "Prototype layout of the Settings window. Switches live.",
         default: .pages, code: "SettingsWindowLayout.tunable")
 
-    public static var tunables: [TunableDescriptor] { [tunable.descriptor] }
+    public static let presentation = Tunable<SettingsPresentation>.choice(
+        "settings.presentation", tunableSection, "Opens as",
+        help: "Settings and Debug Settings open as a tab in the focused pane or as a separate window.",
+        default: .pane, code: "SettingsWindowLayout.presentation")
+
+    public static var tunables: [TunableDescriptor] { [tunable.descriptor, presentation.descriptor] }
 }

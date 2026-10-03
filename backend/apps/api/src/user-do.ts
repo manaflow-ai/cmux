@@ -1,8 +1,12 @@
-import type { Domain, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
+import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { inbox as homeInbox } from "@cmux/home-core"
-import { challengeMessagePrefix } from "@cmux/protocol"
+import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
 import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
-import { installActive, userDomain, type UserState } from "./domains/user.ts"
+import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
+import { admit } from "./domains/common.ts"
+import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
+import { appIdHashFor, confirmView } from "./domains/user-confirm.ts"
+import { chiefList } from "./domains/user-chief.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type Attachment, type ReadResult, type SubmitResult } from "./owner-do.ts"
 import { SecondaryStream } from "./secondary-stream.ts"
@@ -20,12 +24,21 @@ export type RedeemResult = ({ ok: true } & InstallClaims) | { ok: false; code: "
  * one-time challenges live outside the op protocol because they are
  * credentials, not shared entity state.
  */
+/** POST /v1/presence-key body. */
+export interface PresenceKeyBody {
+  readonly platform?: unknown
+  readonly jwk?: unknown
+  readonly signature?: unknown
+  readonly attestation?: unknown
+  readonly key_id?: unknown
+}
+
 export class UserDO extends OwnerDO<UserState> {
   /** Second stream `inbox:<user>` (lane 15 E2): Home inbox entries, pins, mutes, archive. */
   private readonly inbox: SecondaryStream<homeInbox.InboxHead>
 
   constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env, userDomain, "user")
+    super(ctx, env, makeUserDomain(appIdHashFor(env.IOS_APP_ID)), "user")
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS auth_challenges (nonce TEXT PRIMARY KEY, install TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
     this.inbox = new SecondaryStream(ctx, this.sqlStore, {
       prefix: "inbox",
@@ -71,7 +84,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: an inbox op (pin, mute, archive, mark unread) from the user's session or install. */
   async submitInbox(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult> {
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, frame.op)
+    if (refused) return { frames: [{ t: "reject", tx: "", idempotency_key: frame.idempotency_key, code: refused.code, message: refused.message, retryable: false, replayed: false } as OwnerFrame] }
     this.inbox.open(entity)
     const frames: Array<OwnerFrame> = []
     this.inbox.submit(principal, frame, (f) => frames.push(f))
@@ -81,8 +95,8 @@ export class UserDO extends OwnerDO<UserState> {
 
   /** RPC: inbox reads. `inbox.list` pages the entries; `inbox.dm_peer` finds an existing DM with a peer (design Q2). */
   async readInbox(entity: string, principal: Principal, op: string, params: Record<string, unknown>): Promise<ReadResult> {
-    if (principal.user !== entity) return { ok: false, code: "auth.forbidden", message: "not this user's inbox" }
-    this.bind(entity)
+    const refused = this.inboxRefusal(entity, principal, op)
+    if (refused) return { ok: false, code: refused.code, message: refused.message }
     const engine = this.inbox.open(entity)
     if (op === "inbox.dm_peer") {
       const peer = typeof params.peer === "string" ? params.peer : ""
@@ -97,12 +111,84 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: false, code: "validation.invalid", message: `unknown inbox read ${op}` }
   }
 
-  protected read(state: UserState, op: string, _params: unknown, principal: Principal): ReadResult {
+  /**
+   * POST /v1/presence-key (home-messaging.md section 21): an owner device registers the
+   * Secure Enclave key that later signs level lowering. The caller is the install itself.
+   * Both platforms: the install key signs `cmux-presence-key-v1\n<environment>\n<user>\n<install>\n<thumbprint>`.
+   * iOS also sends an App Attest attestation whose client data is the presence key's thumbprint,
+   * verified against Apple's root for this deployment's IOS_APP_ID. Then the system op
+   * `user.presence_key.register` commits (usable after 24 h; every device and the email are told).
+   */
+  async registerPresenceKey(entity: string, principal: Principal, body: PresenceKeyBody): Promise<SubmitResult | { error: { code: string; message: string } }> {
+    const refuse = (code: string, message: string) => ({ error: { code, message } })
+    if (principal.kind !== "install" || principal.agent || principal.user !== entity || !principal.install) return refuse("auth.forbidden", "an owner device install registers its own key")
+    const state = this.bind(entity).currentState
+    const inst = state.installs[principal.install]
+    if (!installActive(state, principal) || !inst) return refuse("auth.forbidden", "install revoked or unknown")
+    if ((body.platform !== "mac" && body.platform !== "ios") || inst.kind !== body.platform) return refuse("validation.invalid", "platform must be this install's kind (mac or ios)")
+    const jwk = body.jwk as { kty?: string; crv?: string; x?: string; y?: string } | undefined
+    if (!jwk || jwk.kty !== "EC" || jwk.crv !== "P-256" || typeof jwk.x !== "string" || typeof jwk.y !== "string") return refuse("validation.invalid", "jwk must be a P-256 public key")
+    const thumbprint = jwkThumbprint({ kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y })
+    let appAttest: AttestedKey | undefined
+    // Both platforms: the install key signs the registration, so a stolen bearer token alone cannot replace the key.
+    const message = `cmux-presence-key-v1\n${this.env.ENVIRONMENT}\n${entity}\n${inst.id}\n${thumbprint}`
+    if (typeof body.signature !== "string" || !(await verifyInstallSignature(inst.public_jwk, message, body.signature))) return refuse("auth.forbidden", "the install key did not sign this registration")
+    if (body.platform === "ios") {
+      if (!this.env.IOS_APP_ID) return refuse("presence_key.not_configured", "App Attest is not configured on this deployment")
+      if (typeof body.attestation !== "string" || typeof body.key_id !== "string") return refuse("validation.invalid", "attestation and key_id are required on iOS")
+      const r = verifyAttestation({
+        attestation: body.attestation,
+        keyId: body.key_id,
+        clientData: new TextEncoder().encode(thumbprint),
+        appId: this.env.IOS_APP_ID,
+        allowDevelopment: this.env.IOS_APP_ATTEST_DEVELOPMENT === "true",
+        now: Date.now()
+      })
+      if (!r.ok) return refuse("auth.forbidden", `attestation refused (${r.reason})`)
+      appAttest = r.key
+    }
+    const params = { install: inst.id, jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, platform: body.platform, ...(appAttest ? { app_attest: appAttest } : {}) }
+    return this.submitSystem("user.presence_key.register", params, `presence-key:${inst.id}:${thumbprint}`, `system:user:${entity}`)
+  }
+
+  /**
+   * Inbox calls come from this user only, through an active install whose grant covers the op
+   * (the catalog check other owners apply), checked before the object binds the entity.
+   */
+  private inboxRefusal(entity: string, principal: Principal, op: string): { code: string; message: string } | undefined {
+    if (principal.user !== entity) return { code: "auth.forbidden", message: "not this user's inbox" }
+    const state = this.bind(entity).currentState
+    if (!installActive(state, principal)) return { code: "auth.forbidden", message: "install revoked or unknown" }
+    return admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+  }
+
+  protected read(state: UserState, op: string, params: unknown, principal: Principal): ReadResult {
     if (state.user && principal.user !== state.user.id) return { ok: false, code: "auth.forbidden", message: "not this user" }
     // A revoked install's still-valid token reads nothing (it would otherwise read until the token expires).
     if (!installActive(state, principal)) return { ok: false, code: "auth.forbidden", message: "install revoked or unknown" }
+    if (op === "chief.list") {
+      const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+      return refused ? { ok: false, ...refused } : { ok: true, value: chiefList(state, Date.now(), (params as { include_archived?: unknown } | null)?.include_archived === true), revision: "" }
+    }
+    if (op === "user.text_confirm.get") {
+      const refused = admit("cloud:UserDO", op, principal, (p) => grantFor(state, p), Date.now())
+      return refused ? { ok: false, ...refused } : { ok: true, value: confirmView(state), revision: "" }
+    }
     if (op !== "install.list") return { ok: false, code: "validation.invalid", message: `unknown read ${op}` }
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
+  }
+
+  /** Device push tokens reach only the user's session and the install that owns each token. */
+  protected override subscriberView(state: UserState, principal: Principal): unknown {
+    if (principal.kind === "session" || !state.push_targets) return state
+    const own = Object.fromEntries(Object.entries(state.push_targets).filter(([, t]) => t.install === principal.install))
+    return { ...state, push_targets: own }
+  }
+
+  /** Push-target events carry a device token: only the session and the install that owns it receive them. */
+  protected override mayReceive(_state: UserState, event: EventFrame, principal: Principal): boolean {
+    if (!event.op.startsWith("push.target.")) return true
+    return principal.kind === "session" || (principal.install !== undefined && event.actor.install === principal.install)
   }
 
   protected maySubscribe(state: UserState, principal: Principal): boolean {
@@ -134,6 +220,21 @@ export class UserDO extends OwnerDO<UserState> {
   private existing() {
     const row = this.ctx.storage.sql.exec<{ entity: string }>(`SELECT entity FROM do_entity WHERE id = 1`).toArray()[0]
     return row ? this.bind(row.entity) : undefined
+  }
+
+  /** For FeedDO: the user's push targets whose install is still active (feed.md 7.3). */
+  async pushTargets(entity: string): Promise<ReadonlyArray<PushTarget>> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return []
+    const state = engine.currentState
+    return Object.values(state.push_targets ?? {}).filter((t) => state.installs[t.install]?.revoked_at === null)
+  }
+
+  /** For FeedDO: APNs rejected this token (unregistered or bad); the owner drops it in its own op. */
+  async dropPushTarget(entity: string, token: string, reason: string): Promise<void> {
+    const engine = this.existing()
+    if (!engine || engine.stream !== `user:${entity}`) return
+    this.submitSystem("push.target.drop", { token, reason }, `drop:${token}:${engine.currentSeq}`)
   }
 
   /** For other owners (TeamDO): is this install active, and what does its grant allow? */

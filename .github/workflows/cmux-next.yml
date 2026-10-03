@@ -11,14 +11,11 @@ on:
     branches: [feat-cmux-next]
     paths:
       - App/**
-      - Packages/macOS/**
       - cmux.xcodeproj/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -29,9 +26,6 @@ on:
       - ghostty
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
-      - scripts/cmux-next/cmux-code-mode-runner
-      - scripts/cmux-next/cmux-code-mode-macos-profile
-      - scripts/cmux-next/test-code-mode-macos-sandbox.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -40,6 +34,8 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - plans/cmux-next/daemon-capabilities.json
+      - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - scripts/download-prebuilt-ghosttykit.sh
       - .github/workflows/cmux-next.yml
@@ -48,14 +44,16 @@ on:
     branches: [main, feat-cmux-next]
     paths:
       - App/**
-      - Packages/macOS/**
       - cmux.xcodeproj/**
+      # Base pushes still run the full side workflow for every package input;
+      # only pull requests use the focused package routing below.
+      - Packages/macOS/**
+      - Packages/Shared/**
+      - Packages/iOS/**
       - scripts/cmux-next/bundle-*.sh
       - scripts/cmux-next/embed-cef.sh
       - scripts/build-diff-sidecar.sh
       - Packages/macOS/CmuxNext/**
-      - Packages/Shared/**
-      - Packages/iOS/**
       - cmux-tui/**
       - CLI/**
       - cmuxCLITests/**
@@ -67,9 +65,6 @@ on:
       - scripts/download-prebuilt-ghosttykit.sh
       - Resources/InfoPlist.xcstrings
       - scripts/cmux-next/check-*.sh
-      - scripts/cmux-next/cmux-code-mode-runner
-      - scripts/cmux-next/cmux-code-mode-macos-profile
-      - scripts/cmux-next/test-code-mode-macos-sandbox.sh
       - scripts/cmux-next/compile-string-catalogs.sh
       - scripts/cmux-next/prefix-ghosttykit-archives.sh
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
@@ -78,6 +73,8 @@ on:
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
       - scripts/cmux-next/pin-cmux-tui.sh
+      - plans/cmux-next/daemon-capabilities.json
+      - scripts/cmux-next/build-acpmux.sh
       - scripts/ci/run-xcodebuild-with-diagnostics.sh
       - .github/workflows/cmux-next.yml
       - tests/test_cmux_next_checks_workflow.py
@@ -347,15 +344,24 @@ jobs:
       # its stacks; each test step timeout stops it holding the runner regardless.
       # Control tests use tight request deadlines and run in their own process so
       # they do not compete with the other MainActor-isolated suites.
-      # The daemon integration tests use the pinned branch build of cmux-tui
-      # (scripts/cmux-next/cmux-tui.pin) when it is in the checkout, and fall
-      # back to the release client in ~/Library/Caches/cmux/cmux-tui-client.
-      # A mini has that cache (release clients lack the cmux-next daemon
-      # flags) and Blacksmith has none (the suite skipped), so the verdict
-      # depended on the runner. The pinned binary is public and sha256-checked.
-      - name: Fetch the pinned cmux-tui
-        timeout-minutes: 5
+      # The daemon integration tests use the hosted build of this commit's own
+      # cmux-tui tree (scripts/cmux-next/pin-cmux-tui.sh --help; public and
+      # sha256-checked). A push that changes cmux-tui waits here while the
+      # cmux-tui artifacts workflow builds, tests and publishes that tree.
+      # The capability check then fails the job when that daemon does not
+      # serve a capability the app relies on.
+      - name: Fetch the same-tree cmux-tui
+        timeout-minutes: 50
+        env:
+          # A pull request checks its merge commit, whose cmux-tui tree only
+          # exists once the base and branch match: fail at once with the
+          # steps instead of holding the runner for an unpublished tree.
+          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
+
+      - name: Check the same-tree cmux-tui serves the app's daemon capabilities
+        timeout-minutes: 2
+        run: scripts/cmux-next/check-daemon-capabilities.sh
 
       - name: Run package tests (excluding control deadline, WebKit driver and attach stress tests)
         timeout-minutes: 20
@@ -484,33 +490,27 @@ jobs:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
 
-      - name: Set up pinned Bun for the macOS Seatbelt smoke
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: "1.3.14"
-
-      - name: Run macOS 26 Seatbelt allow/deny smoke
-        run: |
-          set -euo pipefail
-          sw_vers -productVersion
-          test "$(uname -s)" = Darwin
-          test -x /usr/bin/sandbox-exec
-          scripts/cmux-next/test-code-mode-macos-sandbox.sh
-
-  # A green Release compile on a feat-cmux-next push may move the protected
-  # `nightly-next` branch, which publishes the cmux-next NIGHTLY track
-  # (debounced; see nightly-next-promote.yml).
-  promote-nightly-next:
+  # A green Release compile on a feat-cmux-next push asks main's nightly.yml to
+  # promote this commit to the protected `nightly-next` branch (debounced to
+  # one build per 2 h there). Only main's job, in the `release` environment,
+  # holds the release App key and checks this push run's Release compile; this
+  # job only needs actions: write to request it.
+  request-nightly-next:
     needs: release-compile
     if: github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile.result == 'success'
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
     permissions:
-      contents: read
-      checks: read
-      actions: read
-    uses: ./.github/workflows/nightly-next-promote.yml
-    with:
-      sha: ${{ github.sha }}
-    secrets: inherit
+      actions: write
+    steps:
+      - name: Request nightly-next promotion on main
+        # Main gets the promote-nightly-next job with PR 17116; until then the
+        # dispatch is refused (unknown input) and must not fail this run.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: gh workflow run nightly.yml --repo "$GITHUB_REPOSITORY" --ref main -f promote_nightly_next_sha="$SHA" -f promote_nightly_next_debounce=true
 
   cmux-scheme-compile:
     needs: macos-placement
@@ -549,12 +549,28 @@ jobs:
           set -euo pipefail
           GHOSTTY_SHA="$(git rev-parse HEAD:ghostty)" ./scripts/download-prebuilt-ghosttykit.sh
 
-      - name: Fetch the pinned cmux-tui
-        timeout-minutes: 5
+      # The Bundle cmux-tui phase bundles this commit's same-tree cmux-tui
+      # and runs check-daemon-capabilities.sh on it (Debug builds).
+      - name: Fetch the same-tree cmux-tui
+        timeout-minutes: 50
+        env:
+          # A pull request checks its merge commit, whose cmux-tui tree only
+          # exists once the base and branch match: fail at once with the
+          # steps instead of holding the runner for an unpublished tree.
+          CMUX_TUI_TREE_WAIT_SECONDS: ${{ github.event_name == 'pull_request' && '0' || '2700' }}
         run: scripts/cmux-next/pin-cmux-tui.sh fetch
 
       - name: Install Rust (diff sidecar)
         run: ./scripts/install-rust-ci.sh
+
+      - name: Build in-tree acpmux for the app bundle
+        env:
+          CMUX_NEXT_ACPMUX_ARCHS: arm64
+        run: |
+          set -euo pipefail
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
       - name: Compile the cmux scheme
         run: |

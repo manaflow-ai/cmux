@@ -103,9 +103,9 @@ export function makeHost(opts: Options = {}) {
 }
 
 /** Runs an app command and returns its completion body. */
-export async function run(host: FakeHost, exportName: string, args: Record<string, unknown> = {}) {
+export async function run(host: FakeHost, exportName: string, args: Record<string, unknown> = {}, ctx?: Record<string, unknown>) {
   const cb = Math.floor(Math.random() * 1e9)
-  host.global.__cmuxAppRunCommand(exportName, JSON.stringify(args), cb)
+  host.global.__cmuxAppRunCommand(exportName, JSON.stringify(args), cb, ctx ? JSON.stringify(ctx) : undefined)
   for (let i = 0; i < 50 && !host.commandResults.has(cb); i++) await host.settle(2)
   const r = host.commandResults.get(cb)
   if (!r) throw new Error(`${exportName} did not finish`)

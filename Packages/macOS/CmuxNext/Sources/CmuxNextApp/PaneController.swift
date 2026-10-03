@@ -73,7 +73,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // Agent tabs of panes the live tree no longer lists close now
         // rather than at the store's next observation; a workspace switch or
         // a layout move keeps the pane listed, so its tabs stay.
-        services.agentTabs.closeGonePanes(in: daemon.store)
+        services.closeGoneLocalTabs(in: daemon.store)
         currentTabKey = nil
         view.detachContent()
         services.surfaceInvariant.noteChange()
@@ -147,9 +147,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             browserIcon(key: local.id, recordFavicon: nil).apply(to: &item)
             items.append(item)
         }
-        for key in services.agentTabs.tabIDs(in: paneKey) where !pendingClosed.contains(key) {
-            items.append(services.agentTabs.stripItem(key))
-        }
+        items += services.localTabItems(in: paneKey, hiding: pendingClosed)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
         let groups = pane.tabGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
@@ -275,6 +273,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
 
     func content(for key: String) -> TabContent? {
         if key.hasPrefix(LocalAgentTab.prefix) { return agentContent(key) }
+        if key.hasPrefix(LocalPageTab.prefix) { return services.pages.view(for: key).map(TabContent.page) }
         if key.hasPrefix(LocalBrowserTab.prefix) {
             let local = state?.localBrowserTabs[paneKey]?.first { $0.id == key }
             // A local tab of an incognito window uses its off-the-record profile.
@@ -304,6 +303,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     func existingContent(for key: String) -> TabContent? {
         if let entry = services.cache.existingTerminal(key) { return .terminal(entry) }
         if let view = services.agentTabs.existingView(key) { return .agent(view) }
+        if let view = services.pages.existingView(key) { return .page(view) }
         if let placeholder = services.remoteTerminals.existingPlaceholder(key) { return .placeholder(placeholder) }
         return services.cache.existingBrowser(key).map(TabContent.browser)
     }
@@ -312,7 +312,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     var selectedContentIsAlive: Bool {
         guard let key = stripModel.selectedID?.rawValue else { return true }
         return (key == currentTabKey && view.hostsContent) || services.cache.hasContent(for: key)
-            || services.agentTabs.existingView(key) != nil
+            || services.agentTabs.existingView(key) != nil || services.pages.existingView(key) != nil
     }
 
     /// The layout reported this pane on screen, in the keep-alive band, or away.

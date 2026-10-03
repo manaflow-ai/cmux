@@ -113,7 +113,7 @@ export const previewOf = (head: ConversationHead, message: Message | null | unde
   return [...`${author}: ${text}`].slice(0, PREVIEW_CHARS).join("")
 }
 
-const searchIntent = (head: ConversationHead, message: Message): SearchIntent => {
+export const searchIntent = (head: ConversationHead, message: Message): SearchIntent => {
   const body = message.retracted_at === undefined ? truncateUtf8(textOf(message), SEARCH_BODY_BYTES) : ""
   if (body === "") return { op: "delete", conversation_id: message.conversation, seq: message.seq }
   const author = findParticipant(head, message.author)

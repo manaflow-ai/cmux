@@ -7160,6 +7160,84 @@
       },
       "extra": false
     },
+    "GitFileMatch": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Relative to search_root, '/'-separated."
+        },
+        "matches": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "UTF-16 offsets into path of the characters the query matched, ascending, for highlighting."
+        }
+      },
+      "extra": false
+    },
+    "GitFilesSearchResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The repository's top level, as in every git operation."
+        },
+        "search_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The folder searched: root or a folder under it. Every result path is relative to search_root, not root."
+        },
+        "results": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "GitFileMatch"
+            },
+            "max_items": 200
+          },
+          "description": "Best first, at most limit."
+        },
+        "truncated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "More files matched than limit, or the candidate listing was cut at its size bound."
+        },
+        "total_matches": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many candidates matched, before limit."
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -10171,6 +10249,74 @@
         "selector.not_found",
         "selector.wrong_parent",
         "validation.invalid"
+      ]
+    },
+    "git.files.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a folder inside a repository; only files under it are searched. A file path searches the folder it is in. Use it, or a workspace, pane, tab or terminal selector whose working directory names the folder."
+          },
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 256
+            },
+            "description": "Matched case-insensitively as a subsequence of each file's path; whitespace is ignored. At most 256 bytes of UTF-8. An empty query returns no results."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "default": 50
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "GitFilesSearchResult"
+      },
+      "errors": [
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Candidates are tracked files still in the working tree and untracked files no ignore rule hides, under the searched folder.",
+        "Results are best first: matches in the file name, at word starts and in runs rank higher, then shorter paths, then path order.",
+        "Submodules are folders and never results. Paths over 1024 characters are listed by git but not ranked. A search that would fill more than its scoring budget ranks part of the candidates and sets truncated.",
+        "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
       ]
     },
     "git.status": {

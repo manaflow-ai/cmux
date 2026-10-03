@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import { readFileSync } from "node:fs"
 import { join } from "node:path"
-import { catalogDigest, defaultCounts, detectKind, ImportError, importDocument, importText } from "../src/catalog.ts"
+import { authChoices, credentialKindOf } from "../src/auth.ts"
+import { catalogBlobBytes, catalogDigest, defaultCounts, detectKind, ImportError, importDocument, importText, isCommandLine } from "../src/catalog.ts"
+import { CATALOG_BLOB_MAX_BYTES } from "../src/egress.ts"
 import { extract as extractGraphql, toolsFromGraphql } from "../src/graphql.ts"
 import { deriveMcpNamespace, extractManifestFromListToolsResult, hostnameOf } from "../src/mcp.ts"
 import { extract as extractOpenApi } from "../src/openapi.ts"
@@ -190,5 +192,46 @@ describe("one importer", () => {
     removed.tools.splice(1, 1)
     expect(importDocument(removed).digest).not.toBe(a.digest)
     expect(a.digest).toBe(catalogDigest("mcp", a.tools))
+  })
+})
+
+describe("MCP transport: Streamable HTTP only", () => {
+  test("stdio launch configs are refused, not ingested", () => {
+    for (const doc of [{ command: "npx", args: ["-y", "some-server"] }, { type: "stdio", command: "server" }, { mcpServers: { docs: { command: "uvx", args: ["docs-server"] } } }]) {
+      expect(detectKind(doc)).toBe("mcp_stdio")
+      expect(() => importDocument(doc)).toThrow(expect.objectContaining({ code: "import.mcp_stdio" }))
+    }
+    expect(detectKind({ mcpServers: { docs: { url: "https://mcp.docs.example.com/mcp" } } })).toBeNull()
+  })
+
+  test("command lines are recognized so a client can say why", () => {
+    for (const text of ["npx -y docs-server", "uvx docs-server", "docker run -i docs", "./bin/server --stdio", "python3 server.py"]) expect(`${text}:${isCommandLine(text)}`).toBe(`${text}:true`)
+    for (const text of ["https://mcp.docs.example.com/mcp", "{\"tools\":[]}", "taskboard"]) expect(`${text}:${isCommandLine(text)}`).toBe(`${text}:false`)
+  })
+
+  test("an MCP tool list declares no auth; the add flow offers OAuth with dynamic registration first", () => {
+    const catalog = importDocument(fixture("mcp-tools.json"), { sourceUrl: "https://mcp.docs.example.com/mcp" })
+    expect(catalog.auth).toEqual([])
+    expect(authChoices("mcp", catalog.auth)).toEqual([{ kind: "oauth2_code", dynamic_registration: true }, { kind: "bearer" }, { kind: "headers" }, { kind: "none" }])
+  })
+})
+
+describe("catalog blob cap", () => {
+  test("a catalog larger than 2 MB is refused with catalog.too_large", () => {
+    const tools = Array.from({ length: 4000 }, (_, i) => ({ name: `tool_${i}`, description: "d".repeat(600), annotations: { readOnlyHint: true } }))
+    expect(() => importDocument({ tools })).toThrow(expect.objectContaining({ code: "catalog.too_large" }))
+    const small = importDocument({ tools: tools.slice(0, 10) })
+    expect(catalogBlobBytes(small)).toBeLessThan(CATALOG_BLOB_MAX_BYTES)
+  })
+})
+
+describe("auth choices", () => {
+  test("declared methods first, then every other kind; credential kinds name the OAuth flow", () => {
+    const doc = fixture("openapi-taskboard.json")
+    const choices = authChoices("openapi", importDocument(doc).auth)
+    expect(choices.map((c) => c.kind)).toEqual(["bearer", "api_key", "oauth2_code", "basic", "headers", "oauth2_client_credentials", "none"])
+    expect(choices[1]!.method?.headers).toEqual(["X-Api-Key"])
+    expect(choices[3]!.method).toBeUndefined()
+    expect(credentialKindOf({ kind: "oauth2", flow: "client_credentials", label: "x" })).toBe("oauth2_client_credentials")
   })
 })

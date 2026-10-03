@@ -249,6 +249,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidBecomeKey(_ notification: Notification) {
         services.windows.didActivate(self)
+        let snapshots = services.sidebarSnapshots, id = state.id
+        Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
     }
@@ -299,6 +301,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        services.keyRouter.cancelChord()
         services.windows.windowWillClose(self)
     }
 }

@@ -1,4 +1,4 @@
-//! `git status|diff|checkpoint`: the session host's git operations. The repository
+//! `git status|diff|files|checkpoint`: the session host's git operations. The repository
 //! is the one `--path` is in, or the working directory of the terminal a
 //! `--workspace`, `--screen`, `--pane`, `--tab` or `--terminal` selector
 //! names; with none of them, the current directory's.
@@ -19,7 +19,7 @@ const TARGETS: &[(&str, &str)] = &[
     ("terminal", "term"),
 ];
 
-/// `git status` and `git diff [<path>...]`.
+/// `git status`, `git diff [<path>...]` and `git files <query>...`.
 pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
     let selectors = target(flags, &mut params)?;
@@ -45,6 +45,13 @@ pub(super) fn parse_git(words: &[&str], flags: &mut Flags) -> Result<CommandPlan
                 params.insert("paths".into(), Value::Array(paths.collect()));
             }
             Op::GitDiff
+        }
+        ["files", query @ ..] if !query.is_empty() => {
+            params.insert("query".into(), Value::String(query.join(" ")));
+            if let Some(value) = flags.take("limit") {
+                insert_bounded_u32(&mut params, "limit", "--limit", value, 1, 200)?;
+            }
+            Op::GitFilesSearch
         }
         _ => return usage("git action"),
     };

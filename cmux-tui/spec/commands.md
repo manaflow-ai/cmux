@@ -1987,7 +1987,7 @@ Params:
 
 | Name | JSON type | Required/default | Constraints |
 | --- | --- | --- | --- |
-| `pane` | `Id` | required | Must belong to a screen with viewport columns |
+| `pane` | `Id` | required | Any pane; a screen without `columns` is one implicit column |
 | `width` | `float32` | required | Finite value from 0.1 through 1.0 |
 | `transaction` | `uint64` | default null | Samples with the same connection and transaction coalesce into one undo entry |
 
@@ -2046,13 +2046,13 @@ Result:
 object{column:Id,sticky:object{edge:"left"|"right",mode:"docked"|"overlay"}|null,transaction?:uint64}
 ```
 
-`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
+`column` is the column's `Screen.columns[].id` and `sticky` its flag after the request. A screen without `columns` is one implicit column: pinning it fails with `sticky-column-last-scrolling` (at least one column must scroll) and unpinning succeeds with `column: 0` and no change. `transaction` echoes the request's value and is omitted when the request had none. The `screen-changed` delta of a change carries the same transaction as a decimal string (the delta's `transaction` field is a string).
 
 Errors:
 
 | Error | `error_code` | Condition |
 | --- | --- | --- |
-| `pane <id> has no viewport column` | `viewport-column-not-found` | Pane is unknown or its screen has no viewport columns |
+| `pane <id> has no viewport column` | `viewport-column-not-found` | Pane is unknown |
 | `at least one column must scroll` | `sticky-column-last-scrolling` | The change would leave no scrolling column |
 | `bad edge ...` / `bad mode ...` | `invalid-argument` | `edge` or `mode` is not one of the listed strings |
 | `bad request: ...` | none | Missing fields or wrong JSON type |
@@ -5168,20 +5168,24 @@ Result: `object{messages:[Message]}`
 | status | implemented |
 | since | protocol 12 additive extension; capability `conversation-search-v1` |
 
-Home-only search over the text parts of every message that is not
-retracted, in every local conversation. SQLite triggers in the store keep
-the index, so a daemon without this command keeps it current too. Every word of `query` (at most 200
-characters) must match as a word prefix, case and diacritics ignored; FTS5
-operators in the query are literal text, and a word without a letter or
-digit is ignored. The index row is written by the statement that writes the
-message, so an edit or a retraction changes the results with the same commit. Work cards are not indexed. Returns up to
-`limit` (1-100) hits, best match first.
+Home-only search with the read model the cloud owner shares
+(`backend/packages/home-core/conformance/conversation-search-cases.json`):
+a case-insensitive substring (lower case per code point) of the text parts
+of every message that is not retracted, in the conversations where the
+caller's principal is a participant. Work cards are not searched. `query`
+is trimmed, 1-200 characters, no control characters; `limit` is 1-100.
+Hits are ordered newest `created_at` first, then conversation id, then seq
+descending. An edit or a retraction changes the results with its own commit.
 
 Params: `query`, `limit` (both required).
 
 Result: `object{hits:[{conversation, title, seq, message_id, author,
-created_at, snippet}]}`. `snippet` is plain text, about twelve words around
-the match, with `…` where it cuts the message.
+created_at, snippet}]}`. `snippet` is the message text (text parts joined by
+one space, whitespace collapsed), or 120 characters of it centered on the
+match with `…` where it is cut.
+
+Errors: `error_code` `conversation_rejected` with `reason` `invalid_query` or
+`invalid_limit`.
 
 ### conversation-op
 

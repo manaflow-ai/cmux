@@ -13,6 +13,7 @@ import type {
   OutboxItem,
   OwnerFrame,
   Principal,
+  Reject,
   RejectFrame,
   ResultFrame,
   SettledFrame,
@@ -158,6 +159,22 @@ export class OwnerEngine<S, P = unknown> {
 
   txTag(identity: string, key: string): string {
     return createHmac("sha256", this.secret).update(identity).update("\u0000").update(key).digest("base64url").slice(0, 22)
+  }
+
+  /**
+   * What `submit` would do before the reducer, without doing it: "replay" when the key is
+   * decided (the ledger answers), the refusal when authorization denies the op, else undefined
+   * (the op reaches the reducer). For owners that run an async check outside the pure reducer
+   * (for example a code ref in an external store): they skip the check for replays and denials,
+   * so a retry of a decided op always gets its original answer. Test mutants (noLedger,
+   * trustClaimedIdentity) are not mirrored here; owners with a gate are not mutant subjects.
+   */
+  gate(principal: Principal, frame: OpFrame): "replay" | Reject | undefined {
+    const key = frame.idempotency_key
+    if (typeof key !== "string" || key.length === 0 || key.length > 128) return { code: "validation.invalid", message: "idempotency_key is required (1 to 128 characters)" }
+    const prior = this.sql.exec<{ one: number }>(`SELECT 1 AS one FROM ${this.t.ledger} WHERE identity = ? AND idempotency_key = ?`, principal.identity, key)[0]
+    if (prior) return "replay"
+    return this.domain.authorize?.(this.state, frame.op, frame.params as P, principal) ?? undefined
   }
 
   /** Handles one op from an authenticated connection. Frames go out through `deliver`. */

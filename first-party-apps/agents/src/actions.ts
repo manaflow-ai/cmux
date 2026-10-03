@@ -50,6 +50,6 @@ export function refresh() {
   return load(true)
 }
 
-export function openPane() {
-  return call<unknown>("app.pane.open", { kind: "agentHub" }, withGesture(gesture()))
+export function openPane(token: string | null = gesture()) {
+  return call<unknown>("app.pane.open", { kind: "agentHub" }, withGesture(token))
 }

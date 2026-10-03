@@ -27,6 +27,9 @@ public struct PaletteSources {
     /// Actions the palette serves as a nested page of the App's making
     /// (history pages): choosing the action pushes the page in place.
     public var actionPages: [ActionID: @MainActor () -> PalettePageSpec?] = [:]
+    /// Scopes beyond the built-in ones (browser history, app scopes): each
+    /// joins the scope graph and makes its page on entry.
+    public var scopes: [PaletteScopeContribution] = []
 
     public init(
         workspaces: (any PaletteWorkspaceSource)? = nil,
@@ -48,6 +51,18 @@ public struct PaletteSources {
         self.extraProviders = extraProviders
         self.context = context
         self.argumentPreview = argumentPreview
+    }
+}
+
+/// A scope from the App or an app: its catalog entry and its page.
+public struct PaletteScopeContribution {
+    public var descriptor: PaletteScopeDescriptor
+    /// The page, given the row a drill came from.
+    public var page: @MainActor (PaletteItem?) -> PalettePageSpec?
+
+    public init(descriptor: PaletteScopeDescriptor, page: @escaping @MainActor (PaletteItem?) -> PalettePageSpec?) {
+        self.descriptor = descriptor
+        self.page = page
     }
 }
 

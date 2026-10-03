@@ -212,6 +212,8 @@ pub enum ResourceOperation {
     GitCheckpointUnpin,
     #[serde(rename = "git.diff")]
     GitDiff,
+    #[serde(rename = "git.files.search")]
+    GitFilesSearch,
     #[serde(rename = "git.status")]
     GitStatus,
     #[serde(rename = "workspace.list")]
@@ -588,6 +590,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
                 | Self::GitDiff
+                | Self::GitFilesSearch
                 | Self::GitStatus
                 | Self::WorkspaceList
                 | Self::WorkspaceGet
@@ -689,6 +692,7 @@ impl ResourceOperation {
             Self::GitCheckpointPin => "git.checkpoint.pin",
             Self::GitCheckpointUnpin => "git.checkpoint.unpin",
             Self::GitDiff => "git.diff",
+            Self::GitFilesSearch => "git.files.search",
             Self::GitStatus => "git.status",
             Self::WorkspaceList => "workspace.list",
             Self::WorkspaceGet => "workspace.get",

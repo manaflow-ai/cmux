@@ -53,6 +53,7 @@ test("Copy chat link copies the session's link in the host's scheme, showing the
   const button = container.querySelector<HTMLButtonElement>(".acpmux-copy-link")!;
   expect(button.getAttribute("aria-label")).toBe("Copy chat link");
   expect(button.title).toBe("Copy chat link (⌥⌘L)");
+  expect(button.querySelector("svg")?.getAttribute("data-icon")).toBe("link");
   await act(async () => button.click());
   expect(copied).toEqual(["cmux-dev-mytag://session/sess-1"]);
   await unmount();

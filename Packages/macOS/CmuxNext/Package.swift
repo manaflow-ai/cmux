@@ -48,7 +48,7 @@ import PackageDescription
 //     operation sink; plans/cmux-next/app-platform.md)
 //   CmuxNextTasks -> Design (Tasks pane: list, board and inbox prototypes over a mirror + intent
 //     log of the Tasks owner; no daemon; the App supplies the source; plans/cmux-next/tasks.md)
-//   CmuxNextFeed -> Design (feed panel: list, inbox and menu bar prototypes over a mirror + intent
+//   CmuxNextFeed -> Design, Wakeups (feed panel: list, inbox and menu bar prototypes over a mirror + intent
 //     log of the feed owner; no daemon; the App supplies the source; plans/cmux-next/feed.md)
 //   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
@@ -90,6 +90,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        .package(path: "../../Shared/CmuxHomeCore"),
+        .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -137,6 +139,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
+                "CmuxNextFeed",
             ],
             resources: [
                 .process("Resources"),
@@ -255,7 +258,11 @@ let package = Package(
         // render-server send motion), the conversation list and composer.
         .target(
             name: "CmuxNextHome",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextDesign", "CmuxNextWakeups",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -264,7 +271,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextHomeTests",
-            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            dependencies: [
+                "CmuxNextHome", "CmuxNextDesign",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -378,7 +389,7 @@ let package = Package(
         // feed owner; the App supplies the source.
         .target(
             name: "CmuxNextFeed",
-            dependencies: ["CmuxNextDesign"],
+            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -528,6 +539,7 @@ let package = Package(
                 .process("ProfileActions.xcstrings"),
                 .process("RemoteActions.xcstrings"),
                 .process("ScreenActions.xcstrings"),
+                .process("ServerActions.xcstrings"),
                 .process("SettingsActions.xcstrings"),
                 .process("SidebarSectionActions.xcstrings"),
                 .process("ShortcutRecorder.xcstrings"),

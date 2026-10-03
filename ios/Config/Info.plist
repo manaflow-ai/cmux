@@ -32,6 +32,8 @@
 	<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CMUXGitSHA</key>
 	<string>$(CMUX_GIT_SHA)</string>
+	<key>CMUXCloudAPIBaseURL</key>
+	<string>$(CMUX_CLOUD_API_BASE_URL)</string>
 	<key>CMUXDogfoodReadiness</key>
 	<string>app-receipt-v1</string>
 	<key>CMUXCrashReportingEnabled</key>
@@ -71,6 +73,8 @@
 	<array>
 		<string>_cmux-iroh._udp</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>cmux uses Face ID to confirm that you want to lower the protection for texts to Chief.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Connect to your Mac on the local network for cmux mobile pairing and terminal sync.</string>
 	<key>NSMicrophoneUsageDescription</key>

@@ -11,6 +11,7 @@ fn wire_name_round_trips_through_serde() {
         "terminal.output_read",
         "browser.close",
         "git.diff",
+        "git.files.search",
         "stream.cancel",
     ] {
         let operation: ResourceOperation =

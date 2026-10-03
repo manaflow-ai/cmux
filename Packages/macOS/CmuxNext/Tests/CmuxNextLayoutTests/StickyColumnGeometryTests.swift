@@ -201,7 +201,7 @@ import Testing
             LayoutColumn(id: "a", root: .leaf("pa"), sticky: StickyColumn(edge: .left)), LayoutColumn(id: "b", root: .leaf("pb")),
         ]))])
         #expect(model.setColumnSticky("b", StickyColumn(edge: .right)) == .lastScrollingColumn)
-        #expect(model.setColumnSticky("zz", StickyColumn()) == .notColumns)
+        #expect(model.setColumnSticky("zz", StickyColumn()) == .unknownColumn)
         #expect(intents.isEmpty)
     }
 }

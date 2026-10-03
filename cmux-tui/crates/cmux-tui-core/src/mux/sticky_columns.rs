@@ -77,7 +77,8 @@ impl std::error::Error for ColumnStickyError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColumnStickyOutcome {
     pub screen: ScreenId,
-    /// The column's stable id (`Screen.columns[].id`).
+    /// The column's stable id (`Screen.columns[].id`), 0 for the implicit
+    /// column of a screen without `columns`.
     pub column: SplitId,
     /// The column's flag after the request.
     pub sticky: Option<ColumnSticky>,
@@ -197,6 +198,23 @@ impl Mux {
             transaction,
         });
         let unchanged = self.with_state(|state| {
+            // A screen stored as one split tree is one implicit column: the
+            // only column cannot be pinned, and unpinning it changes nothing.
+            if let Some((workspace, screen)) = state.screen_of(pane) {
+                let screen = &state.workspaces[workspace].screens[screen];
+                if screen.layout_columns.is_empty() {
+                    if sticky.is_some() {
+                        return Err(ColumnStickyError::LastScrollingColumn);
+                    }
+                    let outcome = ColumnStickyOutcome {
+                        screen: screen.id,
+                        column: 0,
+                        sticky,
+                        changed: false,
+                    };
+                    return Ok(Some(outcome));
+                }
+            }
             let (workspace, screen, column) = sticky_column_location(state, pane)?;
             let screen = &state.workspaces[workspace].screens[screen];
             let flags = column_flags(&screen.layout_columns);

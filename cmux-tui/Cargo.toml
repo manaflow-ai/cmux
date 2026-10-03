@@ -45,6 +45,8 @@ members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
 ]
 default-members = [
     "crates/acpmux",
@@ -75,6 +77,8 @@ default-members = [
     "crates/cmux-motion",
     "crates/cmux-theme-tokens",
     "crates/cmux-app-manifest",
+    "crates/cmux-rd-proto",
+    "crates/cmux-rd-core",
 ]
 exclude = ["vendor/crossterm"]
 

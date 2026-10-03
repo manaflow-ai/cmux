@@ -628,8 +628,8 @@ ${line.trim()}`;
     const o = await call("ui.open", { interface: "cmux.diff.renderer/1", props: { diff: d.value.diff, layout: "unified" } }, withGesture(token));
     return o.ok ? null : o.error.message;
   }
-  function openPane() {
-    return call("app.pane.open", { kind: "memoryHub" }, withGesture(gesture()));
+  function openPane(token = gesture()) {
+    return call("app.pane.open", { kind: "memoryHub" }, withGesture(token));
   }
   var VARIANTS = ["files", "entries", "split"];
   var DEFAULT_VARIANT = "files";
@@ -948,8 +948,8 @@ ${line.trim()}`;
       }
     ]);
   }
-  async function openMemory() {
-    await openPane();
+  async function openMemory(_args = {}, ctx) {
+    await openPane(ctx?.gesture ?? null);
     return {};
   }
   async function reload() {

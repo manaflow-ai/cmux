@@ -24,18 +24,22 @@ const quiet = (p: Promise<unknown>): Promise<boolean> =>
  * tab paused, the user's copy opened next to it). Called synchronously in the
  * tap, so the call carries the tap's gesture token (origin user).
  */
-export function openItem(item: FeedItem): Promise<boolean> {
+export function openItem(item: FeedItem, api: CmuxGlobal = cmux): Promise<boolean> {
   setSelected(item.id)
   return quiet(
-    cmux.actions.run("feed.openItem", { item: item.id }).catch((e: unknown) => {
+    api.actions.run("feed.openItem", { item: item.id }).catch((e: unknown) => {
       throw codeOf(e) === "operation.unsupported" ? new Error(t("open.unsupported")) : e
     })
   )
 }
 
-/** The gesture token of the running user event; answers and declines refuse to run without one. */
-function userGesture(): string | null {
-  const g = cmux.gesture()
+/**
+ * The user's gesture token: the one a command passes from `ctx.gesture`, else
+ * the token of the running tap handler (read before any await). Answers and
+ * declines refuse to run without one.
+ */
+function userGesture(explicit?: string | null): string | null {
+  const g = explicit ?? cmux.gesture()
   if (!g) noticeFor(t("answer.needsTap"))
   return g
 }
@@ -45,16 +49,16 @@ function userGesture(): string | null {
  * token of the tap that chose the answer (origin user); without one (a
  * command, an agent) nothing is sent.
  */
-export function answer(item: FeedItem, value: unknown): Promise<boolean> {
-  const gesture = userGesture()
+export function answer(item: FeedItem, value: unknown, token?: string | null): Promise<boolean> {
+  const gesture = userGesture(token)
   if (!gesture) return Promise.resolve(false)
   moveSelectionOff([item.id])
   return quiet(feed.answer(item.id, value, gesture))
 }
 
 /** Declines a request (`feed.cancel`, reason `declined`): the waiting agent gets "declined". */
-export function decline(item: FeedItem): Promise<boolean> {
-  const gesture = userGesture()
+export function decline(item: FeedItem, token?: string | null): Promise<boolean> {
+  const gesture = userGesture(token)
   if (!gesture || !isOpenRequest(item)) return Promise.resolve(false)
   moveSelectionOff([item.id])
   return quiet(feed.decline(item.id, gesture))

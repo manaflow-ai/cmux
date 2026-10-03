@@ -107,6 +107,16 @@ describe("Icon", () => {
     expect(after.getAttribute("stroke")).toBe("var(--agent-accent, currentColor)");
   });
 
+  test("data-icon names the requested icon, even when it falls back", async () => {
+    expect((await render({ name: "search" })).getAttribute("data-icon")).toBe("search");
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect((await render({ name: "data.icon.missing" })).getAttribute("data-icon")).toBe("data.icon.missing");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   test("an unknown name falls back to icon.missing and warns once", async () => {
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     try {

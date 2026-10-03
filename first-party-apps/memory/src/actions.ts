@@ -90,6 +90,6 @@ export async function openInDiffs(): Promise<string | null> {
   return o.ok ? null : o.error.message
 }
 
-export function openPane() {
-  return call<unknown>("app.pane.open", { kind: "memoryHub" }, withGesture(gesture()))
+export function openPane(token: string | null = gesture()) {
+  return call<unknown>("app.pane.open", { kind: "memoryHub" }, withGesture(token))
 }

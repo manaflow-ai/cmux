@@ -104,10 +104,6 @@ public struct DaemonCapabilities: Sendable {
     /// Sticky columns: `set-column-sticky` and `columns[].sticky`
     /// (plans/cmux-next/sticky-column.md).
     public let stickyColumns = "sticky-columns-v1"
-    /// Top and bottom docks (`columns[].dock`, plans/cmux-next/layout-model.md).
-    /// No daemon serves it yet; the app refuses to send a top or bottom dock
-    /// until one does.
-    public let edgeDocks = "edge-docks-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -130,18 +126,6 @@ public struct DaemonCapabilities: Sendable {
     /// stream whenever a PTY resize happens mid-sequence (a relaunch resizes
     /// every restored terminal), and the view freezes.
     public let terminalPendingSequence = "terminal-pending-sequence-v1"
-    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
-                                            notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
-                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, launchSnapshot, workspacePin, notificationMarkUnread,
-                                            stateResources, terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, bookmarks] }
-
-    /// Capabilities the app already speaks but the pinned cmux-tui does not
-    /// serve yet. They are advertised, so a daemon that has them enables them,
-    /// but they are not in `optional` (the pinned daemon must serve every
-    /// `optional` capability, BranchDaemonTests). The pin commit that brings
-    /// one moves it into `optional`.
     /// Finished shell commands (OSC 133) journaled as `shell.command.finished`
     /// once `set-terminal-command-history` turns it on (plans/cmux-next/history.md 6).
     public let terminalCommandJournal = "terminal-command-journal-v1"
@@ -152,15 +136,37 @@ public struct DaemonCapabilities: Sendable {
     /// spawns a new tab of the same kind in the source pane, in the same
     /// owner op (plans/cmux-next/layout-invariants.md).
     public let tabSplitRespawn = "tab-split-respawn-v1"
-    public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
-    }
+    /// Additive shapes the app asks for through `set-client-info`: view
+    /// identity on attach, creation receipts, caller-chosen creation attempt
+    /// keys, and per-terminal color overrides.
+    public let attachIdentity = "attach-identity-v1"
+    public let creationReceipts = "creation-receipts-v1"
+    public let creationAttemptKeys = "creation-attempt-keys-v1"
+    public let terminalColorOverrides = "terminal-color-overrides-v1"
+
+    /// Capabilities the bundled daemon must serve. The bundled cmux-tui is
+    /// built from this checkout's own cmux-tui tree
+    /// (scripts/cmux-next/pin-cmux-tui.sh), and
+    /// scripts/cmux-next/check-daemon-capabilities.sh fails the build when it
+    /// does not serve one of these or `required`. The GUI still checks each
+    /// with `DaemonIdentity.supports`, for remote and older daemons.
+    public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
+                                            notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
+                                            terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
+                                            terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
+                                            terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources,
+                                            sessionIdentity, localConversations, tabSplitRespawn, frontendBrowserHistory,
+                                            attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides] }
+
+    /// App code waiting for a daemon half that no branch has yet. Each
+    /// feature shows disabled with its reason (or refuses with it) while the
+    /// bundled daemon lacks the capability. The list only shrinks
+    /// (DaemonCapabilityExportTests): new app features land with their
+    /// daemon half, and check-daemon-capabilities.sh fails once the bundled
+    /// daemon serves an entry, so it moves to `optional`.
+    public var unservedByBundledDaemon: [String] { [remoteTerminalTabs, detachedTerminals, sidebarLayout] }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
-    public var advertised: [String] { required + optional + awaitingPin + [
-        "attach-identity-v1",
-        "creation-receipts-v1",
-        "creation-attempt-keys-v1",
-        "terminal-color-overrides-v1",
-    ] }
+    public var advertised: [String] { required + optional + unservedByBundledDaemon }
 }

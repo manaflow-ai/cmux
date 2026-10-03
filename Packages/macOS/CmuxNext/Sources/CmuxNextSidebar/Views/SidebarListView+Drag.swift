@@ -48,6 +48,7 @@ extension SidebarListView {
         let origin: DropTarget?
         switch press.key {
         case let .workspace(id):
+            guard !model.isPlaceholder(id) else { return }
             let ids = model.selection.contains(id) ? model.orderedSelection : [id]
             if !model.selection.contains(id) { model.click(id) }
             payload = .workspaces(ids)

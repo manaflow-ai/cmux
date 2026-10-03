@@ -14,12 +14,17 @@ final class SidebarRegionView: NSView {
         var metrics: SidebarRegionMetrics
         /// `appearance.borders`: lines, or the tonal step under none.
         var drawsLines: Bool
+        /// Content height of each shown app section (none: draws nothing).
+        var appHeights: [LayoutSectionID: CGFloat] = [:]
     }
 
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
+    /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
+    var appView: ((LayoutSection) -> NSView?)?
+    private var appViews: [LayoutSectionID: NSView] = [:]
 
     private(set) var layoutResult = SidebarRegionLayout.empty
     private var content: Content?
@@ -49,7 +54,7 @@ final class SidebarRegionView: NSView {
     func update(_ content: Content, width: CGFloat) {
         let result = SidebarRegionLayout.make(sections: content.sections, width: width, look: content.look,
                                               collapsed: content.collapsed, metrics: content.metrics,
-                                              labelWidths: Self.labelWidths(content))
+                                              labelWidths: Self.labelWidths(content), appHeights: content.appHeights)
         guard content != self.content || result != layoutResult else { return }
         self.content = content
         layoutResult = result
@@ -71,7 +76,7 @@ final class SidebarRegionView: NSView {
 
     private func apply(_ content: Content) {
         let sections = Dictionary(content.sections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        var liveItems = Set<LayoutItemID>(), liveHeaders = Set<LayoutSectionID>()
+        var liveItems = Set<LayoutItemID>(), liveHeaders = Set<LayoutSectionID>(), liveApps = Set<LayoutSectionID>()
         for row in layoutResult.rows {
             switch row.kind {
             case let .header(id):
@@ -79,6 +84,12 @@ final class SidebarRegionView: NSView {
                 liveHeaders.insert(id)
                 let view = headerViews[id] ?? makeHeader(id)
                 view.configure(title: section.title ?? "", collapsed: content.collapsed.contains(id))
+                view.frame = row.frame
+            case let .app(id):
+                guard let section = sections[id], let view = appViews[id] ?? appView?(section) else { continue }
+                liveApps.insert(id)
+                if view.superview !== self { addSubview(view) }
+                appViews[id] = view
                 view.frame = row.frame
             case let .item(id, sectionID), let .tile(id, sectionID), let .chip(id, sectionID):
                 guard let section = sections[sectionID], let item = section.items.first(where: { $0.id == id }) else { continue }
@@ -96,6 +107,10 @@ final class SidebarRegionView: NSView {
         for (id, view) in itemViews where !liveItems.contains(id) {
             view.removeFromSuperview()
             itemViews[id] = nil
+        }
+        for (id, view) in appViews where !liveApps.contains(id) {
+            view.removeFromSuperview()
+            appViews[id] = nil
         }
         for (id, view) in headerViews where !liveHeaders.contains(id) {
             view.removeFromSuperview()

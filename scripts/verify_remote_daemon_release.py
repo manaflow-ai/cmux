@@ -36,6 +36,16 @@ def asset_path(directory, name):
     return path
 
 
+def suffixed_channel(release_tag):
+    """The version channel of a release whose daemon assets carry a build suffix.
+
+    nightly and rc builds publish `<version>-<channel>.<build>`; the cmux-next
+    track publishes to release `nightly-next` with a `-nightly.<build>` version.
+    Other releases (stable tags) have unsuffixed assets and return None.
+    """
+    return {"nightly": "nightly", "nightly-next": "nightly", "rc": "rc"}.get(release_tag)
+
+
 def verify_assets(manifest_path, directory):
     manifest = json.loads(manifest_path.read_text())
     require(manifest["schemaVersion"] == 1, "unsupported daemon manifest schema")
@@ -51,8 +61,8 @@ def verify_assets(manifest_path, directory):
             and {(e["goOS"], e["goArch"]) for e in entries} == TARGETS,
             "daemon manifest must contain each supported platform exactly once")
     suffix = ""
-    if manifest["releaseTag"] in ("nightly", "rc"):
-        channel = manifest["releaseTag"]
+    channel = suffixed_channel(manifest["releaseTag"])
+    if channel is not None:
         version_parts = manifest["appVersion"].rsplit(f"-{channel}.", 1)
         require(len(version_parts) == 2 and version_parts[1].isdigit(), f"invalid {channel} daemon version")
         suffix = "-" + version_parts[1]
