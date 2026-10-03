@@ -193,15 +193,12 @@ struct RightSidebarPanelView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebar")
         .onAppear {
-            // The sidebar always fits the selected tab's name with the others as icons.
             modeBarWidthReport.onChange = { [fileExplorerState] in fileExplorerState.modeBarMinimumWidth = $0 }
             startShortcutHintMonitorsIfNeeded()
             if fileExplorerState.isVisible { hasMountedRightSidebarContent = true }
             fileExplorerState.refreshModeAvailability()
         }
-        .onDisappear {
-            stopShortcutHintMonitors()
-        }
+        .onDisappear { stopShortcutHintMonitors() }
         .onChange(of: showModifierHoldHints) { _, _ in
             startShortcutHintMonitorsIfNeeded()
         }
@@ -227,8 +224,6 @@ struct RightSidebarPanelView: View {
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 let displayedModes = availableModes
-                // The selected tab keeps its full label; the others share the
-                // rest and truncate, then drop to their icon.
                 RightSidebarModeBarTabsLayout(spacing: RightSidebarChromeMetrics.headerControlSpacing, widthReport: modeBarWidthReport) {
                     ForEach(modeBarItems) { item in
                         let shortcut = item.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
@@ -262,9 +257,6 @@ struct RightSidebarPanelView: View {
                         .layoutValue(key: RightSidebarModeBarTabSelectedKey.self, value: item.isSelected(mode: fileExplorerState.mode))
                     }
                 }
-                // Switching tabs eases the widths: the old tab's fill fades as
-                // it narrows, the new one's fades in as it opens. No highlight
-                // travels across the bar.
                 .animation(reduceMotion ? nil : ModeBarButton.switchAnimation, value: fileExplorerState.mode)
                 .background(RightSidebarModeBarDragAnchorView(anchor: modeBarDrag.anchor))
                 .coordinateSpace(.named(RightSidebarModeBarDragController.coordinateSpace))

@@ -446,7 +446,6 @@ final class CloudTreeNSOutlineView: NSOutlineView {
             Self.leadingMargin + CGFloat(max(0, level(forRow: row))) * treeStyle.indentPerLevel
         )
     }
-
     override func frameOfOutlineCell(atRow row: Int) -> NSRect {
         // A machine's tab row opens and closes through its tabs, not a disclosure.
         if let node = item(atRow: row) as? CloudTreeNode, case .machineDetailTabs = node.kind { return .zero }
