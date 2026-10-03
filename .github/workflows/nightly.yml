@@ -812,12 +812,16 @@ jobs:
           set -euo pipefail
           # The same paths as ci.yml `macos-compile-admission`: they are part of
           # every cache entry this job writes.
-          # Fixed paths survive across jobs on persistent runners. Clear them
-          # before any trusted product/cache restoration.
-          root="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}"
+          # A self-hosted Mac can have several runners. Derive one root per
+          # RUNNER_NAME before cleanup so one seed build cannot remove another
+          # runner's source tree, DerivedData, or compilation CAS.
+          root="$(scripts/ci/canonical-build-root.sh --print-root)"
           scripts/ci/clear-dirs.sh "$root/derived-data-compile-admission" "$root/compile-admission-cas"
-          echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/derived-data-compile-admission" >> "$GITHUB_ENV"
-          echo "CMUX_COMPILE_ADMISSION_CAS=${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/compile-admission-cas" >> "$GITHUB_ENV"
+          {
+            echo "CMUX_CI_CANONICAL_ROOT=$root"
+            echo "CMUX_COMPILE_ADMISSION_DERIVED_DATA=$root/derived-data-compile-admission"
+            echo "CMUX_COMPILE_ADMISSION_CAS=$root/compile-admission-cas"
+          } >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -936,7 +940,7 @@ jobs:
         if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          resolved="${CMUX_CI_CANONICAL_ROOT:-/private/tmp/cmux-ci}/src/.ci-source-packages"
+          resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
           test -d "$resolved/.package-cache"
           rsync -a --delete "$resolved/" .ci-source-packages/
 
