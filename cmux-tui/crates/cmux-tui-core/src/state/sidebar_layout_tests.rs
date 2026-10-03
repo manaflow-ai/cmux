@@ -406,6 +406,7 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
                 room: None,
                 max_rows: None,
                 content: if flag && rows == 0 { Content::Workspaces } else { Content::Items },
+                contribution: None,
                 items: vec![],
             },
             index,

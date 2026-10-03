@@ -42,6 +42,8 @@ pub enum Look {
 pub enum Content {
     Items,
     Workspaces,
+    /// A section an app supplies (`contribution`); it holds no items.
+    App,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
@@ -182,8 +184,22 @@ pub struct Section {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_rows: Option<i64>,
     pub content: Content,
+    /// `<app id>#<section id>` for content `app`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contribution: Option<String>,
     #[serde(default, deserialize_with = "default_if_null")]
     pub items: Vec<Item>,
+}
+
+impl Section {
+    /// The app that owns an app section: the id before `#`.
+    pub fn owning_app_id(&self) -> Option<&str> {
+        if self.content != Content::App {
+            return None;
+        }
+        let (app, _) = self.contribution.as_deref()?.split_once('#')?;
+        (!app.is_empty()).then_some(app)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -286,6 +302,8 @@ pub enum Reject {
     InvalidTitle,
     InvalidMaxRows,
     InvalidArrangement,
+    InvalidContribution,
+    ItemsNotAllowed,
     TooMany,
 }
 
@@ -300,6 +318,8 @@ impl Reject {
             Reject::InvalidTitle => "invalid_title",
             Reject::InvalidMaxRows => "invalid_max_rows",
             Reject::InvalidArrangement => "invalid_arrangement",
+            Reject::InvalidContribution => "invalid_contribution",
+            Reject::ItemsNotAllowed => "items_not_allowed",
             Reject::TooMany => "too_many",
         }
     }
@@ -327,6 +347,7 @@ pub fn defaults() -> Document {
         room: None,
         max_rows: None,
         content: Content::Items,
+        contribution: None,
         items,
     };
     Document {
@@ -351,6 +372,7 @@ pub fn defaults() -> Document {
                 room: None,
                 max_rows: None,
                 content: Content::Workspaces,
+                contribution: None,
                 items: vec![],
             },
             sticky(
@@ -455,6 +477,14 @@ fn insertion_index(region: Region, index: i64, sections: &[Section]) -> usize {
     if slot == in_region.len() { in_region[in_region.len() - 1] + 1 } else { in_region[slot] }
 }
 
+fn ensure_items(section: &Section) -> Result<(), Reject> {
+    match section.content {
+        Content::Items => Ok(()),
+        Content::Workspaces => Err(Reject::WorkspacesRequired),
+        Content::App => Err(Reject::ItemsNotAllowed),
+    }
+}
+
 fn validate_title(title: Option<&String>) -> Result<(), Reject> {
     match title {
         // Unicode scalars, like the app's reducer (`unicodeScalars.count`).
@@ -490,8 +520,13 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
         return Err(Reject::DuplicateId);
     }
     // L1: exactly one workspaces section, and it holds no items.
-    if section.content == Content::Workspaces {
-        return Err(Reject::WorkspacesRequired);
+    match section.content {
+        Content::Workspaces => return Err(Reject::WorkspacesRequired),
+        Content::App if section.owning_app_id().is_none() || !section.items.is_empty() => {
+            return Err(Reject::InvalidContribution);
+        }
+        Content::Items if section.contribution.is_some() => return Err(Reject::InvalidContribution),
+        _ => {}
     }
     validate_title(section.title.as_ref())?;
     validate_max_rows(section.max_rows)?;
@@ -567,9 +602,7 @@ fn add_item(
     sections: &mut [Section],
 ) -> Result<(), Reject> {
     let s = find_section(section, sections)?;
-    if sections[s].content != Content::Items {
-        return Err(Reject::WorkspacesRequired);
-    }
+    ensure_items(&sections[s])?;
     if locate(&item.id, sections).is_some()
         || sections.iter().any(|existing| existing.id == item.id)
     {
@@ -590,9 +623,7 @@ fn add_item(
 fn move_item(id: &str, target: &str, index: i64, sections: &mut [Section]) -> Result<(), Reject> {
     let (s, i) = locate(id, sections).ok_or(Reject::UnknownItem)?;
     let t = find_section(target, sections)?;
-    if sections[t].content != Content::Items {
-        return Err(Reject::WorkspacesRequired);
-    }
+    ensure_items(&sections[t])?;
     let item = sections[s].items[i].clone();
     if t != s && sections[t].items.iter().any(|existing| existing.reference == item.reference) {
         return Err(Reject::DuplicateRef);

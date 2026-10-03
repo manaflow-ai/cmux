@@ -6381,7 +6381,8 @@
       "kind": "enum",
       "values": [
         "items",
-        "workspaces"
+        "workspaces",
+        "app"
       ]
     },
     "SidebarArrangementLayout": {
@@ -6576,6 +6577,16 @@
             "name": "SidebarSectionContent"
           },
           "description": "Exactly one section has workspaces; it holds no items and shows in every room."
+        },
+        "contribution": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 3,
+            "max_length": 400
+          },
+          "description": "<app id>#<section id> of an app section (content app, which holds no items)."
         },
         "items": {
           "required": false,
@@ -13387,7 +13398,7 @@
         },
         "extra": false,
         "constraints": [
-          "A rejected op is validation.invalid with the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, too_many) and writes nothing.",
+          "A rejected op is validation.invalid with the reducer's reason (workspaces_required, unknown_section, unknown_item, duplicate_id, duplicate_ref, invalid_title, invalid_max_rows, invalid_arrangement, invalid_contribution, items_not_allowed, too_many) and writes nothing.",
           "An op that changes nothing commits with no session.events change and the same revision."
         ]
       },
