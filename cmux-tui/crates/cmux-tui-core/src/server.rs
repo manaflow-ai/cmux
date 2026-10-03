@@ -14200,7 +14200,7 @@ fn handle_command_with_cancellation(
         Command::BrowserNavigate { surface, url } => {
             let surface = get_surface(mux, surface)?;
             require_browser(mux, &surface)?;
-            surface.browser_navigate(&url)?;
+            mux.navigate_browser_surface(&surface, &url)?;
             Ok(json!({}))
         }
         Command::BrowserBack { surface } => {

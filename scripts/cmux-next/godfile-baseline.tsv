@@ -44,7 +44,7 @@ rust-file	cmux-tui/crates/cmux-remote/src/workspace/process.rs	4086	162
 rust-file	cmux-tui/crates/cmux-terminal-client/src/lib.rs	2636	92
 rust-file	cmux-tui/crates/cmux-tui-cdp/src/client.rs	3952	151
 rust-file	cmux-tui/crates/cmux-tui-core/src/agent_hooks.rs	1391	39
-rust-file	cmux-tui/crates/cmux-tui-core/src/browser.rs	11571	392
+rust-file	cmux-tui/crates/cmux-tui-core/src/browser.rs	11510	387
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_checkpoint.rs	1427	39
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs	2028	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs	2996	100
