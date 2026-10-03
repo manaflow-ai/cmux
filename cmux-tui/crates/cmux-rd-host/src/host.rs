@@ -124,7 +124,8 @@ pub fn reach_and_bind(opts: &Opts) -> Result<(Reach, IpAddr), String> {
     } else {
         Reach::LoopbackOnly
     };
-    let bind: IpAddr = opts.str_or("bind", "127.0.0.1").parse().map_err(|e| format!("--bind: {e}"))?;
+    let bind: IpAddr =
+        opts.str_or("bind", "127.0.0.1").parse().map_err(|e| format!("--bind: {e}"))?;
     bind_allowed(bind, reach)?;
     Ok((reach, bind))
 }
@@ -326,9 +327,14 @@ mod tests {
         assert!(!peer_allowed(ip("::ffff:10.250.93.2"), reach));
         assert!(peer_allowed(ip("::ffff:127.0.0.1"), reach));
         // Anything but the exact "1" keeps the default.
-        assert_eq!(reach_and_bind(&opts(&["--single-tenant-overlay", "true"])).map(|r| r.0), Ok(Reach::LoopbackOnly));
+        assert_eq!(
+            reach_and_bind(&opts(&["--single-tenant-overlay", "true"])).map(|r| r.0),
+            Ok(Reach::LoopbackOnly)
+        );
         assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1"])).is_err());
-        assert!(reach_and_bind(&opts(&["--bind", "10.0.0.1", "--single-tenant-overlay", "1"])).is_ok());
+        assert!(
+            reach_and_bind(&opts(&["--bind", "10.0.0.1", "--single-tenant-overlay", "1"])).is_ok()
+        );
     }
 
     #[test]
