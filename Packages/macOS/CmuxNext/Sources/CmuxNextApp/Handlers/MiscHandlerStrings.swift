@@ -29,6 +29,8 @@ enum MiscHandlerStrings {
     static var forkClaudeOnly: String { String(localized: "handlers.misc.failed.forkClaudeOnly", defaultValue: "Forking is supported for Claude sessions only.", table: "MiscHandlers", bundle: .module) }
     static var noAgentChat: String { String(localized: "handlers.misc.failed.noAgentChat", defaultValue: "Dictation works in agent chats. Focus one first.", table: "MiscHandlers", bundle: .module) }
     static var continueInNeedsFocus: String { String(localized: "handlers.misc.failed.continueInNeedsFocus", defaultValue: "Continue in… requires focus; use cmux acp continue for a headless handoff.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatNeedsFocus: String { String(localized: "handlers.misc.failed.quickChatNeedsFocus", defaultValue: "Quick Agent Chat opens from the keyboard, palette or menu. It does not take the keyboard for automation.", table: "MiscHandlers", bundle: .module) }
+    static var quickChatUnavailable: String { String(localized: "handlers.misc.failed.quickChatUnavailable", defaultValue: "Quick Agent Chat needs the agent page, which this build does not include.", table: "MiscHandlers", bundle: .module) }
     static var checkpointNeedsFocus: String { String(localized: "handlers.misc.failed.checkpointNeedsFocus", defaultValue: "Checkpoint review requires focus. Use git.checkpoint.create for a headless capture.", table: "MiscHandlers", bundle: .module) }
     static var noFile: String { String(localized: "handlers.misc.failed.noFile", defaultValue: "No file is focused.", table: "MiscHandlers", bundle: .module) }
     static func invalidURL(_ text: String) -> String {

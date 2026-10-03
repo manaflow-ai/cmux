@@ -5613,6 +5613,17 @@
       "palette" : "offered"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "agent quick",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "id" : "palette.quickAgentChat",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
       "cli" : "liveInput",
       "cli_name" : "agent toggle-dictation",
       "context_menu" : "liveInput",

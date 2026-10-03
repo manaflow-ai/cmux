@@ -30,6 +30,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// `file.open` with `{path, where}`: a changed file from the changes view,
     /// in a tab beside the agent or in the text editor.
     case openFile(path: String, target: AgentPaneFileTarget)
+    /// The quick panel's page: Esc hides the panel, keeping its draft.
+    case quickDismiss
+    /// The quick panel's page: open its chat in the main window and hide
+    /// the panel. `{sessionId}` is optional; without it the host uses the
+    /// session the page last persisted.
+    case quickOpenInWindow(sessionId: String?)
     case unsupported(String)
 
     public static let maximumPacingFrames = 640
@@ -86,6 +92,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             } else {
                 self = .unsupported(method)
             }
+        case "quick.dismiss": self = .quickDismiss
+        case "quick.openInWindow":
+            let id = params?["sessionId"] as? String
+            self = .quickOpenInWindow(sessionId: id?.isEmpty == false ? id : nil)
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.start": self = .dictation(.start)
         case "dictation.stop": self = .dictation(.stop)
@@ -131,6 +141,7 @@ public nonisolated enum AgentPaneReply {
         if let draft = handshake.draft { value["draft"] = draft }
         if let prompt = handshake.prompt { value["prompt"] = prompt }
         if let adopt = handshake.adopt { value["adopt"] = adopt.reply }
+        if let surface = handshake.surface { value["surface"] = surface.rawValue }
         value["handoffStrings"] = AgentPaneHandoffStrings().values
         value["checkpointStrings"] = AgentPaneCheckpointStrings().values
         return success(value)

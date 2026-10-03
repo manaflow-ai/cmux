@@ -14,12 +14,15 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     /// An outside chat to resume instead of starting a new one. Kept across
     /// page reloads: acpmux adopts one id into one session.
     public var adopt: AgentPaneAdopt?
+    /// Where the page is shown when it is not a pane tab (the quick panel).
+    public var surface: AgentPaneSurface?
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil) {
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil, surface: AgentPaneSurface? = nil) {
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
         self.adopt = adopt
+        self.surface = surface
     }
 }
 
@@ -31,6 +34,9 @@ public final class AgentPaneSeedSource {
     private var read: (@MainActor @Sendable () async -> AgentPaneSeed?)?
     private var value: AgentPaneSeed?
     private let limit: Duration
+    /// The seed's surface. Unlike the draft it holds for the page's whole
+    /// life, after the chat has a session too.
+    public private(set) var surface: AgentPaneSurface?
 
     public init(limit: Duration = .seconds(1), _ read: @escaping @MainActor @Sendable () async -> AgentPaneSeed?) {
         self.read = read
@@ -40,6 +46,7 @@ public final class AgentPaneSeedSource {
     public init(_ seed: AgentPaneSeed) {
         value = seed
         limit = .zero
+        surface = seed.surface
     }
 
     /// The seed, read once. The draft and prompt are handed out only once,
@@ -48,6 +55,7 @@ public final class AgentPaneSeedSource {
         if let read {
             self.read = nil
             value = await agentPaneFirst(within: limit, read)
+            surface = value?.surface
         }
         let seed = value
         value?.draft = nil

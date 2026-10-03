@@ -8,6 +8,7 @@ import CmuxNextDaemon
 /// `claude --resume <session> --fork-session` in a new terminal placed by
 /// daemon commands. New Agent Chat opens the React acpmux pane in a tab
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
+/// Quick Agent Chat toggles the floating `QuickComposerController` panel.
 /// Terminal-as-chat, Teams, and Computer Use are
 /// typed-unavailable.
 enum AgentHandlers {
@@ -25,6 +26,14 @@ enum AgentHandlers {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
+        // The panel takes the keyboard from the frontmost app, so automation
+        // cannot open it unless it asks for focus.
+        registry.bind("palette.quickAgentChat", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
+            guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
+            context.services.quickComposer.toggle()
+        })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in

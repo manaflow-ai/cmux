@@ -10,6 +10,20 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "bubble.left.and.text.bubble.right",
                 surfaces: [.palette, .keyboard, .menu, .contextMenu], targets: [.pane], cliName: "agent new-chat", mainMenu: .file
             ),
+            {
+                var quick = ActionDescriptor(
+                    id: "palette.quickAgentChat",
+                    title: String(localized: "action.palette.quickAgentChat", defaultValue: "Quick Agent Chat…", bundle: .module),
+                    keywords: ["agent", "chat", "ai", "acpmux", "quick", "composer", "global", "hotkey", "summon"],
+                    // Ctrl-Opt-Cmd-Space: clear of ChatGPT's and Claude's quick-entry defaults.
+                    defaultShortcut: Shortcut(Shortcut.spaceKey, modifiers: [.control, .option, .command]),
+                    category: .agents, symbol: "bubble.left.and.text.bubble.right.fill",
+                    surfaces: [.palette, .keyboard, .menu], cliName: "agent quick", mainMenu: .file
+                )
+                // A floating composer over any app, so the key works while cmux is in the background.
+                quick.isGlobalHotKey = true
+                return quick
+            }(),
             ActionDescriptor(
                 id: "palette.toggleDictation",
                 title: String(localized: "action.palette.toggleDictation", defaultValue: "Toggle Dictation", bundle: .module),

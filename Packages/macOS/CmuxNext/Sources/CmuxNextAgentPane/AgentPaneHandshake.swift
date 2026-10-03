@@ -44,6 +44,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// An outside chat the page resumes on connect. Pages that predate it
     /// ignore it and open an empty chat, so the version stays the same.
     public var adopt: AgentPaneAdopt?
+    /// Where the page is shown when it is not a pane tab (`"quick"`: the
+    /// quick panel's compact composer). Pages that predate it ignore it.
+    public var surface: AgentPaneSurface?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

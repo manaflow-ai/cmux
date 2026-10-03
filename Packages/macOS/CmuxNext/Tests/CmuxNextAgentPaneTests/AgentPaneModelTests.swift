@@ -139,6 +139,71 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect(value["draft"] == nil)
     }
 
+    /// The quick panel's page lays itself out from the handshake's
+    /// `surface`, on every ready, after the chat has a session too.
+    @Test func aQuickSeedPutsItsSurfaceInEveryHandshake() async throws {
+        let model = AgentPaneModel(host: RecordingHost(), seed: AgentPaneSeedSource(AgentPaneSeed(surface: .quick)))
+        let first = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(first["surface"] as? String == "quick")
+        _ = await model.respond(to: .persistSession("s-3"))
+        let attached = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(attached["surface"] as? String == "quick")
+        let reconnect = try #require(await model.respond(to: .reconnect)["value"] as? [String: Any])
+        #expect(reconnect["surface"] as? String == "quick")
+    }
+
+    @Test func aTabHandshakeHasNoSurface() async throws {
+        let plain = try #require(await AgentPaneModel(host: RecordingHost()).respond(to: .ready)["value"] as? [String: Any])
+        #expect(plain["surface"] == nil)
+        let seeded = AgentPaneModel(host: RecordingHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w")))
+        let value = try #require(await seeded.respond(to: .ready)["value"] as? [String: Any])
+        #expect(value["surface"] == nil)
+    }
+
+    @Test func quickPanelMessagesDecode() {
+        #expect(AgentPaneRequest(body: ["method": "quick.dismiss"] as [String: Any]) == .quickDismiss)
+        #expect(AgentPaneRequest(body: ["method": "quick.dismiss", "params": [String: Any]()] as [String: Any]) == .quickDismiss)
+        #expect(AgentPaneRequest(body: ["method": "quick.openInWindow", "params": ["sessionId": "s-4"]] as [String: Any])
+            == .quickOpenInWindow(sessionId: "s-4"))
+        #expect(AgentPaneRequest(body: ["method": "quick.openInWindow", "params": ["sessionId": ""]] as [String: Any])
+            == .quickOpenInWindow(sessionId: nil))
+        #expect(AgentPaneRequest(body: ["method": "quick.openInWindow"] as [String: Any]) == .quickOpenInWindow(sessionId: nil))
+    }
+
+    /// `quick.dismiss` hides the panel; `quick.openInWindow` hands the
+    /// chat to the main window with the page's session, else the one it
+    /// last persisted.
+    @Test func quickPanelMessagesReachTheirClosures() async throws {
+        let model = AgentPaneModel(host: RecordingHost())
+        var dismissed = 0
+        var opened: [String?] = []
+        var reported: [String] = []
+        model.onQuickDismiss = { dismissed += 1 }
+        model.onQuickOpenInWindow = { opened.append($0) }
+        model.onSessionChange = { reported.append($0) }
+
+        #expect(await model.respond(to: .quickDismiss)["ok"] as? Bool == true)
+        #expect(dismissed == 1)
+
+        #expect(await model.respond(to: .quickOpenInWindow(sessionId: nil))["ok"] as? Bool == true)
+        _ = await model.respond(to: .persistSession("s-5"))
+        _ = await model.respond(to: .quickOpenInWindow(sessionId: nil))
+        _ = await model.respond(to: .quickOpenInWindow(sessionId: "s-6"))
+        #expect(opened == [nil, "s-5", "s-6"])
+        #expect(reported == ["s-5", "s-6"])
+        #expect(model.sessionId == "s-6")
+    }
+
+    /// A pane tab is not the quick panel: it refuses both messages.
+    @Test func aTabRefusesQuickPanelMessages() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost())
+        for request in [AgentPaneRequest.quickDismiss, .quickOpenInWindow(sessionId: "s-7")] {
+            let reply = await model.respond(to: request)
+            #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
+        }
+        #expect(model.sessionId == nil)
+    }
+
     /// A seed read that never answers (a hung page) is dropped at its
     /// limit instead of holding the handshake.
     @Test func aSeedThatNeverAnswersIsDropped() async throws {

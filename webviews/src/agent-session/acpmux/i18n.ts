@@ -91,6 +91,10 @@ const en = {
   "permission.error.noLongerAvailable": "Permission group is no longer available. Review the current groups.",
   "permission.error.groupChanged": "The permission group changed. Review it again before retrying.",
   "permission.error.disconnected": "Permission groups are disconnected. Refresh before answering.",
+  "quick.keys": "Keyboard shortcuts",
+  "quick.send": "send",
+  "quick.openInWindow": "open in window",
+  "quick.close": "close",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -185,6 +189,10 @@ const ja: Record<StringKey, string> = {
   "permission.error.noLongerAvailable": "権限グループは利用できなくなりました。現在のグループを確認してください。",
   "permission.error.groupChanged": "権限グループが変わりました。再試行する前にもう一度確認してください。",
   "permission.error.disconnected": "権限グループとの接続が切れています。回答する前に更新してください。",
+  "quick.keys": "キーボードショートカット",
+  "quick.send": "送信",
+  "quick.openInWindow": "ウィンドウで開く",
+  "quick.close": "閉じる",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
