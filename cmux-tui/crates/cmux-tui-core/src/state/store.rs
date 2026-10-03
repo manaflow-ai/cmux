@@ -249,7 +249,7 @@ impl WorkspaceRegistry {
         )?;
         crate::workspace_registry::insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &operation,
             &fingerprint,
             &canonical_json(&result)?,

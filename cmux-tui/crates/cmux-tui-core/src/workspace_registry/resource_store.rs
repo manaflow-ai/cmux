@@ -999,7 +999,7 @@ impl WorkspaceRegistry {
                     let stored_result_json = canonical_json(&existing_value)?;
                     insert_resource_mutation(
                         &tx,
-                        &mutation,
+                        mutation,
                         &OPERATION,
                         &fingerprint,
                         &stored_result_json,
@@ -1065,7 +1065,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &OPERATION,
             &fingerprint,
             &result_json,
@@ -1145,7 +1145,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &OPERATION,
             &fingerprint,
             &result_json,
@@ -1245,7 +1245,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &OPERATION,
             &fingerprint,
             &result_json,
@@ -1512,7 +1512,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &operation,
             &fingerprint,
             &result_json,
@@ -1626,7 +1626,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &operation,
             &fingerprint,
             &result_json,

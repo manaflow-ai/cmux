@@ -3203,7 +3203,7 @@ impl WorkspaceRegistry {
         )?;
         insert_resource_mutation(
             &tx,
-            &mutation,
+            mutation,
             &OPERATION,
             &fingerprint,
             &resource_result_json,
@@ -3614,7 +3614,7 @@ impl WorkspaceRegistry {
         ) {
             insert_resource_mutation(
                 &tx,
-                &mutation,
+                mutation,
                 &event_kind,
                 &fingerprint,
                 &result_json,
