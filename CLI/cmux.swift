@@ -29511,7 +29511,12 @@ struct CMUXCLI {
                 case "permission_prompt":
                     journalKind = .approvalRequested
                 case "idle_prompt":
-                    // After a StopFailure the idle nag must not settle the error to idle.
+                    // Claude's idle_prompt is a reminder, not evidence that the
+                    // user is blocked. Treat it as an idle observation even when
+                    // the session record is missing or stale; otherwise a delayed
+                    // reminder can resurrect Needs input and prevent hibernation.
+                    // A StopFailure remains authoritative until a real turn event
+                    // clears the error state.
                     journalKind = ClaudeStopFailure.isStopFailureEvent(mappedSession?.hookEventName) ? .stateChanged : .idleObserved
                 default:
                     switch classifiedSubtitle {
@@ -29567,6 +29572,12 @@ struct CMUXCLI {
                     icon: "bell.fill",
                     color: "#4C8DFF", pid: claudePid
                 )
+            } else if journalKind == .idleObserved, !suppressVisibleMutations {
+                // A delayed idle_prompt can arrive after an earlier stale
+                // reminder marked the pane Needs input. The journal already
+                // records this as idle; reconcile the visible status too so a
+                // finished Claude session can become hibernatable again.
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             }
             // A notification with nothing to show is state signal only: the
             // journal recorded it; no banner is fabricated for it. A completion
