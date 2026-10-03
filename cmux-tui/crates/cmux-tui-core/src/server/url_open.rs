@@ -149,7 +149,9 @@ pub(super) fn start(
     writer: &MessageWriter,
 ) -> bool {
     let terminal_id = TerminalPublicId::parse(terminal.clone()).ok();
-    let valid = mux.control_clients.is_unix(client)
+    // Only a local principal: the Cloud VM guest opener talks to its own
+    // daemon over the local socket; a remote bridge peer never opens URLs.
+    let valid = mux.control_clients.is_local_principal(client)
         && validate_url(&url)
         && terminal_id.as_ref().and_then(|id| mux.resource_surface_for_terminal(id)).is_some();
     let pending = valid.then(|| mux.control_clients.url_opens.prepare(&terminal, &url)).flatten();
