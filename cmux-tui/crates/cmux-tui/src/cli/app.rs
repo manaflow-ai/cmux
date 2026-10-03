@@ -65,6 +65,12 @@ pub(super) enum AppCommand {
     Events { params: Value },
 }
 
+/// The app socket's own settings methods, for a daemon without `settings-v1`:
+/// `settings.get`, `settings.set` (a value) and `settings.unset`.
+pub(super) fn legacy_settings_call(method: &'static str, params: Value) -> AppCommand {
+    AppCommand::Call { method, params, timeout: READ_TIMEOUT, pick: None }
+}
+
 /// Parses an app scope. `Ok(None)` when `args` does not start with one.
 pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     let Some(scope) = args.first() else { return Ok(None) };
@@ -115,21 +121,19 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             };
             run_action(id, tail, ActionName::Any)?
         }
-        ("settings", Some("get")) => match &rest[1..] {
-            [] => call("settings.get", json!({})),
-            [path] => call("settings.get", json!({ "path": path })),
-            _ => return Err(UsageError::new(messages.settings_usage)),
-        },
-        ("settings", Some("set")) => {
-            let [path, value] = positional::<2>(&rest[1..], messages.settings_usage)?;
-            // A JSON value when it parses as one, else the literal string.
-            let value = serde_json::from_str(&value).unwrap_or(Value::String(value));
-            call("settings.set", json!({ "path": path, "value": value }))
+        // `settings open [<key>]` opens the app's Settings window; every
+        // other settings verb goes to the daemon's settings owner
+        // (cli/settings.rs), which falls back to `legacy_settings_call`.
+        ("settings", Some("open")) => {
+            let key = match &rest[1..] {
+                [] => None,
+                [key] => Some(key.clone()),
+                _ => return Err(UsageError::new(messages.settings_usage)),
+            };
+            let args = key.map(|key| vec!["--setting".to_owned(), key]).unwrap_or_default();
+            run_action("openSettings", &args, ActionName::Any)?
         }
-        ("settings", Some("unset")) => {
-            let [path] = positional::<1>(&rest[1..], messages.settings_usage)?;
-            call("settings.unset", json!({ "path": path }))
-        }
+        ("settings", _) => return Ok(None),
         // The app's durable page, location, closed and agent history
         // (plans/cmux-next/history.md): `history list|search`.
         ("history", Some(verb @ ("list" | "search"))) => {

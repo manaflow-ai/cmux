@@ -73,6 +73,7 @@ tokio.workspace = true
 windows-sys.workspace = true
 
 [dev-dependencies]
+cmux-config.workspace = true
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
 tempfile = "3"

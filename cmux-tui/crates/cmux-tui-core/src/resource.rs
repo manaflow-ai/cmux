@@ -365,6 +365,24 @@ pub enum ResourceOperation {
     ClosedList,
     #[serde(rename = "closed.reopen")]
     ClosedReopen,
+    #[serde(rename = "settings.schema")]
+    SettingsSchema,
+    #[serde(rename = "settings.list")]
+    SettingsList,
+    #[serde(rename = "settings.get")]
+    SettingsGet,
+    #[serde(rename = "settings.snapshot")]
+    SettingsSnapshot,
+    #[serde(rename = "settings.set")]
+    SettingsSet,
+    #[serde(rename = "settings.reset")]
+    SettingsReset,
+    #[serde(rename = "settings.reset_all")]
+    SettingsResetAll,
+    #[serde(rename = "settings.domains.publish")]
+    SettingsDomainsPublish,
+    #[serde(rename = "settings.team_policy.set")]
+    SettingsTeamPolicySet,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -581,6 +599,10 @@ impl ResourceOperation {
                 | Self::SidebarViewGet
                 | Self::ClosedList
                 | Self::WindowRecordList
+                | Self::SettingsSchema
+                | Self::SettingsList
+                | Self::SettingsGet
+                | Self::SettingsSnapshot
                 | Self::RoomList
                 | Self::SavedTabGroupList
                 | Self::ScreenGroupGet

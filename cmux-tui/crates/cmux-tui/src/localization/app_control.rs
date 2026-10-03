@@ -26,7 +26,7 @@ pub(crate) struct AppControlMessages {
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
     action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
-    settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE | unset PATH",
+    settings_usage: "usage: cmux settings list [--section S] | get KEY | set KEY VALUE | reset KEY | reset-all | snapshot | schema | open [KEY]",
     events_after_invalid: "--after needs an event sequence number, not \"{value}\"",
     scope_usage: "usage: cmux {scope} <action>; `cmux action list --noun {scope}` lists the actions",
     handles_unstable: "account handles change after restart: Keychain unavailable",
@@ -46,7 +46,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
     action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
-    settings_usage: "使い方: cmux settings get [パス] | set パス 値 | unset パス",
+    settings_usage: "使い方: cmux settings list [--section S] | get キー | set キー 値 | reset キー | reset-all | snapshot | schema | open [キー]",
     events_after_invalid: "--after にはイベント番号が必要です (「{value}」は不正)",
     scope_usage: "使い方: cmux {scope} <アクション>。`cmux action list --noun {scope}` で一覧を表示",
     handles_unstable: "アカウントのハンドルは再起動後に変わります: キーチェーンを使用できません",

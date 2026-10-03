@@ -4,6 +4,7 @@
 //! embedded as the one validation source so transport handlers cannot drift.
 
 mod auxiliary;
+mod config;
 mod content;
 mod effects;
 mod mouse;
@@ -756,6 +757,15 @@ pub(crate) fn commit_session_shutdown(
     session::commit_shutdown(mux, request)
 }
 
+/// `settings.domains.publish` and `settings.team_policy.set` after the
+/// connection checked that the hosting app sent them.
+pub(crate) fn dispatch_settings_app_input(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+) -> Result<Value, ResourceError> {
+    config::dispatch(mux, request)
+}
+
 pub(crate) fn handle_trusted_local_auxiliary(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,
@@ -808,6 +818,7 @@ fn dispatch_resource_request(
         OperationOwner::Auxiliary => auxiliary::dispatch(mux, request),
         OperationOwner::State => crate::state::router::dispatch(mux, request),
         OperationOwner::Git => crate::git_ops::dispatch(mux, request),
+        OperationOwner::Config => config::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,

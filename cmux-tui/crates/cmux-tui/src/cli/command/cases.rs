@@ -752,7 +752,29 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
     ];
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
+    cases.extend(settings_cases());
     cases
+}
+
+/// One path per `settings.*` operation the CLI offers (cli/settings.rs).
+/// `settings.domains.publish` and `settings.team_policy.set` come only from
+/// the hosting app.
+fn settings_cases() -> Vec<(Vec<&'static str>, &'static str)> {
+    vec![
+        (vec!["settings", "list", "--section", "appearance"], "settings.list"),
+        (vec!["settings", "get", "ui.animationSpeed"], "settings.get"),
+        (vec!["settings", "snapshot"], "settings.snapshot"),
+        (vec!["settings", "schema"], "settings.schema"),
+        (
+            vec!["settings", "set", "ui.animationSpeed", "off", "--if-revision", "3", "--origin", "user"],
+            "settings.set",
+        ),
+        (
+            vec!["settings", "reset", "ui.animationSpeed", "--if-revision", "3", "--origin", "user"],
+            "settings.reset",
+        ),
+        (vec!["settings", "reset-all", "--if-revision", "3", "--origin", "user"], "settings.reset_all"),
+    ]
 }
 
 /// One path per state resource operation (state-ownership.md steps A

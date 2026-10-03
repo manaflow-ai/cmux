@@ -77,6 +77,8 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("window_record.put", WINDOW_RECORD_REASON),
     ("window_record.delete", WINDOW_RECORD_REASON),
     ("workspace.ensure_home", HOME_REASON),
+    ("settings.domains.publish", SETTINGS_APP_REASON),
+    ("settings.team_policy.set", SETTINGS_APP_REASON),
 ];
 
 const MACHINE_REASON: &str =
@@ -93,6 +95,12 @@ const PAIRING_REASON: &str =
 const WINDOW_RECORD_REASON: &str = "A window record has one writer, the app that hosts the \
      window; the CLI omits it too, and window_list reads the app's windows.";
 const SIDEBAR_REASON: &str = "TUI sidebar plugin views in the cmux-tui-only scope.";
+const SETTINGS_APP_REASON: &str = "Value domains and the team policy come only from the \
+     hosting app's connection (settings-host-v1); the daemon refuses everyone else.";
+/// Operations with an `origin` field get `mcp` from the server, never from
+/// the agent: the owner refuses keys an agent may not change
+/// (plans/cmux-next/settings-react.md section 3).
+const ORIGIN_FIELD: &str = "origin";
 const HOME_REASON: &str = "The hosting app creates its one home workspace on connect; the CLI \
      never offers it (workspace-kind-v1).";
 
@@ -278,6 +286,9 @@ impl V2Tool {
             }
         }
         for (name, field) in self.fields().as_object().into_iter().flatten() {
+            if name == ORIGIN_FIELD {
+                continue;
+            }
             properties.insert(name.clone(), generator.field(field));
             if field["required"] == Value::Bool(true) {
                 required.push(Value::String(name.clone()));
@@ -330,6 +341,9 @@ impl V2Tool {
                 params.insert(scope.into(), json!("current"));
             }
         }
+        if fields.is_some_and(|fields| fields.contains_key(ORIGIN_FIELD)) {
+            params.insert(ORIGIN_FIELD.into(), json!("mcp"));
+        }
         let mut session = None;
         let mut prefixes = Vec::new();
         let mut idempotency_key = None;
@@ -340,6 +354,9 @@ impl V2Tool {
             let field = fields.and_then(|fields| fields.get(name));
             match name.as_str() {
                 "session" => set_session(&mut session, text(name, value)?)?,
+                ORIGIN_FIELD if field.is_some() => {
+                    return Err(invalid(format!("{} sets origin itself", self.name)));
+                }
                 "idempotency_key" if self.mutation => {
                     let key = text(name, value)?;
                     cmux_tui_core::resource::validate_idempotency_key(key)

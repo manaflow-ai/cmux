@@ -2390,6 +2390,9 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The daemon owns cmux.json (settings-v1): open it and watch it before
+    // clients connect.
+    mux.start_default_settings_owner();
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,

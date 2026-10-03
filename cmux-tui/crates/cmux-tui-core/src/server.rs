@@ -446,6 +446,7 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        crate::mux::settings::SETTINGS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
         conversations::CONVERSATION_SEARCH_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
@@ -5347,7 +5348,7 @@ impl ClientRegistry {
         )
     }
 
-    fn is_unix(&self, client: u64) -> bool {
+    pub(crate) fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()
             .unwrap()
@@ -5534,6 +5535,7 @@ impl ClientRegistry {
                     || capability == LOOPBACK_FORWARD_CAPABILITY
                     || capability
                         == crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY
+                    || capability == crate::mux::settings::SETTINGS_HOST_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -5720,7 +5722,7 @@ impl ClientRegistry {
             .collect()
     }
 
-    fn supports_capability(&self, client: u64, capability: &str) -> bool {
+    pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
         self.state
             .lock()
             .unwrap()
@@ -7462,6 +7464,8 @@ const fn handles_resource_connection_operation(operation: ResourceOperation) -> 
             | ResourceOperation::BrowserAttach
             | ResourceOperation::SidebarViewAttach
             | ResourceOperation::StreamCancel
+            | ResourceOperation::SettingsDomainsPublish
+            | ResourceOperation::SettingsTeamPolicySet
     )
 }
 
@@ -7706,6 +7710,11 @@ fn handle_resource_connection_message(
         }
         ResourceOperation::StreamCancel => {
             let result = cancel_resource_stream(mux, client, writer, &request);
+            send_resource_response(writer, id, operation, result)
+        }
+        ResourceOperation::SettingsDomainsPublish | ResourceOperation::SettingsTeamPolicySet => {
+            let result = crate::mux::settings::require_hosting_app(mux, client, operation)
+                .and_then(|()| crate::resource_router::dispatch_settings_app_input(mux, request));
             send_resource_response(writer, id, operation, result)
         }
         _ => {
@@ -12931,6 +12940,7 @@ fn handle_command_with_cancellation(
                 "daemon_handoff": 1,
                 "lifecycle_ready": mux.server_lifecycle_ready(),
                 "launch_snapshot_path": mux.launch_snapshot_path(),
+                "settings_schema_hash": cmux_config::Schema::embedded().schema_hash,
             }))
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
@@ -16064,6 +16074,12 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::SettingsChanged(change) => json!({
+            "event": "settings-changed",
+            "revision": change.revision,
+            "keys": change.keys,
+            "origin": change.origin.as_str(),
+        }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
             "registry_id":registry_id,
@@ -16152,6 +16168,10 @@ mod personal_terminal_tests;
 #[cfg(test)]
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
+
+#[cfg(test)]
+#[path = "server/settings_tests.rs"]
+mod settings_tests;
 
 #[cfg(test)]
 mod tests {

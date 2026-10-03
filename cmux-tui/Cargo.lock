@@ -1073,6 +1073,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bytes",
+ "cmux-config",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1129,6 +1130,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-config",
  "cmux-conversation",
  "cmux-layout-reducer",
  "cmux-local-auth",
@@ -1148,6 +1150,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "tungstenite",
  "uds_windows",
  "url",
