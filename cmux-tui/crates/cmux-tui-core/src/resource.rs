@@ -5,6 +5,7 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
+pub use idempotency::validate_idempotency_key;
 use scope::canonical_resource_scope;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -16,28 +17,6 @@ pub const STREAM_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const JOURNAL_CAPACITY: usize = 4096;
 pub const JOURNAL_BYTE_CAPACITY: usize = 16 * 1024 * 1024;
 pub const MAX_IDEMPOTENCY_KEY_BYTES: usize = 128;
-
-pub fn validate_idempotency_key(value: &str) -> Result<(), ResourceError> {
-    if value.trim().is_empty() {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain at least one non-whitespace Unicode scalar",
-        ));
-    }
-    if value.len() > MAX_IDEMPOTENCY_KEY_BYTES {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must contain 1 to 128 UTF-8 bytes",
-        ));
-    }
-    if value.chars().any(char::is_control) {
-        return Err(ResourceError::validation_invalid(
-            Some("idempotency_key"),
-            "idempotency_key must not contain Unicode control characters",
-        ));
-    }
-    Ok(())
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
 #[serde(transparent)]
@@ -171,10 +150,14 @@ pub enum ResourceOperation {
     GitCheckpointPin,
     #[serde(rename = "git.checkpoint.unpin")]
     GitCheckpointUnpin,
+    #[serde(rename = "git.commit")]
+    GitCommit,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
+    #[serde(rename = "git.push")]
+    GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
     #[serde(rename = "workspace.list")]
@@ -603,6 +586,7 @@ impl ResourceOperation {
     }
 }
 
+mod idempotency;
 #[cfg(test)]
 #[path = "resource/wire_name_tests.rs"]
 mod resource_operation_wire_name_tests;

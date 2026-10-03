@@ -15,7 +15,7 @@ use flags::BOOLEAN_FLAGS;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
 mod flags;
-mod git;
+pub(super) mod git;
 mod screen;
 mod state;
 
