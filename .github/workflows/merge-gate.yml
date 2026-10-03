@@ -29,7 +29,9 @@ jobs:
       github.repository == 'manaflow-ai/cmux' &&
       (github.event_name != 'issue_comment' || github.event.issue.pull_request) &&
       (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'pull_request')
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # pull_request_target and issue-comment events carry a trusted token; keep
+    # this metadata-only job on GitHub-hosted capacity for fork safety.
+    runs-on: ubuntu-24.04 # github-hosted-required: merge-gate handles fork PR metadata
     timeout-minutes: 10
     permissions:
       actions: read
