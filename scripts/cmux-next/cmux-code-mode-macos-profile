@@ -51,8 +51,6 @@ EOF_PROFILE
 (allow file-read* (literal "/dev/random"))
 (allow file-read* (literal "/dev/urandom"))
 (allow sysctl-read)
-(allow ipc-posix-shm-read*)
-(allow ipc-posix-shm-write*)
 
 ; The script may write only its per-run temporary directory.
 EOF_PROFILE
