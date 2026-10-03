@@ -60,6 +60,8 @@ extension WorkspaceDetailView {
                 )
                 .environment(\.colorScheme, store.activeTerminalTheme.terminalColorScheme)
             }
+            terminalOverviewToolbarButton
+                .frame(width: 44, height: 44)
             terminalPickerToolbarButton
         }
         .buttonStyle(.plain)

@@ -454,8 +454,11 @@ struct WorkspaceDetailView: View {
                 workspaceChangesToolbarContent
             }
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            trailingClusterToolbarContent
+        ToolbarItem(id: "workspace-tab-overview", placement: .topBarTrailing) {
+            terminalOverviewToolbarContent
+        }
+        ToolbarItem(id: "workspace-terminal-picker", placement: .topBarTrailing) {
+            terminalPickerToolbarContent
         }
     }
 
@@ -475,8 +478,12 @@ struct WorkspaceDetailView: View {
             }
             .visibilityPriority(.high)
         }
-        ToolbarItem(id: "workspace-trailing", placement: .topBarTrailing) {
-            trailingClusterToolbarContent
+        ToolbarItem(id: "workspace-tab-overview", placement: .topBarTrailing) {
+            terminalOverviewToolbarContent
+        }
+        .visibilityPriority(.high)
+        ToolbarItem(id: "workspace-terminal-picker", placement: .topBarTrailing) {
+            terminalPickerToolbarContent
         }
         .visibilityPriority(.high)
     }
@@ -501,48 +508,32 @@ struct WorkspaceDetailView: View {
         .measureTrailingToolbarItem("changes", into: $trailingToolbarItemWidths)
     }
 
-    private var trailingClusterToolbarContent: some View {
-        #if os(iOS)
-        HStack(spacing: 0) {
-            terminalOverviewToolbarButton
-                .frame(width: 44, height: 44)
-            terminalPickerToolbarButton
-                .frame(width: 44, height: 44)
-        }
-        // Only the always-structural cluster wires collapse detection: a
-        // conditional item's structural removal also detaches its probe
-        // and would be indistinguishable from a More-menu collapse.
-        .measureTrailingToolbarItem(
-            "trailing-cluster",
-            into: $trailingToolbarItemWidths,
-            onLeaveBar: {
-                // A deeper push or a pop detaches the whole screen, this
-                // content view included, before the bar items animate
-                // out; only a cluster detach while the content is still
-                // on a window is the More-menu collapse.
-                if barPresence.detailContentAttached {
-                    trailingToolbarCollapseDetected = true
-                }
-            }
-        )
-        #else
+    // Each control needs its own ToolbarItem. Lowering an HStack containing
+    // a SwiftUI Button and the UIKit picker into one native bar item can keep
+    // only the overview image, dropping its action and the picker entirely.
+    private var terminalOverviewToolbarContent: some View {
+        terminalOverviewToolbarButton
+            .measureTrailingToolbarItem("tab-overview", into: $trailingToolbarItemWidths)
+    }
+
+    private var terminalPickerToolbarContent: some View {
         terminalPickerToolbarButton
             .measureTrailingToolbarItem(
-                "trailing-cluster",
+                "terminal-picker",
                 into: $trailingToolbarItemWidths,
                 onLeaveBar: {
+                    // A whole-screen detach is navigation, not overflow.
                     if barPresence.detailContentAttached {
                         trailingToolbarCollapseDetected = true
                     }
                 }
             )
-        #endif
     }
 
     // Which trailing toolbar items are structurally in the bar right now.
     // Must mirror the conditions in trailingToolbarItems.
     private var structuralTrailingItemKeys: [String] {
-        var keys = ["trailing-cluster"]
+        var keys = ["tab-overview", "terminal-picker"]
         if altScreenNoticeIsVisible { keys.append("altscreen-notice") }
         if workspaceChangesAreAvailable { keys.append("changes") }
         return keys
@@ -941,7 +932,7 @@ struct WorkspaceDetailView: View {
     }
 
     #if os(iOS)
-    private var terminalOverviewToolbarButton: some View {
+    var terminalOverviewToolbarButton: some View {
         Button(action: openTabOverviewFromToolbar) {
             Label(
                 L10n.string("mobile.terminal.overview.title", defaultValue: "All Tabs"),
