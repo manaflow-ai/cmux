@@ -217,7 +217,23 @@ pub(super) fn try_handle(
             return Some(true);
         }
         Command::Logs { app, follow } => Ok(supervisor.logs(client, &app, follow)),
-        Command::ProviderRegister { families } => supervisor.register_provider(client, families),
+        Command::ProviderRegister { families } => {
+            let claim = crate::apps::ProviderClaim {
+                agent: matches!(
+                    crate::actor::Actor::of_client(mux, client),
+                    crate::actor::Actor::Agent(_)
+                ),
+                app_kind: mux
+                    .control_clients
+                    .state
+                    .lock()
+                    .unwrap()
+                    .clients
+                    .get(&client)
+                    .is_some_and(|record| record.kind.as_deref() == Some("app")),
+            };
+            supervisor.register_provider(client, claim, families)
+        }
         Command::ProviderResult { request_id, ok, body } => {
             supervisor.provider_result(client, request_id, ok, body)
         }
