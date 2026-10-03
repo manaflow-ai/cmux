@@ -24,7 +24,7 @@ struct CloudWorkspaceSidebarPresentation {
 
 
         guard !machines.isEmpty else { return nil }
-        let names = machines.sorted { $0.rawValue < $1.rawValue }.map {
+        let names = machines.sorted { $0.rawValue < $1.rawValue }.map { @MainActor id in
             state.machineNames[$0.rawValue] ?? SurfaceCatalog.shared.machineInfo(for: $0)?.name ?? $0.rawValue
         }
         return String.localizedStringWithFormat(
