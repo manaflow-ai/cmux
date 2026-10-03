@@ -907,6 +907,12 @@ jobs:
             # tree and retry once from the already-resolved source packages;
             # real compiler errors still fail without a retry.
             echo "::warning::stale DerivedData dependency output detected; retrying compile from a clean tree"
+            for wait_attempt in $(seq 1 60); do
+              if ! pgrep -f "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" >/dev/null 2>&1; then
+                break
+              fi
+              sleep 1
+            done
             scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
             if compile_once; then
               status=0
