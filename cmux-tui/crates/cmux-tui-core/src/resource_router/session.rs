@@ -8,9 +8,7 @@ use super::{
     resource_operation_error, validation_error,
 };
 use crate::resource::{ResourceError, ResourceOperation};
-use crate::{
-    ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb,
-};
+use crate::{ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb};
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(

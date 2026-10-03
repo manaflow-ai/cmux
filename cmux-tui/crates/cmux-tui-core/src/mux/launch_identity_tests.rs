@@ -55,8 +55,14 @@ fn tampered_foreign_and_closed_credentials_are_refused() {
     let mut tampered = credential.clone();
     tampered.pop();
     tampered.push(if credential.ends_with('A') { 'B' } else { 'A' });
-    assert_eq!(mux.check_launch_credential(&tampered), CredentialCheck::Refused("credential_invalid"));
-    assert_eq!(mux.check_launch_credential("garbage"), CredentialCheck::Refused("credential_malformed"));
+    assert_eq!(
+        mux.check_launch_credential(&tampered),
+        CredentialCheck::Refused("credential_invalid")
+    );
+    assert_eq!(
+        mux.check_launch_credential("garbage"),
+        CredentialCheck::Refused("credential_malformed")
+    );
 
     let foreign = mux
         .launch_identity
