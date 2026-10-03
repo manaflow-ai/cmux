@@ -89,7 +89,7 @@ const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;
 
 /// A count on the acpmux wire (seq, at, log id): a non-negative safe
 /// integer, else `None` (a fraction, a negative number, a string).
-pub(crate) fn lenient_count_value(value: &Value) -> Option<u64> {
+pub fn lenient_count_value(value: &Value) -> Option<u64> {
     count(Some(value.clone())).ok().flatten()
 }
 
