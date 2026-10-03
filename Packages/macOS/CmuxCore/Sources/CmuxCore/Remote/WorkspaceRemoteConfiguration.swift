@@ -473,14 +473,17 @@ extension WorkspaceRemoteConfiguration {
         return ["SSH_AUTH_SOCK": agentSocketPath]
     }
 
-    /// Full process environment for spawned ssh/scp processes with
-    /// `SSH_AUTH_SOCK` overridden, or `nil` when no agent socket is configured.
+    /// Full local environment for SSH/SCP children, with a configured agent override.
+    ///
+    /// Assigning `nil` to Foundation's `Process.environment` clears the child
+    /// environment on macOS, unlike leaving the property unset. Always supply
+    /// the inherited environment so local `ProxyCommand` helpers can find the
+    /// user's home directory, credentials, and executables without an agent override.
     public var sshProcessEnvironment: [String: String]? {
-        guard let agentSocketPath = self.agentSocketPath else {
-            return nil
-        }
         var environment = ProcessInfo.processInfo.environment
-        environment["SSH_AUTH_SOCK"] = agentSocketPath
+        if let agentSocketPath {
+            environment["SSH_AUTH_SOCK"] = agentSocketPath
+        }
         return environment
     }
 
