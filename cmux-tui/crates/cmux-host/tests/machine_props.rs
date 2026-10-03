@@ -48,7 +48,9 @@ proptest! {
         let mut m = Machine::new();
         let mut w = World::default();
         let mut last_reseed: Option<String> = None;
-        let mut reseeds: Vec<String> = Vec::new();
+        // Completed binds (write-bound). A reseed whose bind was superseded
+        // during the old host's stop may repeat; a bind never does.
+        let mut binds: Vec<String> = Vec::new();
         for op in ops {
             let stopping_before = matches!(m.daemon(), DaemonState::Stopping(_));
             let bound_before = w.bound.clone();
@@ -89,11 +91,11 @@ proptest! {
                         }
                         prop_assert_ne!(Some(x), w.bound.as_ref(), "a bound id never rebinds");
                         last_reseed = Some(x.clone());
-                        reseeds.push(x.clone());
                     }
                     Action::WriteBound(x) => {
                         prop_assert_eq!(Some(x), last_reseed.as_ref(), "write-bound follows its own reseed");
                         w.bound = Some(x.clone());
+                        binds.push(x.clone());
                     }
                     _ => {}
                 }
@@ -121,9 +123,9 @@ proptest! {
                 prop_assert!(drop < spawn);
             }
         }
-        // Clone detected exactly once per new id: no id is reseeded twice
-        // in a row.
-        for pair in reseeds.windows(2) {
+        // Clone detected exactly once per new id: no id is bound twice in a
+        // row.
+        for pair in binds.windows(2) {
             prop_assert_ne!(&pair[0], &pair[1]);
         }
     }

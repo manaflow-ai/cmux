@@ -396,10 +396,12 @@ impl Machine {
                 let mut deferred = self.deferred.take();
                 match reason {
                     StopReason::Bind(id) => {
-                        let superseded = deferred
-                            .as_ref()
-                            .and_then(|obs| obs.instance_id.as_deref())
-                            .is_some_and(|newer| !newer.is_empty() && newer != id);
+                        let superseded = deferred.as_ref().is_some_and(|obs| {
+                            obs.instance_id.as_deref().is_some_and(|newer| {
+                                !newer.is_empty()
+                                    && (newer != id || obs.bake_id.as_deref() == Some(newer))
+                            })
+                        });
                         if !superseded {
                             // An observation taken during the stop read the
                             // bound file before this bind wrote it.
@@ -408,9 +410,9 @@ impl Machine {
                             }
                             self.finish_bind(id, out);
                         }
-                        // Superseded: the id changed again during the stop
-                        // (or the machine is now being baked); the deferred
-                        // observation decides instead, with no spawn first.
+                        // Superseded: the id changed again during the stop,
+                        // or the bake now names it; the deferred observation
+                        // decides instead, with no spawn first.
                     }
                     StopReason::Park => out.push(Action::StopTerminalHosts),
                 }

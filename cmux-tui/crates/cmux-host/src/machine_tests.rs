@@ -169,3 +169,15 @@ fn removed_bake_file_unparks_and_rearms() {
     assert_eq!(names(&actions), ["arm-rearm", "spawn-daemon", "start-roles"]);
     assert!(!m.is_parked());
 }
+
+#[test]
+fn bake_during_a_bind_stop_parks_without_spawning() {
+    let mut m = Machine::new();
+    m.step(obs(None, None, None));
+    m.step(obs(Some("x"), None, None));
+    assert!(m.step(obs(Some("x"), Some("x"), None)).is_empty(), "deferred while stopping");
+    let actions = m.step(Input::DaemonExited { lived_ms: 1 });
+    assert!(!actions.contains(&Action::SpawnDaemon), "{actions:?}");
+    assert!(!actions.iter().any(|a| matches!(a, Action::WriteBound(_))), "{actions:?}");
+    assert!(m.is_parked());
+}

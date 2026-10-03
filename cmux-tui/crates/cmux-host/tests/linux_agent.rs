@@ -230,7 +230,7 @@ fn agent_binds_parks_adopts_and_restarts() {
     let term = index(&l, reseed_b, "terminate-daemon");
     let drop_b = index(&l, term, "drop-remote-identity");
     index(&l, drop_b, "spawn-daemon");
-    assert_eq!(l.iter().filter(|x| x.starts_with("reseed ")).count(), 2, "{l:#?}");
+    assert_eq!(l.iter().filter(|x| x.starts_with("reseed id=")).count(), 2, "{l:#?}");
     wait_until("old host gone", || !alive(first_pid));
 
     // Park: the bake writes its id; host stopped, no spawn after.
@@ -258,7 +258,7 @@ fn agent_binds_parks_adopts_and_restarts() {
     wait_until("adopt", || lines(&log2).iter().any(|l| l == &format!("adopt-daemon pid={pid}")));
     wait_until("status after adopt", || h.status().is_some_and(|s| s.daemon_pid == Some(pid)));
     assert!(
-        !lines(&log2).iter().any(|l| l == "spawn-daemon" || l.starts_with("reseed")),
+        !lines(&log2).iter().any(|l| l == "spawn-daemon" || l.starts_with("reseed id=")),
         "{:#?}",
         lines(&log2)
     );
