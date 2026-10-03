@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 
 extension CloudTreeOutlineView.Coordinator {
     /// Finds a Cloud machine anywhere in the displayed tree, including under its section row.
