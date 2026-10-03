@@ -1,3 +1,4 @@
+import CoreGraphics
 @testable import CmuxNextIcons
 import Testing
 
