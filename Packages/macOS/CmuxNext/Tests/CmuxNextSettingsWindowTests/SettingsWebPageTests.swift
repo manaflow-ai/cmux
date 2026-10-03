@@ -79,7 +79,7 @@ import Testing
     }
 
     @Test func controllerBackendListsEveryRowAndRefusesBadValues() async throws {
-        let settings = try controller(#"{"ui": {"animationSpeed": "fast"}}"#)
+        let settings = try controller(#"{"ui": {"animationSpeed": "normal"}}"#)
         await settings.reload()
         let backend = ControllerSettingsBackend(settings: settings)
         let list = try await backend.request("settings.list", params: [:])
