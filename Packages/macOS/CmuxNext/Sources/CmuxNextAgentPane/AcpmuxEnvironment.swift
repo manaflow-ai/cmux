@@ -47,16 +47,19 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         )
     }
 
+    /// The usual install directories, searched after `PATH`. The pane names
+    /// them when acpmux is missing, so they are written as a user types them.
+    static let installDirectories = ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"]
+
     /// Search order: the bundled binary, then `PATH`, then the usual install
     /// directories an app launched from Finder does not have on its `PATH`.
     static func executableCandidates(bundledBinDirectory: URL?, environment: [String: String], userHome: URL) -> [URL] {
         var directories: [String] = []
         if let bundled = bundledBinDirectory { directories.append(bundled.path) }
         directories += (environment["PATH"] ?? "").split(separator: ":").map(String.init)
-        directories += [
-            userHome.appendingPathComponent(".local/bin").path, userHome.appendingPathComponent(".cargo/bin").path,
-            "/opt/homebrew/bin", "/usr/local/bin",
-        ]
+        directories += installDirectories.map { directory in
+            directory.hasPrefix("~/") ? userHome.appendingPathComponent(String(directory.dropFirst(2))).path : directory
+        }
         var seen: Set<String> = []
         return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
             .map { URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent("acpmux") }

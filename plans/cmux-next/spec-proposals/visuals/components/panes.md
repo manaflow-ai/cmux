@@ -1,6 +1,6 @@
 # Panes, focus and borders
 
-Panes sit in columns separated by columnGap (6/8). Each pane has padding (2/4), a corner radius (paneCornerRadius, circular arcs, not continuous, so the browser page mask matches), a one-device-pixel border, and an overlay that draws the focus ring, the inactive dim and the attention ring. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextLayout/` at `dd5e6216935`; images from `1824883286a`. JSON keys `components["panes.*"]`.
+Panes sit in columns separated by columnGap (6/8). Each pane has padding (2/4; ports add it too, above the strip and around the content, so the tab pill sits 3/3 pt at compact density), a corner radius (paneCornerRadius, circular arcs, not continuous, so the browser page mask matches), a one-device-pixel border, and an overlay that draws the focus ring, the inactive dim and the attention ring. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextLayout/` at `d445a445556`; images from `1824883286a`. JSON keys `components["panes.*"]`.
 
 ![Two panes with the default focus indicator (both), dark](../images/panes/dark-focus-indicator-both.png)
 
@@ -47,7 +47,7 @@ Width focusRing.width (1). Radius focusRing.cornerRadius, else paneCornerRadius.
 
 ## Borders none (appearance.borders)
 
-Every border, hairline and separator becomes clear; the focus ring and attention width are off. With indicator `border`, the unfocused panes dim (0.14) instead (`CmuxNextLayout/Model/LayoutStyle.swift:95-100 (LayoutStyle.applyingDesignMetrics)`). The browser omnibar loses its editing ring. Target for the agent pane: no edge at all. Today the bridge sets `--agent-border` and `--agent-border-strong` to transparent, but the composer, menu and code block edges still draw; a code fix is in progress in a separate lane (see [agent-pane.md](agent-pane.md#borders-none)).
+Every border, hairline and separator becomes clear; the focus ring and attention width are off. With indicator `border`, the unfocused panes dim (0.14) instead (`CmuxNextLayout/Model/LayoutStyle.swift:99-104 (LayoutStyle.applyingDesignMetrics)`). The browser omnibar loses its editing ring. Target for the agent pane: no edge at all. Today the bridge sets `--agent-border` and `--agent-border-strong` to transparent, but the composer, menu and code block edges still draw; a code fix is in progress in a separate lane (see [agent-pane.md](agent-pane.md#borders-none)).
 
 ![Borders none, dark](../images/window/dark-borders-none.png) ![Borders none, light](../images/window/light-borders-none.png)
 
