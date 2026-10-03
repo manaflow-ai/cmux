@@ -216,9 +216,9 @@ enum SurfacePaneFactory {
                 return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
             case .split(_, let paneID, let direction):
                 let anchor = try anchorSurface(paneID: paneID, in: workspace)
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: direction, anchor: anchor, fallbackPane: UUID(uuidString: paneID), focus: focus)
             case .workspace(_, .split):
-                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, direction: .right, anchor: nil, fallbackPane: nil, focus: focus)
             }
         }
     }
@@ -270,6 +270,7 @@ enum SurfacePaneFactory {
         workingDirectory: String?,
         direction: SurfaceSplitDirection,
         anchor: UUID?,
+        fallbackPane: UUID?,
         focus: Bool
     ) throws -> (workspaceID: UUID, panelID: UUID) {
         let resolution = controller.controlSurfaceSplit(
@@ -293,6 +294,13 @@ enum SurfacePaneFactory {
         )
         if case .created(_, let createdWorkspaceID, _, let surfaceID, _) = resolution {
             return (createdWorkspaceID, surfaceID)
+        }
+        // Split admission refuses a pane too small to divide. The resource was
+        // asked to open in this workspace, so it opens as a tab in the pane that
+        // would have been split (the focused pane when none was named) instead
+        // of failing the whole open.
+        if case .noSpace = resolution {
+            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, initialInput: initialInput, workingDirectory: workingDirectory, requestedPane: fallbackPane, focus: focus)
         }
         throw FactoryError.creationFailed("\(resolution)")
     }

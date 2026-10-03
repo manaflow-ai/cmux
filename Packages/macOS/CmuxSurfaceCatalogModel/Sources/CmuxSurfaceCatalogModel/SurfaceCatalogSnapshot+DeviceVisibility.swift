@@ -28,6 +28,8 @@ extension SurfaceCatalogSnapshot {
         result.staleMachineIDs = staleMachineIDs.intersection(machineIDs)
         let creation = displayCreationMachines?.intersection(machineIDs)
         result.displayCreationMachines = creation?.isEmpty == false ? creation : nil
+        let pending = pendingDisplayCreations?.intersection(machineIDs)
+        result.pendingDisplayCreations = pending?.isEmpty == false ? pending : nil
         result.cloudDisplayMemberships = cloudDisplayMemberships.filter { machineIDs.contains($0.machine) }
         result.pendingWorkspaceCreations = pendingWorkspaceCreations?.filter { machineIDs.contains($0.key) }
         result.pendingWorkspaceDeletions = pendingWorkspaceDeletions?.filter { machineIDs.contains($0.key) }

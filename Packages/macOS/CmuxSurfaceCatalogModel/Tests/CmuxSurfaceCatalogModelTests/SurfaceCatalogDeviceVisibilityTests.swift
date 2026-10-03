@@ -21,6 +21,7 @@ struct SurfaceCatalogDeviceVisibilityTests {
             projections: [],
             staleMachineIDs: [vm],
             displayCreationMachines: [vm],
+            pendingDisplayCreations: [vm],
             cloudDisplayMemberships: [membership]
         )
 
@@ -29,6 +30,8 @@ struct SurfaceCatalogDeviceVisibilityTests {
         // The sidebar's New Display row reads this set. Dropping it made every
         // desktop VM report "Additional displays are unavailable".
         #expect(visible.displayCreationMachines == [vm])
+        // The optimistic "Starting display…" row reads this set.
+        #expect(visible.pendingDisplayCreations == [vm])
         #expect(visible.staleMachineIDs == [vm])
         #expect(visible.cloudDisplayMemberships == [membership])
     }

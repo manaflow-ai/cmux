@@ -874,7 +874,7 @@ enum CloudTreeNodeBuilder {
                 children.append(CloudTreeNode(
                     id: nodeID(displaysPool: machine),
                     kind: .displaysPool(machine: machine, count: displays.count, canCreate: snapshot.displayCreationMachines?.contains(machine) == true),
-                    children: displays.isEmpty
+                    children: (displays.isEmpty
                         ? [CloudMachineSurfacePresentation.emptyDisplays(info: info)]
                         : displays.map {
                             CloudTreeNode(
@@ -885,7 +885,7 @@ enum CloudTreeNodeBuilder {
                                     remoteView: $0.remoteViews?.count == 1 ? $0.remoteViews?.first : nil
                                 )
                             )
-                        }
+                        }) + pendingDisplayRows(machine: machine, snapshot: snapshot)
                 ))
             }
             if info.linkState == .connected || info.linkState == .notApplicable || !terminals.isEmpty {
@@ -1168,6 +1168,19 @@ enum CloudTreeNodeBuilder {
                 hiddenTabCount: hiddenTabCount
             ))
         )
+    }
+
+    /// The optimistic row for a guest display creation still in flight.
+    private static func pendingDisplayRows(machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+        guard snapshot.pendingDisplayCreations?.contains(machine) == true else { return [] }
+        return [CloudTreeNode(
+            id: "\(nodeID(displaysPool: machine))/pending-display",
+            kind: .placeholder(machine: machine, CloudTreePlaceholder(
+                text: String(localized: "cloudTree.displays.starting", defaultValue: "Starting display…"),
+                style: .connecting,
+                opensMachine: false
+            ))
+        )]
     }
 
     private static func placeholder(

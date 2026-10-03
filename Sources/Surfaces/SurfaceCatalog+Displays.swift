@@ -7,7 +7,13 @@ extension SurfaceCatalog {
     /// must survive a missing or changing local destination.
     func createDisplay(on machine: SurfaceMachineID) async throws -> SurfaceResource {
         guard activeDisplayCreations.insert(machine).inserted else { throw CancellationError() }
-        defer { activeDisplayCreations.remove(machine) }
+        // The sidebar shows a pending display row from the click until the
+        // guest answers, so creation reads as started immediately.
+        notifyChange()
+        defer {
+            activeDisplayCreations.remove(machine)
+            notifyChange()
+        }
         guard let provider = provider(for: machine) as? CmuxTuiSurfaceProvider else {
             throw SurfaceCatalogError.noProvider(machine)
         }
