@@ -81,18 +81,19 @@ ChiefDO is an `Agent` with a `PiHarness`. One turn at a time (pi's busy session 
 2. Ingest: append one entry per event (`<name>: <text>`; a longer message stores its first 280
    bytes plus `[msg <id>]`, and the full text is kept in ChiefDO's message table for this turn and
    for the UI).
-3. Nap: while the cover needs a summary, run the nap prompt as a separate pi request with the
+3. Nap: while the cover needs a summary, compress it with one plain pi-ai completion on the
    chief's model (the chief compresses its own memory, as in OptMem); spare naps after the turn,
    at most 4 per turn.
-4. Context: pi's `beforeRequest` hook replaces the request messages with: system section (identity,
-   the spawn tool, how to read `#n` and `#a-b`) + the cover + the new events in full. pi keeps its
-   own transcript; the model never sees it.
+4. Context: the turn resets pi's root session (`session.reset()`), then submits one prompt: the
+   cover + the new events in full. The system section (identity, the spawn tool, how to read `#n`
+   and `#a-b`) is a pi extension section. pi keeps its own transcript; after the reset the model
+   sees only this prompt and its own tool round.
 5. Reply: the assistant text is shown in the conversation and appended to memory as `chief: ...`
-   (one line; the chief is told to keep replies short, longer ones are stored as first line + ref).
-6. `spawn {name, prompt, resume?}` starts or steers a worker. Phase 1 worker: a pi sub-session in
-   a WorkerDO with read-only web tools (fetch, search) so the loop is end to end on Cloudflare.
-   Phase 2: a coding agent on a Freestyle VM (the cmux Cloud provider). The worker's final message
-   comes back as a `worker <name>: ...` event.
+   (the first 280 bytes; the chief is told to put what matters first).
+6. `spawn {name, prompt}` starts a worker, or steers it when the name is reused. Phase 1 worker:
+   a pi session in a WorkerDO with a read-only `fetch_url` tool, so the loop runs end to end on
+   Cloudflare. Phase 2: a coding agent on a Freestyle VM (the cmux Cloud provider). The worker's
+   final answer comes back as a `worker <name>: ...` event and wakes the chief.
 
 Memory is shown to the model only through the cover; `recall` and `zoom` are not chief tools in
 phase 1 (Taelin: spawn only). If turns show the chief needs older detail, phase 2 adds
@@ -100,9 +101,18 @@ phase 1 (Taelin: spawn only). If turns show the chief needs older detail, phase 
 
 ## 6. UI
 
-A static page served by the Worker: the conversation (chief replies, worker events) and a memory
-panel (the cover as of now, zoom on click, recall search). The native MessagesLab client (Home,
-lane 16) is not part of the experiment.
+Lawrence (2026-10-02): a native client built from MessagesLab appkit-native, in the Home section of
+the app, at the top left. Placement agreed with the coordinator: no new tab or pane kind and no
+edits to the Home files other lanes own. The item "Chief (experiment)" is injected on the client at
+index 0 of the sidebar's Home section (`sec_top`), only when `~/.config/cmux/chief-experiment.json`
+exists, and only in builds of this branch. A click opens an internal page tab (one per window)
+whose view is `CmuxNextChief.ChiefView`: the shared `HomeStore` fed by `ChiefHomeSource` (a
+`HomeSource` over the Worker's long poll), rendered by lane 16's `HomeNativeTranscriptView` through
+`HomeStoreBinding`. The view reuses the appkit-native port; it copies nothing.
+
+Mapping: one conversation `conv_chief_<id>`; participants me, Chief, and one agent per worker
+name; the conversation revision is the newest message seq (the Worker keeps seqs dense); read
+cursors stay on the Mac; search and contacts are not supported.
 
 ## 7. Steps
 
@@ -111,11 +121,12 @@ lane 16) is not part of the experiment.
 2. Done (bb4815e5222): MemoryDO on DO SQLite, the experiment Worker, verified in wrangler dev.
 3. Done in part: the turn engine `src/chief/turn.ts` (ingest, ordered naps, cover-only context,
    reply and spawn entries, keyed retries) behind model and memory ports, tested with a fake model.
-   Remaining: ChiefDO with PiHarness as the model port, staging deploy. Blocked: the local npm
-   policy (`min-release-age=7`) refuses `agents` 0.25+/0.26 and `@earendil-works/pi-*` 1.0 until
-   about 2026-10-09; installing earlier needs Lawrence's approval for an exclusion.
-4. WorkerDO (pi sub-session) and spawn.
-5. UI page.
+   Done (bfc57ee74b0): ChiefDO with PiHarness, WorkerDO, staging Worker
+   https://cmux-chief-optmem-staging.debussy.workers.dev (token in ~/.secrets/cmux-chief-optmem.env).
+   Model: Workers AI `@cf/moonshotai/kimi-k2.7-code` until a Claude route is chosen (AI Gateway
+   billing or BYOK, a direct key, or coderouter: Lawrence's decision).
+4. Done: WorkerDO (pi session, `fetch_url`) and spawn.
+5. Native UI in Home (in progress): `CmuxNextChief` target, sidebar injection, internal page.
 6. Freestyle worker.
 
 ## 8. Open

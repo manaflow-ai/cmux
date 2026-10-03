@@ -157,6 +157,29 @@ export class ChiefDO extends DurableObject<Env> {
       }));
   }
 
+  /** The newest `tail` messages, or up to `limit` before `before`; ascending either way. */
+  async page(options: { tail?: number; before?: number; limit?: number }): Promise<Array<ChiefMessage>> {
+    await this.lifecycle.start();
+    const limit = Math.min(Math.max(options.tail ?? options.limit ?? 60, 1), 1000);
+    const before = options.before ?? Number.MAX_SAFE_INTEGER;
+    return this.ctx.storage.sql
+      .exec<Record<string, SqlStorageValue>>(
+        `SELECT seq, id, kind, author, text, at FROM chief_message WHERE seq < ? ORDER BY seq DESC LIMIT ?`,
+        before,
+        limit,
+      )
+      .toArray()
+      .reverse()
+      .map((r) => ({
+        seq: Number(r.seq),
+        id: String(r.id),
+        kind: r.kind as ChiefMessage["kind"],
+        author: String(r.author),
+        text: String(r.text),
+        at: Number(r.at),
+      }));
+  }
+
   /** Messages after `after`, waiting up to `waitMs` for the first one (long poll). */
   async poll(after: number, waitMs: number): Promise<Array<ChiefMessage>> {
     await this.lifecycle.start();
@@ -195,8 +218,11 @@ export class ChiefDO extends DurableObject<Env> {
     const sql = this.ctx.storage.sql;
     const at = Date.now();
     this.ctx.storage.transactionSync(() => {
+      // Check first: a conflicting INSERT still advances AUTOINCREMENT, and clients need dense seqs
+      // (the Home mirror reads a jump as a gap).
+      if (sql.exec(`SELECT 1 FROM chief_message WHERE id = ?`, id).toArray().length > 0) return;
       sql.exec(
-        `INSERT INTO chief_message (id, kind, author, text, at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
+        `INSERT INTO chief_message (id, kind, author, text, at) VALUES (?, ?, ?, ?, ?)`,
         id,
         kind,
         author,

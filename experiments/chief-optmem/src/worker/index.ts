@@ -40,6 +40,20 @@ async function chiefRoute(request: Request, env: Env, url: URL, id: string, what
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
     return json(await env.MEMORY_DO.get(env.MEMORY_DO.idFromName(`memory:${id}`)).view());
   }
+  if (request.method === "GET" && (url.searchParams.has("tail") || url.searchParams.has("before"))) {
+    const tail = url.searchParams.has("tail") ? Number(url.searchParams.get("tail")) : undefined;
+    const before = url.searchParams.has("before") ? Number(url.searchParams.get("before")) : undefined;
+    const limit = Number(url.searchParams.get("limit") ?? "80");
+    const valid = [tail, before, limit].every((v) => v === undefined || (Number.isSafeInteger(v) && v >= 0));
+    if (!valid) return json({ error: "invalid" }, 400);
+    return json({
+      messages: await chief.page({
+        ...(tail === undefined ? {} : { tail }),
+        ...(before === undefined ? {} : { before }),
+        limit,
+      }),
+    });
+  }
   if (request.method === "GET") {
     const after = Number(url.searchParams.get("after") ?? "0");
     const wait = Number(url.searchParams.get("wait") ?? "0");
