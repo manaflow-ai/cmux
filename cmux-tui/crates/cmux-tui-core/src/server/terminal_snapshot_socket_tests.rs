@@ -120,8 +120,13 @@ fn a_client_without_snapshot_gets_the_replay_stream() {
     let surface = mux.new_workspace(None, None).unwrap();
     let (writer, outbound) = captured_writer();
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    handle_command(&mux, client, command(json!({"cmd": "attach-surface", "surface": surface.id})), &writer)
-        .unwrap();
+    handle_command(
+        &mux,
+        client,
+        command(json!({"cmd": "attach-surface", "surface": surface.id})),
+        &writer,
+    )
+    .unwrap();
     let first = next_event(&outbound, Duration::from_secs(5)).expect("vt-state");
     assert_eq!(first["event"], "vt-state", "{first}");
     surface.inject_output_for_test(b"replay viewer\r\n");

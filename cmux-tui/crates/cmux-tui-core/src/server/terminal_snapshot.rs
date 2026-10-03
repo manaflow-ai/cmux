@@ -642,9 +642,8 @@ mod tests {
 
     #[test]
     fn snapshot_request_accepts_only_spec_reasons_and_bounded_ids() {
-        let request = |value: Value| -> SnapshotRequestParams {
-            serde_json::from_value(value).unwrap()
-        };
+        let request =
+            |value: Value| -> SnapshotRequestParams { serde_json::from_value(value).unwrap() };
         assert!(validate_request(&request(json!({"surface": 1}))).is_ok());
         for reason in SNAPSHOT_REQUEST_REASONS {
             assert!(validate_request(&request(json!({"surface": 1, "reason": reason}))).is_ok());
