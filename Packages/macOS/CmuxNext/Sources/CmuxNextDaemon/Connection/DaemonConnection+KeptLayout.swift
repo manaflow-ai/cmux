@@ -24,8 +24,8 @@ public struct KeptTabRelaunch: Sendable, Equatable {
     public var name: String?
     public var pinned: Bool
     public var group: TabGroupID?
-    /// The dead terminal's public id, the `restart-tab` key's subject.
-    public var deadTerminal: ResourceID? = nil
+    /// `RestartTabRequest.idempotencyKey` of the dead tab.
+    public var restartKey: String = ""
 
     /// The kept tabs of `tree` to restart: dead terminal tabs with the
     /// workspace store's `relaunch` record, in tree order. A record without
@@ -38,7 +38,8 @@ public struct KeptTabRelaunch: Sendable, Equatable {
                     guard let relaunch = tab.relaunch else { continue }
                     steps.append(KeptTabRelaunch(workspace: workspace.key, pane: pane.id, deadSurface: tab.surface, index: index,
                                                  cwd: relaunch.cwd ?? fallbackCwd, name: tab.name, pinned: tab.pinned,
-                                                 group: tab.tabGroup, deadTerminal: tab.terminalResourceID))
+                                                 group: tab.tabGroup,
+                                                 restartKey: RestartTabRequest.idempotencyKey(tab: tab)))
                 }
             }
         }
@@ -80,8 +81,7 @@ extension DaemonConnection {
     /// and the dead tab closes.
     private func relaunch(_ step: KeptTabRelaunch) async throws {
         if identity?.supports(DaemonCapabilities.shared.tabRestart) == true {
-            let subject = step.deadTerminal?.rawValue ?? "surface:\(step.deadSurface.rawValue)"
-            _ = try await restartTab(step.deadSurface, idempotencyKey: "tab-restart:\(subject)", fallbackCwd: step.cwd)
+            _ = try await restartTab(step.deadSurface, idempotencyKey: step.restartKey, fallbackCwd: step.cwd)
             return
         }
         let created = try await newTab(in: step.pane, options: SpawnOptions(cwd: step.cwd, name: step.name, workspace: step.workspace))

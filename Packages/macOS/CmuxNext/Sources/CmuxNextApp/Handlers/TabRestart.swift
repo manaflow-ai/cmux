@@ -10,16 +10,9 @@ import CmuxNextTerminal
 enum TabRestart {
     static let action: ActionID = "tab.restart"
 
-    /// The key every client derives from the dead terminal, so a manual
-    /// restart, an automatic one and another client's never restart one
-    /// dead terminal twice (the daemon replays the key).
-    nonisolated static func idempotencyKey(deadTerminal: String) -> String { "tab-restart:\(deadTerminal)" }
-
-    /// The dead terminal's id: its public id, else its host id, else the
-    /// surface (an older daemon).
-    static func deadTerminal(of tab: TabModel) -> String {
-        tab.terminalResourceID?.rawValue ?? tab.terminalID.map { "terminal:\($0.rawValue)" } ?? "surface:\(tab.surface.rawValue)"
-    }
+    /// `RestartTabRequest.idempotencyKey`: the same key for a manual
+    /// restart, the automatic one and other clients.
+    static func idempotencyKey(_ tab: TabModel) -> String { RestartTabRequest.idempotencyKey(tab: tab.snapshot) }
 
     /// A local daemon terminal tab whose terminal ended.
     static func isRestartable(_ tab: TabModel) -> Bool {
@@ -43,7 +36,7 @@ enum TabRestart {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return }
             guard isRestartable(tab) else { return ctx.refuse(RefusalStrings.tabNotDead) }
             let surface = tab.surface, cwd = tab.cwd
-            let key = idempotencyKey(deadTerminal: deadTerminal(of: tab))
+            let key = idempotencyKey(tab)
             let daemon = ctx.services.activeDaemon
             ctx.registry.track(Task {
                 let ok = await daemon.run("restart-tab") { connection in

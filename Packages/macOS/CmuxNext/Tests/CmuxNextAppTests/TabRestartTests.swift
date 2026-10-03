@@ -45,8 +45,7 @@ import Testing
     @Test func theKeyNamesTheDeadTerminalAndChangesWithIt() throws {
         let services = Self.services(Self.mixedTabs)
         let tab = try #require(services.daemon.store.tab(surface: 5))
-        let key = TabRestart.idempotencyKey(deadTerminal: TabRestart.deadTerminal(of: tab))
-        #expect(key == "tab-restart:term_dead")
+        #expect(TabRestart.idempotencyKey(tab) == "tab-restart:tab_dead:term_dead")
         let restarted = TabSnapshot(surface: 5, tabResourceID: "tab_dead", terminalResourceID: "term_next", dead: true)
         let pane = PaneSnapshot(id: 3, tabs: [restarted])
         services.daemon.store.apply(snapshot: DaemonTree(workspaceRevision: 2, workspaces: [
@@ -55,7 +54,7 @@ import Testing
         ]))
         let next = try #require(services.daemon.store.tab(surface: 5))
         #expect(next === tab, "the tab keeps its record across the restart")
-        #expect(TabRestart.idempotencyKey(deadTerminal: TabRestart.deadTerminal(of: next)) == "tab-restart:term_next")
+        #expect(TabRestart.idempotencyKey(next) == "tab-restart:tab_dead:term_next")
     }
 
     /// The automatic restart tries dead terminal tabs only, leaves kept
@@ -65,7 +64,7 @@ import Testing
         let services = Self.services(Self.mixedTabs)
         let tabs = services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs)
         let candidates = LostTerminalRestarter.candidates(machine: "local", tabs: tabs)
-        #expect(candidates == [LostTerminalRestarter.Candidate(machine: "local", surface: 5, key: "tab-restart:term_dead", cwd: "/src")])
+        #expect(candidates == [LostTerminalRestarter.Candidate(machine: "local", surface: 5, key: "tab-restart:tab_dead:term_dead", cwd: "/src")])
         #expect(LostTerminalRestarter.candidates(enabled: false, daemons: services.machines.daemons).isEmpty)
         // Not connected (and no tab-restart-v1): nothing to send.
         #expect(LostTerminalRestarter.candidates(enabled: true, daemons: services.machines.daemons).isEmpty)

@@ -96,7 +96,8 @@ import Testing
         let family = try #require(SettingsSchema.descriptor(for: TerminalFontSetting().familyPath))
         let size = try #require(SettingsSchema.descriptor(for: TerminalFontSetting().sizePath))
         #expect(family.kind == .fontFamily)
-        #expect(SettingsSchema.settings(in: .terminal).map(\.path) == [TerminalFontSetting().familyPath, TerminalFontSetting().sizePath])
+        #expect(SettingsSchema.settings(in: .terminal).map(\.path)
+                == [RestartLostTerminalsSetting.configPath, TerminalFontSetting().familyPath, TerminalFontSetting().sizePath])
         for descriptor in [theme, interface, family, size] {
             #expect(!descriptor.title.isEmpty)
             #expect(!descriptor.keywords.isEmpty, "\(descriptor.id) has no search keywords")
@@ -136,5 +137,22 @@ import Testing
         #expect(root.value(at: TerminalFontSetting().familyPath) == "SF Mono")
         #expect(root.value(at: TerminalFontSetting().sizePath) == 15)
         #expect(root.value(at: InterfaceSizeSetting().configPath) == nil)
+    }
+}
+
+/// `terminal.restartLostTerminals` (ownership.md 3.2): off by default (the
+/// documented default), a toggle, and a bad value is the default plus a
+/// diagnostic.
+@Suite struct RestartLostTerminalsSettingTests {
+    @Test func defaultsOffAndParses() throws {
+        let descriptor = try #require(SettingsSchema.descriptor(for: RestartLostTerminalsSetting.configPath))
+        #expect(descriptor.kind == .toggle)
+        #expect(descriptor.defaultValue == .bool(false))
+        #expect(RestartLostTerminalsSetting.parse(.object([:])) == (false, nil))
+        let on = JSONValue.object(["terminal": .object(["restartLostTerminals": .bool(true)])])
+        #expect(RestartLostTerminalsSetting.parse(on).0)
+        let bad = JSONValue.object(["terminal": .object(["restartLostTerminals": .string("yes")])])
+        #expect(RestartLostTerminalsSetting.parse(bad).0 == false)
+        #expect(RestartLostTerminalsSetting.parse(bad).1 != nil)
     }
 }
