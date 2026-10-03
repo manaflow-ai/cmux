@@ -68,6 +68,14 @@ public protocol SettingsHostActions: AnyObject, CloudMachinesSettingsActions {
     /// Reads the existing config-backed automation rules for Settings status.
     func automationRulesStatus() async -> AutomationRulesStatus
 
+    /// Reads Subrouter's auto-resume state from `sr auto-resume status`.
+    /// Subrouter owns this state; Settings only displays and changes it.
+    func subrouterAutoResumeStatus() async -> SubrouterAutoResumeStatus
+
+    /// Turns Subrouter auto-resume on or off for one agent and returns the
+    /// state Subrouter reports afterwards.
+    func setSubrouterAutoResume(_ agent: SubrouterAutoResumeAgent, enabled: Bool) async -> SubrouterAutoResumeStatus
+
     /// Opens ~/.cmuxterm/automations.json in the user's preferred editor.
     func openAutomationRulesInExternalEditor()
 
@@ -413,6 +421,66 @@ public enum SettingsAppChannelSwitchTarget: Equatable, Sendable {
 }
 
 /// Host-provided summary of the existing config-backed automation rules.
+/// An agent whose sessions Subrouter can resume after quota or provider
+/// recovery.
+public enum SubrouterAutoResumeAgent: String, CaseIterable, Sendable {
+    case claude
+    case codex
+}
+
+/// Subrouter auto-resume state as `sr auto-resume status` reports it.
+public struct SubrouterAutoResumeStatus: Equatable, Sendable {
+    public enum Availability: Equatable, Sendable {
+        /// No `sr` executable was found.
+        case notInstalled
+        /// `sr` is installed but predates `sr auto-resume`.
+        case unsupported
+        /// `sr auto-resume` ran and failed; the first line of its output.
+        case failed(String)
+        case available
+    }
+
+    public var availability: Availability
+    public var claudeEnabled: Bool
+    public var codexEnabled: Bool
+
+    public init(availability: Availability, claudeEnabled: Bool = false, codexEnabled: Bool = false) {
+        self.availability = availability
+        self.claudeEnabled = claudeEnabled
+        self.codexEnabled = codexEnabled
+    }
+
+    public static let notInstalled = SubrouterAutoResumeStatus(availability: .notInstalled)
+
+    public func isEnabled(_ agent: SubrouterAutoResumeAgent) -> Bool {
+        switch agent {
+        case .claude: claudeEnabled
+        case .codex: codexEnabled
+        }
+    }
+
+    /// Parses the output of `sr auto-resume status`, which prints one line
+    /// per agent such as `claude auto-resume: enabled`.
+    public static func parse(output: String, exitStatus: Int32) -> SubrouterAutoResumeStatus {
+        let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }
+        if exitStatus != 0 {
+            if lines.contains(where: { $0.localizedCaseInsensitiveContains("unknown command") }) {
+                return SubrouterAutoResumeStatus(availability: .unsupported)
+            }
+            return SubrouterAutoResumeStatus(availability: .failed(lines.first ?? "exit status \(exitStatus)"))
+        }
+        func state(_ agent: SubrouterAutoResumeAgent) -> Bool? {
+            let prefix = "\(agent.rawValue) auto-resume:"
+            guard let line = lines.first(where: { $0.lowercased().hasPrefix(prefix) }) else { return nil }
+            return line.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces).lowercased() == "enabled"
+        }
+        guard let claude = state(.claude), let codex = state(.codex) else {
+            return SubrouterAutoResumeStatus(availability: .unsupported)
+        }
+        return SubrouterAutoResumeStatus(availability: .available, claudeEnabled: claude, codexEnabled: codex)
+    }
+}
+
 public struct AutomationRulesStatus: Equatable, Sendable {
     public let configPath: String
     public let ruleCount: Int
@@ -466,6 +534,9 @@ public struct RightSidebarTabSettingsItem: Identifiable, Equatable, Sendable {
 }
 
 public extension SettingsHostActions {
+    /// Default for previews and tests: Subrouter is not installed.
+    func subrouterAutoResumeStatus() async -> SubrouterAutoResumeStatus { .notInstalled }
+    func setSubrouterAutoResume(_ agent: SubrouterAutoResumeAgent, enabled: Bool) async -> SubrouterAutoResumeStatus { .notInstalled }
     /// Returns the registry-backed agent choices shown by notification sound settings.
     func notificationSoundAgentOptions() -> [NotificationSoundAgentOption] { [] }
 

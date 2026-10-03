@@ -261,6 +261,67 @@ final class HostSettingsActions: SettingsHostActions {
         PreferredEditorService(defaults: .standard).open(configFileURL)
     }
 
+    func subrouterAutoResumeStatus() async -> SubrouterAutoResumeStatus {
+        guard let result = await Self.runSubrouterAutoResume(["status"]) else { return .notInstalled }
+        return SubrouterAutoResumeStatus.parse(output: result.output, exitStatus: result.exitStatus)
+    }
+
+    func setSubrouterAutoResume(_ agent: SubrouterAutoResumeAgent, enabled: Bool) async -> SubrouterAutoResumeStatus {
+        guard let change = await Self.runSubrouterAutoResume([enabled ? "enable" : "disable", agent.rawValue]) else {
+            return .notInstalled
+        }
+        if change.exitStatus != 0 {
+            hostSettingsLogger.error("Subrouter auto-resume change failed: agent=\(agent.rawValue, privacy: .public) status=\(change.exitStatus, privacy: .public)")
+            return SubrouterAutoResumeStatus.parse(output: change.output, exitStatus: change.exitStatus)
+        }
+        // Report what Subrouter now says rather than what was asked for.
+        return await subrouterAutoResumeStatus()
+    }
+
+    /// Runs `sr auto-resume <arguments>` off the main thread. Returns nil
+    /// when no `sr` executable is installed.
+    private static func runSubrouterAutoResume(_ arguments: [String]) async -> (exitStatus: Int32, output: String)? {
+        guard let executable = subrouterExecutablePath() else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: executable)
+            process.arguments = ["auto-resume"] + arguments
+            var environment = ProcessInfo.processInfo.environment
+            // A GUI app's PATH is minimal; sr wrappers exec ~/bin/subrouter.
+            let home = NSHomeDirectory()
+            environment["PATH"] = ["\(home)/.local/bin", "\(home)/bin", "/opt/homebrew/bin", "/usr/local/bin", environment["PATH"] ?? "/usr/bin:/bin"].joined(separator: ":")
+            process.environment = environment
+            let output = Pipe()
+            process.standardOutput = output
+            process.standardError = output
+            do {
+                try process.run()
+            } catch {
+                return (exitStatus: -1, output: error.localizedDescription)
+            }
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return (exitStatus: process.terminationStatus, output: String(decoding: data, as: UTF8.self))
+        }.value
+    }
+
+    private static func subrouterExecutablePath() -> String? {
+        let home = NSHomeDirectory()
+        let pathEntries = (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":")
+            .flatMap { entry in
+                let directory = URL(fileURLWithPath: String(entry))
+                return [directory.appendingPathComponent("sr").path, directory.appendingPathComponent("subrouter").path]
+            }
+        let candidates = pathEntries + [
+            "\(home)/.local/bin/sr", "\(home)/.local/bin/subrouter",
+            "\(home)/bin/sr", "\(home)/bin/subrouter",
+            "/opt/homebrew/bin/sr", "/opt/homebrew/bin/subrouter",
+            "/usr/local/bin/sr", "/usr/local/bin/subrouter",
+        ]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
     /// Reads the existing automation configuration off-main and summarizes it for Settings.
     func automationRulesStatus() async -> AutomationRulesStatus {
         let fileURL = automationConfigStore.fileURL

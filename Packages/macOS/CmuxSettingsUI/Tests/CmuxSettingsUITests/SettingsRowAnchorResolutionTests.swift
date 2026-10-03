@@ -185,6 +185,8 @@ struct SettingsRowAnchorResolutionTests {
     /// (no single cmux.json path): pickers and action buttons. Each must
     /// match the corresponding curated entry id verbatim.
     static let explicitlyAnchoredEntryIDs: Set<String> = [
+        "setting:automation:subrouter-claude-recovery",
+        "setting:automation:subrouter-codex-recovery",
         "setting:themes:appearance",
         "setting:themes:terminal-theme",
         "setting:app:app-icon",
