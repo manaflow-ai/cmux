@@ -14,7 +14,6 @@ extension SettingsSchema {
         /// The key can end terminals or other work.
         case destructive
     }
-
     /// Keys an agent may set and reset.
     public static let agentSettableKeys: Set<String> = [
         "window.titlebar",
