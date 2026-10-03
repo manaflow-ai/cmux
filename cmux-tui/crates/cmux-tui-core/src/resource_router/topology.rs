@@ -7,7 +7,7 @@ use super::{
     ParsedResourceRequest, expected_revision, find_snapshot, mutation_result, optional_string,
     required_string, required_u64, resource_operation_error, validation_error,
 };
-use crate::resource::{RequestEnvelope, ResourceError, ResourceOperation};
+use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_api::public_session_snapshot;
 use crate::{Mux, ResolvedResourcePath, ResourceSelectors, ResourceTarget, WorkspaceMutation};
 
@@ -423,7 +423,7 @@ mod tests {
         key: Option<&str>,
     ) -> ParsedResourceRequest {
         ParsedResourceRequest {
-            envelope: RequestEnvelope {
+            envelope: crate::resource::RequestEnvelope {
                 protocol: crate::resource::PROTOCOL.to_string(),
                 envelope_type: EnvelopeType::Request,
                 id: RequestId::parse("topology-test").unwrap(),

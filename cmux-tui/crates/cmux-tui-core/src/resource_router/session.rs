@@ -9,7 +9,7 @@ use super::{
 };
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::{
-    ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb, WorkspaceMutation,
+    ConfigReloadError, DefaultColors, Mux, MuxEvent, ResourceTarget, Rgb,
 };
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {

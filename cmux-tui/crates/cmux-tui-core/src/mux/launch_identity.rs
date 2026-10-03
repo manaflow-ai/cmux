@@ -21,6 +21,7 @@ const KEY_FILE: &str = "launch-keys.json";
 /// The launch keys of one session host.
 pub(crate) struct LaunchIdentity {
     keys: Mutex<LaunchKeys>,
+    #[cfg_attr(not(test), allow(dead_code))]
     path: Option<PathBuf>,
 }
 
@@ -69,6 +70,8 @@ impl LaunchIdentity {
     }
 
     /// Make a new current key and keep one previous key.
+    // `credential.rotate` (slice 3b) is the production caller.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn rotate(&self) -> anyhow::Result<String> {
         let mut keys = self.keys.lock().unwrap();
         let mut next = keys.clone();
@@ -136,12 +139,12 @@ impl Mux {
         &self,
         local: bool,
         credential: Option<&str>,
-    ) -> Result<Actor, crate::resource::ResourceError> {
+    ) -> Result<Actor, ResourceError> {
         // `validation.invalid` on field `credential`, reason `credential_*`:
         // the request is refused before any owner sees it, never retried
         // as the user.
         let refuse = |reason: &'static str| {
-            crate::resource::ResourceError::validation_invalid(Some("credential"), reason)
+            ResourceError::validation_invalid(Some("credential"), reason)
         };
         let Some(credential) = credential.filter(|credential| !credential.is_empty()) else {
             return Ok(Actor::local_user());
@@ -157,14 +160,15 @@ impl Mux {
     }
 
     /// Rotate the launch keys (local user only; the caller checks).
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn rotate_launch_keys(&self) -> anyhow::Result<String> {
         self.launch_identity.rotate()
     }
 }
 
 fn unix_seconds() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
         .unwrap_or(0)
 }
