@@ -11,7 +11,8 @@ use super::{commit_all, create, failure, observed, ok, read, repository, session
 use crate::Mux;
 
 fn checkpoint(mux: &Arc<Mux>, repository: &Path, key: &str) -> String {
-    let created = ok(create(mux, repository, json!({"include_untracked":"eligible","reason":"turn"}), key));
+    let created =
+        ok(create(mux, repository, json!({"include_untracked":"eligible","reason":"turn"}), key));
     created["value"]["checkpoint_id"].as_str().unwrap().to_string()
 }
 
@@ -68,7 +69,8 @@ fn a_turn_between_two_checkpoints_lists_only_what_the_turn_changed() {
             row("notes.md", "modified", 1, 0),
         ]
     );
-    let notes = result["files"].as_array().unwrap().iter().find(|f| f["path"] == "notes.md").unwrap();
+    let notes =
+        result["files"].as_array().unwrap().iter().find(|f| f["path"] == "notes.md").unwrap();
     assert_eq!(notes["patch"], "@@ -1 +1,2 @@\n draft\n+more\n");
 }
 

@@ -158,7 +158,8 @@ fn report(
     let mut files = tracked(repository, comparison, &paths)?;
     let mut untracked_skipped = 0;
     if comparison.untracked {
-        let listing = git(repository, comparison.operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
+        let listing =
+            git(repository, comparison.operation, &untracked_args(&paths), MAX_LISTING_BYTES)?;
         let mut names = parse::file_list(&listing.stdout);
         if listing.truncated {
             // The last name may be cut short.
@@ -208,16 +209,15 @@ fn report(
 fn comparison(repository: &Repository, scope: &str) -> Result<Comparison, ResourceError> {
     let head = repository.commit("HEAD");
     let empty_tree = || repository.empty_tree().map_err(|failure| git_failed(OPERATION, &failure));
-    let compare = |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| {
-        Comparison {
+    let compare =
+        |revisions: Vec<String>, cached: bool, untracked: bool, base: Option<String>| Comparison {
             operation: OPERATION,
             revisions: Some(revisions),
             cached,
             untracked,
             head: head.clone(),
             base,
-        }
-    };
+        };
     Ok(match scope {
         "uncommitted" => {
             let tree = match &head {
@@ -291,7 +291,8 @@ fn tracked(
     let operation = comparison.operation;
     let statuses =
         listing(repository, operation, &diff_args(comparison, &["--name-status", "-z"], paths))?;
-    let counts = listing(repository, operation, &diff_args(comparison, &["--numstat", "-z"], paths))?;
+    let counts =
+        listing(repository, operation, &diff_args(comparison, &["--numstat", "-z"], paths))?;
     let counts = parse::numstat(&counts.stdout);
     // An unmerged path is listed once per side; keep its first entry.
     let mut seen = HashSet::new();

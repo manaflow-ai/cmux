@@ -64,8 +64,7 @@ pub(super) fn diff(
         }
         None => {
             let (live, skipped) = live_index(&git, repository, &scratch)?;
-            let mut value =
-                diff::against_worktree(&live, from_tree, &request.fields, OPERATION)?;
+            let mut value = diff::against_worktree(&live, from_tree, &request.fields, OPERATION)?;
             if skipped > 0 {
                 value["untracked_skipped"] = json!(u32::try_from(skipped).unwrap_or(u32::MAX));
             }
