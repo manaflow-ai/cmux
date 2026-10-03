@@ -65,8 +65,13 @@ impl AcpmuxEvent {
         self.dir == "mux"
     }
 
+    /// The event's prompt id: a non-empty string, else none.
     fn prompt_id(&self) -> Option<String> {
-        self.msg.get("promptId").and_then(Value::as_str).map(str::to_owned)
+        self.msg
+            .get("promptId")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .map(str::to_owned)
     }
 }
 
@@ -160,14 +165,19 @@ impl TurnFolder {
             }
             (true, kind @ ("turn_end" | "turn_error")) => {
                 if let Some(turn) = self.current.take() {
-                    let error = (kind == "turn_error").then(|| {
-                        let text = match event.msg.get("error") {
-                            Some(Value::String(text)) => text.clone(),
-                            Some(other) => other.to_string(),
-                            None => Value::Object(event.msg.clone()).to_string(),
-                        };
-                        utf16_prefix(&text, ERROR_CHARS)
-                    });
+                    // JavaScript `String(msg.error ?? canonicalJson(msg))`; an
+                    // empty error is no error.
+                    let error = (kind == "turn_error")
+                        .then(|| {
+                            let text = match event.msg.get("error") {
+                                None | Some(Value::Null) => {
+                                    Value::Object(event.msg.clone()).to_string()
+                                }
+                                Some(error) => js_string(error),
+                            };
+                            utf16_prefix(&text, ERROR_CHARS)
+                        })
+                        .filter(|error| !error.is_empty());
                     out.push(TurnOutput::Ended { turn, seq: event.seq, error });
                 }
             }
@@ -184,11 +194,48 @@ pub fn last_reply(events: &[AcpmuxEvent]) -> String {
     for event in events {
         for output in folder.apply(event) {
             if let TurnOutput::Ended { turn, .. } = output {
-                reply = turn.text.trim().to_owned();
+                reply = js_trim(&turn.text).to_owned();
             }
         }
     }
     reply
+}
+
+/// JavaScript whitespace (`\s`, `String.prototype.trim`): WhiteSpace and
+/// LineTerminator. Unlike Rust's `char::is_whitespace` it has U+FEFF and not
+/// U+0085.
+pub(crate) fn is_js_whitespace(ch: char) -> bool {
+    matches!(ch, '\t'..='\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}')
+        || matches!(ch, '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+/// JavaScript `String.prototype.trim`.
+pub(crate) fn js_trim(text: &str) -> &str {
+    text.trim_matches(is_js_whitespace)
+}
+
+/// JavaScript `String(value)` for a JSON value: an object is
+/// `[object Object]`, an array joins its items with commas (null items are
+/// empty). Numbers use Rust's shortest form, which is JavaScript's for
+/// integers and for floats from 1e-6 to 1e21.
+pub(crate) fn js_string(value: &Value) -> String {
+    match value {
+        Value::Null => "null".to_owned(),
+        Value::Bool(flag) => flag.to_string(),
+        Value::Number(number) => match (number.as_i64(), number.as_u64(), number.as_f64()) {
+            (Some(int), _, _) => int.to_string(),
+            (None, Some(int), _) => int.to_string(),
+            (None, None, Some(float)) => float.to_string(),
+            (None, None, None) => number.to_string(),
+        },
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| if item.is_null() { String::new() } else { js_string(item) })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_owned(),
+    }
 }
 
 /// The first `limit` UTF-16 units (JavaScript `slice(0, limit)`), never

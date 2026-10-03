@@ -7,6 +7,8 @@
 
 use std::collections::BTreeMap;
 
+use crate::acp::is_js_whitespace;
+
 /// Longest log line, in UTF-8 bytes.
 pub const MAX_LINE_BYTES: usize = 280;
 /// Lines of memory shown at session start (the wake budget).
@@ -60,6 +62,12 @@ pub trait MemoryStore {
     fn node(&self, range: Range) -> Option<String>;
 }
 
+/// A range's summary; an empty summary counts as missing (wake, zoom and
+/// compaction alike, as in the TypeScript brain).
+fn summary_of(store: &impl MemoryStore, range: Range) -> Option<String> {
+    store.node(range).filter(|summary| !summary.is_empty())
+}
+
 /// An in-memory store for tests and the corpus.
 #[derive(Debug, Clone, Default)]
 pub struct ArrayMemoryStore {
@@ -84,9 +92,11 @@ impl MemoryStore for ArrayMemoryStore {
 }
 
 /// Splits text into log lines of at most [`MAX_LINE_BYTES`], on word
-/// boundaries where possible; a cut line ends with `…`.
+/// boundaries where possible; a cut line ends with `…`. Whitespace is the
+/// JavaScript set; a cut never splits a surrogate pair.
 pub fn to_lines(text: &str) -> Vec<String> {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat =
+        text.split(is_js_whitespace).filter(|word| !word.is_empty()).collect::<Vec<_>>().join(" ");
     if flat.is_empty() {
         return Vec::new();
     }
@@ -99,15 +109,19 @@ pub fn to_lines(text: &str) -> Vec<String> {
         while utf8_len(&rest[..cut]) > MAX_LINE_BYTES - 3 {
             cut -= 1;
         }
+        // Never cut between the two halves of a surrogate pair.
+        if cut > 0 && (0xd800..=0xdbff).contains(&rest[cut - 1]) {
+            cut -= 1;
+        }
         if let Some(space) = last_space_at_or_before(&rest, cut)
             && space * 2 > cut
         {
             cut = space;
         }
         let head = String::from_utf16_lossy(&rest[..cut]);
-        lines.push(format!("{}…", head.trim_end()));
+        lines.push(format!("{}…", head.trim_end_matches(is_js_whitespace)));
         let tail = String::from_utf16_lossy(&rest[cut..]);
-        rest = tail.trim_start().encode_utf16().collect();
+        rest = tail.trim_start_matches(is_js_whitespace).encode_utf16().collect();
     }
     if !rest.is_empty() {
         lines.push(String::from_utf16_lossy(&rest));
@@ -178,7 +192,7 @@ pub fn wake(store: &impl MemoryStore, budget: usize) -> WakeView {
     }
     let cover = wake_cover(length, budget);
     let missing =
-        cover.iter().copied().filter(|r| r.size() > 1 && store.node(*r).is_none()).collect();
+        cover.iter().copied().filter(|r| r.size() > 1 && summary_of(store, *r).is_none()).collect();
     let mut out = Vec::new();
     for range in cover {
         render(store, range, &mut out);
@@ -192,7 +206,7 @@ fn render(store: &impl MemoryStore, range: Range, out: &mut Vec<String>) {
         out.push(format!("#{} {line}", range.lo));
         return;
     }
-    if let Some(summary) = store.node(range) {
+    if let Some(summary) = summary_of(store, range) {
         out.push(format!("#{} {summary}", range.key()));
         return;
     }
@@ -211,7 +225,7 @@ pub fn zoom(store: &impl MemoryStore, range: Range) -> Vec<String> {
     let (left, right) = range.children();
     let mut out = Vec::new();
     for part in [left, right] {
-        match store.node(part) {
+        match summary_of(store, part) {
             Some(summary) => out.push(format!("#{} {summary}", part.key())),
             None => out.extend(
                 store
@@ -232,7 +246,7 @@ pub fn zoom(store: &impl MemoryStore, range: Range) -> Vec<String> {
 /// calls this again (the TypeScript `compact` loop, one step at a time).
 pub fn next_compaction(store: &impl MemoryStore, targets: &[Range]) -> Option<CompactionStep> {
     fn visit(store: &impl MemoryStore, range: Range) -> Option<CompactionStep> {
-        if range.size() == 1 || store.node(range).is_some() {
+        if range.size() == 1 || summary_of(store, range).is_some() {
             return None;
         }
         let (left, right) = range.children();
@@ -246,7 +260,7 @@ pub fn next_compaction(store: &impl MemoryStore, targets: &[Range]) -> Option<Co
             if part.size() == 1 {
                 store.read(part.lo, part.lo + 1).into_iter().next().unwrap_or_default()
             } else {
-                store.node(part).unwrap_or_default()
+                summary_of(store, part).unwrap_or_default()
             }
         };
         Some(CompactionStep {

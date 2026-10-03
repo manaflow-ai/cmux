@@ -4,7 +4,7 @@
 
 use cmux_conversation::{Message, Part, ParticipantKind, Summary, WorkStatus};
 
-use crate::acp::{SessionStatus, SessionSummary, utf16_prefix};
+use crate::acp::{SessionStatus, SessionSummary, js_trim, utf16_prefix};
 
 /// The Mac user's participant id.
 pub const USER_LOCAL: &str = "user_local";
@@ -37,7 +37,8 @@ pub fn wakes(summary: &Summary, message: &Message, is_mux_message: impl Fn(&str)
     if author.kind != ParticipantKind::Human || message.author == AGENT_MUX {
         return false;
     }
-    if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || message.retracted_at.is_some() {
+    let retracted = message.retracted_at.as_deref().is_some_and(|at| !at.is_empty());
+    if !summary.participants.iter().any(|p| p.id == AGENT_MUX) || retracted {
         return false;
     }
     let count = |kind| summary.participants.iter().filter(|p| p.kind == kind).count();
@@ -84,9 +85,10 @@ pub fn turn_key(session_id: &str, turn_seq: u64) -> String {
     format!("turn:{session_id}:{turn_seq}")
 }
 
-/// Trimmed text cut to `limit` UTF-16 units with an ellipsis.
+/// Trimmed text (JavaScript trim) cut to `limit` UTF-16 units with an
+/// ellipsis, never splitting a surrogate pair.
 pub fn excerpt(text: &str, limit: usize) -> String {
-    let flat = text.trim();
+    let flat = js_trim(text);
     if flat.encode_utf16().count() <= limit {
         return flat.to_owned();
     }
@@ -102,6 +104,9 @@ pub fn child_finished_prompt(child: &SessionSummary, reply: &str) -> String {
     )
 }
 
+/// The prompt for a child's permission request. Only string fields count (a
+/// missing optionId prints as ""; name, else kind, else ""); rawInput is
+/// canonical JSON (serde_json sorts object keys), cut to 600 UTF-16 units.
 pub fn child_permission_prompt(child: &SessionSummary, request: &serde_json::Value) -> String {
     let tool_call = request.get("toolCall");
     let title = tool_call
