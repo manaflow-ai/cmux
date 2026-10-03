@@ -194,6 +194,10 @@ fi
 echo "PASS: the fingerprint follows the build path and the toolchain"
 
 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+canonical_root="$("$ROOT_DIR/scripts/ci/canonical-build-root.sh" --print-root)"
+printf -v prefix_map_flags \
+  'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend %s=/private/tmp/cmux-test-source -Xfrontend -debug-prefix-map -Xfrontend %s=/private/tmp/cmux-test-source $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  "$canonical_root" "$canonical_root"
 for expected in \
   cmux \
   cmux-unit \
@@ -204,7 +208,7 @@ for expected in \
   CMUX_CI_COMPILATION_CACHE_cmuxTests=NO \
   'SWIFT_USE_INTEGRATED_DRIVER=$(CMUX_CI_INTEGRATED_DRIVER_$(TARGET_NAME):default=YES)' \
   CMUX_CI_INTEGRATED_DRIVER_cmuxTests=NO \
-  'OTHER_SWIFT_FLAGS=$(inherited) -Xfrontend -file-prefix-map -Xfrontend /private/tmp/cmux-ci=/private/tmp/cmux-test-source -Xfrontend -debug-prefix-map -Xfrontend /private/tmp/cmux-ci=/private/tmp/cmux-test-source $(CMUX_CI_SWIFT_FLAGS_$(TARGET_NAME))' \
+  "$prefix_map_flags" \
   CMUX_CI_SWIFT_FLAGS_cmuxTests=-no-emit-module-separately \
   'SWIFT_INSTALL_MODULE=$(CMUX_CI_INSTALL_MODULE_$(TARGET_NAME):default=YES)' \
   CMUX_CI_INSTALL_MODULE_cmuxTests=NO \
