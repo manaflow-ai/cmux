@@ -2,7 +2,9 @@ public import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import CmuxNextHome
+import ImageIO
 import Observation
+import UniformTypeIdentifiers
 
 /// Localized strings of the chief experiment.
 public nonisolated enum ChiefStrings {
@@ -43,6 +45,7 @@ public final class ChiefView: NSView {
             conversation = nil
         }
         super.init(frame: .zero)
+        wantsLayer = true
         status.alignment = .center
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byWordWrapping
@@ -88,6 +91,41 @@ public final class ChiefView: NSView {
                               width: size.width, height: size.height)
     }
 
+    /// State and a rendered image of this view for `debug.chief` (preflight
+    /// without GUI automation): the layer tree is drawn into a bitmap, so
+    /// Liquid Glass parts show flat but rows, text and layout are real.
+    public func debugReport() -> ChiefDebugReport {
+        let items = transcript?.controller.accessibilityItems() ?? []
+        return ChiefDebugReport(
+            connection: store.map { String(describing: $0.connection) } ?? "not configured",
+            me: store?.me?.displayName,
+            transcriptCount: conversation.flatMap { id in store?.transcript(for: id).count } ?? 0,
+            visibleRows: items.map { "\($0.label): \($0.value)" },
+            frame: frame,
+            snapshotPath: renderSnapshot()?.path(percentEncoded: false)
+        )
+    }
+
+    private func renderSnapshot() -> URL? {
+        guard let layer, bounds.width > 0, bounds.height > 0 else { return nil }
+        let scale = window?.backingScaleFactor ?? 2
+        let width = Int(bounds.width * scale), height = Int(bounds.height * scale)
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.setFillColor(NSColor.windowBackgroundColor.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        // Layer coordinates are flipped relative to the bitmap.
+        context.translateBy(x: 0, y: CGFloat(height))
+        context.scaleBy(x: scale, y: -scale)
+        layer.render(in: context)
+        guard let image = context.makeImage() else { return nil }
+        let url = FileManager.default.temporaryDirectory.appending(path: "cmux-chief-\(UUID().uuidString.prefix(8)).png")
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? url : nil
+    }
+
     /// The tab closed: stop the poll and the observation.
     public func close() {
         waitTask?.cancel()
@@ -96,4 +134,15 @@ public final class ChiefView: NSView {
         binding = nil
         store?.stop()
     }
+}
+
+/// What `debug.chief` reports for one Chief tab.
+public struct ChiefDebugReport: Sendable {
+    public var connection: String
+    public var me: String?
+    public var transcriptCount: Int
+    /// The rows the transcript draws now, from its accessibility items (label: text).
+    public var visibleRows: [String]
+    public var frame: CGRect
+    public var snapshotPath: String?
 }

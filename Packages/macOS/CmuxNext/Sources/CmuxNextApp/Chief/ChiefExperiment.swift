@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextChief
+import CmuxNextSettings
 import CmuxNextSidebar
 
 // Chief experiment (plans/cmux-next/chief.md; branch feat-cmux-next-chief
@@ -31,6 +32,22 @@ final class ChiefExperimentPage: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
+    }
+
+    /// `debug.chief`: every open Chief tab's state and a rendered PNG.
+    func debugReport() -> CmuxNextSettings.JSONValue {
+        .array(views.sorted { $0.key < $1.key }.map { key, view in
+            let r = view.debugReport()
+            return .object([
+                "tab": .string(key),
+                "connection": .string(r.connection),
+                "me": r.me.map(CmuxNextSettings.JSONValue.string) ?? .null,
+                "transcript_count": .number(Double(r.transcriptCount)),
+                "visible_rows": .array(r.visibleRows.map(CmuxNextSettings.JSONValue.string)),
+                "frame": .string(NSStringFromRect(r.frame)),
+                "snapshot": r.snapshotPath.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            ])
+        })
     }
 }
 

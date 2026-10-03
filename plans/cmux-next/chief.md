@@ -123,13 +123,15 @@ cursors stay on the Mac; search and contacts are not supported.
    reply and spawn entries, keyed retries) behind model and memory ports, tested with a fake model.
    Done (bfc57ee74b0): ChiefDO with PiHarness, WorkerDO, staging Worker
    https://cmux-chief-optmem-staging.debussy.workers.dev (token in ~/.secrets/cmux-chief-optmem.env).
-   Model: Workers AI `@cf/moonshotai/kimi-k2.7-code` until a Claude route is chosen (AI Gateway
-   billing or BYOK, a direct key, or coderouter: Lawrence's decision).
+   Model (coordinator decision, 2026-10-03): Workers AI `@cf/moonshotai/kimi-k2.7-code` for the
+   experiment now. When CodeRouter accounts work in the agent pane (R35), the chief moves to the
+   CodeRouter route so it uses the team's Claude and Codex accounts.
 4. Done: WorkerDO (pi session, `fetch_url`) and spawn.
 5. Native UI in Home (416320062f3, 3e032168fbe): `CmuxNextChief` target, sidebar item, `chief.show`
    action (palette, CLI `cmux chief show`). Tagged build `chief2` verified: `chief.show` runs, the
    view long-polls staging and follows new messages (after=0 -> 1 -> 2). UNVERIFIED: the drawn
-   view and sending from the composer (Computer Use onboarding is not finished on this Mac).
+   view and sending from the composer. Rule (coordinator): no Computer Use and no GUI driving on
+   Lawrence's laptop; prove the drawn view with `debug.chief` (state + layer render to PNG).
 6. Freestyle worker.
 
 ## 8. Open
