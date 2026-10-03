@@ -29,6 +29,8 @@ public final class TasksModel {
     /// Bumped to ask the pane to focus its New Task field (client view
     /// state; the App bumps it only for a user-initiated New Task).
     public internal(set) var newTaskFocusRequest = 0
+    /// The last request a New Task field consumed.
+    var newTaskFocusHandled = 0
     /// Agent harnesses the Assignee control offers (the App may narrow it).
     public var knownAgents: [String] = TaskAssigneeChoices.defaultAgents
 

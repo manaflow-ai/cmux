@@ -25,12 +25,21 @@ extension TasksModel {
         switch choice {
         case let .person(id): task.assignee?.stableID == id
         case .nobody: task.assignee == nil
-        case let .agent(harness): task.delegate?.harness == harness
+        case let .agent(harness): task.delegate.map { isMine($0) && $0.harness == harness } ?? false
         }
     }
 
     private func activeSession(for task: String, harness choice: TaskAssigneeChoice) -> TaskSessionItem? {
         guard case let .agent(harness) = choice else { return nil }
-        return sessions.values.first { $0.task == task && $0.agent.harness == harness && !$0.status.isTerminal }
+        return sessions.values.first {
+            $0.task == task && isMine($0.agent) && $0.agent.harness == harness && !$0.status.isTerminal
+        }
+    }
+
+    /// The owner keys agents per person (`agt_<harness>-<person>`): only
+    /// the local person's agent counts as this choice.
+    private func isMine(_ agent: TaskAgent) -> Bool {
+        guard let me = me?.stableID else { return true }
+        return agent.onBehalfOf == me
     }
 }

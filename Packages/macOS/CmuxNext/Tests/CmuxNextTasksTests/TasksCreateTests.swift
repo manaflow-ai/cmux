@@ -59,4 +59,16 @@ struct TasksCreateTests {
         model.focusNewTask()
         #expect(model.newTaskFocusRequest == 2)
     }
+
+    /// A request is honored once: a New Task field mounted later (a second
+    /// window's tab) never takes focus for an old request.
+    @Test func aFocusRequestIsTakenOnce() {
+        let (model, _) = started()
+        #expect(!model.takeNewTaskFocusRequest())
+        model.focusNewTask()
+        #expect(model.takeNewTaskFocusRequest())
+        #expect(!model.takeNewTaskFocusRequest(), "a later mount finds nothing")
+        model.focusNewTask()
+        #expect(model.takeNewTaskFocusRequest())
+    }
 }

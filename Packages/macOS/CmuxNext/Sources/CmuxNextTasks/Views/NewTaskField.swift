@@ -8,9 +8,6 @@ struct NewTaskField: View {
     @Environment(\.tasksColors) private var colors
     @State private var title = ""
     @FocusState private var focused: Bool
-    /// The last focus request this field honored, so revisiting the tab
-    /// never takes focus again.
-    @State private var handledRequest = 0
 
     var body: some View {
         HStack(spacing: 8) {
@@ -37,8 +34,6 @@ struct NewTaskField: View {
     }
 
     private func honorFocusRequest() {
-        guard model.newTaskFocusRequest > handledRequest else { return }
-        handledRequest = model.newTaskFocusRequest
-        focused = true
+        if model.takeNewTaskFocusRequest() { focused = true }
     }
 }

@@ -77,6 +77,24 @@ struct TasksAssigneeTests {
         #expect(model.choose(.agent(harness: "codex"), for: "task_8"))
     }
 
+    /// The owner keys agents per person (`agt_<harness>-<person>`): another
+    /// person's active claude session neither blocks nor checks my claude.
+    @Test func anotherPersonsAgentDoesNotBlockMine() throws {
+        var seed = MockTasksSource.seed()
+        let theirs = TaskAgent(principal: "agt_claude-austin", harness: "claude", onBehalfOf: "usr_austin")
+        seed.sessions = seed.sessions.map { session in
+            var session = session
+            if session.task == "task_1" { session.agent = theirs }
+            return session
+        }
+        let index = try #require(seed.tasks.firstIndex { $0.id == "task_1" })
+        seed.tasks[index].delegate = theirs
+        let model = TasksModel(source: MockTasksSource(snapshot: seed))
+        model.start()
+        #expect(!model.isCurrent(.agent(harness: "claude"), for: try task(model, "task_1")))
+        #expect(model.choose(.agent(harness: "claude"), for: "task_1"))
+    }
+
     @Test func eachPickHasItsOwnIdempotencyKey() {
         let (model, _) = started()
         model.choose(.person("usr_austin"), for: "task_5")
