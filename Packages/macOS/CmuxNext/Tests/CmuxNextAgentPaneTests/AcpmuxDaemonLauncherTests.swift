@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -19,14 +20,39 @@ import Testing
     @Test func readsTheEndpointFromTheReadyLine() async throws {
         // Echoes its arguments to the log and reports ready on fd 3.
         let (environment, root) = try environment(script: #"""
-        echo "$@"
+        echo "login=$ACPMUX_LOGIN_ENV $@"
         printf '{"ready":true,"pid":%s,"webUrl":"http://127.0.0.1:5123/?token=tok"}\n' "$$" >&3
         """#)
         defer { try? FileManager.default.removeItem(at: root) }
         let endpoint = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(10))
         #expect(endpoint == AcpmuxWebEndpoint(url: URL(string: "ws://127.0.0.1:5123/")!, token: "tok"))
         let log = try String(contentsOfFile: environment.logPath, encoding: .utf8)
-        #expect(log.contains("daemon run --ready-fd 3 --listen 127.0.0.1:0"))
+        #expect(log.contains("login=1 daemon run --ready-fd 3 --listen 127.0.0.1:0"))
+    }
+
+    @Test func onlyTheReadyDescriptorReachesTheDaemon() async throws {
+        var (environment, root) = try environment(script: #"""
+        for fd in $(seq 3 20); do
+            if [ -e "/dev/fd/$fd" ]; then printf '%s ' "$fd" >> "$ACPMUX_FDS_LOG"; fi
+        done
+        printf '\n' >> "$ACPMUX_FDS_LOG"
+        printf '{"ready":true,"pid":%s,"webUrl":"http://127.0.0.1:5123/?token=tok"}\n' "$$" >&3
+        """#)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let inheritedPath = root.appendingPathComponent("inherited-fds")
+        environment.childEnvironment["ACPMUX_FDS_LOG"] = inheritedPath.path
+        let lockPath = root.appendingPathComponent("host.lock")
+        let lock = lockPath.path.withCString { open($0, O_CREAT | O_RDWR, 0o600) }
+        #expect(lock >= 0)
+        defer { if lock >= 0 { Darwin.close(lock) } }
+        let inherited = fcntl(lock, F_DUPFD, 9)
+        #expect(inherited >= 0)
+        defer { if inherited >= 0 { Darwin.close(inherited) } }
+
+        _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(10))
+        let descriptors = try String(contentsOf: inheritedPath, encoding: .utf8)
+        #expect(descriptors == "3 \n")
     }
 
     @Test func aDaemonThatExitsEarlyIsReportedWithItsLog() async throws {
