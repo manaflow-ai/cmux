@@ -69,6 +69,37 @@ import Testing
         #expect(host.linkedIntoView == ["@1"])
     }
 
+    /// This stream is attached to the view session, so a real answer to `list-sessions` names
+    /// it and a real answer to `list-windows -a` lists its windows. Replies are matched to
+    /// commands by position, and one that lands on the wrong command reads as a host with no
+    /// sessions or no windows. That must not close anything: seen live, one misplaced reply
+    /// closed every workspace for the host while the connection was still up.
+    @Test(arguments: ["list-sessions", "list-windows -a"])
+    func listReplyWithoutTheViewSessionClosesNothing(_ misplaced: String) async {
+        let host = ScriptedViewHost(sessions: [.init(name: "work", id: 1, windowIds: ["@1"])])
+        defer { host.close() }
+        await host.connect()
+        #expect(host.view.workspaces.map(\.sessionName) == ["work"])
+        var workspaceChanges = 0
+        host.view.onWorkspacesChanged = { workspaceChanges += 1 }
+
+        // The empty reply of some other command, where the list should have been.
+        host.emptyReplyOnce = misplaced
+        host.feed("%sessions-changed\n")
+        await host.settle()
+
+        #expect(host.emptyReplyOnce == nil, "the reconcile must have sent \(misplaced)")
+        #expect(
+            host.view.workspaces.map(\.sessionName) == ["work"],
+            "a reply that cannot be the answer to \(misplaced) closed the host's workspaces"
+        )
+        #expect(workspaceChanges == 0)
+        #expect(
+            host.connection.connectionState == .reconnecting,
+            "the replies are out of step with the commands, and only a fresh stream puts them back"
+        )
+    }
+
     /// A per-session client is attached to the real session, so its own windows still arrive as
     /// `%window-add`. The unlinked notifications and `%sessions-changed` are about other sessions and
     /// must change nothing there.
@@ -134,6 +165,8 @@ private final class ScriptedViewHost {
     let view: RemoteTmuxViewConnection
     let connection: RemoteTmuxControlConnection
     var sessions: [Session]
+    /// The next command starting with this text is answered with an empty block, once.
+    var emptyReplyOnce: String?
     /// Windows linked into the view after its placeholder, in link order.
     private(set) var linkedIntoView: [String] = []
     /// Every command the connection wrote, in send order.
@@ -239,6 +272,10 @@ private final class ScriptedViewHost {
 
     private func reply(to command: String) -> [String] {
         let viewName = view.view.sessionName
+        if let prefix = emptyReplyOnce, command.hasPrefix(prefix) {
+            emptyReplyOnce = nil
+            return []
+        }
         if command.hasPrefix("list-sessions") {
             return ["1:\(ownerId):\(RemoteTmuxViewSession.formatVersion):\(viewName)"]
                 + sessions.map { ":::\($0.name)" }
