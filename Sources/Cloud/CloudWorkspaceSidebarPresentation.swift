@@ -92,6 +92,7 @@ struct CloudWorkspaceSidebarPresentation {
         )
 
         var entries: [(identity: String, directory: String?)] = []
+        var hasLaunchingTerminal = false
         var seen = Set<String>()
         for panelID in orderedPanelIDs {
             let projectedMachine = state.projectedResources[panelID]?.machine
@@ -100,10 +101,25 @@ struct CloudWorkspaceSidebarPresentation {
             let resource = state.projectedResources[panelID]
             guard resource?.kind == .terminal || workspace.terminalPanel(for: panelID) != nil else { continue }
             let directory = workspace.reportedPanelDirectory(panelId: panelID)
+            // A newly projected terminal can briefly have no accepted cwd while
+            // its first daemon snapshot is still arriving. Do not expose that
+            // loading gap as a real "Directory unavailable" value. Running
+            // terminals with no cwd continue to use the explicit placeholder.
+            if directory == nil,
+               let resource,
+               SurfaceCatalog.shared.resources[resource]?.lifecycle == .launching {
+                hasLaunchingTerminal = true
+                continue
+            }
             guard seen.insert(machineID + "\n" + (directory ?? "")).inserted else { continue }
             entries.append((machineID, directory))
         }
-        if entries.isEmpty { entries = machineIDs.sorted().map { ($0, nil) } }
+        if entries.isEmpty {
+            // Keep the workspace row stable while every terminal is waiting
+            // for its first accepted remote directory.
+            if hasLaunchingTerminal { return nil }
+            entries = machineIDs.sorted().map { ($0, nil) }
+        }
         // Never expand or abbreviate a remote path using this Mac's home directory.
         let paths = entries.map { entry -> [String] in
             guard let directory = entry.directory else { return [Self.unavailableDirectory] }
