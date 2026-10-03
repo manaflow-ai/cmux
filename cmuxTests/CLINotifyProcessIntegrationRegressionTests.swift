@@ -400,7 +400,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             extraEnvironment: codexLaunchEnvironment(
                 context: context,
                 sessionId: "session\n--send",
-                observedHookPID: "4242"
+                agentPID: "4242"
             )
         )
 
@@ -9745,7 +9745,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func codexLaunchEnvironment(
         context: ClaudeHookContext,
         sessionId: String,
-        observedHookPID: String? = nil
+        agentPID: String? = nil
     ) -> [String: String] {
         var environment = agentLaunchEnvironment(
             context: context,
@@ -9753,8 +9753,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             executable: "/usr/local/bin/codex",
             arguments: ["/usr/local/bin/codex", "--model", "gpt-5.4"]
         )
-        if let observedHookPID {
-            environment["CMUX_CODEX_HOOK_PID"] = observedHookPID
+        if let agentPID {
+            environment["CMUX_CODEX_PID"] = agentPID
         }
         return environment
     }
