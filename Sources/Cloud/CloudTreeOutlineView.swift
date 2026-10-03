@@ -110,6 +110,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         var machineDetailLayout = CloudTreeMachineDetailLayout()
         private(set) var isUpdatingProgrammatically = false
         private var activeDrag: ActiveDrag?
+        private var machineLiftMouseUpMonitor: Any?
         // NSDraggingItem retains the writer for the live native session. A weak
         // coordinator edge prevents a retained writer/container cycle.
         private weak var activeDragWriter: CloudTreeSurfaceDragPasteboardWriter?
@@ -124,6 +125,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             self?.pendingDragWriterDidDeallocate(tokenID: tokenID)
         }
         private(set) var isDragging = false
+        /// Machine drags lift the real row; proposal-level tests turn it off.
+        var machineLiftEnabled = true
         var deferredNodes: [CloudTreeNode]?
         private var deferredReload = false
         var onDragStateChange: @MainActor (Bool) -> Void = { _ in }
@@ -158,6 +161,27 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         }
         deinit {
             if let organizationObserver { NotificationCenter.default.removeObserver(organizationObserver) }
+            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
+        }
+
+        /// Removes the fallback monitor used when AppKit omits a drag-end callback.
+        private func removeMachineLiftMouseUpMonitor() {
+            if let monitor = machineLiftMouseUpMonitor { NSEvent.removeMonitor(monitor) }
+            machineLiftMouseUpMonitor = nil
+        }
+
+        /// Finishes the native drag through the same coordinator path as `endedAt`.
+        func installMachineLiftMouseUpMonitor(for session: NSDraggingSession, in outline: CloudTreeNSOutlineView) {
+            removeMachineLiftMouseUpMonitor()
+            machineLiftMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self,
+                          self.activeDragSession === session,
+                          self.activeDragSequenceNumber == session.draggingSequenceNumber else { return }
+                    self.outlineView(outline, draggingSession: session, endedAt: event.locationInWindow, operation: [])
+                }
+                return event
+            }
         }
         private func discardPendingDrag(_ pending: PendingDrag) {
             pending.registration.end()
@@ -223,6 +247,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
         /// The boundary is safe because AppKit does not dispatch a new
         /// `mouseDown` while the older native drag loop is still running.
         func prepareForNativeDragBoundary(on sourceView: CloudTreeNSOutlineView) {
+            removeMachineLiftMouseUpMonitor()
             if let activeDragSourceView, activeDragSourceView !== sourceView,
                outlineView !== sourceView {
                 // A stale callback from an older outline must not retire the
@@ -230,6 +255,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // authoritative pointer boundary for the retained old source.
                 return
             }
+            finishMachineLift()
             if let activeDragSession = activeDragSession ?? sourceView.activeNativeDragSession {
                 supersededDragSession = activeDragSession
             }
@@ -909,12 +935,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        func item(_ title: String, action: @escaping @MainActor () -> Void) -> NSMenuItem {
-            let item = CloudTreeMenuItem(title: title, action: action)
-            item.target = item
-            return item
-        }
-
         // MARK: Drag source
 
         /// Only the current native writer can reorder machines. Its captured
@@ -959,7 +979,6 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, willBeginAt screenPoint: NSPoint, forItems draggedItems: [Any]) {
             _ = screenPoint
-            _ = draggedItems
             if activeDrag != nil || isDragging {
                 if let activeSession = activeDragSession,
                    activeSession === session {
@@ -1019,9 +1038,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             }
             activeDragSequenceNumber = session.draggingSequenceNumber
             setDragging(true)
+            liftMachineDrag(session, draggedItems: draggedItems, in: outlineView)
         }
 
         func outlineView(_ outlineView: NSOutlineView, draggingSession session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+            removeMachineLiftMouseUpMonitor()
             if let supersededDragSession,
                supersededDragSession === session {
                 // This is the terminal callback for a source already retired
@@ -1051,6 +1072,7 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 // the registration for a newer surface drag.
                 return
             }
+            finishMachineLift()
             defer {
                 if let outlineView = outlineView as? CloudTreeNSOutlineView,
                    outlineView.activeNativeDragSession === session {
