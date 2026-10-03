@@ -15,8 +15,6 @@ Status: proposal 1, feed lead (lane 9), 2026-10-02. This file is the "spec propo
 | FD7 | No `cmux feed answer` CLI verb until the actor stamp lands. |
 | FD8 | Default views: list on Cmd-I, inbox as the wide mode, menu bar opt-in. |
 
-PARKED 2026-10-02 (Claude capacity): PR #16855 (branch feat-cmux-next-feed2, app mirror + Cmd-I panel + feed.request + Claude Code adapter; fixed ActionCatalogTests count, CI pending on the new head) and branch feat-cmux-next-feed-push 334eab950ca (APNs push sender, review fixes done, stacked on #16855). Next: merge #16855 when green on its exact head, push its COORDINATION line, open the push PR, verify one real staging push once the iOS client registers (PR 17049).
-
 ## 1. Summary for agents
 
 - The feed is one per-user list of **items**. An item is a **notice** (no answer) or a **request** (it needs an answer). Agents, harnesses, apps, servers, VMs, automations, integrations and cmux itself post items through one op family, `feed.*`.
@@ -424,10 +422,10 @@ Screenshots and the recommendation are in section 15 when built.
 | --- | --- | --- |
 | F1 | Owner: `FeedDO`, `feed.*` ops in the cloud catalog, pure reducer with lifecycle, dedupe, expiry, triage, limits; reducer property tests; DO tests (ledger replay, events, alarms); shared conformance vectors for the local owner | this branch |
 | F2 | CLI and MCP verbs (Rust CLI owner, requests in the report); generated MCP tools from the catalog | requested |
-| F3a | App mirror over `FeedDO` (`CloudFeedSource`, `FeedService`), Cmd-I list panel, `feed.request`/`feed.cancel`/`debug.feed` control methods; FeedDO live events carry the changed items | #16855 |
-| F5a | Prototype Claude Code adapter `scripts/cmux-next/feed-hook.py` (stand-in for `cmux feed hook`); proven live: Claude Code's PreToolUse hook -> app -> FeedDO -> user answer -> allow or deny with reason | #16855 |
-| F8a | Push targets on UserDO + Worker-native APNs sender called from FeedDO's push decision | feat-cmux-next-feed-push |
-| F7a | WebKit duplication prototype | #17033 |
+| F3a | App mirror over `FeedDO` (`CloudFeedSource`, `FeedService`), Cmd-I list panel, `feed.request`/`feed.cancel`/`debug.feed` control methods; FeedDO live events carry the changed items | landed 38aa052b4cb..1807fb31d80 |
+| F5a | Prototype Claude Code adapter `scripts/cmux-next/feed-hook.py` (stand-in for `cmux feed hook`); proven live: Claude Code's PreToolUse hook -> app -> FeedDO -> user answer -> allow or deny with reason | landed with F3a |
+| F8a | Push targets on UserDO + Worker-native APNs sender called from FeedDO's push decision (iOS client: CmuxFeedPushCore) | landed with this note |
+| F7a | WebKit duplication prototype | 0438a9f60aa |
 | F3 | Mac: `CmuxNextFeed` module (model mirror + intent log, three prototypes, mock source), app wiring to the DO stream and the local owner, actions and settings | next |
 | F4 | Local feed server (`cmux-feed-core` Rust reducer passing the same vectors, `cmux-feed serve` supervised as a server app, `feed.adopt` handoff, `formal/FeedHandoff.tla`) | after F1 review |
 | F5 | Harness adapters (`cmux feed hook claude-code\|codex\|opencode\|pi`, acpmux `request_permission` bridge) | after F2 |
