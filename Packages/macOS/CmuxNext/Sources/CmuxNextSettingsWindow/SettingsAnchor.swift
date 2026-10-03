@@ -14,7 +14,7 @@ public struct SettingsAnchor: Hashable, Sendable {
         self.id = id
     }
 
-    /// A schema row; its id is the cmux.json key (`tabs.newTabKind`).
+    /// A schema row; its id is the cmux-next.json key (`tabs.newTabKind`).
     public static func setting(_ descriptor: SettingDescriptor) -> SettingsAnchor {
         SettingsAnchor(section: descriptor.section, id: descriptor.id)
     }
@@ -85,7 +85,7 @@ public enum SettingsCardID: String, CaseIterable, Sendable {
         case .rooms: ["spaces", "space", "rooms", "room", "profiles"]
         case .browserProfiles: ["browser", "profiles", "profile", "cookies", "logins", "new profile", "extensions"]
         case .machines: ["machines", "ssh", "cloud", "remote", "devbox", "server"]
-        case .advanced: ["advanced", "cmux.json", "settings file", "show in finder", "reset all", "problems", "diagnostics"]
+        case .advanced: ["advanced", "cmux-next.json", "settings file", "show in finder", "reset all", "problems", "diagnostics"]
         }
     }
 }

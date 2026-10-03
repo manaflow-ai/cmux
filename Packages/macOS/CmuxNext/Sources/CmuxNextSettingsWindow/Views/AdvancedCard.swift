@@ -12,8 +12,16 @@ struct AdvancedCard: View {
         SettingsCard(title: nil) {
             InfoRow(title: SettingsWindowStrings.settingsFile, value: url.path(percentEncoded: false))
             HStack(spacing: Metrics.space4) {
+                Button(model.actionTitle("palette.openCmuxSettingsFile") ?? SettingsWindowStrings.showInFinder) {
+                    _ = model.perform("palette.openCmuxSettingsFile")
+                }
+                .buttonStyle(SettingsButtonStyle())
                 Button(SettingsWindowStrings.showInFinder) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     .buttonStyle(SettingsButtonStyle())
+                Button(model.actionTitle("reloadConfiguration") ?? SettingsWindowStrings.reset) {
+                    _ = model.perform("reloadConfiguration")
+                }
+                .buttonStyle(SettingsButtonStyle())
                 Spacer(minLength: 0)
                 Button(SettingsWindowStrings.resetAll) { confirmingReset = true }
                     .buttonStyle(SettingsButtonStyle(destructive: true))
@@ -37,7 +45,7 @@ struct AdvancedCard: View {
             }
             ForEach(Array(problems.enumerated()), id: \.offset) { _, problem in
                 VStack(alignment: .leading, spacing: Metrics.space1) {
-                    Text(problem.path.isEmpty ? "cmux.json" : problem.path).font(SettingsStyle.keycap)
+                    Text(problem.path.isEmpty ? url.lastPathComponent : problem.path).font(SettingsStyle.keycap)
                     Text(problem.message).font(SettingsStyle.caption).foregroundStyle(SettingsStyle.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
