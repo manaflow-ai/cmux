@@ -17,6 +17,8 @@ enum ServerHelperClient {
         case requiresApproval
         /// The helper refused or failed the fix; the reason is the helper's.
         case refused(String)
+        /// The helper did not answer within `replyLimit`.
+        case timedOut
         case failed(String)
     }
 
@@ -64,21 +66,47 @@ enum ServerHelperClient {
         let reason: String?
         do {
             reason = try await call(label: label, requirement: requirement, fixID: fix.rawValue, revert: revert)
+        } catch is ServerHelperTimedOut {
+            throw .timedOut
         } catch {
             throw .failed(String(describing: error))
         }
         if let reason { throw .refused(reason) }
     }
 
-    /// One XPC request on a fresh privileged connection; the reply or the
-    /// connection error resumes the continuation exactly once.
-    private static func call(label: String, requirement: String, fixID: String, revert: Bool) async throws -> String? {
-        let connection = NSXPCConnection(machServiceName: label, options: .privileged)
+    /// The longest the app waits for the helper (pmset itself is bounded at 10 s).
+    static let replyLimit: Duration = .seconds(30)
+
+    /// One XPC request on a fresh privileged connection; the reply, the
+    /// connection error or the deadline resumes the continuation exactly once.
+    private static func call(label: String, requirement: String, fixID: String, revert: Bool,
+                             clock: any Clock<Duration> = ContinuousClock()) async throws -> String? {
+        let connection = HelperConnection(label: label, requirement: requirement)
+        defer { connection.invalidate() }
+        return try await ServerHelperDeadline.run(limit: replyLimit, clock: clock, operation: {
+            try await connection.send(fixID: fixID, revert: revert)
+        }, onTimeout: {
+            // Invalidation fires the proxy's error handler, which ends the call.
+            connection.invalidate()
+        })
+    }
+}
+
+/// The privileged connection to this build's helper.
+private final nonisolated class HelperConnection: @unchecked Sendable {
+    private let connection: NSXPCConnection
+
+    init(label: String, requirement: String) {
+        connection = NSXPCConnection(machServiceName: label, options: .privileged)
         connection.remoteObjectInterface = NSXPCInterface(with: (any ServerHelperProtocol).self)
         connection.setCodeSigningRequirement(requirement)
         connection.resume()
-        defer { connection.invalidate() }
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String?, any Error>) in
+    }
+
+    func invalidate() { connection.invalidate() }
+
+    func send(fixID: String, revert: Bool) async throws -> String? {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String?, any Error>) in
             let once = ResumeOnce(continuation)
             let proxy = connection.remoteObjectProxyWithErrorHandler { once.fail($0) }
             guard let helper = proxy as? any ServerHelperProtocol else {
