@@ -87,6 +87,10 @@ public final class SidebarModel {
 
     /// Every workspace in visual order.
     public var allWorkspaces: [SidebarWorkspace] { sections.flatMap(\.workspaces) }
+    /// The rows a position-based pick (Cmd+1…9, next/previous sidebar tab,
+    /// select first/last, arrow keys) may land on: every row but
+    /// placeholders, which are no workspace yet.
+    public var selectableWorkspaces: [SidebarWorkspace] { allWorkspaces.filter { $0.rowState != .placeholder } }
 
     public func workspace(_ id: WorkspaceID) -> SidebarWorkspace? { SidebarEdits.workspace(id, in: sections) }
 
