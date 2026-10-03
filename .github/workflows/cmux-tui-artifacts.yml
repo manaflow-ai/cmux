@@ -784,6 +784,8 @@ jobs:
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
               "ghosttyCommit": rev("HEAD:ghostty"),
+              # libghostty-vt's source (cmux-tui builds it from ghostty-next).
+              "ghosttyNextCommit": rev("HEAD:ghostty-next"),
               "commit": commit,
               "run": os.environ["GITHUB_RUN_ID"],
               "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",

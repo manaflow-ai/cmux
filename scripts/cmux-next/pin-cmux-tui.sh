@@ -7,8 +7,10 @@
 # tree (default): the daemon built from this checkout's own cmux-tui source.
 #   The key is a git tree hash of the binary's source inputs, the cmux-tui
 #   tree and the ghostty and ghostty-next gitlinks (`pin-cmux-tui.sh key`):
-#     printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n' \
-#       "$(git rev-parse HEAD:cmux-tui)" "$(git rev-parse HEAD:ghostty)" | git mktree --missing
+#     printf '040000 tree %s\tcmux-tui\n160000 commit %s\tghostty\n160000 commit %s\tghostty-next\n' \
+#       "$(git rev-parse HEAD:cmux-tui)" "$(git rev-parse HEAD:ghostty)" \
+#       "$(git rev-parse HEAD:ghostty-next)" | git mktree --missing
+#   (a revision without ghostty-next drops that line and keeps its old key)
 #   The `cmux-tui artifacts` workflow runs on every push to feat-cmux-next,
 #   feat-cmux-next-acpmux and cmux-tui-pin-* that touches cmux-tui, ghostty or ghostty-next.
 #   After the hosted build and the cmux_next_ daemon tests pass on that commit,
@@ -116,7 +118,7 @@ tree_dir() { echo "$repo_root/cmux-tui/target/hosted/tree/$1"; }
 refuse_dirty_source() {
   [[ "${CMUX_NEXT_TUI_ALLOW_DIRTY:-}" == 1 ]] && return 0
   local dirty
-  dirty="$(git -C "$repo_root" status --porcelain --ignore-submodules=dirty -- cmux-tui ghostty 2>/dev/null || true)"
+  dirty="$(git -C "$repo_root" status --porcelain --ignore-submodules=dirty -- cmux-tui ghostty ghostty-next 2>/dev/null || true)"
   [[ -z "$dirty" ]] && return 0
   {
     echo "error: uncommitted cmux-tui source changes are not in any published cmux-tui binary:"
@@ -170,11 +172,11 @@ refuse_unpushed_source() {
   [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository 2>/dev/null)" == false ]] || return 0
   [[ -n "$(git -C "$repo_root" for-each-ref --count=1 refs/remotes 2>/dev/null)" ]] || return 0
   local last
-  last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty 2>/dev/null)" || return 0
+  last="$(git -C "$repo_root" rev-list -1 HEAD -- cmux-tui ghostty ghostty-next 2>/dev/null)" || return 0
   [[ -n "$last" ]] || return 0
   [[ -n "$(git -C "$repo_root" branch -r --contains "$last" 2>/dev/null | head -n 1)" ]] && return 0
   {
-    echo "error: commit $last, the last change to cmux-tui or ghostty here, is on no remote branch,"
+    echo "error: commit $last, the last change to cmux-tui, ghostty or ghostty-next here, is on no remote branch,"
     echo "  so no workflow will publish its cmux-tui. Push it (to feat-cmux-next, feat-cmux-next-acpmux or"
     echo "  cmux-tui-pin-<short-sha>), or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
