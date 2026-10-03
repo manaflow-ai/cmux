@@ -356,14 +356,31 @@ fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyh
     )
 }
 
+/// Open the daemon log for append, owner-only like the config file: the log
+/// can carry agent output and request details. A log left by an older build
+/// with wider bits is narrowed to 0600.
+fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    if log.metadata()?.permissions().mode() & 0o077 != 0 {
+        log.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("chmod 0600 {}", path.display()))?;
+    }
+    Ok(log)
+}
+
 /// Start `<exe> [prefix] daemon run --ready-fd N` in its own session and
 /// return the read end of its readiness pipe.
 fn spawn_detached() -> Result<std::fs::File> {
     use std::os::fd::FromRawFd;
     let exe = std::env::current_exe()?;
     std::fs::create_dir_all(home())?;
-    let log =
-        std::fs::OpenOptions::new().create(true).append(true).open(home().join("daemon.log"))?;
+    let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
     let mut fds = [0i32; 2];
     // SAFETY: fds has room for the two descriptors pipe writes.
@@ -466,6 +483,30 @@ async fn notify_loop(hub: Arc<Hub>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn daemon_log_is_owner_only_when_created_and_when_an_old_log_is_wider() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("acpmux-log-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        let fresh = dir.join("daemon.log");
+        drop(open_daemon_log(&fresh).unwrap());
+        assert_eq!(mode(&fresh), 0o600);
+
+        let old = dir.join("old.log");
+        std::fs::write(&old, b"kept\n").unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o644)).unwrap();
+        {
+            use std::io::Write;
+            let mut f = open_daemon_log(&old).unwrap();
+            f.write_all(b"appended\n").unwrap();
+        }
+        assert_eq!(mode(&old), 0o600);
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "kept\nappended\n");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[tokio::test]
     async fn lock_release_wakes_the_waiter_and_a_held_lock_times_out() {

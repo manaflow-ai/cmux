@@ -162,10 +162,18 @@ Notes from the slice 2 review:
   listener starts; a change needs a daemon restart.
 - The Debug agent pane dev server (`CMUX_NEXT_AGENT_PANE_DEV_URL`) sends its own
   origin. A Debug app (only `#if DEBUG` resolves a dev server) starts acpmux with
-  `--allow-dev-origin <origin>`; acpmux accepts only a loopback `http` origin with
-  a port there and never saves it. Release builds never pass the flag. A daemon
-  that already runs keeps its origins, so restart it after changing the dev URL.
-  No manual config entry (coordinator decision 2026-10-03).
+  `--allow-dev-origin <origin>`. Only the Swift side is Debug-only: the
+  `--allow-dev-origin` flag exists in EVERY acpmux build (Release included), so
+  anyone who can start `acpmux daemon run` can pass it. That is safe because the
+  flag accepts only an `http` origin whose host is loopback (`127.0.0.1`,
+  `localhost`, `[::1]`) with an explicit port (anything else is a start-up
+  error, so it can never admit a web site); the value is never saved to
+  config.json (this run only); and the token stays mandatory, so an allowed dev
+  origin still needs the token. Release apps never pass the flag. A daemon that
+  already runs keeps its origins, so restart it after changing the dev URL. No
+  manual config entry (coordinator decision 2026-10-03).
+- acpmux creates `daemon.log` with mode 0600, like its config file, and narrows
+  an older log with wider bits to 0600 when it opens it.
 - acpmux peers that connect with no token stop working once the remote side has
   this change; `acpmux peer add ... --token T` or an ssh peer (which reads the
   remote token) is required.
