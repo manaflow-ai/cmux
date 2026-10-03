@@ -61,6 +61,7 @@ export function DiffPanel({
   review,
   reviewFiles,
   turn,
+  className,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -75,6 +76,7 @@ export function DiffPanel({
   reviewFiles?: TurnFile[];
   /// Where Last turn's files came from, and why a checkpoint isn't shown when one was expected.
   turn?: { source: "checkpoint" | "tools"; note?: string };
+  className?: string;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -260,7 +262,7 @@ export function DiffPanel({
     { label: "Copy git apply command", disabled: !command, run: () => command && copyText(command) },
   ];
   return (
-    <section ref={panel} className="acpmux-diff-panel" aria-label="Changes">
+    <section ref={panel} className={`acpmux-diff-panel${className ? ` ${className}` : ""}`} aria-label="Changes">
       <header className="acpmux-diff-header">
         <button
           ref={back}
