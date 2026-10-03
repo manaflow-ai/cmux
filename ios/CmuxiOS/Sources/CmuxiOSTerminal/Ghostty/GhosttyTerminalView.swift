@@ -60,6 +60,7 @@ public final class GhosttyTerminalView: UIView, TerminalRenderer {
             return
         }
         diagnostics["app"] = "ok"
+        diagnostics["config_diagnostics"] = String(app.configDiagnostics)
         self.app = app
         let box = InputBox()
         box.deliver = { [weak self] data in self?.onInput?(data) }

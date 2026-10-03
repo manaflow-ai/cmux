@@ -196,14 +196,12 @@ per conversation; events are coalesced to one UI update per frame.
      Extension; the device key never leaves the phone; paths are LAN, NAT-punched direct, the
      cloud tunnel ("via cloud region") and the per-host relay; `TerminalPath` is the badge.
      A mock `TerminalSessionSource` comes first; the engine plugs in when its iOS build lands.
-   - Memory (ghostty-next ios-v4): a READY restore gives the phone terminal the host's scrollback
-     limit, and the API has no local cap after a restore, so the 8 MiB budget
-     (`ios.terminal.scrollbackBytes`) is enforced by the viewer. It restores READY only and never
-     asks for HISTORY (history comes from the host on demand, ghostty-next section 7). When the
-     bytes parsed since the last READY pass the budget, it encodes its own READY on the output
-     queue and restores it: the screens and modes stay, the local scrollback is dropped. Parsed
-     bytes over-count scrollback, so the bound is conservative; the cost is that a long session
-     loses local scrollback that the host still has, and format v1 drops on-screen Kitty images.
+   - Memory (ghostty-next ios-v5): the phone's ghostty config sets `scrollback-limit-bytes` to
+     the 8 MiB budget (`ios.terminal.scrollbackBytes`). Every READY and HISTORY restore applies
+     that cap, not the host's limit, and trims only the oldest complete history pages; screens
+     and on-screen Kitty images stay. The viewer restores READY only and never asks for HISTORY
+     (history comes from the host on demand, ghostty-next section 7). This replaced the ios-v4
+     self-trim (re-encode READY and restore it), which dropped all local scrollback.
 7. Push, the on-device cache, accessibility audit, performance runs on device.
 
 ## 11. Open decisions
