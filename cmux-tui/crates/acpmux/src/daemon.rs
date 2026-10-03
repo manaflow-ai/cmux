@@ -482,6 +482,9 @@ async fn notify_loop(hub: Arc<Hub>) {
             .env("ACPMUX_SESSION_NAME", &name)
             .env("ACPMUX_TEXT", &text);
         crate::config::scrub_nested_claude_env_tokio(&mut c);
+        // A foreground daemon in a terminal still has that terminal's
+        // credential; a hook must not act as that terminal.
+        crate::config::scrub_launch_credential(c.as_std_mut());
         let _ = c
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
