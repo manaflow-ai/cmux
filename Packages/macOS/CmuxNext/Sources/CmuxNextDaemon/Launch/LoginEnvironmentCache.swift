@@ -76,7 +76,7 @@ actor LoginEnvironmentCache {
         if let task { return task }
         let capture = capture
         let waitTimeout = waitTimeout
-        let task = Task { [self] in
+        let task = Task { [self] () -> [String: String]? in
             guard let environment = await capture(waitTimeout) else {
                 refreshInBackground()
                 return nil
