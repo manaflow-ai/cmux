@@ -68,6 +68,8 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Cursor's cli-config.json and approval policy.
+        "CURSOR_CONFIG_DIR",
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
@@ -130,6 +132,10 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
     /// consumer's selection matches what it would read from its own process.
     public var inputEnvironmentKeys: [String] {
         Self.sortedSafeEnvironmentKeys + [
+            // Cursor resolves its default root from XDG_CONFIG_HOME/cursor. Capture the
+            // input so selectedEnvironment can turn that fallback into a scoped root without
+            // replaying unrelated XDG configuration for every restored agent.
+            "XDG_CONFIG_HOME",
             "CMUX_ORIGINAL_NODE_OPTIONS",
             "CMUX_ORIGINAL_NODE_OPTIONS_PRESENT",
         ]
@@ -155,6 +161,14 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             for key in Self.hermesAgentEnvironmentKeys {
                 result.removeValue(forKey: key)
             }
+        }
+        if normalizedKind == "cursor" {
+            if result["CURSOR_CONFIG_DIR"] == nil,
+               let cursorConfigDirectory = cursorConfigDirectory(from: env) {
+                result["CURSOR_CONFIG_DIR"] = cursorConfigDirectory
+            }
+        } else {
+            result.removeValue(forKey: "CURSOR_CONFIG_DIR")
         }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
@@ -259,6 +273,17 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
         selected.removeValue(forKey: SubrouterClaudeResumeRouting.accountEnvironmentKey)
         return selected
+    }
+
+    /// Resolves Cursor's launch-specific config root without carrying the process-wide XDG root.
+    private func cursorConfigDirectory(from env: [String: String]) -> String? {
+        if let explicit = normalizedValue(env["CURSOR_CONFIG_DIR"]) {
+            return ((explicit as NSString).expandingTildeInPath as NSString).standardizingPath
+        }
+        guard let xdg = normalizedValue(env["XDG_CONFIG_HOME"]) else { return nil }
+        return URL(fileURLWithPath: (xdg as NSString).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent("cursor", isDirectory: true)
+            .path
     }
 
     /// Returns a replay-safe value for a single environment variable, or `nil` when it should drop.
