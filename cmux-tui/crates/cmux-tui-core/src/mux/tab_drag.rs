@@ -12,6 +12,7 @@
 //! pane; undo never closes the tab. Other drags fence that screen's undo
 //! history and report `undoable: false`.
 
+use super::sticky_columns::reduce_column_sticky;
 use super::*;
 use crate::layout::DEFAULT_VIEWPORT_PANE_WIDTH;
 use crate::model::{ColumnSticky, LayoutColumn, LayoutUndoTabRestore};
@@ -132,6 +133,8 @@ impl TabDragDestination {
                 new_pane: ids.pane,
                 respawn: None,
             },
+            // The reducer models column structure, not pins: `sticky` is
+            // checked by `reduce_column_sticky` in `apply_tab_drag`.
             Self::Column { pane, after_column, width, .. } => LayoutOpKind::MoveTabToColumn {
                 tab,
                 anchor: pane,
@@ -571,17 +574,6 @@ pub(crate) fn apply_tab_drag(
                     ),
                     "column anchor disappeared from its layout"
                 );
-                if sticky.is_some() {
-                    // The same rules as `set-column-sticky`: one column per
-                    // edge (the old holder scrolls again), one column scrolls.
-                    let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
-                    let index = index.context("new column disappeared")?;
-                    let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
-                    let flags = reduce_column_sticky(&flags, index, sticky)?;
-                    for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
-                        column.sticky = flag;
-                    }
-                }
             }
         }
         screen.active_pane = ids.pane;
@@ -601,6 +593,20 @@ pub(crate) fn apply_tab_drag(
     stamp_pane_focus(mux, state, ids.pane);
     let (target_wi, target_si) =
         screen_location(state, target_screen).context("drag destination screen disappeared")?;
+    if let TabDragDestination::Column { sticky: Some(sticky), .. } = destination {
+        // Pinned after the move: the move may close the source column, and
+        // the same rules as `set-column-sticky` must hold on the result (one
+        // column per edge, the old holder scrolls again; one column scrolls).
+        // A refusal fails the whole drag on this projected copy.
+        let screen = &mut state.workspaces[target_wi].screens[target_si];
+        let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
+        let index = index.context("new column disappeared")?;
+        let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
+        let flags = reduce_column_sticky(&flags, index, Some(sticky))?;
+        for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
+            column.sticky = flag;
+        }
+    }
     if undoable {
         state.workspaces[target_wi].screens[target_si].record_tab_drag_change(
             before,

@@ -565,3 +565,25 @@ fn move_tab_to_column_pins_the_new_column_in_one_commit() {
     assert_eq!(columns[2]["dock"], json!({"edge": "bottom", "mode": "overlay"}));
     assert!(columns[1].get("dock").is_none());
 }
+
+/// The pin is checked on the layout after the move: moving the only tab of
+/// the last scrolling column into a new pinned column would leave nothing to
+/// scroll, so the drag is refused and nothing moves.
+#[test]
+fn move_tab_to_column_refuses_a_pin_when_the_closing_source_column_scrolled() {
+    let mut wire = Wire::new();
+    let first = wire.mux.new_workspace(None, Some((80, 22))).unwrap();
+    let anchor = wire.mux.with_state(|state| state.pane_of(first.id).unwrap());
+    let moved = wire.mux.new_pane_right(anchor, 0.5, Some((38, 22))).unwrap();
+    wire.set_sticky(anchor, "right", "docked");
+    let before = wire.screen();
+    let refused = wire.send(json!({
+        "cmd": "move-tab-to-column",
+        "surface": moved.id,
+        "pane": anchor,
+        "sticky": {"edge": "bottom", "mode": "docked"},
+    }));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert_eq!(wire.screen()["layout"], before["layout"]);
+    assert_eq!(wire.sticky(), vec![sticky("right", "docked"), None]);
+}

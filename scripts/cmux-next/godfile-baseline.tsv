@@ -75,7 +75,7 @@ rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions.rs	3479	74
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store.rs	1362	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/public_projection_store.rs	1154	32
-rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs	5424	107
+rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs	5425	107
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/session_journal.rs	2190	58
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/tests.rs	6316	154
 rust-file	cmux-tui/crates/cmux-tui-core/tests/browser_runtime.rs	1947	24
