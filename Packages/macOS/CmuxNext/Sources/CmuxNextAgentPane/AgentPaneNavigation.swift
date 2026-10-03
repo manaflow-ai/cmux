@@ -3,7 +3,7 @@ import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`). A clicked http(s) link opens
 /// outside the pane; a frame inside the page may show a loopback web page (a turn's
-/// preview card, ``AgentPanePreview``); every other navigation is cancelled.
+/// preview card, `URL.isAgentPanePreview`); every other navigation is cancelled.
 final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
     weak var view: AgentPaneView?
 
@@ -47,7 +47,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         guard let url else { return .cancel }
         if mainFrame, source.isTrusted(url) { return .allow }
         // A preview frame stays on loopback pages; a click inside it does not leave the frame.
-        if !mainFrame { return AgentPanePreview.loopback(url) == nil ? .cancel : .allow }
+        if !mainFrame { return url.isAgentPanePreview ? .allow : .cancel }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
         return .cancel
     }

@@ -38,7 +38,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openFile(path: String, target: AgentPaneFileTarget)
     /// `browser.open` with `{url}`: a turn's local web page (its preview
     /// card), in a browser tab of the pane. Only loopback http(s) pages
-    /// (``AgentPanePreview``); anything else is unsupported.
+    /// (`URL.isAgentPanePreview`); anything else is unsupported.
     case openPreview(URL)
     /// The quick panel's page: Esc hides the panel, keeping its draft.
     case quickDismiss
@@ -124,7 +124,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
             }
         case "browser.open":
             if let text = params?["url"] as? String, text.count <= Self.maximumOpenTabText,
-               let url = AgentPanePreview.loopback(URL(string: text)) {
+               let url = URL(string: text), url.isAgentPanePreview {
                 self = .openPreview(url)
             } else {
                 self = .unsupported(method)

@@ -18,13 +18,12 @@ import Testing
 
     @Test func onlyLoopbackWebPagesQualify() {
         for text in ["http://localhost:5173/", "http://127.0.0.1:3000/admin?x=1", "https://localhost:8443/", "http://LOCALHOST:80"] {
-            #expect(AgentPanePreview.loopback(URL(string: text)) != nil, "\(text)")
+            #expect(URL(string: text)?.isAgentPanePreview == true, "\(text)")
         }
         for text in ["https://example.com/", "http://192.168.1.4:3000/", "http://localhost.evil.com/", "file:///etc/hosts",
                      "javascript:alert(1)", "http://user:pass@localhost:3000/", "ws://localhost:3000/", "http://[::1]:3000/"] {
-            #expect(AgentPanePreview.loopback(URL(string: text)) == nil, "\(text)")
+            #expect(URL(string: text)?.isAgentPanePreview != true, "\(text)")
         }
-        #expect(AgentPanePreview.loopback(nil) == nil)
     }
 
     @Test func theRequestCarriesOnlyALoopbackPage() throws {
