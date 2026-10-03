@@ -15,11 +15,11 @@ struct NewMachineSheetPresenterTests {
     func cachedPlanTakesPrecedence() {
         let cached = MachineSnapshotBuilder.planSnapshot(
             activeCount: 0,
-            limits: VMPlanLimits(planId: "cached", maxActiveVms: 10, freeAccessWindowDays: 0)
+            limits: VMPlanLimits(maxActiveVms: 10, planId: "cached", freeAccessWindowDays: 0)
         )
         let caller = MachineSnapshotBuilder.planSnapshot(
             activeCount: 0,
-            limits: VMPlanLimits(planId: "caller", maxActiveVms: 1, freeAccessWindowDays: 0)
+            limits: VMPlanLimits(maxActiveVms: 1, planId: "caller", freeAccessWindowDays: 0)
         )
 
         #expect(NewMachineSheetPresenter.effectivePlan(cachedPlan: cached, callerPlan: caller)?.planId == "cached")
@@ -51,6 +51,26 @@ struct NewMachineSheetPresenterTests {
 
         #expect(model.supportsSize)
         #expect(model.memoryOptions == [4096, 8192])
+    }
+
+    @Test("a plan can arrive after the sheet opens without enabling Create early")
+    func loadingPlanStaysDisabledUntilApplied() {
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: nil,
+            planIsLoading: true,
+            submit: { _ in true }
+        )
+        #expect(model.planIsLoading)
+        model.applyPlan(activeCount: 0, limits: VMPlanLimits(
+            maxActiveVms: 1,
+            planId: "pro",
+            freeAccessWindowDays: 0,
+            memoryOptionsMb: [4096, 8192]
+        ))
+        #expect(!model.planIsLoading)
+        #expect(model.planLoadError == nil)
+        #expect(model.supportsSize)
     }
 
     @Test("presentation waits for and uses the shared authoritative fleet page")

@@ -166,6 +166,11 @@ final class NewMachineModel {
     /// The server advertised a ladder, but every size is locked for this plan.
     /// Creation must stay disabled until the server returns an allowed size.
     private(set) var hasNoAllowedMemoryOptions = false
+    /// Whether the authoritative plan read is still in flight.
+    private(set) var planIsLoading: Bool
+    /// A terminal plan-read failure keeps the sheet open so it can retry in place.
+    private(set) var planLoadError: String?
+    var onPlanRetry: (@MainActor () -> Void)?
     var selectedUpgradePlanId = "max"
     var showsMaxUpgrade = false
     private var storedMemoryMb: Int
@@ -289,7 +294,21 @@ final class NewMachineModel {
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
         vcpusByMemoryMb = updated.vcpusByMemoryMb
         hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
+        planIsLoading = false
+        planLoadError = nil
         if !availableMemoryOptionsMb.contains(storedMemoryMb) { storedMemoryMb = updated.memoryMb }
+    }
+
+    /// Records a failed authoritative read without dismissing the sheet.
+    func setPlanLoadError(_ message: String) {
+        planIsLoading = false
+        planLoadError = message
+    }
+
+    /// Starts another authoritative plan read while keeping the sheet visible.
+    func setPlanLoading() {
+        planIsLoading = true
+        planLoadError = nil
     }
 
     /// `memoryOptionsMb`, `lockedMemoryOptionsMb` and `memoryUpgradePlanId`
@@ -307,6 +326,7 @@ final class NewMachineModel {
         vcpusByMemoryMb: [String: Int]? = nil,
         selectionWindowID: UUID? = nil,
         defaults: UserDefaults = .standard,
+        planIsLoading: Bool = false,
         submit: @escaping Submit
     ) {
         self.defaults = defaults
@@ -315,6 +335,8 @@ final class NewMachineModel {
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.mode = mode
         self.plan = plan
+        self.planIsLoading = planIsLoading
+        self.planLoadError = nil
         let serverOptions = Set(memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }).sorted()
         let locked: [Int]
         if serverOptions.isEmpty {

@@ -20,6 +20,7 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
     /// Receives cache updates while a sheet is up, so a background refresh
     /// lands in the open sheet in place.
     private var cacheListenerID: UUID?
+    private var planLoadTask: Task<Void, Never>?
 
     private override init() { super.init() }
 
@@ -228,9 +229,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         present(model: model, preferredWindow: preferredWindow)
     }
 
-    /// Presents provisioning and awaits the exact local workspace receipt.
-    /// Synchronous menu callers own the surrounding Task; the machine coordinator
-    /// continues to publish the pending machine row while this method awaits.
+    /// Presents the sheet immediately, then fills its plan from the shared fleet owner.
+    /// The sheet remains usable as a loading surface while startup Cloud reads settle.
     func presentNewMachineFetchingPlan(
         preferredWindow: NSWindow?,
         onReservation: @escaping @MainActor (UUID) -> Void
@@ -242,38 +242,29 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         let selectionID = UUID()
         pendingSelectionID = selectionID
         let coordinator = MachineCreateCoordinator.shared
-#if DEBUG
-        let requestedAt = ProcessInfo.processInfo.systemUptime
-        let wasReady = CloudMenuModel.shared.fleetPage != nil
-#endif
-        // Cmd-Y uses the shared menu owner so creation and the Cloud menu wait
-        // on one authoritative fleet read. The owner retries briefly and the
-        // bounded wait below turns a stalled startup read into an actionable
-        // retry instead of an invisible no-op.
-        guard let page = await CloudMenuModel.shared.fleetPageForPresentation(),
-              let limits = page.limits else {
-            finishSelection(selectionID, request: nil)
-            presentPlanLoadFailure(preferredWindow: preferredWindow) { [weak self] in
-                guard let self else { return }
-                Task { @MainActor in
-                    _ = await self.presentNewMachineFetchingPlan(
-                        preferredWindow: preferredWindow,
-                        onReservation: onReservation
-                    )
-                }
+        let model = NewMachineModel(
+            mode: .newMachine,
+            plan: nil,
+            planIsLoading: true,
+            selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
+            submit: { [weak self] request in
+                guard let self, self.pendingSelectionID == selectionID else { return false }
+                guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
+                if let workspaceID = effectiveRequest.reservedWorkspaceID { onReservation(workspaceID) }
+                self.finishSelection(selectionID, request: effectiveRequest)
+                return true
             }
-            return nil
+        )
+        model.onFinished = { [weak self] outcome in
+            if case .cancelled = outcome { self?.finishSelection(selectionID, request: nil) }
         }
-        let plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.vms.count, limits: limits)
-        guard !Self.shouldPresentUpgrade(for: plan) else {
-            finishSelection(selectionID, request: nil)
-            ProUpgradePresenter.present(source: .newMachineAtLimit)
-            return nil
+        model.onPlanRetry = { [weak self, weak model] in
+            guard let self, let model, self.pendingSelectionID == selectionID else { return }
+            self.beginPlanLoad(model: model, selectionID: selectionID)
         }
-        guard !Task.isCancelled, !isPresenting else {
-            finishSelection(selectionID, request: nil)
-            return nil
-        }
+        present(model: model, preferredWindow: preferredWindow)
+        beginPlanLoad(model: model, selectionID: selectionID)
+
         let request = await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { (continuation: CheckedContinuation<MachineCreateRequest?, Never>) in
                 pendingSelectionContinuation = continuation
@@ -281,49 +272,16 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
                     finishSelection(selectionID, request: nil)
                     return
                 }
-                let model = NewMachineModel(
-                    mode: .newMachine,
-                    plan: plan,
-                    memoryOptionsMb: limits.memoryOptionsMb,
-                    lockedMemoryOptionsMb: limits.lockedMemoryOptionsMb,
-                    memoryUpgradePlanId: limits.memoryUpgradePlanId,
-                    memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
-                    vcpusByMemoryMb: limits.vcpusByMemoryMb,
-                    selectionWindowID: preferredWindow.flatMap { AppDelegate.shared?.mainWindowId(from: $0) },
-                    submit: { [weak self] request in
-                        guard let self, self.pendingSelectionID == selectionID else { return false }
-                        guard let effectiveRequest = self.reserving(request, preferredWindow: preferredWindow) else { return false }
-                        if let workspaceID = effectiveRequest.reservedWorkspaceID { onReservation(workspaceID) }
-                        self.finishSelection(selectionID, request: effectiveRequest)
-                        return true
-                    }
-                )
-                model.onFinished = { [weak self] outcome in
-                    if case .cancelled = outcome {
-                        self?.finishSelection(selectionID, request: nil)
-                    }
-                }
-                present(model: model, preferredWindow: preferredWindow)
-#if DEBUG
-                cmuxDebugLog(
-                    "cloud.newMachine.present source=\(wasReady ? "cache" : "fetch") " +
-                    "network=\(model.networkAvailability) sizes=\(model.memoryOptions.count)+\(model.lockedMemoryOptions.count) " +
-                    "ms=\(Int((ProcessInfo.processInfo.systemUptime - requestedAt) * 1000))"
-                )
-#endif
             }
-        }, onCancel: {
-            Task { @MainActor [weak self] in
+        }, onCancel: { [weak self] in
+            Task { @MainActor in
                 guard let self, self.pendingSelectionID == selectionID else { return }
                 self.model?.cancel()
                 self.finishSelection(selectionID, request: nil)
             }
         })
-        guard let request else { return nil }
-        guard !Task.isCancelled else {
-            if let workspaceID = request.reservedWorkspaceID {
-                Self.closeReservedWorkspace(workspaceID)
-            }
+        guard let request, !Task.isCancelled else {
+            if let request, let workspaceID = request.reservedWorkspaceID { Self.closeReservedWorkspace(workspaceID) }
             return nil
         }
         return await coordinator.startAndAwaitWorkspaceID(request, cancellableLaunch: { arguments, progress, completion in
@@ -338,19 +296,24 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         })
     }
 
-    private func presentPlanLoadFailure(preferredWindow: NSWindow?, retry: @escaping @MainActor () -> Void) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "machines.new.planUnavailable.title", defaultValue: "Cloud machines are unavailable")
-        alert.informativeText = String(localized: "machines.new.planUnavailable.message", defaultValue: "cmux couldn’t load the machine plan. Retry when the Cloud service is reachable.")
-        alert.addButton(withTitle: String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
-        alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
-        let response: (NSApplication.ModalResponse) -> Void = { result in
-            if result == .alertFirstButtonReturn { retry() }
-        }
-        if let window = NSApp.cmuxMainWindowForModalPresentation(preferring: preferredWindow) {
-            alert.beginSheetModal(for: window, completionHandler: response)
-        } else {
-            response(alert.runModal())
+    private func beginPlanLoad(model: NewMachineModel, selectionID: UUID) {
+        planLoadTask?.cancel()
+        if model.plan == nil { model.setPlanLoading() }
+        planLoadTask = Task { @MainActor [weak self, weak model] in
+            guard let self, let model else { return }
+            let page = await CloudMenuModel.shared.fleetPageForPresentation()
+            guard !Task.isCancelled, self.pendingSelectionID == selectionID, self.model === model else { return }
+            guard let page, let limits = page.limits else {
+                guard model.plan == nil else { return }
+                model.setPlanLoadError(String(localized: "machines.new.plan.error", defaultValue: "Cloud plan details are still loading. Retry in a moment."))
+                return
+            }
+            model.applyPlan(activeCount: page.vms.count, limits: limits)
+            if Self.shouldPresentUpgrade(for: model.plan) {
+                self.finishSelection(selectionID, request: nil)
+                model.cancel()
+                ProUpgradePresenter.present(source: .newMachineAtLimit)
+            }
         }
     }
 
@@ -419,6 +382,8 @@ final class NewMachineSheetPresenter: NSObject, NewMachineSheetPresenting {
         NotificationCenter.default.removeObserver(self, name: NSApplication.didBecomeActiveNotification, object: nil)
         if let cacheListenerID { dataCache?.removeListener(cacheListenerID) }
         cacheListenerID = nil
+        planLoadTask?.cancel()
+        planLoadTask = nil
         guard let window = sheetWindow else { return }
         if let host = hostWindow, host.attachedSheet === window {
             host.endSheet(window)

@@ -41,7 +41,6 @@ final class CloudMenuModel {
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var pageWaiters: [UUID: CheckedContinuation<VMListPage?, Never>] = [:]
-    @ObservationIgnored private var pageWaiterDeadlines: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var featureObserver: CloudFeatureAvailabilityObserver?
     @ObservationIgnored private let mainMenu: @MainActor () -> NSMenu?
@@ -95,7 +94,7 @@ final class CloudMenuModel {
     /// Returns the authoritative fleet page used to build Cloud creation UI.
     /// Callers wait on the shared refresh owner instead of inventing a second
     /// readiness or retry policy in their presenter.
-    func fleetPageForPresentation(waitingAtMost limit: Duration = .seconds(3)) async -> VMListPage? {
+    func fleetPageForPresentation() async -> VMListPage? {
         guard !Task.isCancelled else { return nil }
         if let fleetPage, let lastLoadedAt,
            ContinuousClock.now - lastLoadedAt < Self.freshness {
@@ -109,15 +108,19 @@ final class CloudMenuModel {
         let waiterID = UUID()
         return await withTaskCancellationHandler(operation: {
             await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: nil)
+                    return
+                }
                 pageWaiters[waiterID] = continuation
+                if Task.isCancelled {
+                    finishPageWaiter(waiterID, page: nil)
+                    return
+                }
                 if let fleetPage {
                     finishPageWaiter(waiterID, page: fleetPage)
                 } else {
                     if task == nil { refresh() }
-                    pageWaiterDeadlines[waiterID] = Task { @MainActor [weak self, retryClock] in
-                        guard (try? await retryClock.sleep(for: limit)) != nil else { return }
-                        self?.finishPageWaiter(waiterID, page: nil)
-                    }
                 }
             }
         }, onCancel: {
@@ -126,7 +129,6 @@ final class CloudMenuModel {
     }
 
     private func finishPageWaiter(_ id: UUID, page: VMListPage?) {
-        pageWaiterDeadlines.removeValue(forKey: id)?.cancel()
         pageWaiters.removeValue(forKey: id)?.resume(returning: page)
     }
 
