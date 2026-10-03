@@ -23,6 +23,10 @@ public final class TabModel: Identifiable {
     public internal(set) var title: String
     public internal(set) var size: CellSize?
     public internal(set) var dead: Bool
+    /// Whether the terminal's shell runs (R41); nil for browsers and older daemons.
+    public internal(set) var terminalState: TerminalTabState?
+    /// How a dead terminal ended (R41): the banner names this reason.
+    public internal(set) var end: TerminalTabEnd?
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
@@ -76,6 +80,8 @@ public final class TabModel: Identifiable {
         title = s.title
         size = s.size
         dead = s.dead
+        terminalState = s.terminalState
+        end = s.end
         notification = s.notification
         url = s.url
         pinned = s.pinned
@@ -105,6 +111,8 @@ public final class TabModel: Identifiable {
         if title != s.title { title = s.title }
         if size != s.size { size = s.size }
         if dead != s.dead { dead = s.dead }
+        if terminalState != s.terminalState { terminalState = s.terminalState }
+        if end != s.end { end = s.end }
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
