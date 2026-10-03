@@ -17,7 +17,11 @@ pub fn run(opts: &Opts) -> Res<()> {
     // Until the link token (lane 12) authenticates hello claims, the host trusts them, so by
     // default it listens on loopback only and refuses every non-loopback peer. A private
     // single-tenant overlay needs the explicit flag below.
-    let reach = if opts.get("single-tenant-overlay") == Some("1") { Reach::SingleTenantOverlay } else { Reach::LoopbackOnly };
+    let reach = if opts.get("single-tenant-overlay") == Some("1") {
+        Reach::SingleTenantOverlay
+    } else {
+        Reach::LoopbackOnly
+    };
     let bind: IpAddr = opts.str_or("bind", "127.0.0.1").parse()?;
     if let Err(e) = bind_allowed(bind, reach) {
         return Err(e.into());
@@ -286,7 +290,9 @@ mod tests {
 
     #[test]
     fn default_mode_refuses_every_non_loopback_peer() {
-        for peer in ["10.250.93.2", "100.64.1.2", "192.168.1.5", "8.8.8.8", "fd7c::1", "2001:db8::1"] {
+        for peer in
+            ["10.250.93.2", "100.64.1.2", "192.168.1.5", "8.8.8.8", "fd7c::1", "2001:db8::1"]
+        {
             assert!(!peer_allowed(ip(peer), Reach::LoopbackOnly), "{peer}");
         }
         assert!(peer_allowed(ip("127.0.0.1"), Reach::LoopbackOnly));
