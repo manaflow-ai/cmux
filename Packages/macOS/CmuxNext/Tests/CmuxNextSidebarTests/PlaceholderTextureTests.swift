@@ -29,7 +29,9 @@ import Testing
 
     /// Compact and comfortable, at the default size and the smallest and
     /// largest interface sizes (`appearance.metrics.chromeFontSize`).
-    static let sizes: [(Density, CGFloat?)] = Density.allCases.flatMap { density in [(density, nil), (density, 10), (density, 16)] }
+    nonisolated static let sizes: [(Density, CGFloat?)] = Density.allCases.flatMap { density -> [(Density, CGFloat?)] in
+        [(density, nil), (density, CGFloat(10)), (density, CGFloat(16))]
+    }
 
     @Test(arguments: sizes)
     func aPlaceholderRowIsExactlyTheLiveRowHeight(density: Density, interfaceSize: CGFloat?) throws {
