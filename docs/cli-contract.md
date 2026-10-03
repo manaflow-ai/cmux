@@ -630,13 +630,13 @@ tmux compatibility commands:
 
 | Command | Contract |
 | --- | --- |
-| `capture-pane` | Read pane text. |
-| `resize-pane` | Resize a pane with direction flags. |
-| `pipe-pane` | Pipe pane text to a shell command. |
-| `wait-for` | Signal or wait on a named synchronization point. |
-| `swap-pane` | Swap two panes. |
-| `break-pane` | Move a pane into a new workspace. |
-| `join-pane` | Join a pane into another pane. |
+| `capture-pane` | Read pane text, targeting `--workspace`, `--surface`, or `--window`; `--scrollback` includes history and `--lines <n>` returns its last lines. |
+| `resize-pane` | Resize `--pane` in a workspace/window with `-L`, `-R`, `-U`, or `-D` and optional `--amount <n>`. |
+| `pipe-pane` | Pipe the selected surface's text to `--command <shell-command>` or a trailing shell command. Accepts workspace, surface, and window selectors. |
+| `wait-for` | Wait on a named synchronization point with optional `--timeout <seconds>`, or signal it with `-S`/`--signal`. |
+| `swap-pane` | Swap required `--pane` and `--target-pane` selectors, optionally scoped by workspace/window and `--focus <true\|false>`. |
+| `break-pane` | Move the selected pane/surface into a new pane context; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
+| `join-pane` | Join the selected pane/surface into required `--target-pane`; accepts workspace/window selectors and `--focus <true\|false>` or `--no-focus`. |
 | `next-window`, `previous-window`, `last-window` | Move workspace selection. |
 | `last-pane` | Focus the last pane. |
 | `find-window` | Find a workspace by title or content. |
@@ -1079,13 +1079,13 @@ the expected text without connecting to a cmux socket.
 - `cmux rename-workspace --help` -> `Usage: cmux rename-workspace`
 - `cmux rename-window --help` -> `Usage: cmux rename-workspace`
 - `cmux current-workspace --help` -> `Usage: cmux current-workspace`
-- `cmux capture-pane --help` -> `Usage: cmux capture-pane`
-- `cmux resize-pane --help` -> `Usage: cmux resize-pane`
-- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane`
-- `cmux wait-for --help` -> `Usage: cmux wait-for`
-- `cmux swap-pane --help` -> `Usage: cmux swap-pane`
-- `cmux break-pane --help` -> `Usage: cmux break-pane`
-- `cmux join-pane --help` -> `Usage: cmux join-pane`
+- `cmux capture-pane --help` -> `Usage: cmux capture-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>]`
+- `cmux resize-pane --help` -> `Usage: cmux resize-pane [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [-L|-R|-U|-D] [--amount <n>]`
+- `cmux pipe-pane --help` -> `Usage: cmux pipe-pane [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--command <shell-command> | <shell-command>]`
+- `cmux wait-for --help` -> `Usage: cmux wait-for [-S|--signal] <name> [--timeout <seconds>]`
+- `cmux swap-pane --help` -> `Usage: cmux swap-pane --pane <id|ref|index> --target-pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]`
+- `cmux break-pane --help` -> `Usage: cmux break-pane [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
+- `cmux join-pane --help` -> `Usage: cmux join-pane --target-pane <id|ref|index> [--workspace <id|ref|index>] [--pane <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]`
 - `cmux next-window --help` -> `Usage: cmux next-window`
 - `cmux previous-window --help` -> `Usage: cmux previous-window`
 - `cmux last-window --help` -> `Usage: cmux last-window`
