@@ -3,6 +3,9 @@ import { address } from "@cmux/home-core"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { sendInvite } from "./home-send.ts"
+
+/** An attempt with no recorded outcome after this long is closed as indeterminate. */
+const STALE_ATTEMPT_MS = 10 * 60_000
 import type { Fetch } from "./home-send.ts"
 
 /**
@@ -60,6 +63,8 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
 
   protected nextWakeAt(head: address.AddressHead, now: number): number | null {
     if (this.unsent(head).length > 0) return now
+    const pending = this.sqlStore.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM address_attempts WHERE invite IN (SELECT value FROM json_each(?))`, JSON.stringify(head.deliveries.filter((d) => d.state === "sending").map((d) => d.invite)))[0]?.at
+    if (pending !== null && pending !== undefined) return Number(pending) + STALE_ATTEMPT_MS
     const next = this.sqlStore.exec<{ at: number | null }>(`SELECT MIN(expires_at) AS at FROM address_secrets`)[0]?.at
     return next === null || next === undefined ? null : Number(next)
   }
@@ -71,9 +76,25 @@ export class AddressDO extends OwnerDO<address.AddressHead> {
       for (const d of this.unsent(head)) {
         // Recorded before the call: a crash after this line never sends twice.
         this.sqlStore.exec(`INSERT INTO address_attempts (invite, at) VALUES (?, ?) ON CONFLICT (invite) DO NOTHING`, d.invite, now)
-        const outcome = await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel, value: head.value, secret: this.stashedSecret(d.invite) }, this.fetcher)
+        let outcome: { state: address.DeliveryState; provider_id: string | null }
+        try {
+          outcome = await sendInvite(this.env, { invite: d.invite, conversation: d.conversation, channel: head.channel, value: head.value, secret: this.stashedSecret(d.invite) }, this.fetcher)
+        } catch {
+          // A throw comes before the provider call (deliverInvite catches its own network errors): nothing was sent.
+          console.log(JSON.stringify({ msg: "home invite send", at: new Date(now).toISOString(), invite: d.invite, channel: head.channel, state: "failed", reason: "adapter error" }))
+          outcome = { state: "failed", provider_id: null }
+        }
         this.sqlStore.exec(`DELETE FROM address_secrets WHERE invite = ?`, d.invite)
         this.submitSystem("address.delivery.record", { invite: d.invite, state: outcome.state, ...(outcome.provider_id ? { provider_id: outcome.provider_id } : {}) }, `record:${d.invite}:${outcome.state}`)
+      }
+    }
+    // An attempt that never recorded its outcome (the object stopped between the attempt row and the
+    // record) may or may not have reached the provider: it is closed as indeterminate, never resent.
+    if (head) {
+      const stale = this.sqlStore.exec<{ invite: string }>(`SELECT invite FROM address_attempts WHERE at <= ?`, now - STALE_ATTEMPT_MS).map((r) => r.invite)
+      for (const d of head.deliveries.filter((x) => x.state === "sending" && stale.includes(x.invite))) {
+        this.sqlStore.exec(`DELETE FROM address_secrets WHERE invite = ?`, d.invite)
+        this.submitSystem("address.delivery.record", { invite: d.invite, state: "indeterminate" }, `record:${d.invite}:indeterminate`)
       }
     }
     this.sqlStore.exec(`DELETE FROM address_secrets WHERE expires_at <= ?`, now)
