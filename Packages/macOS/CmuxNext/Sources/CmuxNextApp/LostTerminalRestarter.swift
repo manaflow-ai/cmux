@@ -68,8 +68,8 @@ final class LostTerminalRestarter {
         for candidate in candidates where sent.insert(candidate.key).inserted {
             guard let daemon = services.machines.daemons.first(where: { $0.machineID == candidate.machine }) else { continue }
             daemon.send("restart-tab") { connection in
-                try await connection.restartTab(candidate.surface, idempotencyKey: candidate.key,
-                                                fallbackCwd: candidate.cwd, onlyLost: true)
+                try await RestartTabRequest.send(candidate.surface, on: connection, idempotencyKey: candidate.key,
+                                                 fallbackCwd: candidate.cwd, onlyLost: true)
             }
         }
     }

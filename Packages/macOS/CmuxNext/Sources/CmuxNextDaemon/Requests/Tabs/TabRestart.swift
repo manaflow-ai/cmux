@@ -49,17 +49,18 @@ extension RestartTabRequest {
     }
 }
 
-extension DaemonConnection {
-    /// Needs `tab-restart-v1`. `fallbackCwd` is used only when the daemon
-    /// knows no directory for the dead terminal.
+extension RestartTabRequest {
+    /// Sends `restart-tab` on `connection` (needs `tab-restart-v1`) with the
+    /// app's terminal environment. `fallbackCwd` is used only when the
+    /// daemon knows no directory for the dead terminal.
     @discardableResult
-    public func restartTab(_ surface: SurfaceID, idempotencyKey: String?, fallbackCwd: String? = nil,
-                           onlyLost: Bool = false) async throws -> RestartTabRequest.Response {
-        guard identity?.supports(DaemonCapabilities.shared.tabRestart) == true else {
+    public static func send(_ surface: SurfaceID, on connection: DaemonConnection, idempotencyKey: String?,
+                            fallbackCwd: String? = nil, onlyLost: Bool = false) async throws -> Response {
+        guard await connection.identity?.supports(DaemonCapabilities.shared.tabRestart) == true else {
             throw DaemonError.missingCapabilities([DaemonCapabilities.shared.tabRestart])
         }
-        let env = await terminalEnvironment(nil)
-        return try await request(RestartTabRequest(surface: surface, idempotencyKey: idempotencyKey, cwd: fallbackCwd,
-                                                   env: env, onlyLost: onlyLost))
+        let env = await connection.terminalEnvironment(nil)
+        return try await connection.request(RestartTabRequest(surface: surface, idempotencyKey: idempotencyKey, cwd: fallbackCwd,
+                                                              env: env, onlyLost: onlyLost))
     }
 }
