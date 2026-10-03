@@ -32,6 +32,8 @@ pub enum TabRestartError {
     NotTerminal(SurfaceId),
     /// The tab's terminal has not ended (its registry row is not exited).
     NotDead(SurfaceId),
+    /// `only_lost` and the terminal's end is a process end, not a host loss.
+    NotLost(SurfaceId),
 }
 
 impl TabRestartError {
@@ -40,6 +42,7 @@ impl TabRestartError {
             Self::UnknownTab(_) => "tab-restart-unknown-tab",
             Self::NotTerminal(_) => "tab-restart-not-terminal",
             Self::NotDead(_) => "tab-restart-not-dead",
+            Self::NotLost(_) => "tab-restart-not-lost",
         }
     }
 }
@@ -51,6 +54,9 @@ impl fmt::Display for TabRestartError {
             Self::NotTerminal(surface) => write!(formatter, "tab {surface} is not a terminal"),
             Self::NotDead(surface) => {
                 write!(formatter, "tab {surface} is not dead; only a dead tab can restart")
+            }
+            Self::NotLost(surface) => {
+                write!(formatter, "tab {surface} ended on its own; its terminal host was not lost")
             }
         }
     }
@@ -67,6 +73,11 @@ pub struct TabRestartRequest {
     pub cwd: Option<String>,
     /// Extra environment for the new terminal's child, as on `new-tab`.
     pub env: Vec<(String, String)>,
+    /// Restart only a host loss (`TerminalEnd::HostLost`, which includes a
+    /// signal during a session shutdown): the app's automatic restart
+    /// (`terminal.restartLostTerminals`) leaves a process that ended on its
+    /// own dead. The owner decides from its receipt and shutdown clock.
+    pub only_lost: bool,
 }
 
 /// What `restart-tab` committed (or first committed, for a replay).
@@ -84,6 +95,8 @@ struct RestartTarget {
     cwd: Option<String>,
     size: Option<(u16, u16)>,
     workspace_key: String,
+    /// The dead terminal's durable exit receipt.
+    receipt: Option<Value>,
 }
 
 impl Mux {
@@ -121,6 +134,13 @@ impl Mux {
             let state = self.state.lock().unwrap();
             restart_target_locked(&registry, &state, &kept.kept_tabs, surface)?
         };
+        if request.only_lost {
+            let end =
+                self.session_shutdown.classify(TerminalEnd::from_receipt(target.receipt.as_ref()));
+            if !matches!(end, TerminalEnd::HostLost(_)) {
+                return Err(TabRestartError::NotLost(surface).into());
+            }
+        }
         let cwd = target.cwd.clone().or(request.cwd);
         let terminal_id = TerminalId::random()?;
         let reservation = TerminalReservationRequest {
@@ -310,6 +330,7 @@ fn restart_target_locked(
         cwd,
         size: view.map(|view| view.size()),
         workspace_key: state.workspaces[workspace].key.clone(),
+        receipt: record.exit,
     })
 }
 

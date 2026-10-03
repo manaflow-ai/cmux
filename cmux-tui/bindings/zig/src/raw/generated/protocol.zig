@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "91c7f00655310db826c96cc582f159512316c967a5c541f451180daeb2ff36c6";
+pub const ir_sha256 = "464d3394e3e1eaa2c4c5ec87f0dc1693f423525df80ccd2272a7a8d46955b378";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -5569,8 +5569,13 @@ pub const RestartTabRequest = struct {
     cwd: wire.Field([]const u8) = .absent,
     env: wire.Field(wire.Map([]const u8)) = .absent,
     idempotency_key: wire.Field([]const u8) = .absent,
+    only_lost: ?bool = null,
     surface: TabRef,
     transaction: wire.Field([]const u8) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "only_lost",
+    };
 };
 
 pub const RestartTabResult = JsonValue;

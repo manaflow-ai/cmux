@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 91c7f00655310db826c96cc582f159512316c967a5c541f451180daeb2ff36c6.
+// cmux-tui mux protocol 12, IR 464d3394e3e1eaa2c4c5ec87f0dc1693f423525df80ccd2272a7a8d46955b378.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1976,6 +1976,8 @@ pub struct RestartTabRequest {
     pub env: Optional<BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub idempotency_key: Optional<String>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub only_lost: Option<bool>,
     pub surface: T::TabRef,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub transaction: Optional<String>,

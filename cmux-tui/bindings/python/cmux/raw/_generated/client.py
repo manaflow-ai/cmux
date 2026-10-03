@@ -453,8 +453,8 @@ class GeneratedClientMixin:
     def resolve_terminal(self, terminal_id: str) -> ResolveTerminalResult:
         return self._invoke_command('resolve-terminal', ResolveTerminalRequest(terminal_id=terminal_id))
 
-    def restart_tab(self, surface: TabRef, *, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('restart-tab', RestartTabRequest(surface=surface, cwd=cwd, env=env, idempotency_key=idempotency_key, transaction=transaction))
+    def restart_tab(self, surface: TabRef, *, cwd: Union[str, None, MissingType] = MISSING, env: Union[Dict[str, str], None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, only_lost: Union[bool, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('restart-tab', RestartTabRequest(surface=surface, cwd=cwd, env=env, idempotency_key=idempotency_key, only_lost=only_lost, transaction=transaction))
 
     def run(self, pane: Union[Id, None, MissingType] = MISSING, *, argv: Union[List[str], None, MissingType] = MISSING, command: Union[str, None, MissingType] = MISSING, cwd: Union[str, None, MissingType] = MISSING, new_workspace: Union[bool, MissingType] = MISSING, key: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> RunResult:
         return self._invoke_command('run', RunRequest(pane=pane, argv=argv, command=command, cwd=cwd, new_workspace=new_workspace, key=key, name=name, cols=cols, rows=rows))

@@ -21,6 +21,8 @@ pub(super) struct RestartTabParams {
     #[serde(default)]
     env: Option<BTreeMap<String, String>>,
     #[serde(default)]
+    only_lost: bool,
+    #[serde(default)]
     transaction: Option<String>,
 }
 
@@ -34,6 +36,7 @@ pub(super) fn restart(mux: &Arc<Mux>, params: RestartTabParams) -> anyhow::Resul
             idempotency_key: params.idempotency_key,
             cwd: params.cwd,
             env: env.unwrap_or_default(),
+            only_lost: params.only_lost,
         },
         params.transaction.as_deref().map(Arc::from),
     )?;
