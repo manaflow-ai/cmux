@@ -526,6 +526,38 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
 
     /// Messages' send: the bubble starts as the composer field (its position
     /// and width) and springs into place while the transcript scrolls up.
+    /// Messages' send flight drawn above everything: a rounded body that
+    /// resizes from the composer field to the bubble (no stretched tail or
+    /// text) and the text gliding unscaled; the real row shows on landing.
+    private func flyOverComposer(_ row: MacMessageRowView, field: CGRect, text: CGRect, scrollDelta: CGFloat) -> Bool {
+        guard let host = view.window?.contentView, let layout = row.rowLayout, let model = row.model,
+              let bubble = layout.bubbleFrame, let textFrame = layout.textFrame,
+              layout.imageFrames.isEmpty, layout.emojiFrame == nil,
+              let rep = row.textLabel.bitmapImageRepForCachingDisplay(in: row.textLabel.bounds) else { return false }
+        row.textLabel.cacheDisplay(in: row.textLabel.bounds, to: rep)
+        func landing(_ rect: CGRect) -> CGRect {
+            var r = host.convert(row.convert(rect, to: nil), from: nil)
+            // The transcript scrolls up by the delta while the bubble flies.
+            r.origin.y += host.isFlipped ? -scrollDelta : scrollDelta
+            return r
+        }
+        let toBody = landing(bubble)
+        let toText = landing(textFrame)
+        let fromBody = host.convert(field, from: nil)
+        let fromTextOrigin = host.convert(text, from: nil).origin
+        let overlay = MacFlightOverlayView(frame: host.bounds)
+        overlay.autoresizingMask = [.width, .height]
+        host.addSubview(overlay)
+        let color = resolved(model.isOutgoing ? MacConversationTheme.outgoingBubble : MacConversationTheme.incomingBubble, in: row)
+        row.alphaValue = 0
+        overlay.fly(color: color, text: rep.cgImage, textSize: textFrame.size, fromBody: fromBody, toBody: toBody,
+                    fromText: CGRect(origin: fromTextOrigin, size: textFrame.size), toText: toText, radius: MacConversationTheme.bubbleCornerRadius) { [weak row, weak overlay] in
+            row?.alphaValue = 1
+            overlay?.removeFromSuperview()
+        }
+        return true
+    }
+
     private func runPendingFlights() {
         let ids = pendingFlightRowIDs
         pendingFlightRowIDs = []
@@ -533,11 +565,15 @@ public final class MacConversationViewController: NSViewController, NSTableViewD
         flightSource = nil
         view.layoutSubtreeIfNeeded()
         let start = scrollView.contentView.bounds.origin.y
+        let end = maxOffset
         for id in ids {
             guard let index = rowIndex[id], let row = rowView(at: index), let source else { continue }
-            row.flyIn(fromField: row.convert(source.field, from: nil), text: row.convert(source.text, from: nil))
+            // Text sends fly in an overlay above the composer, so the first
+            // frame is never clipped by it; images and emoji fly in place.
+            if !flyOverComposer(row, field: source.field, text: source.text, scrollDelta: end - start) {
+                row.flyIn(fromField: row.convert(source.field, from: nil), text: row.convert(source.text, from: nil))
+            }
         }
-        let end = maxOffset
         trace(String(format: "flight scroll %.1f -> %.1f", start, end))
         if abs(end - start) > 0.5 {
             programmatic {
@@ -1458,6 +1494,56 @@ final class MacReplyFocusView: NSView {
         }, completionHandler: { [weak self] in
             MainActor.assumeIsolated { self?.removeFromSuperview() }
         })
+    }
+}
+
+/// Hosts one send flight above the window's content (composer included).
+final class MacFlightOverlayView: NSView {
+    private let body = CALayer()
+    private let textLayer = CALayer()
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.addSublayer(body)
+        layer?.addSublayer(textLayer)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func fly(color: CGColor, text: CGImage?, textSize: CGSize, fromBody: CGRect, toBody: CGRect,
+             fromText: CGRect, toText: CGRect, radius: CGFloat, completion: @escaping @MainActor () -> Void) {
+        let scale = window?.backingScaleFactor ?? 2
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        body.backgroundColor = color
+        body.frame = toBody
+        body.cornerRadius = min(radius, toBody.height / 2)
+        textLayer.contents = text
+        textLayer.contentsScale = scale
+        textLayer.frame = toText
+        CATransaction.commit()
+
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } }
+        func spring(_ keyPath: String, _ from: Any, _ to: Any) -> CASpringAnimation {
+            let animation = CASpringAnimation(keyPath: keyPath)
+            animation.fromValue = from
+            animation.toValue = to
+            animation.mass = 1
+            animation.stiffness = 240
+            animation.damping = 26
+            animation.duration = animation.settlingDuration
+            return animation
+        }
+        body.add(spring("position", NSValue(point: CGPoint(x: fromBody.midX, y: fromBody.midY)), NSValue(point: CGPoint(x: toBody.midX, y: toBody.midY))), forKey: "p")
+        body.add(spring("bounds.size", NSValue(size: fromBody.size), NSValue(size: toBody.size)), forKey: "s")
+        body.add(spring("cornerRadius", min(fromBody.height, radius * 2) / 2, min(radius, toBody.height / 2)), forKey: "r")
+        textLayer.add(spring("position", NSValue(point: CGPoint(x: fromText.midX, y: fromText.midY)), NSValue(point: CGPoint(x: toText.midX, y: toText.midY))), forKey: "p")
+        CATransaction.commit()
     }
 }
 
