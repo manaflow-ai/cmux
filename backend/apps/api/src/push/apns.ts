@@ -17,14 +17,20 @@ export interface ApnsConfig {
 export const apnsConfig = (env: { APNS_KEY_P8?: string; APNS_KEY_ID?: string; APNS_TEAM_ID?: string }): ApnsConfig | null =>
   env.APNS_KEY_P8 && env.APNS_KEY_ID && env.APNS_TEAM_ID ? { keyP8: env.APNS_KEY_P8, keyId: env.APNS_KEY_ID, teamId: env.APNS_TEAM_ID } : null
 
-/** Apple wants one token reused for 20 to 60 minutes; one per isolate, renewed after 50. */
-let cached: { keyId: string; token: string; at: number } | undefined
+/** Apple wants one token reused for 20 to 60 minutes; one per isolate, renewed after 50 or when Apple refuses it. */
+let cached: { id: string; token: string; at: number } | undefined
+
+const configId = (c: ApnsConfig) => `${c.teamId}:${c.keyId}:${c.keyP8.length}:${c.keyP8.slice(-16)}`
+
+export const forgetProviderToken = () => {
+  cached = undefined
+}
 
 export const providerToken = async (config: ApnsConfig, now: number): Promise<string> => {
-  if (cached && cached.keyId === config.keyId && now - cached.at < 50 * 60_000) return cached.token
+  if (cached && cached.id === configId(config) && now - cached.at < 50 * 60_000) return cached.token
   const key = await importPKCS8(config.keyP8.replace(/\\n/g, "\n"), "ES256")
   const token = await new SignJWT({}).setProtectedHeader({ alg: "ES256", kid: config.keyId }).setIssuer(config.teamId).setIssuedAt(Math.floor(now / 1000)).sign(key)
-  cached = { keyId: config.keyId, token, at: now }
+  cached = { id: configId(config), token, at: now }
   return token
 }
 
@@ -33,12 +39,18 @@ export const providerToken = async (config: ApnsConfig, now: number): Promise<st
  * mail items (FD1) carry no content, only ids, so the app fetches what to show.
  * `category` lets the iPhone offer answer actions for the kind.
  */
+/** Cuts text to at most `max` code points (never inside a surrogate pair). */
+const cut = (text: string, max: number) => Array.from(text).slice(0, max).join("")
+
+/** APNs refuses payloads over 4 KB; text is cut well below it. */
+export const APNS_MAX_PAYLOAD_BYTES = 4096
+
 export const apnsPayload = (item: FeedItem) => {
   const mail = item.kind === "mail"
-  const poster = [item.poster.harness, item.poster.label].filter(Boolean).join(" · ")
+  const poster = cut([item.poster.harness, item.poster.label].filter(Boolean).join(" · "), 120)
   return {
     aps: {
-      alert: mail ? { title: "New mail" } : { title: item.title, ...(poster ? { subtitle: poster } : {}), ...(item.body && item.type === "notice" ? { body: item.body.slice(0, 240) } : {}) },
+      alert: mail ? { title: "New mail" } : { title: cut(item.title, 200), ...(poster ? { subtitle: poster } : {}), ...(item.body && item.type === "notice" ? { body: cut(item.body, 240) } : {}) },
       sound: "default",
       "thread-id": item.thread ?? item.id,
       category: `FEED_${item.type === "request" ? item.kind.toUpperCase().replace(/[^A-Z0-9]/g, "_") : "NOTICE"}`,
@@ -46,6 +58,13 @@ export const apnsPayload = (item: FeedItem) => {
     },
     cmux: { feed_item: item.id, kind: item.kind, type: item.type }
   }
+}
+
+/** The JSON body, guaranteed under the APNs limit (falls back to the title alone). */
+export const payloadText = (item: FeedItem): string => {
+  const full = JSON.stringify(apnsPayload(item))
+  if (new TextEncoder().encode(full).length <= APNS_MAX_PAYLOAD_BYTES) return full
+  return JSON.stringify({ aps: { alert: { title: cut(item.title, 100) }, sound: "default" }, cmux: { feed_item: item.id } })
 }
 
 export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, now: number): Request => {
@@ -62,7 +81,7 @@ export const apnsRequest = (target: PushTarget, item: FeedItem, token: string, n
       "apns-collapse-id": item.id.slice(0, 64),
       "content-type": "application/json"
     },
-    body: JSON.stringify(apnsPayload(item))
+    body: payloadText(item)
   })
 }
 
@@ -92,6 +111,8 @@ export const sendApns = async (config: ApnsConfig, targets: ReadonlyArray<PushTa
       try {
         const res = await fetcher(apnsRequest(t, item, token, now))
         const reason = res.status === 200 ? undefined : ((await res.json().catch(() => ({}))) as { reason?: string }).reason
+        // A refused provider token is minted again on the next send.
+        if (res.status === 403 && (reason === "ExpiredProviderToken" || reason === "InvalidProviderToken")) forgetProviderToken()
         return { token: t.token, outcome: classifyApns(res.status, reason), status: res.status, ...(reason ? { reason } : {}) }
       } catch (e) {
         return { token: t.token, outcome: "retry_later" as const, status: 0, reason: String(e).slice(0, 120) }

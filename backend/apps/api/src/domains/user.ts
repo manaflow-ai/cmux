@@ -164,6 +164,7 @@ export const userDomain: Domain<UserState> = {
           ok: true,
           state: {
             ...state,
+            push_targets: Object.fromEntries(Object.entries(state.push_targets ?? {}).filter(([, t]) => t.install !== cur.id)),
             installs: { ...state.installs, [cur.id]: next },
             grants: g ? { ...state.grants, [g.id]: { ...g, revoked_at: ctx.now } } : state.grants
           },

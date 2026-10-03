@@ -1,11 +1,10 @@
 import { env, exports } from "cloudflare:workers"
-import { runInDurableObject } from "cloudflare:test"
 import { idFactory, type Principal } from "@cmux/ownership"
 import type { FeedItem, PushTarget } from "@cmux/protocol"
 import { exportPKCS8, generateKeyPair, importJWK, jwtVerify, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
 import { userDomain, type UserState } from "../src/domains/user.ts"
-import { apnsPayload, apnsRequest, classifyApns, providerToken, sendApns } from "../src/push/apns.ts"
+import { apnsPayload, apnsRequest, classifyApns, payloadText, providerToken, sendApns } from "../src/push/apns.ts"
 
 const phone: Principal = { identity: "inst_ios00000000000000000", kind: "install", user: "user_aaaaaaaaaaaaaaaaaaaa", install: "inst_ios00000000000000000" }
 const ipad: Principal = { ...phone, identity: "inst_pad00000000000000000", install: "inst_pad00000000000000000" }
@@ -20,21 +19,63 @@ const reduce = (s: UserState, p: Principal, op: string, params: unknown) => {
 }
 
 describe("push targets (UserDO)", () => {
-  it("lets an install register, replace and remove only its own token; the session removes any; drop is internal", () => {
-    let s = userDomain.initial()
-    const reg = (p: Principal, token: string) => reduce(s, p, "push.target.register", { token, topic: "com.cmuxterm.ios", environment: "production", device_name: "iPhone" })
-    let r = reg(phone, tok("a"))
+  const inst = (kind: string, revoked_at: number | null = null, id = "") => ({ id, kind, revoked_at }) as unknown as UserState["installs"][string]
+  const seed = (): UserState => ({
+    ...userDomain.initial(),
+    installs: { [phone.install!]: inst("ios", null, phone.install), [ipad.install!]: inst("ios", null, ipad.install), inst_cli00000000000000000: inst("cli", null, "inst_cli00000000000000000") }
+  })
+  const reg = (s: UserState, p: Principal, token: string, topic = "dev.cmux.ios") =>
+    reduce(s, p, "push.target.register", { token, topic, environment: "production", device_name: "iPhone" })
+
+  it("lets an iOS install register, replace and remove only its own token; the session removes any; drop is internal", () => {
+    let s = seed()
+    let r = reg(s, phone, tok("a"))
     expect(r.ok).toBe(true)
     if (r.ok) s = r.state
-    expect(reg(ipad, tok("a"))).toMatchObject({ ok: false, code: "auth.forbidden" })
-    r = reg(phone, tok("b"))
+    expect(reg(s, ipad, tok("a"))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    r = reg(s, phone, tok("b"))
     if (r.ok) s = r.state
     expect(Object.keys(s.push_targets ?? {})).toEqual([tok("b")])
-    expect(reduce(s, session, "push.target.register", { token: tok("c"), topic: "com.x.y", environment: "production" })).toMatchObject({ ok: false })
     expect(reduce(s, ipad, "push.target.remove", { token: tok("b") })).toMatchObject({ ok: false, code: "auth.forbidden" })
     expect(reduce(s, phone, "push.target.drop", { token: tok("b"), reason: "x" })).toMatchObject({ ok: false, code: "auth.forbidden" })
-    r = reduce(s, system, "push.target.drop", { token: tok("b"), reason: "Unregistered" })
-    expect(r).toMatchObject({ ok: true, value: { removed: true } })
+    expect(reduce(s, session, "push.target.remove", { token: tok("b") })).toMatchObject({ ok: true, value: { removed: true } })
+    expect(reduce(s, system, "push.target.drop", { token: tok("b"), reason: "Unregistered" })).toMatchObject({ ok: true, value: { removed: true } })
+  })
+
+  it("refuses non-iOS installs, sessions and topics outside the cmux apps", () => {
+    const cli: Principal = { ...phone, identity: "inst_cli00000000000000000", install: "inst_cli00000000000000000" }
+    expect(reg(seed(), cli, tok("c"))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(reg(seed(), session, tok("c"))).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(reg(seed(), phone, tok("c"), "com.example.other")).toMatchObject({ ok: false, code: "validation.invalid" })
+  })
+
+  it("hands a token to a new install on the same phone once the old install is revoked, and revoke drops its targets", () => {
+    let s = seed()
+    const r1 = reg(s, phone, tok("d"))
+    if (r1.ok) s = r1.state
+    const revoked = reduce(s, session, "install.revoke", { install: phone.install })
+    expect(revoked.ok).toBe(true)
+    const after = (revoked as { state: UserState }).state
+    expect(after.push_targets).toEqual({})
+    // An object from before revoke dropped targets: the revoked install still holds the token; a new install takes it.
+    const stale: UserState = { ...after, push_targets: s.push_targets }
+    expect(reg(stale, ipad, tok("d"))).toMatchObject({ ok: true, value: { install: ipad.install } })
+    const taken = reg(after, ipad, tok("d"))
+    expect(taken).toMatchObject({ ok: true, value: { install: ipad.install } })
+  })
+
+  it("keeps at most 20 targets, dropping the oldest", () => {
+    const installs: Record<string, UserState["installs"][string]> = {}
+    for (let i = 0; i < 22; i++) installs[`inst_p${String(i).padStart(19, "0")}`] = inst("ios")
+    let s: UserState = { ...userDomain.initial(), installs }
+    for (let i = 0; i < 22; i++) {
+      const id = `inst_p${String(i).padStart(19, "0")}`
+      const r = reg(s, { ...phone, identity: id, install: id }, (i + 10).toString(16).padStart(2, "0").repeat(32))
+      if (r.ok) s = r.state
+    }
+    const left = Object.values(s.push_targets ?? {})
+    expect(left).toHaveLength(20)
+    expect(left.some((t) => t.install === "inst_p0000000000000000000")).toBe(false)
   })
 })
 
@@ -46,7 +87,7 @@ const item = (over: Partial<FeedItem> = {}): FeedItem =>
     expires_at: 10_000_000_000_000, read_at: null, seen_at: null, archived_at: null, snoozed_until: null, push_due_at: null, pushed_at: null,
     count: 1, order: 1, revision: 1, created_at: 1, updated_at: 1, closed_at: null, ...over
   }) as FeedItem
-const target = (environment: "production" | "development" = "production"): PushTarget => ({ token: tok("d"), topic: "com.cmuxterm.ios", environment, install: "inst_ios00000000000000000", device_name: "iPhone", registered_at: 1 })
+const target = (environment: "production" | "development" = "production"): PushTarget => ({ token: tok("d"), topic: "dev.cmux.ios", environment, install: "inst_ios00000000000000000", device_name: "iPhone", registered_at: 1 })
 
 describe("APNs sender", () => {
   it("signs an ES256 provider token Apple can verify, and reuses it", async () => {
@@ -64,7 +105,7 @@ describe("APNs sender", () => {
   it("builds the request per environment with topic, collapse id and a kind category; mail carries no content", async () => {
     const req = apnsRequest(target("development"), item(), "jwt", 1_000)
     expect(new URL(req.url).host).toBe("api.sandbox.push.apple.com")
-    expect(req.headers.get("apns-topic")).toBe("com.cmuxterm.ios")
+    expect(req.headers.get("apns-topic")).toBe("dev.cmux.ios")
     expect(req.headers.get("apns-collapse-id")).toBe("fi_aaaaaaaaaaaaaaaaaaaa")
     expect(req.headers.get("apns-push-type")).toBe("alert")
     const body = (await req.json()) as any
@@ -72,6 +113,11 @@ describe("APNs sender", () => {
     expect(body.cmux).toEqual({ feed_item: "fi_aaaaaaaaaaaaaaaaaaaa", kind: "approve", type: "request" })
     expect(apnsPayload(item({ kind: "mail", type: "notice", title: "Secret subject" })).aps.alert).toEqual({ title: "New mail" })
     expect(new URL(apnsRequest(target(), item(), "jwt", 1).url).host).toBe("api.push.apple.com")
+    // Over-long text is cut on code points and the body stays under the APNs limit.
+    const huge = item({ type: "notice", kind: "notice", title: "😀".repeat(300), body: "x".repeat(4000), poster: { kind: "agent", scope: "s", label: "y".repeat(80), harness: "z".repeat(40) } })
+    const text = payloadText(huge)
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(4096)
+    expect(() => JSON.parse(text)).not.toThrow()
   })
 
   it("classifies answers: sent, drop the token, retry later", async () => {
@@ -114,12 +160,11 @@ describe("push targets end to end (workerd)", () => {
     const ch = await call("/v1/auth/challenge", undefined, { user, install })
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${ch.json.message_prefix}${ch.json.nonce}`))
     const token = (await call("/v1/auth/token", undefined, { user, install, nonce: ch.json.nonce, signature: b64u(sig) })).json.access_token as string
-    const reg = await op(token, "push.target.register", { token: tok("f"), topic: "com.cmuxterm.ios", environment: "production", device_name: "iPhone" })
+    const reg = await op(token, "push.target.register", { token: tok("f"), topic: "dev.cmux.ios", environment: "production", device_name: "iPhone" })
     expect(reg.json).toMatchObject({ ok: true, value: { install, token: tok("f") } })
     const stub = testEnv.USER_DO.get(testEnv.USER_DO.idFromName(user)) as unknown as { pushTargets(u: string): Promise<Array<PushTarget>>; dropPushTarget(u: string, t: string, r: string): Promise<void> }
     expect((await stub.pushTargets(user)).map((t) => t.token)).toEqual([tok("f")])
     await stub.dropPushTarget(user, tok("f"), "Unregistered")
     expect(await stub.pushTargets(user)).toEqual([])
-    void runInDurableObject
   })
 })

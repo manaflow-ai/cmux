@@ -1,5 +1,5 @@
 import type { EventFrame, Principal } from "@cmux/ownership"
-import { feedKindSchemas, FeedList, type FeedItem } from "@cmux/protocol"
+import { feedKindSchemas, FeedList, type FeedItem, type PushTarget } from "@cmux/protocol"
 import { decodeParams } from "./domains/common.ts"
 import { listItems } from "./domains/feed-query.ts"
 import { feedCounts, feedDomain, nextFeedWake, visibleTo, type FeedState } from "./domains/feed.ts"
@@ -114,12 +114,20 @@ export class FeedDO extends OwnerDO<FeedState> {
       for (const i of items) console.log(JSON.stringify({ msg: "feed.push.skipped", reason: "apns not configured", item: i.id }))
       return
     }
-    const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
-    const targets = await users.pushTargets(user)
-    for (const item of items) {
-      const results = await sendApns(config, targets, item, Date.now())
-      for (const r of results) if (r.outcome === "drop_target") await users.dropPushTarget(user, r.token, r.reason ?? String(r.status))
-      console.log(JSON.stringify({ msg: "feed.push.sent", item: item.id, results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) }))
+    // An effect after commit never throws: a failed send must not stop this wake's expiry and prune.
+    // Delivery is at most once (feed.md 7.3): the decision is committed before the send.
+    try {
+      const users = this.env.USER_DO.get(this.env.USER_DO.idFromName(user))
+      let targets: ReadonlyArray<PushTarget> = [...(await users.pushTargets(user))]
+      for (const item of items) {
+        const results = await sendApns(config, targets, item, Date.now())
+        const dropped = new Set(results.filter((r) => r.outcome === "drop_target").map((r) => r.token))
+        for (const token of dropped) await users.dropPushTarget(user, token, results.find((r) => r.token === token)?.reason ?? "rejected")
+        targets = targets.filter((t) => !dropped.has(t.token))
+        console.log(JSON.stringify({ msg: "feed.push.sent", item: item.id, results: results.map((r) => ({ outcome: r.outcome, status: r.status, reason: r.reason })) }))
+      }
+    } catch (e) {
+      console.error(JSON.stringify({ msg: "feed.push.failed", error: String(e).slice(0, 200) }))
     }
   }
 

@@ -105,6 +105,13 @@ export class UserDO extends OwnerDO<UserState> {
     return { ok: true, value: { user: state.user, installs: Object.values(state.installs), grants: Object.values(state.grants) }, revision: "" }
   }
 
+  /** Device push tokens reach only the user's session and the install that owns each token. */
+  protected override subscriberView(state: UserState, principal: Principal): unknown {
+    if (principal.kind === "session" || !state.push_targets) return state
+    const own = Object.fromEntries(Object.entries(state.push_targets).filter(([, t]) => t.install === principal.install))
+    return { ...state, push_targets: own }
+  }
+
   protected maySubscribe(state: UserState, principal: Principal): boolean {
     return (!state.user || state.user.id === principal.user) && installActive(state, principal)
   }
