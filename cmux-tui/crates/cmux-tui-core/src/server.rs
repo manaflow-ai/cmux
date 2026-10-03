@@ -16472,10 +16472,26 @@ mod tests {
 
     struct TestSocketDir(PathBuf);
 
+    /// `/tmp` resolved (`/private/tmp` on macOS) on Unix, so derived-socket
+    /// checks that refuse symlinked directories accept it; elsewhere the
+    /// system temp directory.
+    fn short_socket_root() -> PathBuf {
+        #[cfg(unix)]
+        if let Ok(root) = std::fs::canonicalize("/tmp") {
+            return root;
+        }
+        std::env::temp_dir()
+    }
+
     impl TestSocketDir {
+        /// A fresh directory for test sockets. A Unix socket path must fit
+        /// `sun_path` (104 bytes on macOS), and a macOS `$TMPDIR` under
+        /// `/var/folders` already uses about half of it, so the directory is
+        /// under the canonical `/tmp` with a short name whatever `$TMPDIR` is.
         fn create(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "cmux-tui-server-{name}-{}-{}",
+            let tag: String = name.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
+            let path = short_socket_root().join(format!(
+                "cts-{tag}-{}-{}",
                 std::process::id(),
                 NEXT_TEST_SOCKET_DIR.fetch_add(1, Ordering::Relaxed)
             ));
