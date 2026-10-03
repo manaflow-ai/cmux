@@ -11791,6 +11791,17 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "tab move-to-new-sticky-column",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "id" : "tab.moveToNewStickyColumn",
+      "mcp" : "offered",
+      "palette" : "offered"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings toggle-column-scrollbar",
       "context_menu" : "noObject",
       "context_menus" : [
