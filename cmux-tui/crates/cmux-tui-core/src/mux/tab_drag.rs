@@ -577,7 +577,7 @@ pub(crate) fn apply_tab_drag(
                     let index = screen.layout_columns.iter().position(|c| c.id == ids.split);
                     let index = index.context("new column disappeared")?;
                     let flags: Vec<_> = screen.layout_columns.iter().map(|c| c.sticky).collect();
-                    let flags = super::sticky_columns::reduce_column_sticky(&flags, index, sticky)?;
+                    let flags = reduce_column_sticky(&flags, index, sticky)?;
                     for (column, flag) in screen.layout_columns.iter_mut().zip(flags) {
                         column.sticky = flag;
                     }
