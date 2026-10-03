@@ -100,10 +100,28 @@ final class MessageCell: UICollectionViewCell {
     }
 
     func configure(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
+        // A cell showing a different row than before (fresh, reused, or
+        // rebound during a page insert) must not animate from the previous
+        // row's geometry: inside an animated batch update that drew a stale
+        // bubble hundreds of points tall morphing into place.
+        guard previousRowID == model.rowID else {
+            UIView.performWithoutAnimation {
+                configureContents(model: model, layout: layout, text: text)
+                layoutIfNeeded()
+            }
+            for view in [bubble, quoteBubble, textLabel, emojiLabel, avatar, reactionBadge] as [UIView] {
+                view.layer.removeAllAnimations()
+            }
+            return
+        }
+        configureContents(model: model, layout: layout, text: text)
+    }
+
+    private func configureContents(model: MessageRowModel, layout: MessageCellLayout, text: NSAttributedString) {
         self.model = model
         self.cellLayout = layout
         let message = model.message
-        shiftable.frame = contentView.bounds
+        placeShiftable()
 
         senderLabel.isHidden = layout.senderNameFrame == nil
         senderLabel.text = model.senderName
@@ -224,11 +242,11 @@ final class MessageCell: UICollectionViewCell {
         }
         if let frame = layout.footerFrame {
             // Never animate the status label's frame (that reads as a wipe).
-            UIView.performWithoutAnimation { footerLabel.frame = frame }
+            UIView.performWithoutAnimation { footerLabel.setUntransformedFrame(frame) }
             footerLabel.textAlignment = model.isOutgoing ? .right : .left
         }
         failedBadge.isHidden = layout.failedBadgeFrame == nil
-        if let frame = layout.failedBadgeFrame { failedBadge.frame = frame }
+        if let frame = layout.failedBadgeFrame { failedBadge.setUntransformedFrame(frame) }
 
         editedLabel.isHidden = layout.editedFrame == nil
         if let frame = layout.editedFrame {
@@ -259,12 +277,12 @@ final class MessageCell: UICollectionViewCell {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        shiftable.frame = contentView.bounds
+        placeShiftable()
         guard let cellLayout else { return }
         // The time waits just past the trailing edge until a swipe reveals it.
         timeLabel.sizeToFit()
         let anchor = cellLayout.contentFrame
-        timeLabel.frame = CGRect(x: contentView.bounds.width + 8, y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height)
+        timeLabel.setUntransformedFrame(CGRect(x: contentView.bounds.width + 8, y: anchor.midY - timeLabel.bounds.height / 2, width: timeLabel.bounds.width, height: timeLabel.bounds.height))
         replyArrow.frame = CGRect(x: 0, y: anchor.midY - 15, width: 30, height: 30)
         applyShifts()
     }
@@ -339,6 +357,14 @@ final class MessageCell: UICollectionViewCell {
         guard let content = cellLayout?.contentFrame else { return contentView.bounds }
         guard !reactionBadge.isHidden, reactionBadge.frame.width > 0 else { return content }
         return content.union(reactionBadge.frame).intersection(contentView.bounds.insetBy(dx: 0, dy: -20))
+    }
+
+    /// Sizes the shiftable container without touching its transform: setting
+    /// `frame` on a view whose transform holds the select/reply/timestamp
+    /// translation moves its center by that offset, which cancelled the
+    /// select shift for reconfigured rows and left them offset after exit.
+    private func placeShiftable() {
+        shiftable.setUntransformedFrame(contentView.bounds)
     }
 
     private func applyShifts() {
@@ -529,6 +555,14 @@ final class TypingCell: UICollectionViewCell {
         let size = TypingIndicatorView.bubbleSize
         avatar.frame = CGRect(x: margin, y: 2 + size.height - ConversationTheme.avatarSize, width: ConversationTheme.avatarSize, height: ConversationTheme.avatarSize)
         indicator.frame = CGRect(x: margin + column - ConversationTheme.tailWidth, y: 2, width: size.width + ConversationTheme.tailWidth, height: size.height + 10)
+    }
+}
+extension UIView {
+    /// Places the view's untransformed box at `frame`, leaving `transform`
+    /// applied on top (`frame =` is undefined while a transform is set).
+    func setUntransformedFrame(_ frame: CGRect) {
+        bounds = CGRect(origin: bounds.origin, size: frame.size)
+        center = CGPoint(x: frame.midX, y: frame.midY)
     }
 }
 #endif
