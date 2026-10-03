@@ -4,7 +4,7 @@
 import { t } from "./l10n.ts"
 import { connect as connectProvider } from "./model/actions.ts"
 import { submitImport } from "./model/importer.ts"
-import { FIRST_CLASS } from "./model/providers.ts"
+import { CONNECTABLE } from "./model/providers.ts"
 import { codeOf, open, reload } from "./model/store.ts"
 import { cycleVariant as cycle } from "./settings.ts"
 
@@ -31,7 +31,7 @@ export async function openIntegrations(args: { connection?: string } = {}) {
 
 export async function connect(args: { provider?: string } = {}) {
   const provider = args.provider
-  if (typeof provider !== "string" || !(FIRST_CLASS as readonly string[]).includes(provider)) throw invalid(t("command.connect.invalid", "provider must be one of: {list}", { list: FIRST_CLASS.join(", ") }))
+  if (typeof provider !== "string" || !(CONNECTABLE as readonly string[]).includes(provider)) throw invalid(t("command.connect.invalid", "provider must be one of: {list}", { list: CONNECTABLE.join(", ") }))
   await connectProvider(provider)
   return { opened: await openPane() }
 }

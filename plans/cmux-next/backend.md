@@ -18,3 +18,30 @@ Resume after the Oct 4 reset. Branch for stage B code: `backend-home-routes` (of
 Stage C (after B): MailerDO (wrangler tag v8) and the mail path for `mail.security_notice`; FeedDO accepts feed.post notices from UserDO; AddressDO sends (vCard first, text after SENT/DELIVERED, allow list fail-closed, HOME_INVITES_SEND kill switch, every staging send logged and reported).
 
 Other open items: shared teams after stage C (plan in enterprise.md); verify the OIDC callback's Stack server calls on staging the next time auth changes; Effect 4.0.0 bump after 2026-10-08; integrations gateway after stage C.
+
+## home.search role (search-ro2), 2026-10-03
+
+The first role (search-ro) inherited pg_read_all_data, granted by pscale_admin, which our roles
+cannot revoke. It was replaced on development and staging by `search-ro2`, created with no
+inherited roles, and granted by the table owner (migrator):
+
+```sql
+-- run as the migrator role (table owner) on the cmux-next branch; <ro> = the search-ro2 Postgres role name (username before the dot)
+GRANT USAGE ON SCHEMA public TO "<ro>";
+GRANT SELECT ON TABLE public.home_participants, public.home_message_search, public.home_conversations TO "<ro>";
+```
+
+Steps per branch (confirm the branch with `pscale branch show cmux-next <branch> --org cmux` first):
+1. `pscale role create cmux-next <branch> search-ro2 --org cmux` (no `--inherited-roles`); store the URL in
+   `~/.secrets/cmux-next-planetscale-ro-<env>.env` (mode 600).
+2. The SQL above as migrator.
+3. Check: `pg_has_role(<ro>, 'pg_read_all_data', 'MEMBER')` = false, SELECT on home_message_search = true,
+   SELECT on audit_events = false, INSERT on home_message_search = false; a live `SELECT 1 FROM audit_events`
+   as the role fails with permission denied.
+4. `wrangler hyperdrive update <id> --connection-string=<new url>` (dev cb712d90..., staging 10bbf30d...,
+   production 6badee5c...).
+5. `pscale role delete cmux-next <branch> <old search-ro id> --org cmux --force --successor postgres`.
+
+Done: development and staging (all checks passed, Hyperdrives use search-ro2, old role deleted).
+Production (branch main, Hyperdrive 6badee5cbb964e9f9c09c6f175a14c85): prepared, waiting for Lawrence's approval.
+New projection tables that search reads need the same GRANT.

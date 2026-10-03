@@ -19,16 +19,16 @@ import Testing
 
     // MARK: Bands
 
-    @Test func defaultBandsAreHomeAboveSettingsCustomizeAndAccountBelow() {
+    @Test func defaultBandsAreHomeAboveSettingsAndAccountBelow() {
         let bands = defaults.bands(room: nil)
         #expect(bands.above.flatMap(\.items).map(\.ref) == [.builtIn(.home), .builtIn(.appStore)])
-        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.customize), .builtIn(.account)])
+        #expect(bands.below.flatMap(\.items).map(\.ref) == [.builtIn(.settings), .builtIn(.account)])
     }
 
     @Test func bandsSplitAtTheWorkspacesSectionWhereverItIs() throws {
-        let moved = try SidebarLayoutReducer.reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .bottom, index: 1)).get()
+        let moved = try SidebarLayoutReducer.reduce(defaults, .sectionMove(SidebarLayoutDocument.workspacesSectionID, region: .bottom, index: 2)).get()
         let bands = moved.bands(room: nil)
-        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.bottomSectionID])
+        #expect(bands.above.map(\.id) == [SidebarLayoutDocument.topSectionID, SidebarLayoutDocument.codeRouterSectionID, SidebarLayoutDocument.bottomSectionID])
         #expect(bands.below.isEmpty)
     }
 
@@ -218,4 +218,17 @@ import Testing
         #expect(shown[1].id == LayoutSectionID("sec_app") && shown[0].items[1].id == LayoutItemID("itm_app"))
     }
 
+
+    /// An app section draws only with content from its provider, at the provider's height, under its header.
+    @Test func appSectionsDrawOnlyWithContent() {
+        let app = LayoutSection(id: LayoutSectionID("sec_app"), title: "CodeRouter", region: .bottom, look: .list, content: .app,
+                                contribution: "cmux/coderouter#coderouter")
+        let metrics = SidebarRegionMetrics(rowHeight: 28, headerHeight: 20, inset: 8, sectionGap: 6, padding: 4,
+                                           cardPadding: 4, tileMinWidth: 60, tileHeight: 48, tileGap: 4)
+        let none = SidebarRegionLayout.make(sections: [app], width: 240, look: .quiet, collapsed: [], metrics: metrics)
+        #expect(none.rows.isEmpty)
+        let shown = SidebarRegionLayout.make(sections: [app], width: 240, look: .quiet, collapsed: [], metrics: metrics,
+                                             appHeights: [app.id: 90])
+        #expect(shown.rows.contains { $0.kind == .app(app.id) && $0.frame.height == 90 })
+    }
 }

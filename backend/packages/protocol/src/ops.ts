@@ -17,8 +17,10 @@ import {
 } from "./schemas.ts"
 import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
+import { googleOps } from "./google-ops.ts"
 import { feedOps } from "./feed.ts"
 import { pushOps } from "./push.ts"
+import { userConfirmOps } from "./user-confirm-ops.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
 import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
@@ -188,8 +190,10 @@ export const cloudOps = [
   HostRemove,
   ...automationOps,
   ...integrationOps,
+  ...googleOps,
   ...feedOps,
   ...pushOps,
+  ...userConfirmOps,
   ...policyOps,
   ...networkOps,
   ...enrollmentOps,

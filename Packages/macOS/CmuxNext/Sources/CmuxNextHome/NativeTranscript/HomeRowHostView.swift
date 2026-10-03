@@ -1,0 +1,43 @@
+import AppKit
+import CmuxHomeRender
+
+/// Hosts the render core's root layer (flipped: the core lays out top-left)
+/// and exposes its rows to accessibility: the rows are layers, so each
+/// visible message is an explicit `NSAccessibilityElement` in a list.
+final class HomeRowHostView: NSView {
+    weak var controller: HomeController?
+    private var elements: [NSAccessibilityElement] = []
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.list)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+
+    func accessibilityChanged() {
+        elements = []
+        NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    override func accessibilityChildren() -> [Any]? {
+        if elements.isEmpty, let controller { elements = controller.accessibilityItems().map(element) }
+        return elements
+    }
+
+    private func element(_ item: HomeAXItem) -> NSAccessibilityElement {
+        let e = NSAccessibilityElement()
+        e.setAccessibilityParent(self)
+        e.setAccessibilityRole(item.role == .textArea ? .textArea : .staticText)
+        e.setAccessibilityLabel(item.label)
+        e.setAccessibilityValue(item.value)
+        e.setAccessibilityIdentifier(item.id)
+        let inWindow = convert(item.frame, to: nil)
+        e.setAccessibilityFrame(window?.convertToScreen(inWindow) ?? inWindow)
+        return e
+    }
+}

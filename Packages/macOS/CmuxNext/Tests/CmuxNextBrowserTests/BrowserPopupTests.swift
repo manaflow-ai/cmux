@@ -130,6 +130,18 @@ import Testing
         #expect(queue.take(window: 5) == nil)
     }
 
+    /// A placement recorded for a tab duplicate the fork refused is withdrawn,
+    /// so the next tab Chromium adds to that window keeps its own placement.
+    @Test func withdrawnPlacementLeavesOlderOnes() {
+        var queue = CEFPlacementQueue()
+        queue.record(window: 5, CEFPlacement(disposition: .popup))
+        queue.record(window: 5, CEFPlacement(disposition: .backgroundTab))
+        queue.withdrawLast(window: 5)
+        queue.withdrawLast(window: 6)
+        #expect(queue.take(window: 5) == CEFPlacement(disposition: .popup))
+        #expect(queue.take(window: 5) == nil)
+    }
+
     @Test func requestFromFeatures() {
         #expect(BrowserPopupRequest(features: nil) == BrowserPopupRequest())
         #expect(BrowserPopupRequest(features: CGRect(x: 0, y: 0, width: 480, height: 0))

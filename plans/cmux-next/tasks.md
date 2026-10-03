@@ -150,13 +150,13 @@ User settings (Settings window and `cmux.json`, documented): `tasks.defaultTeam`
 3. App wiring: palette actions, a Tasks tab kind, `SocketTasksSource` to the local service, daemon supervision of `cmux-tasks serve`.
 4. Team VM deployment (team VM lead's app runtime), `TeamVmDO` routing, PlanetScale outbox projection, automation delivery, GitHub PR links, importer.
 
-## 11. Decisions for Lawrence
+## 11. Decisions (Lawrence approved all recommendations 2026-10-03, batch B-ALL)
 
-- T1 storage: (a, rec) op log on the zero-loss tier + in-memory/local projections; (b) SQLite WAL on JuiceFS; (c) SQLite on local disk with Litestream (not zero-loss).
-- T2 layout: list, board or inbox as the default (prototypes behind `tasks.layout`); rec: inbox for agent-heavy teams, decide after dogfood.
-- T3 assignee: (a, rec) one Assignee picker listing people and agents, stored as accountable `assignee` + working `delegate`; (b) one `assignee` field that may be an agent (no accountable person).
-- T4 CLI nouns: (a, rec) everything under `cmux task …` (`cmux task label`, `cmux task project`) to avoid top-level collisions; (b) top-level `cmux project`, `cmux label`.
-- T5 agent flow default: (a, rec) `forward` (working -> started, done -> review, never auto-complete); (b) `off`.
+- T1 storage: the op log on the zero-loss tier, with in-memory and local projections. The team VM lead owns the zero-loss tier; until it exists, the store stays behind one interface (section 14, slice 2).
+- T2 layout: build list, board and inbox behind one user setting; pick the default after dogfood, leaning to inbox for agent-heavy teams.
+- T3 assignee: one Assignee picker that lists people and agents, stored as the accountable `assignee` plus the working `delegate`.
+- T4 CLI nouns: everything under `cmux task …` (`cmux task label`, `cmux task project`, `cmux task session`).
+- T5 agent flow default: `forward` (working -> started, done -> review, never auto-complete).
 
 ## 12. Status (2026-10-02)
 
@@ -179,3 +179,32 @@ Decision: Tasks is an official first-party app on the app platform (like calenda
 - The forkable-core idea of spec/tasks.md maps onto app forks: a team's fork is another build of the same app id on its own host, held to the catalog contract tests.
 
 Decided (coordinator, 2026-10-02): `server` and `paneKinds` with a native renderer enter the public manifest schema now; native binaries and renderers are allowed only for first-party (later Verified) tiers. The schema is on branch feat-cmux-next-apps-server: `server {kind native|js, binary, args, catalog, hosts local|team-vm|cmux-server, data}`, `paneKinds` renderer `native` + `nativeView`, `automationTriggers`, MCP `tools: catalog` + `group`. The Tasks manifest follows that schema once it lands. Open: the supervisor API the daemon exposes for server apps.
+
+## 14. Plan update after B-ALL (2026-10-03, Tasks lead)
+
+What exists on feat-cmux-next (2393b4ce152): sections 12 and 13. T3 and T5 are already in the reducer (`task.update` refuses an agent assignee and points to `task.delegate`; `TeamSettings::agent_flow` defaults to `Forward`). T1's log store exists on local disk only. T2's three layouts exist behind the Debug tunable `tasks.layout`. T4's verbs exist in the standalone `cmux-tasks` binary only. The pane never opens in the app.
+
+What the decisions and P8 change:
+
+1. Actor (P8, plans/cmux-next/identity.md section 3). Today a client states its own actor in `hello` (and `CMUX_AGENT_PRINCIPAL` names an agent). That breaks the P8 rule "a caller can never send an actor directly". New shape:
+   - `cmux-tasks-core::Actor` is the P8 stamp, the same JSON as the daemon's: `{kind: user, id}`, `{kind: terminal, id, host, agent?}`, `{kind: acp_session, id, host, agent?}`, `{kind: app, id, host, version, on_behalf_of: {kind: user, id}}`. When P8 slice 3 lands a shared Rust type, this type becomes a re-export (same JSON, no log change).
+   - `Envelope` carries `principal` (who the reducer authorizes, derived by the service) and `actor` (the stamp, recorded beside `origin` and `key`). The service derives the principal from the stamp: `user` -> that person; `terminal` or `acp_session` with `agent` -> that agent principal working for the local person; without `agent` -> the person (stamped with the terminal); `app` -> its `on_behalf_of` person (app scopes come with the app platform grant).
+   - Requests carry an optional `credential` (the CLI copies `CMUX_LAUNCH_CREDENTIAL`); `hello` may carry a default credential. The service verifies it through a `CredentialVerifier` interface. Until P8 slice 3 ships `credential.verify`, the verifier treats every credential as an unknown `kid`, so the request is stamped as the local user (the P8 fallback). A `hello` or request that states an `actor` is refused with `actor_not_accepted`. The `app` kind is set only by the supervisor path (the server's own `CMUX_APP_SOCKET` listener), never accepted from a caller.
+   - The idempotency ledger is keyed by the accountable person and the key, not by the principal id: the same key sent again under another credential of the same person is a replay and keeps the first actor (P8 rule). The actor is not in the fingerprint.
+   - Agent session authority uses the stamp: `task.session.update` is allowed for the ACP session or terminal attached to the session (`links.acp_session`, or the attaching stamp), a mux, the agent principal, or the person the agent works for. Records written before the stamp existed replay with the principal rule only.
+   - Log format 2: records write `principal` and `actor`; format 1 records (key `actor` = principal) upcast on read with no stamp. Replay stays deterministic.
+2. Storage interface (T1). `Store` keeps local append, fsync, snapshot and replay. A `Replica` interface gets each group commit after the local fsync and before any reply: `commit(epoch, first_seq, last_seq, bytes)`. The local implementation does nothing. The team VM lead's zero-loss tier (or `cmux app data commit` on a cmux server, plans/cmux-next/server.md 7.3) implements it with a conditional create keyed by `(epoch, seq)`; a failure stops the writer (crash-only, as a failed fsync does today). `serve` reads `CMUX_APP_DATA`, `CMUX_APP_SOCKET` and `CMUX_APP_EPOCH` when the supervisor sets them, and refuses ops stamped with another epoch (`owner_moved`).
+3. `cmux task` in the cmux binary (T4). `cmux-tui` depends on `cmux-tasks` and dispatches `task` in `cli::run` next to `mcp` and `coderouter`; `task` joins `PUBLIC_SCOPES`. The standalone `cmux-tasks` binary stays for the server role. The task-noun exit codes (0 to 6, section 12) stay. Under cmux-tui/, so it needs a landing window.
+4. MCP. `cmux mcp` lists the task tools from `catalog/tasks-catalog.json` (default exposure in section 3) and runs them through the same client as the CLI.
+5. App wiring (T2, T3). The Tasks pane becomes an internal page (`services.pages.register("tasks")`, catalog actions Open Tasks, New Task, My Tasks). `tasks.layout` moves from Debug Settings to a user setting (Settings and `cmux.json`, `list | board | inbox`); the default is inbox (DECISION below). The Assignee control lists people and agents; picking an agent sends `task.delegate`, picking a person sends `task.update {assignee}` (T3). The app starts `cmux task serve` for the local team under the daemon until the app platform supervisor exists.
+6. Agent dispatcher. The Mac daemon side subscribes to `task.delegated`, claims, opens the ACP session in a worktree named from the task key and attaches. It uses the acpmux catalog verbs, so it waits for the ACP lane's `acp.session.create` contract.
+
+Slice order (each slice lands alone, gates on the exact head):
+1. Actor stamp, credential interface, ledger keying, session authority, log format 2 (cmux-tasks-core + cmux-tasks; review subagent; cmux-tui landing window).
+2. `Replica` interface, epoch fence, supervisor env (cmux-tasks; review subagent; landing window). Message to the team VM lead with the interface.
+3. `cmux task` mounted in the cmux binary (landing window).
+4. Swift: Tasks page, palette actions, layout setting, Assignee picker, socket source drops the actor from `hello`.
+5. MCP task tools.
+6. Agent dispatcher, then automation delivery of task events, then team VM routing (waits for `TeamVmDO`).
+
+DECISION: default layout before dogfood. RECOMMEND inbox, because T2 leans to inbox and the first users are agent-heavy; list and board stay one setting away.

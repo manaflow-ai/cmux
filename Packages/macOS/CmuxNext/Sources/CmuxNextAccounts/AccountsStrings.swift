@@ -17,7 +17,7 @@ enum AccountsStrings {
     }
 
     static var intro: String {
-        text("accounts.intro", "cmux checks this Mac for sign-ins and keys. It shows names and emails only, never secret values.")
+        text("accounts.intro", "cmux checks this Mac for sign-ins and keys. It shows plan names and shortened account labels, never full emails or secret values.")
     }
     static var cmuxSignedOut: String {
         text("accounts.cmuxSignedOut", "Sign in to cmux to connect accounts to CodeRouter, so cmux agents and Cloud machines can use them.")

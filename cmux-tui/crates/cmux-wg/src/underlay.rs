@@ -111,6 +111,9 @@ pub trait Underlay: Send + 'static {
     /// The pong for probe `id`, sent on `path`, arrived at `now`.
     fn on_pong(&mut self, _path: PathId, _id: u64, _now: Instant) {}
 
+    /// The session's `max_datagram`, reported in path events.
+    fn set_max_datagram(&mut self, _bytes: usize) {}
+
     /// Retry datagrams queued while the carrier was unwritable.
     fn flush(&mut self) {}
 

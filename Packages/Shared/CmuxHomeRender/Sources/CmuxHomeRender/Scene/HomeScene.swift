@@ -29,6 +29,15 @@ final class HomeScene {
     private(set) var offset: CGFloat = 0
     /// Client view state: the transcript follows its newest row.
     var pinned = true
+    /// The host draws the compose field itself (`hostedField`, viewport points,
+    /// top-left origin); the scene's own field layer is not shown.
+    var hostedField: CGRect? {
+        didSet { compose.layer.isHidden = hostedField != nil }
+    }
+    /// Called after the scene moved the offset itself (pin on send, rebase on
+    /// prepend, resize); not called for `hostScroll(to:)`.
+    var offsetMovedByModel: () -> Void = {}
+    private var hostScrolling = false
     /// Asks for `settle` at a layer time (event-driven cleanup).
     var requestWake: (CFTimeInterval) -> Void = { _ in }
     /// Old receipts fading out, by row key.
@@ -78,7 +87,12 @@ final class HomeScene {
 
     var metrics: Metrics { Metrics(width: size.width) }
     /// Where the last row ends: above the field, moving up as the field grows.
-    var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeLayer.height(lines: 1)) }
+    var anchorY: CGFloat {
+        if let f = hostedField { return f.minY - ComposeLayer.anchorAboveField }
+        return compose.anchorBase - (compose.fieldHeight - ComposeLayer.height(lines: 1))
+    }
+    /// Top of the compose field (the transcript clip ends just above it).
+    var fieldTop: CGFloat { hostedField?.minY ?? compose.fieldTop }
     func windowY(contentY: CGFloat) -> CGFloat { contentY - offset }
     var pinnedOffset: CGFloat { layout.contentHeight - size.height }
     /// Lowest allowed offset: the oldest loaded row just under the top inset.
@@ -138,11 +152,31 @@ final class HomeScene {
         guard offset != y else { return }
         offset = y
         scrollLayer.bounds.origin.y = y
+        if !hostScrolling { offsetMovedByModel() }
+    }
+
+    /// The host's scroll view moved to `y` (user, momentum, elastic edge).
+    /// Not clamped, so the rows follow a rubber band; no callback to the host.
+    func hostScroll(to y: CGFloat) {
+        guard y != offset else { return }
+        let d = y - offset
+        hostScrolling = true
+        defer { hostScrolling = false }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        setOffset(y)
+        layoutRows()
+        morphs.values.forEach { $0.scroll(by: d) }
+        for (_, r) in visible {
+            if let i = visibleIndex[ObjectIdentifier(r)], i < model.count { r.windowY = windowY(contentY: layout.frame(for: i).minY) }
+        }
+        pinned = pinnedOffset - y < 1
+        CATransaction.commit()
     }
 
     /// The clip ends 4 pt above the field top; it follows the field's spring.
     func placeMask(oldTop: CGFloat?, element: SpringElement?, begin: CFTimeInterval) {
-        let top = compose.fieldTop
+        let top = fieldTop
         clipMask.bounds = CGRect(x: 0, y: 0, width: size.width, height: max(0, top - 4 + 200))
         clipMask.position = CGPoint(x: size.width / 2, y: -200)
         if let oldTop, let element, oldTop != top, motion.moves {

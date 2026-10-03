@@ -29,6 +29,16 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
         })
         return
       }
+      if (p.body.type === "code") {
+        // Tier 1 loader (Dynamic Workers) lands after the usage ledger and the hard cap (automations-plan.md slices 2-3):
+        // no tenant code runs before its usage is metered and capped.
+        await report("unsupported", {
+          state: "failed",
+          step: -1,
+          error: { code: "body.unsupported", message: "code runs need the Tier 1 loader, which this backend does not have yet" }
+        })
+        return
+      }
       const steps = p.body.steps
       for (let i = 0; i < steps.length; i++) {
         const s = steps[i]!

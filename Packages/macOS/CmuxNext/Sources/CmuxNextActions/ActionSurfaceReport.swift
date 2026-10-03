@@ -1,5 +1,6 @@
-/// The generated part of plans/cmux-next/actions.md: counts per surface,
-/// every menu's rows in order, and every exemption by surface and reason.
+/// The generated part of plans/cmux-next/actions.md: catalog counts by category,
+/// counts per surface, every menu's rows in order, and every exemption by
+/// surface and reason.
 /// `ActionSurfaceParityTests.reportIsFresh` keeps the file current, so a
 /// menu reorder or a new exemption shows up in review.
 public struct ActionSurfaceReport {
@@ -28,6 +29,13 @@ public struct ActionSurfaceReport {
         func offered(_ surface: ActionSurface) -> Int {
             descriptors.filter { $0.surfacePlan.decision(for: surface)?.isOffered == true }.count
         }
+        lines.append("## Catalog counts")
+        lines.append("")
+        for category in ActionCategory.allCases where category != .other {
+            let count = descriptors.filter { $0.category == category }.count
+            lines.append("- `\(category.rawValue)`: \(count)")
+        }
+        lines.append("")
         lines.append("## Counts (\(descriptors.count) actions)")
         lines.append("")
         lines.append("Palette \(offered(.palette)), CLI verbs \(offered(.cli)), right-click \(offered(.contextMenu)), "

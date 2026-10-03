@@ -3,6 +3,18 @@
 
 use super::*;
 
+/// The overlay port of `cmux link` connections (transport.md 12a).
+pub(crate) const LINK_PORT: u16 = 4100;
+/// A link connection survives a silent peer this long (a phone in the
+/// background, a laptop lid closed briefly); its streams then resume
+/// without a reconnect.
+pub(crate) const LINK_TCP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// The TCP user timeout for a connection to or on `port`.
+pub(crate) fn user_timeout(port: u16) -> Duration {
+    if port == LINK_PORT { LINK_TCP_TIMEOUT } else { TCP_TIMEOUT }
+}
+
 impl Driver {
     pub(super) fn allocate_port(&mut self) -> u16 {
         for _ in 0..EPHEMERAL_PORT_COUNT {
@@ -25,7 +37,8 @@ impl Driver {
         self.next_port
     }
 
-    pub(super) fn new_socket() -> tcp::Socket<'static> {
+    /// A socket that gives up after `timeout` without an ACK from the peer.
+    pub(super) fn new_socket(timeout: Duration) -> tcp::Socket<'static> {
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
             tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
@@ -34,7 +47,7 @@ impl Driver {
         socket.set_nagle_enabled(false);
         socket.set_congestion_control(tcp::CongestionControl::Cubic);
         socket.set_timeout(Some(smoltcp::time::Duration::from_micros(
-            u64::try_from(TCP_TIMEOUT.as_micros()).unwrap_or(u64::MAX),
+            u64::try_from(timeout.as_micros()).unwrap_or(u64::MAX),
         )));
         socket.set_keep_alive(Some(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_KEEP_ALIVE.as_micros()).unwrap_or(u64::MAX),
@@ -56,7 +69,7 @@ impl Driver {
         };
         let port = self.allocate_port();
         let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket();
+        let mut socket = Self::new_socket(user_timeout(remote.port()));
         let result = socket.connect(
             self.iface.context(),
             IpEndpoint::new(ip_address(remote.ip()), remote.port()),
@@ -85,7 +98,7 @@ impl Driver {
     }
 
     pub(super) fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket();
+        let mut socket = Self::new_socket(user_timeout(port));
         socket
             .listen(IpListenEndpoint::from(port))
             .map_err(|error| WgError::Stack(format!("{error}")))?;

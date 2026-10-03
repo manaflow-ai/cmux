@@ -40,6 +40,11 @@ public final class HomeController {
     public var onNeedsOlder: () -> Void = {}
     /// The accessibility items changed (rows, scroll or the draft).
     public var onAccessibilityChange: () -> Void = {}
+    /// The scroll range or the offset changed by the model (rows added, pin
+    /// on send, prepend rebase, resize). Hosts with a native scroll view
+    /// resize their document and move their clip view (see `scrollGeometry`).
+    public var onScrollGeometryChange: (ScrollGeometry) -> Void = { _ in }
+    var lastPublishedGeometry: ScrollGeometry?
     /// The host shows this conversation to the user (window visible, app
     /// active). Read cursors advance only while it is true.
     public var isVisibleToUser = false {
@@ -59,6 +64,7 @@ public final class HomeController {
         scene = HomeScene(palette: palette)
         builder = RowBuilder(format: RowFormat(calendar: calendar, locale: locale))
         scene.requestWake = { [weak self] due in self?.scheduleWake(at: due) }
+        scene.offsetMovedByModel = { [weak self] in self?.publishScrollGeometryIfChanged() }
         scene.compose.restartCaret(begin: scene.now, sent: false, motion: scene.motion)
     }
 
@@ -67,6 +73,7 @@ public final class HomeController {
 
     public func resize(to size: CGSize) {
         scene.resize(to: size) { self.rows(metrics: $0) }
+        publishScrollGeometryIfChanged()
         afterViewportChange()
     }
 
@@ -139,6 +146,7 @@ public final class HomeController {
         if change == .initial { scene.pinned = true }
         guard scene.size.width > 0 else { return }
         scene.commit(rows(metrics: scene.metrics), change: change, sendField: sendField)
+        publishScrollGeometryIfChanged()
         askForOlderIfNeeded()
         reportReadIfNeeded()
         onAccessibilityChange()

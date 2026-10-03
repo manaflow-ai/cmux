@@ -27,9 +27,18 @@ final class FixtureHome: @unchecked Sendable {
     func environment(_ env: [String: String] = [:], keychain: Set<String> = [], servers: Set<String> = [],
                      savedKeys: Set<AIProvider> = [], now: Date = Date(timeIntervalSince1970: 1_900_000_000)) -> DetectionEnvironment {
         DetectionEnvironment(home: url, environment: env, files: LiveFileReader(), keychain: FakeKeychain(services: keychain),
-                             servers: FakeServers(reachable: servers), savedKeys: savedKeys, now: now)
+                             servers: FakeServers(reachable: servers), labeler: fixtureLabeler, savedKeys: savedKeys, now: now)
     }
 }
+
+/// A fixed salt, so handles are reproducible in tests.
+struct FixedSalt: AccountLabelSaltProviding {
+    let bytes: Data
+    func salt() throws -> Data { bytes }
+}
+
+let fixtureSalt = Data((0..<32).map { UInt8($0) })
+let fixtureLabeler = AccountLabeler(salt: fixtureSalt)
 
 struct FakeKeychain: KeychainProbing {
     let services: Set<String>

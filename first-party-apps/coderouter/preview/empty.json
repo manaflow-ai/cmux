@@ -87,7 +87,7 @@
     "coderouter.route.test": {
       "ok": true,
       "model": "gpt-5.5-codex",
-      "account_label": "ada@example.com",
+      "account_label": "a…@e…",
       "provider_name": "ChatGPT / Codex",
       "latency_ms": 412,
       "request_id": "7b1e0c52-4f3a-4d8e-9a61-2c5d0e8f9b14"
@@ -139,7 +139,8 @@
         "provider": "codex",
         "name": "ChatGPT / Codex",
         "status": "missing",
-        "identity": null,
+        "account": null,
+        "label": null,
         "plan": null,
         "linkable": true,
         "source": null
@@ -148,7 +149,8 @@
         "provider": "claude",
         "name": "Claude Code",
         "status": "missing",
-        "identity": null,
+        "account": null,
+        "label": null,
         "plan": null,
         "linkable": true,
         "source": null
@@ -157,17 +159,19 @@
         "provider": "openai",
         "name": "OpenAI API",
         "status": "missing",
+        "account": null,
+        "label": null,
         "linkable": true,
         "source": null,
-        "identity": null,
         "plan": null
       },
       {
         "provider": "anthropic",
         "name": "Anthropic API",
         "status": "missing",
+        "account": null,
+        "label": null,
         "linkable": true,
-        "identity": null,
         "plan": null,
         "source": null
       },
@@ -175,7 +179,8 @@
         "provider": "gemini",
         "name": "Gemini",
         "status": "missing",
-        "identity": null,
+        "account": null,
+        "label": null,
         "linkable": false,
         "source": null,
         "plan": null
@@ -184,7 +189,8 @@
         "provider": "bedrock",
         "name": "Amazon Bedrock",
         "status": "missing",
-        "identity": null,
+        "account": null,
+        "label": null,
         "linkable": true,
         "source": null,
         "plan": null

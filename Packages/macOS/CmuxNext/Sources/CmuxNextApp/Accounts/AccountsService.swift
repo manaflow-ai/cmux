@@ -15,10 +15,15 @@ final class AccountsService: AccountsServices {
     unowned let services: AppServices
     private(set) lazy var model = AccountsModel(services: self)
     let keys: any ProviderKeyStoring
+    /// The per-user salt behind every `acct_…` handle (Keychain, read once off the main actor).
+    let labels: AccountLabelerStore
     /// Test launches: detect in this fixture home, with the app's own
     /// environment and no Keychain probe, so no real sign-in is read.
     let fixtureHome: URL?
     private var loginEnvironment: [String: String]?
+    /// False once the Keychain salt failed: `acct_…` handles then last for
+    /// this launch only (`accounts.list` says `handles_stable: false`).
+    private(set) var handlesStable = true
     private var activation: (any NSObjectProtocol)?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
@@ -29,7 +34,9 @@ final class AccountsService: AccountsServices {
         let environment = ProcessInfo.processInfo.environment
         fixtureHome = environment[Self.fixtureHomeKey].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
         let bundleID = services.environment.launch.bundleID
-        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"))
+        let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
+        keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
+        labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
         activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
                                                             queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.model.appDidBecomeActive() }
@@ -41,20 +48,32 @@ final class AccountsService: AccountsServices {
     func detectionEnvironment() async -> DetectionEnvironment {
         let keys = keys
         let saved = await Task.detached { keys.savedProviders() }.value
+        let labeler = await labeler()
         if let fixtureHome {
             return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
-                                        keychain: NoKeychain(), servers: HTTPServerProbe(), savedKeys: saved)
+                                        keychain: NoKeychain(), servers: HTTPServerProbe(), labeler: labeler, savedKeys: saved)
         }
         if loginEnvironment == nil { loginEnvironment = await LoginEnvironment.shared.capture() ?? ProcessInfo.processInfo.environment }
         return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: loginEnvironment ?? [:],
-                                    files: LiveFileReader(), keychain: SystemKeychainProbe(), servers: HTTPServerProbe(), savedKeys: saved)
+                                    files: LiveFileReader(), keychain: SystemKeychainProbe(), servers: HTTPServerProbe(),
+                                    labeler: labeler, savedKeys: saved)
+    }
+
+    /// The account labeler; the first call reads or creates the Keychain salt.
+    func labeler() async -> AccountLabeler {
+        let labeler = await labels.labeler()
+        if handlesStable, let failure = await labels.saltFailure {
+            handlesStable = false
+            logger.error("account label salt unavailable (\(failure, privacy: .public)); handles last for this launch only")
+        }
+        return labeler
     }
 
     var client: CodeRouterClient? {
         guard let cloud = services.cloud else { return nil }
-        let auth = cloud.auth
+        let auth = cloud.auth, labels = labels
         return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID })
+                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices

@@ -171,6 +171,10 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
+            .mainActor("debug.window_snapshot") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugWindowSnapshot.capture(call.params, services: services))
+            },
             .mainActor("debug.window_frame") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.setWindowFrame(call.params, services: services))

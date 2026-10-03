@@ -31,6 +31,8 @@ struct ForkApi {
   // cmux_password_entry matches), and password filling per tab.
   int (*password_import)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int, int), void*) = nullptr;
   int (*tab_set_password_fill)(int, int) = nullptr;
+  // API version 16: a user-owned copy of a tab (history, sessionStorage).
+  int (*tab_duplicate)(int, int, int) = nullptr;
   int (*tab_window_id)(int) = nullptr;
   char* (*ext_actions)(int, int) = nullptr;
   int (*ext_action_run)(int, const char*, int, int) = nullptr;

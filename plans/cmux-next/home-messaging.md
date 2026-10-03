@@ -773,6 +773,26 @@ Device keys (presence keys):
 - iOS sends both proofs: App Attest proves the genuine app on a genuine device but not Face ID;
   the presence signature proves a person unlocked the key.
 
+Presence-key registration route (built, backend lead, 2026-10-03):
+- `POST /v1/presence-key` with the install's own `Authorization: Bearer <install token>`.
+  Body: `{platform: "mac" | "ios", jwk, signature, attestation?, key_id?}`.
+- `jwk`: the presence key's P-256 public JWK (`kty`, `crv`, `x`, `y`).
+- `signature`: the install key (the token key, not the presence key) signs the UTF-8 string
+  `cmux-presence-key-v1\n<environment>\n<user>\n<install>\n<thumbprint>` with ES256; raw
+  r||s or DER; base64url. `environment` is the Worker ENVIRONMENT (`production`, `staging`,
+  `development`); `thumbprint` is the RFC 7638 thumbprint of `jwk`. Required on both platforms,
+  so a stolen bearer token alone cannot replace the key.
+- iOS also: `attestation` (base64url CBOR attestation object from App Attest) and `key_id` (the
+  App Attest key id, base64). The attestation's client data is the thumbprint string
+  (clientDataHash = sha256(thumbprint)). The Worker checks the chain to Apple's App Attestation
+  root, the nonce, the key id, the app id `IOS_APP_ID` (production `7WLXT3NR37.com.cmux.app`,
+  staging/development `7WLXT3NR37.dev.cmux.ios` with development keys allowed), counter 0 and
+  the AAGUID.
+- Answer: `{ok: true, value: {install, usable_from}}` (usable 24 h later) or
+  `{ok: false, error: {code, message}}` (403 for a refused signature or attestation).
+- Owner devices only: the install's registered kind must equal `platform`; sessions and agents
+  are refused.
+
 Client contract (iOS lane and the Mac Home lead):
 1. Settings shows the three levels with the section 19 copy, and the lock line when locked.
 2. A safer level: `user.text_confirm.level.set {level}`.
@@ -806,3 +826,33 @@ RECOMMEND only a minimum (built), because otherwise a team admin can turn protec
 the owner's device.
 node:crypto `createPublicKey` and `verify` inside workerd, and the App Attest attestation check,
 are UNVERIFIED until the backend lead runs them in the Worker.
+
+## 22. Promoting a Mac conversation: `conversation.import` (2026-10-03)
+
+For chief-mac.md P1 (`conversation.promote`); shape proposed by the backend lead, built in
+`home-core/src/conversation/import.ts`, corpus `conformance/conversation-import-cases.json`.
+- Owner: ConversationDO; caller: the promoting user (session or app install, never an agent).
+- Id: `importConversationId(user, source.host, source.local_id)` (`conv_` + sha256 base32), so an
+  import only creates its own object; the Worker computes it from the signed-in user and routes
+  the first call there (never from a client field) and adds `conversation.import` to the ops the
+  conversation socket refuses.
+- First call `{id, source {kind mac, host, local_id}, kind group|chief, title?, participants,
+  messages, read_cursors?}` creates state `importing`; `{id, after_seq, messages}` continues the
+  dense seq; `conversation.import.commit {id, last_seq}` opens normal ops. Before commit every
+  other op is refused (`importing`). Same source repeated: no-op returning `last_seq`; anything
+  else on an existing id: `conversation_exists`.
+- Participants: the importer as the only human, and agents the DO's reach policy says the
+  importer owns (owner and names stamped by the policy; the default policy refuses agents, so
+  ConversationDO must inject an owner-record policy before chief imports work). `chief` = the
+  owner and one owned `mux` agent. A local `user_local` must be mapped to the account's
+  `user_<id>` by the Mac before the call.
+- Messages: at most 500 and 1 MiB per batch; validated like `message.send`; ids, authors,
+  times, edits, retractions and reactions kept; times never go backwards or into the future;
+  replies point to earlier messages. Rows `msg` and `msgkey` (per author, so a later send with
+  the same author and client id is a conflict, as in the Rust owner's actor-keyed ledger).
+- The loop guard counters follow the imported history (retracted agent texts count); read
+  cursors are clamped to `last_seq` at commit. The engine ledger has no entries for imported
+  messages (the Mac's op ledger stays on the Mac).
+- Outbox: search rows per batch; one inbox bump per human at commit; no chief wakes for history.
+- The Rust owner is the source side only (the local conversation becomes read-only with a
+  pointer, home.md section 5); it never runs these cases.

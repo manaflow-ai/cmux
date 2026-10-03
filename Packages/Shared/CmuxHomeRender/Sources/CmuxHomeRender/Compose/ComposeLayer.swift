@@ -30,6 +30,8 @@ final class ComposeLayer {
     /// The transcript's last row ends this far above the viewport bottom
     /// while the field has one line.
     static let anchorInset: CGFloat = 57
+    /// The last row ends this far above the field top (57 - 30 - 10.75 - 0.25).
+    static let anchorAboveField: CGFloat = 16
 
     static func height(lines: Int) -> CGFloat { 30 + 16 * CGFloat(lines - 1) + (lines >= 2 ? 1 : 0) }
     static func fieldWidth(_ viewportWidth: CGFloat) -> CGFloat { max(60, viewportWidth - sideRoom) }

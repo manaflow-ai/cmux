@@ -44,4 +44,4 @@ Already on feat-cmux-next: about 60 agent pane PRs by Leo's lanes, among them #1
 
 - The interim client repair EmptyWorkspaceRepair (fe5a8692167) is removed once the host-death fix is on feat-cmux-next.
 - End-to-end check (tagged build): New Agent Chat, Claude Code and Codex through `sr`, streamed reply, permission answered, Changes view diff, session list. Results are recorded below when the run is done.
-- S7 license record (done): the code copied from `manaflow-ai/agent-pane-reference` is recorded in `webviews/src/agent-session/acpmux/NOTICE.md`. Its sole author licenses it under the cmux project license (GPL-3.0-or-later).
+- S7 license record (done): the code copied from the private reference repository is recorded in `webviews/src/agent-session/acpmux/NOTICE.md`. Its sole author licenses it under the cmux project license (GPL-3.0-or-later).

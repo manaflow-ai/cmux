@@ -1,0 +1,8 @@
+# Lane: build-ci
+
+## Active streams
+- cmux-tui pin cuts: owner is the Rust CLI session (feat-cmux-next-99). Current pin af02db06b53 (merged #16174 tree), cut 2026-10-03. Optional now adds workspace-kind-v1, conversation-tabs-v1, host-death, tab-split-respawn, sticky-columns-v1, terminal-command-journal-v1, state-resources-v1. Still awaitingPin: remote-terminal-tabs, detached-terminals, sidebar-layout. Next cut: E2 (PR 17044), wakefix, browser navigate hold (e7c4f12e785), and the agents that announce daemon work.
+
+## Landed
+- 2026-10-03 (this push) build/CI + images: cmux VM image recipe (plans/cmux-next/vm-image.md 4.1-4.11, package P11): `images/cmux-vm/inputs.lock.json` (L0 base fingerprint, apt snapshot 20261001T000000Z, every program by URL+sha256), bake/smoke/repro/cleanup in `web/scripts/cmux-vm-image/` (shims in images/cmux-vm/), dispatch-only workflow `.github/workflows/cloud-vm-image-bake.yml` (environment cloud-vm-image-checks, existing FREESTYLE_API_KEY, cmuxnp-dev- names, delete-by-ledger in `if: always()`). Store layout /opt/cmux per cmux-server-core. No change to the devbox recipe, the image manifest or any production default. Freestyle prototype: bake 141 s, root 4.81 GB, daemon listening p50 539 ms, idle-wakeup check 0/60 s, repro 0 SBOM diffs (VM image lead)
+_No landed entries._

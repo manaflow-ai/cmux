@@ -40,12 +40,13 @@ struct AppearanceStudioTests {
         withExtendedLifetime(services) {}
     }
 
-    /// The sidebar's footer opens the studio: the default bottom band has a
-    /// Customize Appearance icon that runs the same action.
-    @Test func theSidebarFooterOpensTheStudio() throws {
+    /// Customize Appearance is a sidebar item users can add (it runs the
+    /// same action); the default bottom band leaves it out (decision S11).
+    @Test func theSidebarItemOpensTheStudioAndIsNotInTheDefaultBand() throws {
         #expect(SidebarBridge.builtInActions[.customize] == "appearance.customize")
         let bottom = try #require(SidebarLayoutDocument.defaults.section(SidebarLayoutDocument.bottomSectionID))
-        #expect(bottom.items.contains { $0.ref == .builtIn(.customize) && !$0.showsLabel })
+        #expect(!bottom.items.contains { $0.ref == .builtIn(.customize) })
+        #expect(SidebarBuiltIn.allCases.contains(.customize))
         #expect(SidebarBuiltIn.allCases.allSatisfy { SidebarBridge.builtInActions[$0] != nil })
     }
 }

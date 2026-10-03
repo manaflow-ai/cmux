@@ -228,6 +228,13 @@ CMUX_SHIM_EXPORT int cmux_shim_create_window(int request,
                             const char* profile_cache_path);
 // Fork tab API; 0 on failure.
 CMUX_SHIM_EXPORT int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate);
+// A user-owned copy of `browser_id`, added in the background to the window
+// of `window_browser_id` at `index` (-1 = end) (cmux_tab_duplicate, fork
+// API 16): same profile, back/forward history and a sessionStorage
+// snapshot, its own BrowsingInstance, no opener, password filling on.
+// OnAfterCreated runs before it returns. The copy's browser id, or 0 (also
+// when the fork lacks the call).
+CMUX_SHIM_EXPORT int cmux_shim_tab_duplicate(int browser_id, int window_browser_id, int index);
 CMUX_SHIM_EXPORT int cmux_shim_tab_activate(int browser_id);
 // Back/Forward menu entries. JSON {"current": index, "entries": [{"url",
 // "title"}]} (display URLs), freed with cmux_shim_free; NULL for an unknown

@@ -76,7 +76,7 @@
         "export": "connect",
         "risk": "mutate-shared",
         "params": {
-          "provider": "github | linear | slack | google_calendar | gmail"
+          "provider": "github | linear | slack (google_calendar and gmail are shown as coming)"
         },
         "surfaces": {
           "palette": {

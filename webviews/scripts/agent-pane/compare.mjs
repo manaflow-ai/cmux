@@ -13,8 +13,7 @@
 // the reference prototype's compare-region script does.
 //
 // References are not in this repository: pass --reference or set
-// CMUX_AGENT_PANE_REFERENCE to a checkout of the private reference prototype
-// (default ~/Projects/agent-pane-reference).
+// CMUX_AGENT_PANE_REFERENCE to a checkout of the private reference prototype.
 // Writes <out>/<scenario>/{ref,actual,diff,side}.png and prints the mismatch.
 //
 // For captures rather than scores: --theme renders under a Ghostty theme from
@@ -75,11 +74,11 @@ const option = (name) => {
   args.splice(index, 2);
   return value;
 };
-const referenceRoot = path.resolve(
-  option("reference") ??
-    process.env.CMUX_AGENT_PANE_REFERENCE ??
-    path.join(os.homedir(), "Projects/agent-pane-reference"),
-);
+const referenceOption = option("reference") ?? process.env.CMUX_AGENT_PANE_REFERENCE;
+if (!referenceOption) {
+  throw new Error("set --reference or CMUX_AGENT_PANE_REFERENCE to the reference prototype checkout");
+}
+const referenceRoot = path.resolve(referenceOption);
 const outRoot = path.resolve(option("out") ?? path.join(os.tmpdir(), "cmux-agent-pane-compare"));
 const themeName = option("theme");
 const themeFile = themeName && path.resolve(webviews, "../Resources/ghostty/themes", themeName);

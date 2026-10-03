@@ -4,11 +4,14 @@ Status: plan, 2026-10-03. Owner: P7 lead. Spec: acp-ui.md (S5, S8) and operation
 
 Scope boundary (coordinator, 2026-10-03): the ACP lead builds the `debug.agent_pane` socket actions and the ACP end-to-end test. P7 does not build them. P7 uses them for its end-to-end proof when they land.
 
-P7 owns four things, in this order:
+P7 owns five things, in this order:
 1. `git.files.search` on the session host, so @ mentions and the files palette get results.
-2. `git.commit` and `git.push` on the session host, and the Changes pane actions that call them.
-3. The last-turn diff op.
-4. The Milkdown file editor in `webviews/src/markdown-editor`, with a round-trip corpus.
+2. Agent sessions as tabs in the cmux sidebar (S6, option a, approved 2026-10-03).
+3. `git.commit` and `git.push` on the session host, and the Changes pane actions that call them.
+4. The last-turn diff op.
+5. The Milkdown file editor in `webviews/src/markdown-editor`, with a round-trip corpus.
+
+Decisions (coordinator, 2026-10-03): the catalog op is `git.files.search`, and `file.search` is only the page-to-host method. Commit hooks run, with `no_verify` as an opt-out. Who creates the turn-start checkpoint waits for the ACP lead; `git.checkpoint.diff` can be built now.
 
 ## 1. File search (`git.files.search`)
 
@@ -26,6 +29,13 @@ Plan:
 - CLI (generated from `cli.path`): `cmux git files <query> [--limit N] [--path P | --workspace ...]`. MCP group `git`.
 - Page: `fileSearch` goes through the same route as `git.diff` (`gitRoute`: native host, or the daemon in mock mode), not acpmux. The Swift host maps the page method `file.search` to the session host op `git.files.search` with the chat's folder as `path`, through the existing `GitResourceClient`. The page reads `not_a_repository` from `details` for its "not in a repository" state.
 - Tests: Rust unit tests for ranking and match indexes; integration tests on a temporary repository (tracked, untracked, ignored, subfolder `path`, no repository, limit and truncation, non-UTF-8 names skipped); Swift request mapping tests; page test against the mock daemon in the new shape.
+
+## 1b. Agent sessions in the cmux sidebar (S6 a)
+
+Lawrence chose option a: the cmux sidebar lists agent sessions as tabs, and the pane keeps its in-pane session list as a collapsible list that does not duplicate the sidebar.
+- The sidebar reads sessions from acpmux (`_acpmux/watch` session list, through the app's existing acpmux connection), one row per session with title, harness, running or unread state. Selecting a row opens or focuses the agent pane on that session.
+- The in-pane list collapses by default when the sidebar shows sessions, and stays as the pane's own switcher.
+- The coordinator's sidebar lead owns sidebar visuals. P7 asks through main before any change to sidebar rendering, and supplies the data source and the open action. The ACP lead owns `debug.agent_pane`.
 
 ## 2. Commit and push
 
