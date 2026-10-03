@@ -143,6 +143,7 @@ final class CloudWorkspaceProjectionCoordinator {
             && catalog.cloudPlacementCoordinator.allowsNativeReconciliation(state)
     }
 
+    /// Reconciles every local workspace bound to the current Cloud graph.
     private func reconcile(state: CloudVMState, catalog: SurfaceCatalog) async {
         let machine = state.machine
         for (workspaceID, binding) in environment.bindings() where binding.vmID == machine.rawValue {
@@ -170,10 +171,23 @@ final class CloudWorkspaceProjectionCoordinator {
                         if !Task.isCancelled { requested.insert(machine) }
                         return
                     }
-                    let view = try catalog.remoteView(
-                        for: placement,
-                        fallbackWorkspaceID: remoteID
-                    )
+                    let view: SurfaceRemoteView?
+                    do {
+                        view = try catalog.remoteView(
+                            for: placement,
+                            fallbackWorkspaceID: remoteID
+                        )
+                    } catch {
+                        // A port or Desktop preview is a local projection. If the
+                        // remote graph has no membership/view for this workspace,
+                        // there is nothing safe to materialize here. Keep
+                        // reconciliation moving so obsolete panes and layout can
+                        // still converge; a later accepted membership will retry.
+                        if CloudWorkspaceProjectionPolicy.shouldSkipMissingLocalPreview(placement, error: error) {
+                            continue
+                        }
+                        throw error
+                    }
                     _ = try await catalog.project(placement.resource, into: .workspace(id: workspaceID, placement: .tab),
                                                   focus: false, reuseExisting: true, reuseInWorkspace: workspaceID, remoteView: view)
                 }
@@ -203,6 +217,7 @@ final class CloudWorkspaceProjectionCoordinator {
         let live = Set(environment.bindings().keys)
         failures = failures.filter { live.contains($0.key) }
     }
+
 }
 
 /// Bounds reconciliation of one accepted graph. A pass that changes nothing
