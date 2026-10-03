@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextControl
+import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -35,6 +36,7 @@ enum DebugShowcase {
             if let nsWindow = window.window { WindowActivation.show(nsWindow, .focus) }
         }
         services.feed.startIfSignedIn()
+        seedNotifications(services: services, surface: pane.pane.tabs.first?.surface)
         let workspace = pane.daemon.store.workspace(containing: pane.pane.handle)?.id ?? ""
         return .object([
             "seeded": .bool(true),
@@ -45,6 +47,24 @@ enum DebugShowcase {
             "feed_items": .number(Double(services.feed.model.confirmed.count)),
             "focused": .bool(params["focus"]?.boolValue == true),
         ])
+    }
+
+    /// Populate the real daemon ledger so a showcase capture exercises the
+    /// production panel and row layout. Desktop banners stay disabled for
+    /// the showcase profile, so this never asks for notification permission.
+    private static func seedNotifications(services: AppServices, surface: SurfaceID?) {
+        guard !services.showcase.notificationsSeeded, services.daemon.connection != nil else { return }
+        services.showcase.notificationsSeeded = true
+        let entries: [(String, String, NotificationLevel)] = [
+            ("Codex finished reviewing #17165", "The GitHub inbox source is ready for a follow-up pass.", .info),
+            ("Claude Code needs your input", "Choose whether to keep the local adapter off by default.", .warning),
+            ("Fleet build completed", "The capture artifact is ready for a dense UI review.", .info),
+        ]
+        services.daemon.send("showcase notifications") { connection in
+            for (title, body, level) in entries {
+                _ = try await connection.notify(title: title, body: body, level: level, surface: surface, source: "agent")
+            }
+        }
     }
 
     /// Adds a small, repeatable local rail for captures. These are ordinary

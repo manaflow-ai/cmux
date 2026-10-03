@@ -31,6 +31,9 @@ final class NotificationCenterService {
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
+    /// Showcase captures seed the real daemon ledger without showing banners
+    /// or prompting for system authorization at launch.
+    @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
@@ -172,6 +175,10 @@ final class NotificationCenterService {
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         let decision = NotificationPolicy.decide(arrival, prefs: preferences)
         note("arrived \(notification.notification.rawValue) \(source.rawValue) tab=\(located?.tab.id ?? "-") \(decision)")
+        guard desktopPostingEnabled else {
+            note("desktop posting suppressed")
+            return
+        }
         guard let located else {
             if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
             return
