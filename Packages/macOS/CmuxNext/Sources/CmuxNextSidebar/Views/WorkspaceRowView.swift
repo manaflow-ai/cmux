@@ -25,25 +25,24 @@ final class WorkspaceRowView: SidebarRowView {
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
     var onClose: (() -> Void)?
-    /// The row draws a placeholder bar instead of a title.
+    /// The row draws a placeholder texture instead of a title.
     private(set) var isShowingPlaceholder = false
-    /// A static tonal bar where the title goes (no shimmer).
-    private let placeholderBar = NSView()
-    /// The bar's share of the text width, varied per row so a column of
+    /// Static dim braille where the title goes (no shimmer), or a tonal
+    /// bar when no font draws braille.
+    let placeholderTexture = PlaceholderTextureView()
+    /// The texture's share of the text width, varied per row so a column of
     /// placeholders does not read as one block.
     private var placeholderFraction: CGFloat = 0.6
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
         title.font = SidebarStyle.titleFont
-        [icon, title, subtitle, activity, badge, closeButton, placeholderBar].forEach(addSubview)
+        [icon, title, subtitle, activity, badge, closeButton, placeholderTexture].forEach(addSubview)
         progressTrack.addSublayer(progressFill)
         progressTrack.isHidden = true
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
-        placeholderBar.wantsLayer = true
-        placeholderBar.layer?.cornerRadius = SidebarStyle.placeholderBarHeight / 2
-        placeholderBar.isHidden = true
+        placeholderTexture.isHidden = true
         closeButton.onPress = { [weak self] in self?.onClose?() }
     }
 
@@ -77,6 +76,7 @@ final class WorkspaceRowView: SidebarRowView {
         iconKind = ws.icon
         title.stringValue = ws.title
         title.font = ws.unread.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.titleFont
+        placeholderTexture.pointSize = SidebarStyle.titleFont.pointSize
         subtitle.font = SidebarStyle.subtitleFont
         // Only live status earns a second line; the cwd is in the hover card.
         subtitle.stringValue = ws.liveDetail ?? ""
@@ -145,8 +145,10 @@ final class WorkspaceRowView: SidebarRowView {
             paintFill(isDropTarget ? Palette.selectionFill
                 : isSecondarySelected ? Palette.secondarySelectionFill
                 : isHovered && !isShowingPlaceholder ? Palette.hoverFill : nil)
-            // The sidebar's own tonal step, once more: a bar a step apart.
-            placeholderBar.layer?.backgroundColor = Palette.sidebarStep.cgColor
+            // Dim secondary text for the braille; the sidebar's own tonal
+            // step, once more, for the fallback bar.
+            placeholderTexture.glyphColor = Palette.textSecondary.withAlphaComponent(SidebarStyle.placeholderGlyphAlpha)
+            placeholderTexture.barColor = Palette.sidebarStep
         }
     }
 
@@ -194,10 +196,9 @@ final class WorkspaceRowView: SidebarRowView {
         let textX = side > 0 ? icon.frame.maxX + Metrics.space3 : leading
         let textW = max(0, trailing - textX)
         title.isHidden = renaming || isShowingPlaceholder
-        placeholderBar.isHidden = !isShowingPlaceholder
-        let barHeight = SidebarStyle.placeholderBarHeight
-        placeholderBar.frame = NSRect(x: textX + Self.labelInset, y: (b.height - barHeight) / 2,
-                                      width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: barHeight)
+        placeholderTexture.isHidden = !isShowingPlaceholder
+        placeholderTexture.frame = NSRect(x: textX + Self.labelInset, y: 0,
+                                          width: max(0, textW - 2 * Self.labelInset) * placeholderFraction, height: b.height)
         // The marquee fades glyphs out across the padding left of them.
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
