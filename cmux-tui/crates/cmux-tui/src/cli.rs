@@ -204,6 +204,8 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
             }
             0
         }
+        Ok(ParsedCommand::Docs(plan)) => docs::run(plan),
+        Ok(ParsedCommand::CodeMode(plan)) => code_mode::run(plan),
         Ok(ParsedCommand::Command { global, plan }) => match plan {
             CommandPlan::Server(server) => lifecycle::run(global, server),
             CommandPlan::AgentHooks(plan) => command::run_agent_hooks(global, plan),
