@@ -21,7 +21,12 @@ extension CloudTreeOutlineView.Coordinator {
     /// dropped on a pane, so leaving the tree puts the rows back and hands
     /// the drag its native image again.
     private func beginOrganizationLift(_ session: NSDraggingSession, node: CloudTreeNode, in outline: CloudTreeNSOutlineView) {
-        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: node.id) else { return }
+        guard let parent = CloudSidebarOrganizationTree(nodes: nodes).parent(of: node.id) else {
+#if DEBUG
+            cmuxDebugLog("cloud.lift.organization skip=noParent node=\(node.id)")
+#endif
+            return
+        }
         let state = organization.state
         let group = parent.organizationGroupID
         let pinned = state.isPinned(node.id, parent: group)
@@ -29,7 +34,12 @@ extension CloudTreeOutlineView.Coordinator {
             sibling.canOrganize && state.isPinned(sibling.id, parent: group) == pinned
         }
         // Without a picture to hand back, a drag onto a pane would be invisible.
-        guard let image = dragImage(of: session, node: node, in: outline) else { return }
+        guard let image = dragImage(of: node, in: outline) else {
+#if DEBUG
+            cmuxDebugLog("cloud.lift.organization skip=noSnapshot node=\(node.id)")
+#endif
+            return
+        }
         let lifted = outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: parent.children,
             isPeer: isPeer, closes: isPeer,
@@ -43,6 +53,9 @@ extension CloudTreeOutlineView.Coordinator {
                 for row in rows { outline.collapseItem(row) }
             }
         }
+#if DEBUG
+        cmuxDebugLog("cloud.lift.organization lifted=\(lifted) node=\(node.id) siblings=\(parent.children.count)")
+#endif
         guard lifted else { return }
         hideDragImage(of: session, in: outline)
         installMachineLiftMouseUpMonitor(for: session, in: outline)
@@ -80,23 +93,14 @@ extension CloudTreeOutlineView.Coordinator {
         }
     }
 
-    /// A picture of the dragged row where the drag's image stands, taken
-    /// before the lift blanks the image and styles the row.
-    private func dragImage(of session: NSDraggingSession, node: CloudTreeNode, in outline: NSOutlineView) -> NSImage? {
+    /// A picture of the dragged row, taken before the lift styles it.
+    private func dragImage(of node: CloudTreeNode, in outline: NSOutlineView) -> NSImage? {
         let row = outline.row(forItem: node)
-        guard row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false) else { return nil }
-        var image: NSImage?
-        session.enumerateDraggingItems(
-            options: [], for: outline, classes: [NSPasteboardItem.self], searchOptions: [:]
-        ) { item, _, stop in
-            stop.pointee = true
-            let rect = outline.convert(item.draggingFrame, to: rowView).intersection(rowView.bounds)
-            guard !rect.isEmpty, let bitmap = rowView.bitmapImageRepForCachingDisplay(in: rect) else { return }
-            rowView.cacheDisplay(in: rect, to: bitmap)
-            let picture = NSImage(size: rect.size)
-            picture.addRepresentation(bitmap)
-            image = picture
-        }
+        guard row >= 0, let rowView = outline.rowView(atRow: row, makeIfNecessary: false),
+              let bitmap = rowView.bitmapImageRepForCachingDisplay(in: rowView.bounds) else { return nil }
+        rowView.cacheDisplay(in: rowView.bounds, to: bitmap)
+        let image = NSImage(size: rowView.bounds.size)
+        image.addRepresentation(bitmap)
         return image
     }
 

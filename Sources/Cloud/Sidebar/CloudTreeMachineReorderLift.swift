@@ -72,7 +72,8 @@ final class CloudTreeMachineReorderLift: NSObject {
         guard let outline else { return false }
         discard()
         let before = visualTops()
-        let closing = siblings.filter { closes($0) && outline.isItemExpanded($0) }
+        let closing = siblings.compactMap { outline.findItem(nodeID: $0.id) }
+            .filter { closes($0) && outline.isItemExpanded($0) }
         let ghosts = closing.isEmpty ? [] : makeGhosts(under: Set(closing.map(\.id)))
         if !closing.isEmpty { collapse(closing) }
 
@@ -80,24 +81,30 @@ final class CloudTreeMachineReorderLift: NSObject {
         var blocks: [CloudTreeReorderLiftLayout.Block] = []
         var sourceIndex: Int?
         var sourceRows: Range<Int>?
+        // The caller's tree and the outline's items can be different objects
+        // for the same rows, so rows are found by id.
+        let displayed = outline.visibleItemsByID()
         for sibling in siblings {
-            let row = outline.row(forItem: sibling)
+            let row = displayed[sibling.id].map { outline.row(forItem: $0) } ?? -1
             guard row >= 0 else { continue }
             let level = outline.level(forRow: row)
             var end = row + 1
             while end < outline.numberOfRows, outline.level(forRow: end) > level { end += 1 }
-            if sibling === source {
+            if sibling.id == source.id {
                 sourceIndex = blocks.count
                 sourceRows = row..<end
             }
             blocks.append(.init(
                 rows: row..<end,
-                isPeer: sibling !== source && isPeer(sibling)
+                isPeer: sibling.id != source.id && isPeer(sibling)
             ))
         }
         guard let sourceIndex, let sourceRows,
               let layout = CloudTreeReorderLiftLayout(frames: frames, blocks: blocks, sourceIndex: sourceIndex)
         else {
+#if DEBUG
+            cmuxDebugLog("cloud.lift.begin skip source=\(source.id) found=\(sourceIndex != nil) blocks=\(blocks.count)")
+#endif
             ghosts.forEach { $0.layer.removeFromSuperlayer() }
             return false
         }
