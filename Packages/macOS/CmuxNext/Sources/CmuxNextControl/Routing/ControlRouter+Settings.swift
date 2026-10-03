@@ -8,6 +8,9 @@ import Foundation
 /// bindings) keep the raw file write.
 extension ControlRouter {
     func writeSetting(_ value: JSONValue?, at path: [String], store: any ControlSettingsStore) async throws {
+        if value != nil, SettingsSchema.isRetired(path) {
+            throw ControlError(code: "removed", message: String(describing: SettingRetired(key: path.joined(separator: "."))))
+        }
         let descriptor = SettingsSchema.descriptor(for: path)
         if let descriptor, let value, !descriptor.accepts(value) {
             throw ControlError.invalidParams(String(describing: SettingRefused(key: descriptor.id, value: value)))

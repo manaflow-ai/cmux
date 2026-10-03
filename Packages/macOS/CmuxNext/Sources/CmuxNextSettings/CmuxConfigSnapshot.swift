@@ -126,6 +126,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     public var diagnostics: [SettingsDiagnostic]
+    /// Retired keys the file still sets (`SettingsSchema.retiredKeys`):
+    /// dropped without a diagnostic, listed for tooling.
+    public var retiredKeys: [String] = []
 
     public static let empty = CmuxConfigSnapshot(root: .object([:]), density: nil, metrics: [:], shortcuts: [:], diagnostics: [])
 
@@ -145,6 +148,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             snapshot.diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: "root is not an object"))
             return snapshot
         }
+        snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
         snapshot.commandActions = tabBar.actions
