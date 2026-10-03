@@ -10,7 +10,7 @@ import { ChevronLeft, CollapseAll, Panels, SplitView, Wrap } from "./changeIcons
 import { ChangedFilesTree } from "./changes/ChangedFilesTree";
 import { Counts } from "./changes/Counts";
 import { EditBlock, type DiffLayout } from "./changes/EditBlock";
-import type { FileActions } from "./changes/FileHeader";
+import type { FileActions, OpenTarget } from "./changes/FileHeader";
 import { LoadState } from "./changes/LoadState";
 import { changeSetFiles, type ChangeScope, type ChangesSource } from "./changes/model";
 import { ScopeMenu } from "./changes/ScopeMenu";
@@ -45,6 +45,7 @@ export function DiffPanel({
   initialPath,
   onClose,
   source,
+  onOpenFile,
   checkpointAction,
   checkpointReview,
 }: {
@@ -52,6 +53,8 @@ export function DiffPanel({
   initialPath?: string;
   onClose: () => void;
   source?: ChangesSource;
+  /// Asks the host to open a changed file; rejects with the host's reason when it can't.
+  onOpenFile?: (path: string, where: OpenTarget) => Promise<unknown>;
   checkpointAction?: React.ReactNode;
   checkpointReview?: React.ReactNode;
 }) {
@@ -139,8 +142,22 @@ export function DiffPanel({
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [onClose]);
+  // Why the last open failed, until the next open or another scope. Only the latest open's
+  // failure shows: an earlier one that fails late was overtaken.
+  const [openFailure, setOpenFailure] = useState<string>();
+  const latestOpen = useRef(0);
+  const openFile = useStableCallback((path: string, where: OpenTarget) => {
+    const request = ++latestOpen.current;
+    setOpenFailure(undefined);
+    const opening = onOpenFile ? onOpenFile(path, where) : Promise.reject(new Error("The file could not be opened."));
+    opening.catch((error: unknown) => {
+      if (request !== latestOpen.current) return;
+      setOpenFailure(error instanceof Error && error.message ? error.message : "The file could not be opened.");
+    });
+  });
   const on = useMemo<FileActions>(
     () => ({
+      openFile,
       toggleCollapsed: (path) => {
         revealing.current = undefined;
         setCollapsed((current) => {
@@ -164,7 +181,7 @@ export function DiffPanel({
         setCollapsed(flip);
       },
     }),
-    [viewed],
+    [viewed, openFile],
   );
   const allCollapsed = files.length > 0 && files.every((file) => collapsed.has(file.path));
   const press = (tool: Tool) => {
@@ -209,6 +226,8 @@ export function DiffPanel({
             setCollapsed(new Set());
             setViewed(new Set());
             setSelected(undefined);
+            latestOpen.current += 1;
+            setOpenFailure(undefined);
           }}
         >
           {files.length > 0 && <Counts additions={totals.additions} deletions={totals.deletions} />}
@@ -231,6 +250,11 @@ export function DiffPanel({
           ))}
         </div>
       </header>
+      {openFailure && (
+        <div className="acpmux-diff-notice" role="alert">
+          {openFailure}
+        </div>
+      )}
       {checkpointReview}
       <div className="acpmux-diff-main">
         <div ref={body} className="acpmux-diff-body">
