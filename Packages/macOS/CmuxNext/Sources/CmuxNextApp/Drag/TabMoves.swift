@@ -206,8 +206,8 @@ enum TabMoves {
         case .pty: .terminal
         case .browser: .browser
         case .remoteTerminal: .remoteTerminal
-        // A kind this app does not know: its title and directory still name it.
-        case .other: .terminal
+        // A conversation or a kind this app does not know: its title still names it.
+        case .conversation, .other: .terminal
         }
         return NewWorkspaceName.Tab(kind: kind, userName: tab.name, title: tab.title,
                                     pageTitle: tab.kind == .browser ? services.cache.existingBrowser(tab.id)?.tab.state.title : nil,
