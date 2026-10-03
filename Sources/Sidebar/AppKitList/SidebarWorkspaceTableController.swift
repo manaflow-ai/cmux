@@ -5,6 +5,23 @@ import CmuxFoundation
 import CmuxNotifications
 import SwiftUI
 
+/// Decides whether an optimistic press preview can be reconciled by an
+/// incoming sidebar render. Cloud workspace activation can publish an
+/// unrelated row update before the selection mutation reaches the render
+/// snapshot; clearing the preview in that frame briefly leaves no row
+/// selected (or lets the old row flash back on).
+struct SidebarOptimisticSelectionReconciliation {
+    static func shouldClearPreview(
+        authoritativeSelectedWorkspaceId: UUID?,
+        optimisticTargetWorkspaceId: UUID?,
+        targetStillRendered: Bool
+    ) -> Bool {
+        guard let optimisticTargetWorkspaceId else { return true }
+        return authoritativeSelectedWorkspaceId == optimisticTargetWorkspaceId
+            || !targetStillRendered
+    }
+}
+
 /// Main-actor owner of the default sidebar table lifecycle and its AppKit interactions.
 @MainActor
 final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NSTableViewDelegate {
@@ -34,6 +51,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     var onDeferredRowClickAwaitingApply: (() -> Void)?
     private var hoveredRowId: SidebarWorkspaceRenderItemID?
     private var contextMenuRowId: SidebarWorkspaceRenderItemID?
+    private var optimisticSelectionTargetWorkspaceId: UUID?
     private var workspaceIds: [UUID] = []
     private var selectedScrollTargetWorkspaceId: UUID?
     private var isPresentationActive = true
@@ -670,11 +688,6 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         let selectedScrollTargetWorkspaceId = input.selectedScrollTargetWorkspaceId
         let forceTableReload = input.forceTableReload
         let forcedReloadViewportOrigin = input.forcedReloadViewportOrigin
-        // Authoritative render: reconciles any optimistic preview, so the
-        // preview bailout stands down.
-        applyGeneration &+= 1
-        previewBailoutTask?.cancel()
-        previewBailoutTask = nil
         self.actions = actions
         actions.attachScrollView(containerView.scrollView)
         configureDropViews(in: containerView, actions: actions)
@@ -693,19 +706,34 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
                 && !previousRows[index].hasEquivalentContent(to: nextRows[index])
         })
         // Optimistically painted rows reconcile even when their model did
-        // not change: the preview may not match the authoritative outcome,
-        // and this apply cancels the bailout that would otherwise catch it.
-        if !optimisticallyPaintedRowIds.isEmpty {
+        // not change, but only after this render confirms the clicked
+        // workspace. A stale Cloud content update must leave the preview in
+        // place until the selection mutation reaches the render snapshot.
+        if !optimisticallyPaintedRowIds.isEmpty,
+           SidebarOptimisticSelectionReconciliation.shouldClearPreview(
+               authoritativeSelectedWorkspaceId: selectedWorkspaceId,
+               optimisticTargetWorkspaceId: optimisticSelectionTargetWorkspaceId,
+               targetStillRendered: nextRows.contains {
+                   $0.workspaceId == optimisticSelectionTargetWorkspaceId
+               }
+           ) {
+            // A stale Cloud content render keeps both the preview and its
+            // rollback task alive. Only an authoritative selection (or a
+            // removed target) supersedes the preview lifecycle.
+            applyGeneration &+= 1
+            previewBailoutTask?.cancel()
+            previewBailoutTask = nil
             for (index, row) in nextRows.enumerated()
             where optimisticallyPaintedRowIds.contains(row.id) {
                 contentChanges.insert(index)
             }
             // Drop the preview first. configure() early-returns when the
             // authoritative model equals the stored one, so a preview whose
-            // selection did not land (replaced by a newer click, or an
-            // unrelated apply arriving first) otherwise kept its paint.
+            // selection did not land (for example, a replaced click) would
+            // otherwise keep its paint after this authoritative apply.
             dropOptimisticPaint(onRowsWithIds: optimisticallyPaintedRowIds)
             optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+            optimisticSelectionTargetWorkspaceId = nil
         }
         // Release pump geometry only when this apply actually supersedes the
         // row's authoritative content. An unrelated workspace update must not
@@ -1069,6 +1097,11 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     private func cancelSelectionIntent() {
         deferredRowClick = nil
         selectionCoalescer.cancel()
+        applyGeneration &+= 1
+        previewBailoutTask?.cancel()
+        previewBailoutTask = nil
+        restoreVisibleCellPaint()
+        optimisticSelectionTargetWorkspaceId = nil
     }
 
     @objc private func didDoubleClickTableRow() {
@@ -2021,6 +2054,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             headerCell?.showOptimisticAnchorActive()
         }
         optimisticallyPaintedRowIds.insert(rows[row].id)
+        optimisticSelectionTargetWorkspaceId = rows[row].workspaceId
         // Optimistic paint is only reconciled by an authoritative apply, and
         // some presses never produce one (drag that lands where it started,
         // press swallowed by the drag threshold, selection unchanged). Left
@@ -2051,13 +2085,23 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 
     private var applyGeneration: UInt64 = 0
     private var previewBailoutTask: Task<Void, Never>?
-    private let previewBailoutClock = ContinuousClock()
+    private let previewBailoutClock: any Clock<Duration>
     /// Rows whose cells carry optimistic paint. apply()'s reconcile diff only
     /// reconfigures rows whose MODEL changed, and a preview on a row whose
     /// authoritative state ends up unchanged (modifier mismatch, replaced
     /// preview) would otherwise keep its speculative paint forever — the
     /// apply cancels the bailout believing it reconciled.
     private var optimisticallyPaintedRowIds: Set<SidebarWorkspaceRenderItemID> = []
+
+    override init() {
+        previewBailoutClock = ContinuousClock()
+        super.init()
+    }
+
+    init(previewBailoutClock: any Clock<Duration>) {
+        self.previewBailoutClock = previewBailoutClock
+        super.init()
+    }
 
     private func schedulePreviewBailout() {
         previewBailoutTask?.cancel()
@@ -2085,8 +2129,9 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     }
 
     private func restoreVisibleCellPaint() {
-        guard let table = containerView?.tableView else { return }
         optimisticallyPaintedRowIds.removeAll(keepingCapacity: true)
+        optimisticSelectionTargetWorkspaceId = nil
+        guard let table = containerView?.tableView else { return }
         let visible = table.rows(in: table.visibleRect)
         for row in visible.lowerBound..<(visible.lowerBound + visible.length) {
             let cellView = table.view(atColumn: 0, row: row, makeIfNecessary: false)
@@ -2094,6 +2139,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             (cellView as? SidebarGroupHeaderTableCellView)?.restoreStoredModelPaint()
         }
     }
+
+#if DEBUG
+    var hasPendingOptimisticSelectionForTesting: Bool {
+        !optimisticallyPaintedRowIds.isEmpty
+    }
+
+    func installOptimisticSelectionPreviewForTesting(targetWorkspaceId: UUID) {
+        optimisticallyPaintedRowIds = [.workspace(targetWorkspaceId)]
+        optimisticSelectionTargetWorkspaceId = targetWorkspaceId
+        schedulePreviewBailout()
+    }
+#endif
 
     func middleClick(row: Int) {
         // Middle-click-close is a workspace-row gesture. A group header is not a
