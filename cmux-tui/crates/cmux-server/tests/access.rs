@@ -111,11 +111,14 @@ fn install_refuses_a_wider_state_folder_before_it_writes_anything() {
     make_dir(&state, 0o755);
     let runner = RecordingRunner::new();
     let fetcher = MapFetcher::default();
+    let exec = cmux_server::exec::RecordingExec::default();
     let ctx = Context {
         runner: &runner,
         fetcher: Some(&fetcher),
+        exec: &exec,
         keys: vec![Signer::new(1).key("current")],
         running_cmux: "1.0.0".to_owned(),
+        reexec_guard: None,
         env: env_for(tmp.path()),
         now_ms: NOW_MS,
     };

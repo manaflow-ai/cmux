@@ -17,9 +17,11 @@ use std::process::ExitCode;
 
 use cmux_server_core::layout::LayoutEnv;
 use cmux_server_core::manifest::TrustedKey;
+use cmux_server_core::reexec::GUARD_ENV;
 use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
+use crate::exec::{Exec, SystemExec};
 use crate::process::{Runner, SystemRunner};
 use crate::store::fetch::{Fetch, HttpsFetcher};
 use crate::{host, keys};
@@ -31,9 +33,14 @@ pub struct Context<'a> {
     pub runner: &'a dyn Runner,
     /// `None`: the HTTPS fetcher is built on first use.
     pub fetcher: Option<&'a dyn Fetch>,
+    /// Replaces the process for the one re-exec into a newer `cmux`.
+    pub exec: &'a dyn Exec,
     pub keys: Vec<TrustedKey>,
     /// The running `cmux` version (manifest `min_cmux_version`).
     pub running_cmux: String,
+    /// `CMUX_SERVER_REEXEC` (`reexec::GUARD_ENV`): set when this process is
+    /// already the re-exec; it never re-execs again.
+    pub reexec_guard: Option<String>,
     pub env: LayoutEnv,
     pub now_ms: u64,
 }
@@ -59,8 +66,11 @@ pub fn run(args: &[String]) -> ExitCode {
     let ctx = Context {
         runner: &runner,
         fetcher: None,
+        exec: &SystemExec,
         keys: keys::baked(),
         running_cmux: running_version().to_owned(),
+        // Only ever stops a re-exec, so the environment cannot widen trust.
+        reexec_guard: std::env::var(GUARD_ENV).ok().filter(|v| !v.is_empty()),
         env: host::layout_env(),
         now_ms: host::now_ms(),
     };

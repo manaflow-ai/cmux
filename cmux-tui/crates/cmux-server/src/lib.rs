@@ -11,6 +11,7 @@
 //! - [`health`]: probes, the reducer driver and the logind inhibitors.
 //! - [`cli`]: the `cmux server …` verbs (`cli::run`), also the standalone
 //!   `cmux-server` binary.
+//! - [`exec`]: the one re-exec into a newer staged `cmux` (decision SV-R2).
 //!
 //! No async runtime of its own: reqwest's blocking client (package
 //! downloads only) runs a private one on its own thread. Nothing polls:
@@ -21,6 +22,7 @@ pub mod access;
 pub mod cli;
 pub mod config;
 pub mod error;
+pub mod exec;
 pub mod fsx;
 pub mod health;
 pub mod host;

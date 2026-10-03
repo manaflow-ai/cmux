@@ -90,6 +90,8 @@ pub struct Args {
     pub json: bool,
     pub help: bool,
     pub idempotency_key: Option<String>,
+    /// The arguments as given (a re-exec passes them on unchanged).
+    pub raw: Vec<String>,
 }
 
 impl Args {
@@ -128,7 +130,7 @@ fn find_spec(words: &[String]) -> Option<&'static VerbSpec> {
 /// so the standalone binary also accepts Postgres's
 /// `… server db archive-wal %p %f`).
 pub fn parse(args: &[String]) -> Result<Args> {
-    let mut out = Args::default();
+    let mut out = Args { raw: args.to_vec(), ..Args::default() };
     let mut words = Vec::new();
     let mut raw_flags = Vec::new();
     let mut iter = args.iter().peekable();

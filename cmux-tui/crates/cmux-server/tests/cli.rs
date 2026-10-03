@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 use cmux_server::cli::{Context, dispatch, parse, run_with};
 use cmux_server::error::ExitKind;
+use cmux_server::exec::RecordingExec;
 use cmux_server::process::RecordingRunner;
 use common::*;
 
@@ -59,7 +60,9 @@ struct Env {
     tmp: tempfile::TempDir,
     runner: RecordingRunner,
     fetcher: MapFetcher,
+    exec: RecordingExec,
     signer: Signer,
+    guard: Option<String>,
 }
 
 impl Env {
@@ -68,7 +71,9 @@ impl Env {
             tmp: tempfile::tempdir().unwrap(),
             runner: RecordingRunner::new(),
             fetcher: MapFetcher::default(),
+            exec: RecordingExec::default(),
             signer: Signer::new(3),
+            guard: None,
         }
     }
 
@@ -76,8 +81,10 @@ impl Env {
         Context {
             runner: &self.runner,
             fetcher: Some(&self.fetcher),
+            exec: &self.exec,
             keys: vec![self.signer.key("current")],
             running_cmux: "1.0.0".to_owned(),
+            reexec_guard: self.guard.clone(),
             env: env_for(self.tmp.path()),
             now_ms: NOW_MS,
         }
@@ -89,15 +96,22 @@ impl Env {
 
     /// Publishes `latest.json` (and `v/<version>.json`) on the test channel.
     fn publish(&self, sequence: u64, version: &'static str) {
+        self.publish_needing(sequence, version, "1.0.0");
+    }
+
+    /// Like [`Env::publish`] with a `min_cmux_version`. Returns the
+    /// `cmux` package.
+    fn publish_needing(&self, sequence: u64, version: &'static str, min_cmux: &str) -> Pkg {
         let pkg = Pkg { name: "cmux", version, archive: bin_package("cmux", version.as_bytes()) };
         self.fetcher.serve(&pkg);
-        let m = manifest(sequence, "2027-01-01T00:00:00Z", "1.0.0", &[&pkg]);
+        let m = manifest(sequence, "2027-01-01T00:00:00Z", min_cmux, &[&pkg]);
         let sig = self.signer.sign(&m);
         for path in ["latest.json".to_owned(), format!("v/{version}.json")] {
             let url = format!("https://chan.example.test/stable/{path}");
             self.fetcher.put(&url, m.clone());
             self.fetcher.put(&format!("{url}.sig"), sig.clone());
         }
+        pkg
     }
 }
 
@@ -264,4 +278,91 @@ fn read_verbs_write_no_config() {
     let config = std::path::Path::new(layout.config_file.as_str());
     assert!(!config.exists(), "db url and status wrote {}", config.display());
     assert!(!std::path::Path::new(layout.state.as_str()).exists(), "no state was created");
+}
+
+#[test]
+fn a_manifest_needing_newer_cmux_reexecs_once_into_the_verified_package() {
+    // Decision SV-R2.
+    if cmux_server::sys::is_root() {
+        return;
+    }
+    let env = Env::new();
+    env.publish(1, "1.0.0");
+    env.run(&format!("install {CHAN}")).unwrap();
+    let pkg = env.publish_needing(2, "9.0.0", "9.0.0");
+    let line = format!("upgrade --json {CHAN}");
+    let err = env.run(&line).unwrap_err();
+    assert!(err.message.contains("recorded"), "the exec ran: {err}");
+    let requests = env.exec.requests();
+    assert_eq!(requests.len(), 1);
+    let request = &requests[0];
+    let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
+    let package = std::path::Path::new(layout.store.as_str()).join(sha_hex(&pkg.archive));
+    assert_eq!(request.program, std::fs::canonicalize(package.join("bin/cmux")).unwrap());
+    assert_eq!(std::fs::read(&request.program).unwrap(), b"9.0.0", "the staged, verified binary");
+    let mut want = vec!["server".to_owned()];
+    want.extend(words(&line));
+    assert_eq!(request.args, want, "the same verb and flags under `server`");
+    assert_eq!(request.env.len(), 1);
+    assert_eq!(request.env[0].0, "CMUX_SERVER_REEXEC");
+    assert!(request.env[0].1.starts_with("2:"), "the marker names sequence 2: {:?}", request.env);
+    let store = cmux_server::store::Store::new(&layout);
+    assert_eq!(store.current_generation(), Some(1), "this binary applied nothing");
+    assert_eq!(store.last_applied().unwrap().map(|a| a.sequence), Some(1));
+
+    // The re-exec'd process (guard set) that is still too old refuses with
+    // the "needs newer cmux" exit and never execs again.
+    let mut again = Env::new();
+    again.tmp = env.tmp;
+    again.guard = Some(request.env[0].1.clone());
+    again.signer = Signer::new(3);
+    again.publish_needing(2, "9.0.0", "9.0.0");
+    let err = again.run(&line).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Rejected, "{err}");
+    assert!(err.message.contains("already re-executed once"), "{err}");
+    assert!(again.exec.requests().is_empty(), "no second exec");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tampered_staged_package_is_never_executed() {
+    if cmux_server::sys::is_root() {
+        return;
+    }
+    let env = Env::new();
+    let pkg = env.publish_needing(1, "9.0.0", "9.0.0");
+    // A store directory for that SHA-256 that no verified unpack wrote.
+    let layout = layout_at(env.tmp.path(), cmux_server::host::platform());
+    let dir = std::path::Path::new(layout.store.as_str()).join(sha_hex(&pkg.archive));
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    std::fs::write(dir.join("bin/cmux"), b"evil").unwrap();
+    {
+        // The store root keeps a mode its access policy accepts.
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::path::Path::new(layout.root.as_str());
+        std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let store = cmux_server::store::Store::new(&layout);
+    let staged = cmux_server::store::StagedCmux {
+        package: cmux_server_core::manifest::Package {
+            name: "cmux".to_owned(),
+            version: "9.0.0".to_owned(),
+            url: pkg.url(),
+            sha256: sha_hex(&pkg.archive),
+            size: pkg.archive.len() as u64,
+            roles: vec!["all".to_owned()],
+        },
+        min_cmux_version: "9.0.0".to_owned(),
+        sequence: 1,
+        manifest_sha256: [0; 32],
+        dir: dir.clone(),
+    };
+    let err = store.verified_package_file(&staged, &dir.join("bin/cmux")).unwrap_err();
+    assert_eq!(err.kind, ExitKind::Verification, "{err}");
+    // Through the verb: the unmarked directory is replaced by a verified
+    // unpack before anything runs, so the exec gets the real bytes.
+    let _ = env.run(&format!("install {CHAN}"));
+    let requests = env.exec.requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(std::fs::read(&requests[0].program).unwrap(), b"9.0.0");
 }

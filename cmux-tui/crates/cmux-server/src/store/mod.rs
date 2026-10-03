@@ -21,6 +21,7 @@ use cmux_server_core::layout::Layout;
 use cmux_server_core::manifest::{
     self, Applied, ManifestError, Package, TrustedKey, VerifyContext,
 };
+use cmux_server_core::reexec;
 
 use crate::error::{Error, Result};
 use crate::fsx;
@@ -71,6 +72,39 @@ pub struct ApplyReport {
     pub store_hits: Vec<String>,
     pub removed_profiles: Vec<u64>,
     pub removed_packages: Vec<String>,
+}
+
+/// What a verified manifest led to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    Applied(ApplyReport),
+    /// The manifest needs a newer `cmux` (decision SV-R2): only its `cmux`
+    /// package was fetched, verified and put in the store; `current` and
+    /// the updater record did not move.
+    NeedsNewerCmux(StagedCmux),
+}
+
+/// The verified `cmux` package of a manifest this binary cannot apply.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedCmux {
+    pub package: Package,
+    pub min_cmux_version: String,
+    pub sequence: u64,
+    pub manifest_sha256: [u8; 32],
+    /// `<store>/<sha256>`.
+    pub dir: PathBuf,
+}
+
+impl StagedCmux {
+    /// The "needs newer cmux" refusal (exit 4), with `why` appended.
+    pub fn refusal(&self, why: &str) -> Error {
+        Error::rejected(format!(
+            "manifest needs cmux {} or newer; the verified package is at {}. Run `{}/bin/cmux server upgrade` to apply it{why}",
+            self.min_cmux_version,
+            self.dir.display(),
+            self.dir.display()
+        ))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,8 +184,24 @@ impl Store {
         self.package_dir(sha256).join(MARKER).is_file()
     }
 
-    /// Verifies and applies one manifest; see the module docs.
+    /// Verifies and applies one manifest; see the module docs. A manifest
+    /// that needs a newer `cmux` stages that package and is refused here
+    /// (exit 4); [`Store::apply_outcome`] returns it instead.
     pub fn apply(&self, req: &ApplyRequest<'_>, fetcher: &dyn Fetch) -> Result<ApplyReport> {
+        match self.apply_outcome(req, fetcher)? {
+            ApplyOutcome::Applied(report) => Ok(report),
+            ApplyOutcome::NeedsNewerCmux(staged) => Err(staged.refusal("")),
+        }
+    }
+
+    /// Like [`Store::apply`], but a manifest that needs a newer `cmux` is
+    /// an outcome: its verified `cmux` package is staged in the store and
+    /// returned, so the caller can re-exec into it (decision SV-R2).
+    pub fn apply_outcome(
+        &self,
+        req: &ApplyRequest<'_>,
+        fetcher: &dyn Fetch,
+    ) -> Result<ApplyOutcome> {
         let _lock = StoreLock::acquire(&self.root)?;
         let last = self.last_applied()?;
         let ctx = VerifyContext {
@@ -165,7 +215,9 @@ impl Store {
             manifest::verify(req.manifest, req.signature, &ctx).map_err(manifest_error)?;
         let packages: Vec<&Package> = verified.manifest.packages_for(req.roles).collect();
         if verified.needs_newer_cmux {
-            return Err(self.stage_newer_cmux(&verified.manifest, &packages, fetcher));
+            return self
+                .stage_newer_cmux(&verified, req.roles, fetcher)
+                .map(ApplyOutcome::NeedsNewerCmux);
         }
         fsx::ensure_dir(&self.store, 0o755)?;
         let mut report = ApplyReport {
@@ -209,35 +261,65 @@ impl Store {
         let (profiles, packages) = self.gc_locked(KEEP_PROFILES)?;
         report.removed_profiles = profiles;
         report.removed_packages = packages;
-        Ok(report)
+        Ok(ApplyOutcome::Applied(report))
     }
 
     /// The manifest needs a newer `cmux`: put only that package in the
-    /// store and refuse, naming the binary that can apply the rest.
+    /// store (the same streaming SHA-256, size check and safe unpack as
+    /// every package) and return it.
     fn stage_newer_cmux(
         &self,
-        manifest: &manifest::ChannelManifest,
-        packages: &[&Package],
+        verified: &manifest::Verified,
+        roles: &[&str],
         fetcher: &dyn Fetch,
-    ) -> Error {
-        let Some(cmux) = packages.iter().find(|p| p.name == "cmux") else {
-            return Error::rejected(format!(
+    ) -> Result<StagedCmux> {
+        let manifest = &verified.manifest;
+        let Some(cmux) = reexec::cmux_package(manifest, roles) else {
+            return Err(Error::rejected(format!(
                 "manifest needs cmux {} or newer and has no cmux package",
                 manifest.min_cmux_version
-            ));
+            )));
         };
-        let staged = fsx::ensure_dir(&self.store, 0o755).and_then(|()| {
-            if self.has_package(&cmux.sha256) { Ok(()) } else { self.fetch_package(cmux, fetcher) }
-        });
-        match staged {
-            Ok(()) => Error::rejected(format!(
-                "manifest needs cmux {} or newer; the verified package is at {}. Run `{}/bin/cmux server upgrade` to apply it",
-                manifest.min_cmux_version,
-                self.package_dir(&cmux.sha256).display(),
-                self.package_dir(&cmux.sha256).display()
-            )),
-            Err(e) => e,
+        fsx::ensure_dir(&self.store, 0o755)?;
+        if !self.has_package(&cmux.sha256) {
+            self.fetch_package(cmux, fetcher)?;
         }
+        Ok(StagedCmux {
+            package: cmux.clone(),
+            min_cmux_version: manifest.min_cmux_version.clone(),
+            sequence: manifest.sequence,
+            manifest_sha256: verified.sha256,
+            dir: self.package_dir(&cmux.sha256),
+        })
+    }
+
+    /// Checks a file of a staged package before it is executed: the
+    /// package directory carries the marker that only a verified unpack
+    /// writes, for this exact SHA-256 and name, and `file` resolves (links
+    /// followed) to a regular, executable file inside that directory.
+    pub fn verified_package_file(&self, staged: &StagedCmux, file: &Path) -> Result<PathBuf> {
+        let refuse = |what: String| Error::verification(format!("refusing to run {what}"));
+        let dir = self.package_dir(&staged.package.sha256);
+        let marker: serde_json::Value = fs::read(dir.join(MARKER))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .ok_or_else(|| refuse(format!("{}: no verified package marker", dir.display())))?;
+        if marker["sha256"] != staged.package.sha256.as_str()
+            || marker["name"] != staged.package.name.as_str()
+        {
+            return Err(refuse(format!("{}: the marker names another package", dir.display())));
+        }
+        let real_dir = fs::canonicalize(&dir).map_err(|e| Error::io(dir.display(), e))?;
+        let real = fs::canonicalize(file)
+            .map_err(|_| refuse(format!("{}: it does not exist in the package", file.display())))?;
+        let meta = fs::metadata(&real).map_err(|e| Error::io(real.display(), e))?;
+        if !real.starts_with(&real_dir) || !meta.is_file() || fsx::mode_of(&meta) & 0o111 == 0 {
+            return Err(refuse(format!(
+                "{}: not an executable file inside the verified package",
+                file.display()
+            )));
+        }
+        Ok(real)
     }
 
     /// Downloads, verifies and unpacks one package into `store/<sha256>`.
