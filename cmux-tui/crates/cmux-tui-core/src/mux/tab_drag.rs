@@ -19,8 +19,8 @@ use crate::model::{ColumnSticky, LayoutColumn, LayoutUndoTabRestore};
 use cmux_layout_reducer::{Edge, LayoutOpKind};
 
 mod respawn;
-pub use respawn::{ColumnMove, SplitRespawn};
 use respawn::SourceGuard;
+pub use respawn::{ColumnMove, SplitRespawn};
 
 fn validated_column_width(width: Option<f32>) -> anyhow::Result<f32> {
     let width = width.unwrap_or(DEFAULT_VIEWPORT_PANE_WIDTH);
