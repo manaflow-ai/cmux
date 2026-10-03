@@ -569,6 +569,15 @@ final class RemoteTmuxViewConnection {
         return await conn.queryWithTimeout(command, timeout: 30, reconnectOnTimeout: true)
     }
 
+    /// Whether both halves of a reconcile snapshot mention the session this stream is attached to.
+    nonisolated static func snapshotNamesViewSession(
+        _ snapshot: RemoteTmuxLinkedViewPlan.Snapshot,
+        viewSessionName: String
+    ) -> Bool {
+        snapshot.sessions.contains { $0.name == viewSessionName }
+            && snapshot.windows.contains { $0.sessionName == viewSessionName }
+    }
+
     func reconcile() async {
         guard !isStopped, let conn = connection, conn.connectionState == .connected else { return }
         if reconcileInFlight { reconcileQueued = true; return }
@@ -618,6 +627,22 @@ final class RemoteTmuxViewConnection {
             windows: RemoteTmuxLinkedWorkspaceModel.parseRows(winOut.joined(separator: "\n")),
             cmuxOwnedWindowIds: ownedWindowIds,
             placeholderWindowId: placeholderWindowId)
+        // This stream is attached to the view session, so a real answer to either query names
+        // it: the session exists, and a session always has a window. Replies are matched to
+        // commands by position, so an answer without it is some other command's reply sitting
+        // in this one's place. Read as a snapshot it says the host has nothing on it, and the
+        // plan below would close every workspace for a host that is still connected. Nothing
+        // on this stream can be trusted after that, so start a fresh one.
+        guard Self.snapshotNamesViewSession(snapshot, viewSessionName: view.sessionName) else {
+            #if DEBUG
+            cmuxDebugLog(
+                "remote-tmux: reconcile-reply-mismatch sessions=\(snapshot.sessions.count)"
+                    + " windows=\(snapshot.windows.count)"
+            )
+            #endif
+            conn.beginReconnecting(preservingBackoff: true)
+            return
+        }
         let plan = RemoteTmuxLinkedViewPlan.plan(view: view, snapshot: snapshot)
 
         // Garbage-collect the views this owner left behind under a different name or format
