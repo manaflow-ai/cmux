@@ -240,9 +240,14 @@
       "context_menus" : [
 
       ],
+      "default_chord" : null,
+      "default_shortcut" : null,
       "id" : "palette.open",
       "mcp" : "offered",
-      "palette" : "offered"
+      "palette" : "offered",
+      "title" : "Open Palette Scope…",
+      "title_key" : "action.palette.open",
+      "title_table" : "Localizable"
     },
     {
       "cli" : "guiOnly",
