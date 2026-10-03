@@ -139,6 +139,38 @@ struct BrowserReplSessionResourceTests {
         )
     }
 
+    @Test("A session holds at most 10,000 pending timers, also while their callbacks wait for a busy thread")
+    func pendingTimersAreBounded() async throws {
+        let session = BrowserReplSession(
+            id: "timers-\(UUID().uuidString)",
+            cwd: FileManager.default.temporaryDirectory.path,
+            bundle: try browserReplRepositoryBundle(),
+            driver: HeldCookiesDriver()
+        )
+        defer { session.close() }
+
+        // Zero-delay timers fire at once, but this loop keeps the JS thread
+        // busy, so every callback is still waiting to run.
+        let flood = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: """
+            let n = 0;
+            try {
+              for (let i = 0; i < 20001; i++) { setTimeout(() => {}, 0); n++; }
+            } catch (e) {
+              console.log(e.name, n);
+            }
+            """)
+        }
+        #expect(flood?.error == nil)
+        #expect(flood?.lines.map(\.text) == ["RangeError 10000"])
+
+        // Once those callbacks ran, timers work again.
+        let next = await browserReplWithDeadline(seconds: 60) {
+            await session.evaluate(code: "await new Promise((r) => setTimeout(r, 1)); console.log('alive');")
+        }
+        #expect(next?.lines.map(\.text) == ["alive"])
+    }
+
     @Test("A cell that times out cancels the fetches it started")
     func timeoutCancelsTheCellsFetches() async {
         let driver = HeldCookiesDriver()
