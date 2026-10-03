@@ -570,11 +570,11 @@ class GeneratedClientMixin:
     def terminal_events(self, *, after_revision: Union[int, MissingType] = MISSING) -> TerminalEventsResult:
         return self._invoke_command('terminal-events', TerminalEventsRequest(after_revision=after_revision))
 
-    def terminal_history(self, surface: Id, *, before: Union[int, None, MissingType] = MISSING, marker_epoch: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalHistoryPagesResult:
-        return self._invoke_command('terminal-history', TerminalHistoryRequest(surface=surface, before=before, marker_epoch=marker_epoch, max_bytes=max_bytes))
+    def terminal_history(self, surface: Id, marker_epoch: int, *, before: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalHistoryPagesResult:
+        return self._invoke_command('terminal-history', TerminalHistoryRequest(surface=surface, marker_epoch=marker_epoch, before=before, max_bytes=max_bytes))
 
-    def terminal_read_range(self, surface: Id, from_: RowMarkerPoint, to: RowMarkerPoint, *, format: Union[str, None, MissingType] = MISSING, marker_epoch: Union[int, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalReadRangeResult:
-        return self._invoke_command('terminal-read-range', TerminalReadRangeRequest(surface=surface, from_=from_, to=to, format=format, marker_epoch=marker_epoch, max_bytes=max_bytes))
+    def terminal_read_range(self, surface: Id, from_: RowMarkerPoint, marker_epoch: int, to: RowMarkerPoint, *, format: Union[str, None, MissingType] = MISSING, max_bytes: Union[int, None, MissingType] = MISSING) -> TerminalReadRangeResult:
+        return self._invoke_command('terminal-read-range', TerminalReadRangeRequest(surface=surface, from_=from_, marker_epoch=marker_epoch, to=to, format=format, max_bytes=max_bytes))
 
     def terminal_resources(self, *, surfaces: Union[List[Id], None, MissingType] = MISSING) -> TerminalResourcesResult:
         return self._invoke_command('terminal-resources', TerminalResourcesRequest(surfaces=surfaces))

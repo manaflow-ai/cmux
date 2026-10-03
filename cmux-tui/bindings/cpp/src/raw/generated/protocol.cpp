@@ -20934,11 +20934,9 @@ Result<Json> Codec<TerminalHistoryRequest>::encode(const TerminalHistoryRequest&
         if (!encoded) return std::move(encoded).error();
         object.emplace("before", std::move(encoded).value());
     }
-    if (!value.marker_epoch.is_absent()) {
-        auto encoded = encode_value(value.marker_epoch);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("marker_epoch", std::move(encoded).value());
-    }
+    auto encoded_marker_epoch = encode_value(value.marker_epoch);
+    if (!encoded_marker_epoch) return std::move(encoded_marker_epoch).error();
+    object.emplace("marker_epoch", std::move(encoded_marker_epoch).value());
     if (!value.max_bytes.is_absent()) {
         auto encoded = encode_value(value.max_bytes);
         if (!encoded) return std::move(encoded).error();
@@ -20965,14 +20963,13 @@ Result<TerminalHistoryRequest> Codec<TerminalHistoryRequest>::decode(const Json&
         }
     }
     const Json* field_marker_epoch = value.find("marker_epoch");
+    if (!field_marker_epoch) {
+        return make_error(ErrorCode::decode, "missing required field 'marker_epoch'");
+    }
     if (field_marker_epoch) {
-        if (field_marker_epoch->is_null()) {
-            result.marker_epoch = Field<std::uint64_t>::null();
-        } else {
-            auto decoded = decode_value<std::uint64_t>(*field_marker_epoch);
-            if (!decoded) return std::move(decoded).error();
-            result.marker_epoch = Field<std::uint64_t>(std::move(decoded).value());
-        }
+        auto decoded = decode_value<std::uint64_t>(*field_marker_epoch);
+        if (!decoded) return std::move(decoded).error();
+        result.marker_epoch = std::move(decoded).value();
     }
     const Json* field_max_bytes = value.find("max_bytes");
     if (field_max_bytes) {
@@ -21007,11 +21004,9 @@ Result<Json> Codec<TerminalReadRangeRequest>::encode(const TerminalReadRangeRequ
     auto encoded_from = encode_value(value.from);
     if (!encoded_from) return std::move(encoded_from).error();
     object.emplace("from", std::move(encoded_from).value());
-    if (!value.marker_epoch.is_absent()) {
-        auto encoded = encode_value(value.marker_epoch);
-        if (!encoded) return std::move(encoded).error();
-        object.emplace("marker_epoch", std::move(encoded).value());
-    }
+    auto encoded_marker_epoch = encode_value(value.marker_epoch);
+    if (!encoded_marker_epoch) return std::move(encoded_marker_epoch).error();
+    object.emplace("marker_epoch", std::move(encoded_marker_epoch).value());
     if (!value.max_bytes.is_absent()) {
         auto encoded = encode_value(value.max_bytes);
         if (!encoded) return std::move(encoded).error();
@@ -21050,14 +21045,13 @@ Result<TerminalReadRangeRequest> Codec<TerminalReadRangeRequest>::decode(const J
         result.from = std::move(decoded).value();
     }
     const Json* field_marker_epoch = value.find("marker_epoch");
+    if (!field_marker_epoch) {
+        return make_error(ErrorCode::decode, "missing required field 'marker_epoch'");
+    }
     if (field_marker_epoch) {
-        if (field_marker_epoch->is_null()) {
-            result.marker_epoch = Field<std::uint64_t>::null();
-        } else {
-            auto decoded = decode_value<std::uint64_t>(*field_marker_epoch);
-            if (!decoded) return std::move(decoded).error();
-            result.marker_epoch = Field<std::uint64_t>(std::move(decoded).value());
-        }
+        auto decoded = decode_value<std::uint64_t>(*field_marker_epoch);
+        if (!decoded) return std::move(decoded).error();
+        result.marker_epoch = std::move(decoded).value();
     }
     const Json* field_max_bytes = value.find("max_bytes");
     if (field_max_bytes) {

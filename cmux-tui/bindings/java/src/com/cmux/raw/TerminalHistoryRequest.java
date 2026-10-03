@@ -13,13 +13,14 @@ import java.util.Objects;
 /** Immutable terminal-history request. Protocol v12; authority: control. */
 public final class TerminalHistoryRequest implements WireValue {
     private final Field<UInt64> before;
-    private final Field<UInt64> markerEpoch;
+    private final UInt64 markerEpoch;
     private final Field<UInt64> maxBytes;
     private final UInt64 surface;
 
     private TerminalHistoryRequest(Builder builder) {
         this.before = builder.before;
-        this.markerEpoch = builder.markerEpoch;
+        if (!builder.markerEpochSet) throw new IllegalArgumentException("marker_epoch is required");
+        this.markerEpoch = Wire.nonNull(builder.markerEpoch, "marker_epoch");
         this.maxBytes = builder.maxBytes;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
@@ -28,7 +29,7 @@ public final class TerminalHistoryRequest implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public Field<UInt64> before() { return before; }
-    public Field<UInt64> markerEpoch() { return markerEpoch; }
+    public UInt64 markerEpoch() { return markerEpoch; }
     public Field<UInt64> maxBytes() { return maxBytes; }
     public UInt64 surface() { return surface; }
 
@@ -39,10 +40,8 @@ public final class TerminalHistoryRequest implements WireValue {
         if (!Wire.isMissing(rawBefore)) {
             builder.before(rawBefore == null ? null : Wire.uint64(rawBefore, "TerminalHistoryRequest.before"));
         }
-        Object rawMarkerEpoch = Wire.optional(object, "marker_epoch");
-        if (!Wire.isMissing(rawMarkerEpoch)) {
-            builder.markerEpoch(rawMarkerEpoch == null ? null : Wire.uint64(rawMarkerEpoch, "TerminalHistoryRequest.marker_epoch"));
-        }
+        Object rawMarkerEpoch = Wire.required(object, "marker_epoch");
+        builder.markerEpoch(Wire.uint64(rawMarkerEpoch, "TerminalHistoryRequest.marker_epoch"));
         Object rawMaxBytes = Wire.optional(object, "max_bytes");
         if (!Wire.isMissing(rawMaxBytes)) {
             builder.maxBytes(rawMaxBytes == null ? null : Wire.uint64(rawMaxBytes, "TerminalHistoryRequest.max_bytes"));
@@ -76,7 +75,8 @@ public final class TerminalHistoryRequest implements WireValue {
 
     public static final class Builder {
         private Field<UInt64> before = Field.omitted();
-        private Field<UInt64> markerEpoch = Field.omitted();
+        private UInt64 markerEpoch;
+        private boolean markerEpochSet;
         private Field<UInt64> maxBytes = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
@@ -86,7 +86,8 @@ public final class TerminalHistoryRequest implements WireValue {
             return this;
         }
         public Builder markerEpoch(UInt64 value) {
-            this.markerEpoch = Field.ofNullable(value);
+            this.markerEpoch = value;
+            this.markerEpochSet = true;
             return this;
         }
         public Builder maxBytes(UInt64 value) {

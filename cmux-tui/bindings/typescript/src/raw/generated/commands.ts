@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e9f0de573f2426333efd1799a0cd86a77250b2eb172325f7c919ed71cd6318ca. */
+/* cmux-tui mux protocol 12, IR fba46fc05045716c2f34622fb04d88322c58f60de248ffc357187923c3618a07. */
 
 
 import type * as T from "./types.js";
@@ -1759,7 +1759,7 @@ export interface TerminalEventsRequest extends CmuxRequestBase {
 export interface TerminalHistoryRequest extends CmuxRequestBase {
   cmd: "terminal-history";
   "before"?: (bigint) | null;
-  "marker_epoch"?: (bigint) | null;
+  "marker_epoch": bigint;
   "max_bytes"?: (bigint) | null;
   "surface": T.Id;
 }
@@ -1770,7 +1770,7 @@ export interface TerminalReadRangeRequest extends CmuxRequestBase {
   cmd: "terminal-read-range";
   "format"?: (string) | null;
   "from": T.RowMarkerPoint;
-  "marker_epoch"?: (bigint) | null;
+  "marker_epoch": bigint;
   "max_bytes"?: (bigint) | null;
   "surface": T.Id;
   "to": T.RowMarkerPoint;

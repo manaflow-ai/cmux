@@ -3137,8 +3137,8 @@ class TerminalEventsRequest:
 class TerminalHistoryRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-history/request'
     surface: Id
+    marker_epoch: int
     before: Union[int, None, MissingType] = field(default=MISSING)
-    marker_epoch: Union[int, None, MissingType] = field(default=MISSING)
     max_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
@@ -3147,9 +3147,9 @@ class TerminalReadRangeRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/terminal-read-range/request'
     surface: Id
     from_: RowMarkerPoint = field(metadata={'wire_name': 'from'})
+    marker_epoch: int
     to: RowMarkerPoint
     format: Union[str, None, MissingType] = field(default=MISSING)
-    marker_epoch: Union[int, None, MissingType] = field(default=MISSING)
     max_bytes: Union[int, None, MissingType] = field(default=MISSING)
 
 
