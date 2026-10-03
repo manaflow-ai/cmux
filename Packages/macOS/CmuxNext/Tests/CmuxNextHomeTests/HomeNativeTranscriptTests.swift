@@ -187,7 +187,7 @@ import Testing
         view.layoutSubtreeIfNeeded()
         view.controller.update(items: [], summary: summary, typing: [], hasOlder: false)
         view.layoutSubtreeIfNeeded()
-        #expect(view.header.name.title == "Chief Of Staff")
+        #expect(view.header.name.stringValue == "Chief Of Staff")
         #expect(view.header.avatar.stringValue == "CO")
         let headerHeight: CGFloat = HomeGlassHeaderView.height
         #expect(view.header.frame.height == headerHeight)

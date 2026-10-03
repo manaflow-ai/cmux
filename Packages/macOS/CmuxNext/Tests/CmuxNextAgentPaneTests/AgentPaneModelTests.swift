@@ -95,7 +95,6 @@ private actor RecordingHost: AgentPaneHostProviding {
         let error = try #require(reply["error"] as? [String: Any])
         #expect(error["code"] as? String == "host_unavailable")
         #expect((error["userMessage"] as? String)?.contains("/tmp/acpmux/daemon.log") == true)
-        #expect(model.lastError != nil)
     }
 
     @Test func aMissingDaemonFailsWithoutIO() async throws {

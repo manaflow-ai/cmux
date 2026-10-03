@@ -31,16 +31,18 @@ extension SidebarBridge {
         .customize: "appearance.customize",
     ]
 
-    func activateLayoutItem(_ id: LayoutItemID) {
+    func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
         guard let item = model.layout.item(id) else { return }
-        activate(item.ref)
+        activate(item.ref, opensWorkspace: opensWorkspace)
     }
 
     /// Runs a sidebar item (sidebar-sections.md 2): pinned tabs, pages and
     /// spaces are in SidebarBridge+PinnedItems.
-    func activate(_ ref: LayoutItemRef) {
+    func activate(_ ref: LayoutItemRef, opensWorkspace: Bool = false) {
         if let builtIn = ref.builtIn, let action = Self.builtInActions[builtIn] {
-            _ = services.registry.perform(action, invocation: ActionInvocation(origin: .user))
+            var invocation = ActionInvocation(origin: .user)
+            if opensWorkspace, builtIn == .newTerminal { invocation.arguments["toggleWorkspace"] = .bool(true) }
+            _ = services.registry.perform(action, invocation: invocation)
             return
         }
         switch ref.kind {

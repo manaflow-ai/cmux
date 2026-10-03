@@ -47,6 +47,8 @@ nonisolated final class TopologyDaemon: Sendable {
         var key: String
         var screens: [Screen]
         var name: String? = nil
+        /// `workspace-kind-v1`: `home` for the store's home workspace.
+        var kind: String? = nil
     }
 
     struct Tree: Sendable {
@@ -68,7 +70,8 @@ nonisolated final class TopologyDaemon: Sendable {
                     }.joined(separator: ",")
                     return #"{"id":\#(screen.id),"layout":\#(screen.layout.json),"panes":[\#(panes)]}"#
                 }.joined(separator: ",")
-                return #"{"id":\#(workspace.id),"key":"\#(workspace.key)","name":"\#(workspace.name ?? "w\(workspace.id)")","screens":[\#(screens)]}"#
+                let kind = workspace.kind.map { #","kind":"\#($0)""# } ?? ""
+                return #"{"id":\#(workspace.id),"key":"\#(workspace.key)","name":"\#(workspace.name ?? "w\(workspace.id)")"\#(kind),"screens":[\#(screens)]}"#
             }.joined(separator: ",")
             return #"{"generation":"g1","registry_id":"r","workspace_revision":\#(revision),"workspaces":[\#(workspaces)]}"#
         }

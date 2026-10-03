@@ -40,7 +40,7 @@ extension TabStripModel {
             let item = ordered.remove(at: from)
             ordered.insert(item, at: min(max(to, 0), ordered.count))
             tabs = ordered
-        case .newTab(let after):
+        case .newTab(let after, _):
             var item = makeTab()
             if let after, let index = ordered.firstIndex(where: { $0.id == after }) {
                 // A new tab opened from a grouped tab joins its group.

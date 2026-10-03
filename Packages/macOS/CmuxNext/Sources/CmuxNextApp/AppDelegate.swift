@@ -140,6 +140,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         )
         settings.start()
+        // The GitHub connection is deliberately off by default. Changes in
+        // Settings apply to the one feed owner and never create a second
+        // inbox store.
+        Task { [weak services, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await github in Observations({ settings.snapshot.feedGitHub }) {
+                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+            }
+        }
         // macOS posts no notification when an MDM profile changes; activation
         // is the event-driven backstop next to the managed-file watchers.
         Task { [weak settings] in

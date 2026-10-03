@@ -17,6 +17,7 @@ import {
 import { AcpmuxDirectClient, type AcpmuxHostConfig } from "./direct";
 import { postNative } from "./native";
 import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { projectLabel } from "./sessionList";
 import { composerDraft } from "./composerDraft";
 import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
@@ -45,6 +46,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
+import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
 import {
   restoredDecisions,
   turnHunkKeys,
@@ -196,6 +198,9 @@ const changesSource: ChangesSource = {
   diff: (scope) => callNative("git.diff", { scope, include_patch: true }),
   status: () => callNative("git.status", {}),
 };
+/// A turn's checkpoint pair, diffed on the session host (`git.checkpoint.diff`).
+const checkpointDiff: CheckpointDiff = (from, to) =>
+  callNative("git.checkpoint.diff", { from, to, include_patch: true });
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
@@ -956,17 +961,25 @@ function AcpmuxPane() {
     if (diffActivity.current?.key !== key) diffActivity.current = { key, files: turnFiles(activity) };
     return diffActivity.current.files;
   }, [diffView, diffOpen, snapshot.rows]);
-  // Each turn's checkpoint pair, named by the row that starts the turn. The host reads none yet
-  // (changesSource has no `turn`), so Last turn shows the tool calls' edits as before.
-  const turnCheckpoints = useTurnCheckpoints(changesSource.turn, snapshot.sessionId);
-  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
+  // Each turn's checkpoint pair, named by the row that starts the turn: the checkpoints acpmux
+  // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  const readTurn = useCallback(
+    ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
+    [],
+  );
+  const turnCheckpoints = useTurnCheckpoints(readTurn, snapshot.sessionId);
+  const { request: requestTurnCheckpoint, get: turnCheckpoint } = turnCheckpoints;
   const turnKey = useCallback((rowId: string) => turnRows(turnRowsRef.current, rowId)[0]?.id ?? rowId, []);
   const diffTurn = diffView && diffOpen ? turnKey(diffView.rowId) : undefined;
+  // A turn's pair exists once it has ended, so the view asks then (and again when it ends while
+  // the view is open); until then it shows the tool calls' edits.
+  const diffTurnEnded =
+    diffView && diffOpen ? turnRows(snapshot.rows, diffView.rowId).some((row) => row.kind === "turnSummary") : false;
   useEffect(() => {
-    if (diffTurn) requestTurnCheckpoint(diffTurn);
-  }, [diffTurn, requestTurnCheckpoint]);
+    if (diffTurn && diffTurnEnded) requestTurnCheckpoint(diffTurn);
+  }, [diffTurn, diffTurnEnded, requestTurnCheckpoint]);
   const diffDisplay = useMemo(() => {
     if (!diffFiles || !diffTurn) return undefined;
     // An Undo chosen but not yet sent holds the tool-call view; Keep has nothing to send.
@@ -1389,6 +1402,7 @@ function AcpmuxPane() {
           "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
           "git.diff": ({ scope }) => client.gitDiff(String(scope)),
           "git.status": () => client.gitStatus(),
+          "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           // What the agent works on, for a terminal or browser opened from this chat (#16620).
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
@@ -1397,7 +1411,9 @@ function AcpmuxPane() {
         void client.warmRecentProjects();
         // A new chat owns a live process before the first keypress. Sending a
         // prompt still joins this in-flight creation through ensureSession().
-        if (host.newSession && !host.adopt) void client.ensureSession().catch(() => undefined);
+        // A new-tab page stays empty until the user chooses a kind or sends a prompt.
+        // Other new chats still prewarm their process before the first keypress.
+        if (host.newSession && !host.adopt && !host.newTab) void client.ensureSession().catch(() => undefined);
         // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
         if (client.adopted) void persistSession(client.adopted);
         // A `#turn-<turnId>` link that opened this tab: scroll once the turn's row renders.
@@ -1483,8 +1499,20 @@ function AcpmuxPane() {
       return;
     }
     setNewTab(undefined);
-    if (text) void callNative("chat.send", { text });
+    const start = cwd ? callNative("chat.new", { cwd }) : Promise.resolve();
+    void start.then(() => (text ? callNative("chat.send", { text }) : undefined));
   };
+  const newTabProjects = useMemo(() => {
+    const byPath = new Map<string, { cwd: string; label: string }>();
+    for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
+    for (const session of composerSnapshot.sessions) {
+      if (typeof session.cwd !== "string" || !session.cwd) continue;
+      if (session.host && session.hostKind !== "local") continue;
+      byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
+    }
+    if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
+    return [...byPath.values()];
+  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects]);
   const transcript = (
     <TurnActionsContext.Provider value={turnActions}>
       <TurnCountsContext.Provider value={turnCountsFor}>
@@ -1615,9 +1643,8 @@ function AcpmuxPane() {
               cwd={newTab.cwd}
               host={newTab.host}
               location={newTab.location}
-              defaultKind={newTab.defaultKind}
-              onSetDefaultKind={(kind) => void callNative("tab.setDefaultKind", { kind })}
               omnibar={newTab.omnibar}
+              projects={newTabProjects}
               chips={ComposerChips}
               onSubmit={openFromNewTab}
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
@@ -1626,6 +1653,8 @@ function AcpmuxPane() {
                 selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
+              onImport={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
+              onBrowseProject={() => void callNative("action.run", { id: "palette.welcomeChecklist" })}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
             />
           ) : (
@@ -1721,6 +1750,7 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    reviewFiles={diffFiles}
                   />
                 )}
               </div>

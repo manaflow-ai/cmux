@@ -1,7 +1,7 @@
 import type { Domain, EventFrame, OpFrame, OwnerEngine, OwnerFrame, Principal } from "@cmux/ownership"
 import { inbox as homeInbox } from "@cmux/home-core"
 import { challengeMessagePrefix, type PushTarget } from "@cmux/protocol"
-import { verifyInstallSignature, type InstallClaims } from "./auth.ts"
+import { emailDomainOf, verifyInstallSignature, type InstallClaims } from "./auth.ts"
 import { verifyAttestation, type AttestedKey } from "./app-attest.ts"
 import { admit } from "./domains/common.ts"
 import { grantFor, installActive, jwkThumbprint, makeUserDomain, type UserState } from "./domains/user.ts"
@@ -368,6 +368,7 @@ export class UserDO extends OwnerDO<UserState> {
     const now = engine.currentState
     const stillActive = now.installs[install]?.revoked_at === null && now.grants[grant.id]?.revoked_at === null
     if (!stillActive || !now.user) return { ok: false, code: "auth.forbidden", message: "install unknown or revoked" }
-    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}) }
+    const emailDomain = emailDomainOf(now.user.email)
+    return { ok: true, user: now.user.id, team: now.user.personal_team, install, grant: grant.id, ...(inst.sso_team ? { sso_team: inst.sso_team } : {}), ...(emailDomain ? { email_domain: emailDomain } : {}) }
   }
 }

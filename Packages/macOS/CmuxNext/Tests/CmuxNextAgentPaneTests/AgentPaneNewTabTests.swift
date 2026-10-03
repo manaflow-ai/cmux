@@ -9,13 +9,20 @@ import Testing
     private let page = AgentPaneNewTab(kind: .browser, hotkeys: [.terminal: "⌃⇧⌘T", .agent: "⇧⌘I"], cwd: "~/code/cmux")
 
     @Test func aNewTabPageHandshakeCarriesKindHotkeysAndFolder() async throws {
-        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        let model = AgentPaneModel(
+            host: MockAgentPaneHost(),
+            newTab: AgentPaneNewTab(
+                kind: page.kind, hotkeys: [.terminal: "⌃⇧⌘T", .agent: "⇧⌘I"], cwd: page.cwd,
+                projects: ["/src/app", "/src/web"]
+            )
+        )
         let reply = await model.respond(to: .ready)
         let value = try #require(reply["value"] as? [String: Any])
         let newTab = try #require(value["newTab"] as? [String: Any])
         #expect(newTab["kind"] as? String == "browser")
         #expect(newTab["hotkeys"] as? [String: String] == ["terminal": "⌃⇧⌘T", "agent": "⇧⌘I"])
         #expect(newTab["cwd"] as? String == "~/code/cmux")
+        #expect(newTab["projects"] as? [String] == ["/src/app", "/src/web"])
         // The mock host sets no newSession of its own; the page still opens empty.
         #expect(value["newSession"] as? Bool == true)
     }
@@ -95,9 +102,20 @@ import Testing
         #expect(request("tab.jump", ["target": "tab", "id": ""]) == .unsupported("tab.jump"))
         #expect(request("shortcut.edit", ["kind": "agent"]) == .editShortcut(.agent))
         #expect(request("shortcut.edit", [:]) == .unsupported("shortcut.edit"))
+        #expect(request("action.run", ["id": "palette.welcomeChecklist"]) == .runAction("palette.welcomeChecklist"))
+        #expect(request("action.run", ["id": "closeWindow"]) == .runAction("closeWindow"))
         #expect(request("tab.setDefaultKind", ["kind": "auto"]) == .setDefaultKind("auto"))
         #expect(request("tab.setDefaultKind", ["kind": ""]) == .unsupported("tab.setDefaultKind"))
         #expect(request("tab.setDefaultKind", ["kind": String(repeating: "a", count: 40)]) == .unsupported("tab.setDefaultKind"))
+    }
+
+    @Test func newTabRunsOnlyTheImportAndSyncAction() async {
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        var actions: [String] = []
+        model.onRunAction = { actions.append($0) }
+        #expect(await model.respond(to: .runAction("palette.welcomeChecklist"))["ok"] as? Bool == true)
+        #expect(await model.respond(to: .runAction("closeWindow"))["ok"] as? Bool == false)
+        #expect(actions == ["palette.welcomeChecklist"])
     }
 
     /// The "default: X" toggle: the handshake says what Cmd-T opens, and a
@@ -114,16 +132,18 @@ import Testing
         #expect(picked == ["agent"])
     }
 
-    @Test func theHandshakeCarriesTheLocationAndCappedSuggestions() throws {
+    @Test func theHandshakeCarriesTheLocationAndLosslessSuggestions() async throws {
         let tabs = (0..<50).map { AgentPaneOmnibar.Tab(id: "t\($0)", kind: .terminal, title: "t\($0)") }
         let page = AgentPaneNewTab(kind: .browser, location: "https://vite.dev/guide/", omnibar: AgentPaneOmnibar(
             tabs: tabs, workspaces: [AgentPaneOmnibar.Workspace(id: "w1", name: "docs-site")], folders: ["/src/app"],
             history: [AgentPaneOmnibar.Page(url: "https://vite.dev/config/", title: "Configuring Vite")]
         ))
-        let reply = page.reply
-        #expect(reply["location"] as? String == "https://vite.dev/guide/")
-        let omnibar = try #require(reply["omnibar"] as? [String: Any])
-        #expect((omnibar["tabs"] as? [[String: Any]])?.count == AgentPaneOmnibar.maximumEntries)
+        let model = AgentPaneModel(host: MockAgentPaneHost(), newTab: page)
+        let value = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        let newTab = try #require(value["newTab"] as? [String: Any])
+        #expect(newTab["location"] as? String == "https://vite.dev/guide/")
+        let omnibar = try #require(newTab["omnibar"] as? [String: Any])
+        #expect((omnibar["tabs"] as? [[String: Any]])?.count == 50)
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["name"] as? String == "docs-site")
         #expect((omnibar["workspaces"] as? [[String: Any]])?.first?["detail"] == nil)
         #expect(omnibar["folders"] as? [String] == ["/src/app"])

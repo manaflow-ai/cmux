@@ -11,7 +11,7 @@ export type HunkReview = {
 };
 /// `label` names the hunk for its buttons, so a screen reader can tell one hunk's Reject from
 /// another's.
-export type HunkAnchor = { key: string; label: string };
+export type HunkAnchor = { key: string; label: string; keys: readonly string[] };
 /// The hunk whose action the reader just took; its next button takes focus, since the one
 /// pressed is replaced.
 export type FocusAfter = { current: string | undefined };
@@ -25,42 +25,56 @@ export function hunkAnchor(hunk: DiffHunk, key: string, file: TurnFile, numbered
   const line = first.newLine ?? first.oldLine;
   const label = numbered && line !== undefined ? `${file.displayPath} line ${line}` : file.displayPath;
   return last.type === "add"
-    ? { side: "additions" as const, lineNumber: last.newLine!, metadata: { key, label } }
-    : { side: "deletions" as const, lineNumber: last.oldLine!, metadata: { key, label } };
-}
-
-/// Every hunk of a turn's files, each with its key and patch, in file order.
-export function turnHunks(files: TurnFile[]) {
-  return files.flatMap((file) =>
-    file.edits.flatMap((edit, editIndex) =>
-      edit.hunks.map((hunk, hunkIndex) => ({
-        key: hunkKey(file, editIndex, hunkIndex),
-        patch: hunkPatch(file, edit, hunk),
-      })),
-    ),
-  );
+    ? {
+        side: "additions" as const,
+        lineNumber: last.newLine!,
+        metadata: { key, label, keys: hunk.reviewKeys ?? [key] },
+      }
+    : {
+        side: "deletions" as const,
+        lineNumber: last.oldLine!,
+        metadata: { key, label, keys: hunk.reviewKeys ?? [key] },
+      };
 }
 
 /// The rejected hunks not yet sent, each with its key and patch, in file order.
 export function rejectedHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
-  return turnHunks(files).filter((hunk) => decisions.get(hunk.key) === "rejected");
+  return files.flatMap((file) =>
+    file.edits.flatMap((edit, editIndex) =>
+      edit.hunks.flatMap((hunk, hunkIndex) => {
+        const key = hunkKey(file, editIndex, hunkIndex);
+        const keys = hunk.reviewKeys ?? [key];
+        return keys.flatMap((reviewKey) =>
+          decisions.get(reviewKey) === "rejected" ? [{ key: reviewKey, patch: hunkPatch(file, edit, hunk) }] : [],
+        );
+      }),
+    ),
+  );
 }
 
-/// The hunks a turn's Undo asks the agent to revert: all of them but those already asked.
+/// Every review key in a turn's files, each with its original patch, in file order.
+export function turnHunks(files: TurnFile[]) {
+  return files.flatMap((file) =>
+    file.edits.flatMap((edit, editIndex) =>
+      edit.hunks.flatMap((hunk, hunkIndex) => {
+        const key = hunkKey(file, editIndex, hunkIndex);
+        return (hunk.reviewKeys ?? [key]).map((reviewKey) => ({ key: reviewKey, patch: hunkPatch(file, edit, hunk) }));
+      }),
+    ),
+  );
+}
+
+/// The hunks an Undo request may send, excluding those already requested.
 export function undoableHunks(files: TurnFile[], decisions: ReadonlyMap<string, HunkDecision>) {
   return turnHunks(files).filter((hunk) => decisions.get(hunk.key) !== "requested");
 }
 
-/// The keys alone, for drawing: a card builds patches only when it sends them.
+/// The keys used by the review state for a turn's hunks.
 export function turnHunkKeys(files: TurnFile[]): string[] {
-  return files.flatMap((file) =>
-    file.edits.flatMap((edit, editIndex) => edit.hunks.map((_, hunkIndex) => hunkKey(file, editIndex, hunkIndex))),
-  );
+  return turnHunks(files).map((hunk) => hunk.key);
 }
 
-/// After a revert send failed: each hunk still marked requested goes back to what the reader had
-/// decided before the send (a rejected hunk stays rejected, so it can be sent again; an Undo's
-/// undecided hunk goes back to undecided).
+/// Restore decisions that were marked requested when a revert request failed.
 export function restoredDecisions(
   current: ReadonlyMap<string, HunkDecision>,
   previous: readonly (readonly [string, HunkDecision | undefined])[],

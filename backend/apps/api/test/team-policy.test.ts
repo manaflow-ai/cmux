@@ -78,6 +78,41 @@ describe("team policy reducer (TeamDO single writer)", () => {
     expect(run(s, "team.policy.update", { changes: [set("integrations.allowedProviders", ["notion"])], expected_version: 0 })).toMatchObject({ ok: false, code: "policy.invalid" })
   })
 
+  it("enforced SSO reads the team's real SSO facts: an active connection that serves a verified domain", () => {
+    const domain = (state: "pending" | "verified" | "lapsed") => ({ domain: "acme.dev", state, record_name: "_cmux-challenge.acme.dev", record_value: "v", requested_at: 1, expires_at: 2, verified_at: state === "verified" ? 1 : null })
+    const connection = (state: "draft" | "active" | "disabled", domains = ["acme.dev"]) => ({
+      id: "ssoc_00000000000000000001",
+      kind: "oidc" as const,
+      state,
+      domains,
+      oidc: { issuer: "https://idp.acme.dev", client_id: "c", scopes: ["openid"], authorization_endpoint: null, token_endpoint: null, jwks_uri: null },
+      secret_set: true,
+      jit: { enabled: true, default_role: "member" as const },
+      created_at: 1,
+      updated_at: 1
+    })
+    const withSso = (d: "pending" | "verified" | "lapsed", c: "draft" | "active" | "disabled", domains?: Array<string>): TeamState => ({
+      ...baseState(),
+      domains: { "acme.dev": domain(d) },
+      sso_connections: { ssoc_00000000000000000001: connection(c, domains) }
+    })
+    const enforce = { changes: [set("sso.enforce", true)], expected_version: 0 }
+    expect(run(withSso("verified", "active"), "team.policy.update", enforce).ok).toBe(true)
+    expect(run(withSso("verified", "draft"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(withSso("verified", "disabled"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(withSso("lapsed", "active"), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    // The active connection must serve the verified domain, not another one.
+    expect(run(withSso("verified", "active", ["other.dev"]), "team.policy.update", enforce)).toMatchObject({ ok: false, code: "policy.invalid" })
+    // Rollback rechecks against the facts of now.
+    const on = run(withSso("verified", "active"), "team.policy.update", enforce)
+    if (!on.ok) throw new Error("enforce refused")
+    const off = run(on.state as TeamState, "team.policy.update", { changes: [{ key: "sso.enforce", value: null }], expected_version: 1 })
+    if (!off.ok) throw new Error("clear refused")
+    const lapsed = { ...(off.state as TeamState), domains: { "acme.dev": domain("lapsed") } }
+    expect(run(lapsed, "team.policy.rollback", { version: 1, expected_version: 2 })).toMatchObject({ ok: false, code: "policy.invalid" })
+    expect(run(off.state as TeamState, "team.policy.rollback", { version: 1, expected_version: 2 }).ok).toBe(true)
+  })
+
   it("maps the integration keys onto ConnectionDO's TeamIntegrationPolicy fields", () => {
     expect(integrationSlice({})).toEqual({ allowed_providers: null, github: { scope: "linking_user_repos", require_org_admin: false, repo_allowlist: null } })
     expect(

@@ -9,7 +9,7 @@ public import CoreGraphics
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
     public static var all: [SettingDescriptor] {
-        general + columnLayout + palette + tasks + appearance + terminal + sidebarSections + browser + notifications + labs
+        general + columnLayout + palette + tasks + appearance + terminal + sidebarSections + browser + notifications + labs + feed
     }
 
     /// Keys Reset All Settings leaves alone: the look picked at onboarding
@@ -86,6 +86,7 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
             newTabKind(group: tabs),
+            newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),

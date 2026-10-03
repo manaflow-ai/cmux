@@ -1,29 +1,40 @@
 import SwiftUI
 
-/// Variant `inbox`: a grouped list on the left (Needs you, Today, Earlier;
-/// threads collapsed) and the selected item's detail on the right.
+/// The feed's wide mode. Connection and text filters are client view state;
+/// all triage continues through the single feed owner.
 struct FeedInboxView: View {
     let model: FeedModel
     @Environment(\.feedColors) private var colors
+    @State private var filter = FeedInboxFilter()
 
     var body: some View {
-        let groups = model.inboxGroups
-        // Without a selection the detail previews the first entry; that is
-        // view-only and never writes `selection` (user actions only).
-        let shown = model.selection.flatMap { model.item($0) } ?? groups.first?.head
+        let items = filter.items(from: model.visibleItems)
+        let groups = FeedInboxGroups(items: items, now: model.now)
+        let shown = filter.selectedItem(model.selection, groups: groups)
+        let pendingIDs = Set(items.filter { model.isPending($0.id) }.map(\.id))
+        let now = model.now
+        // Capture actions here, outside LazyVStack. Its child views hold only
+        // immutable snapshots and callbacks, never the observable model.
+        let select: (String) -> Void = { model.select($0) }
         HStack(spacing: 0) {
             VStack(spacing: 0) {
-                FeedHeader(model: model)
+                FeedInboxHeader(filter: $filter, hasUnread: items.contains(where: \.isUnread),
+                    canRefresh: model.onRefresh != nil, canAddConnection: model.onAddConnection != nil,
+                    markRead: { model.markRead(items.map(\.id)) }, refresh: { model.refresh() },
+                    addConnection: { model.onAddConnection?() })
                 if groups.all.isEmpty {
-                    FeedEmptyState(text: FeedStrings.empty)
+                    FeedEmptyState(text: filter.query.isEmpty && filter.category == .all ? FeedStrings.empty : FeedStrings.noMatches)
                 } else {
                     ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 1) {
-                            section(FeedStrings.needsYou, groups.needsYou, shown: shown?.id)
-                            section(FeedStrings.today, groups.today, shown: shown?.id)
-                            section(FeedStrings.earlier, groups.earlier, shown: shown?.id)
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            FeedInboxSection(title: FeedStrings.needsYou, entries: groups.needsYou,
+                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
+                            FeedInboxSection(title: FeedStrings.today, entries: groups.today,
+                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
+                            FeedInboxSection(title: FeedStrings.earlier, entries: groups.earlier,
+                                shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
                         }
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 10)
                     }
                 }
             }
@@ -33,25 +44,18 @@ struct FeedInboxView: View {
                 if let shown {
                     FeedInboxDetail(item: shown, thread: groups.all.first { $0.members.contains { $0.id == shown.id } }, model: model)
                 } else {
-                    Color.clear
+                    VStack(spacing: 12) {
+                        Image(systemName: "tray").font(.system(size: 27, weight: .light))
+                        Text(FeedStrings.selectInboxItem).font(.system(size: 13))
+                    }
+                    .foregroundStyle(colors.tertiary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    @ViewBuilder
-    private func section(_ title: String, _ entries: [FeedInboxEntry], shown: String?) -> some View {
-        if !entries.isEmpty {
-            HStack(spacing: 6) {
-                Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(colors.secondary)
-                Text(verbatim: "\(entries.count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(colors.tertiary)
-            }
-            .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 3)
-            ForEach(entries) { entry in
-                FeedNoticeRow(item: entry.head, model: model, selected: entry.members.contains { $0.id == shown },
-                              threadCount: entry.members.count)
-            }
+        .onAppear {
+            if model.githubConnectionEnabled { filter.connection = .github }
         }
     }
 }
@@ -64,6 +68,10 @@ struct FeedInboxDetail: View {
     @Environment(\.feedColors) private var colors
 
     var body: some View {
+        let now = model.now
+        let members = thread?.members.filter { $0.id != item.id } ?? []
+        let pendingIDs = Set(members.filter { model.isPending($0.id) }.map(\.id))
+        let select: (String) -> Void = { model.select($0) }
         VStack(spacing: 0) {
             FeedDetailToolbar(item: item, model: model)
             FeedHairline()
@@ -79,15 +87,23 @@ struct FeedInboxDetail: View {
                             PosterLine(item: item, now: model.now)
                         }
                     }
+                    if let detail = model.githubDetail?(item) {
+                        FeedGitHubDetailSummary(detail: detail)
+                    }
                     FeedPromptSummary(item: item, full: true)
-                    if item.isRequest {
+                    if FeedInboxFilter.isGitHub(item), model.onGitHubAction != nil {
+                        FeedGitHubActions(item: item, model: model)
+                    }
+                    if item.isRequest && item.poster.kind != .integration {
                         FeedAnswerControls(item: item, model: model, density: .detail)
                     }
                     if let thread, thread.isThread {
                         FeedHairline()
                         VStack(alignment: .leading, spacing: 1) {
-                            ForEach(thread.members.filter { $0.id != item.id }) { member in
-                                FeedNoticeRow(item: member, model: model)
+                            ForEach(members) { member in
+                                FeedInboxRow(item: member, now: now, selected: false,
+                                    pending: pendingIDs.contains(member.id), threadCount: 1,
+                                    select: { select(member.id) })
                             }
                         }
                     }

@@ -2,15 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { agentDisplayName } from "./agents";
 import { ArrowUpIcon } from "./ComposerPickers";
 import type { AcpmuxSnapshot } from "./model";
+import { ProjectChooser, type Project } from "./ProjectChooser";
 import {
   defaultRow,
   EMPTY_OMNIBAR,
+  MAX_NEW_TAB_ENTRIES,
   omnibarContext,
   omnibarRows,
   type OmnibarContext,
   type OmnibarRow,
 } from "./omnibar";
 import { homePath, projectLabel, sessionEntry, sessionMark, type AcpmuxSessionEntry } from "./sessionList";
+import { t } from "./i18n";
 
 /// The three things a new tab can become (#16620). Order is the switch's order and Tab's cycle.
 export const TAB_KINDS = ["terminal", "browser", "agent"] as const;
@@ -34,6 +37,7 @@ export const NEW_TAB_LABELS = {
   switchLabel: "Open as",
   editShortcut: (kind: string, keys: string) => `${kind} (${keys}). Right-click to change the shortcut`,
   open: "Open",
+  importAndSync: t("newtab.importAndSync"),
   suggestions: "Suggestions",
   rows: {
     tab: "Switch to tab",
@@ -73,6 +77,8 @@ export type NewTabHost = {
   cwd?: string;
   host?: string;
   location?: string;
+  /// Project folders found by the host scan, before session-derived folders.
+  projects?: string[];
   omnibar?: OmnibarContext;
   defaultKind?: DefaultKind;
 };
@@ -99,6 +105,13 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(typeof object.host === "string" ? { host: object.host } : {}),
     ...(typeof object.location === "string" && object.location ? { location: object.location } : {}),
     ...(omnibar ? { omnibar } : {}),
+    ...(Array.isArray(object.projects)
+      ? {
+          projects: object.projects
+            .filter((path): path is string => typeof path === "string" && path.length > 0)
+            .slice(0, MAX_NEW_TAB_ENTRIES),
+        }
+      : {}),
     ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
       ? { defaultKind: object.defaultKind as DefaultKind }
       : {}),
@@ -165,6 +178,8 @@ type Props = {
   defaultKind?: DefaultKind;
   /// The toggle picked the next default.
   onSetDefaultKind?(kind: DefaultKind): void;
+  /// Recent projects are offered inline before Browse is needed.
+  projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
   onSubmit(kind: TabKind, text: string, cwd?: string): void;
   /// Go to an open tab or workspace instead of opening a duplicate.
@@ -172,6 +187,8 @@ type Props = {
   onOpenSession(sessionId: string): void;
   onShowAll(): void;
   onEditShortcut?(kind: TabKind): void;
+  onImport?(): void;
+  onBrowseProject?(): void;
   now?: number;
 };
 
@@ -189,14 +206,18 @@ export function NewTabPage({
   location,
   defaultKind: initialDefault,
   onSetDefaultKind,
+  projects = [],
   onSubmit,
   onJump,
   onOpenSession,
   onShowAll,
   onEditShortcut,
+  onImport,
+  onBrowseProject,
 }: Props) {
   const [kind, setKind] = useState<TabKind>(initialKind);
   const [defaultKind, setDefaultKind] = useState(initialDefault);
+  const [projectCwd, setProjectCwd] = useState(cwd);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: the rows are the empty bar's.
   const [touched, setTouched] = useState(false);
@@ -228,7 +249,8 @@ export function NewTabPage({
     list.current?.querySelector<HTMLElement>(`#acpmux-omni-${selected}`)?.scrollIntoView?.({ block: "nearest" });
   }, [selected]);
   // A pane without a known folder names none rather than showing "No folder".
-  const folder = cwd ? projectLabel(cwd) : "";
+  const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
+  const folder = projectCwd ? projectLabel(projectCwd) : "";
   const agent = agentDisplayName(snapshot.summary?.harness ?? snapshot.catalog[0]?.id ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](kind === "agent" ? agent : folder);
 
@@ -259,15 +281,15 @@ export function NewTabPage({
       case "folder":
         return onSubmit("terminal", "", row.path);
       case "command":
-        return onSubmit("terminal", row.command);
+        return onSubmit("terminal", row.command, projectCwd);
       case "history":
         return onSubmit("browser", row.url);
       case "run":
-        return onSubmit("terminal", row.text);
+        return onSubmit("terminal", row.text, projectCwd);
       case "open":
         return onSubmit("browser", row.text);
       case "ask":
-        return onSubmit("agent", row.text);
+        return onSubmit("agent", row.text, projectCwd);
     }
   };
   const submit = (event?: React.FormEvent) => {
@@ -276,7 +298,7 @@ export function NewTabPage({
     if (row) return activate(row);
     // An empty terminal or agent opens as it is; an empty page has nothing to load.
     if (kind === "browser" && !query.trim()) return;
-    onSubmit(kind, query.trim());
+    onSubmit(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -369,11 +391,15 @@ export function NewTabPage({
         </div>
         <div className="acpmux-newtab-under">
           <span className="acpmux-newtab-context">
-            {kind === "browser" || !folder ? null : (
-              <span className="acpmux-newtab-chip">
-                <FolderIcon />
-                {folder}
-              </span>
+            {kind !== "browser" && (
+              <ProjectChooser
+                projects={projects}
+                current={projectCwd}
+                currentLabel={selectedProject}
+                icon={<FolderIcon />}
+                onPick={setProjectCwd}
+                onBrowse={onBrowseProject}
+              />
             )}
             {kind === "terminal" && (
               <span className="acpmux-newtab-chip">
@@ -454,10 +480,17 @@ export function NewTabPage({
           ))}
         </div>
       )}
-      <button type="button" className="acpmux-newtab-all" onClick={onShowAll}>
-        {NEW_TAB_LABELS.allSessions}
-        <ChevronRight />
-      </button>
+      <div className="acpmux-newtab-actions">
+        <button type="button" className="acpmux-newtab-all" onClick={onShowAll}>
+          {NEW_TAB_LABELS.allSessions}
+          <ChevronRight />
+        </button>
+        {onImport && (
+          <button type="button" className="acpmux-newtab-all" onClick={onImport}>
+            {NEW_TAB_LABELS.importAndSync}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

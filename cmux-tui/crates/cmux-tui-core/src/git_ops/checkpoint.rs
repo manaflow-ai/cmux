@@ -6,6 +6,7 @@
 //! repository and worktree their target resolved to. Reads take no lock.
 
 mod capture;
+mod compare;
 mod ledger;
 mod reads;
 mod record;
@@ -48,6 +49,7 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
         operation,
         ResourceOperation::GitCheckpointCreate
+            | ResourceOperation::GitCheckpointDiff
             | ResourceOperation::GitCheckpointGet
             | ResourceOperation::GitCheckpointList
             | ResourceOperation::GitCheckpointPin
@@ -63,6 +65,7 @@ pub(super) fn dispatch(
     let store = Store::open(mux, operation)?;
     let result = match request.envelope.operation {
         ResourceOperation::GitCheckpointCreate => create(mux, &store, &request),
+        ResourceOperation::GitCheckpointDiff => compare::diff(mux, &store, &request),
         ResourceOperation::GitCheckpointGet => reads::get(mux, &store, &request),
         ResourceOperation::GitCheckpointList => reads::list(mux, &store, &request),
         ResourceOperation::GitCheckpointPin | ResourceOperation::GitCheckpointUnpin => {

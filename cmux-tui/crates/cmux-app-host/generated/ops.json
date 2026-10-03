@@ -72,6 +72,7 @@
     "firewall.get",
     "firewall.list",
     "git.checkpoint.create",
+    "git.checkpoint.diff",
     "git.checkpoint.get",
     "git.checkpoint.list",
     "git.checkpoint.pin",

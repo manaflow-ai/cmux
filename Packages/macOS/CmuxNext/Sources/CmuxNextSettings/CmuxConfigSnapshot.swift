@@ -125,6 +125,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
     /// `tabs.newTabKind`; "same-kind" when unset or invalid.
     public var newTabKind: NewTabDefaultKind = NewTabDefaultKind.fallback
+    /// `newTerminal.opensWorkspace`; off when unset or invalid.
+    public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
     /// `palette.scopes.<scope>.prefix`: user-assigned palette scope prefixes.
     public var paletteScopePrefixes = PaletteScopePrefixes()
     /// `tasks.layout`; "inbox" when unset or invalid.
@@ -140,6 +142,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
+    /// `feed.github`: this Mac's opt-in GitHub inbox connection.
+    public var feedGitHub = FeedGitHubSettings()
     public var diagnostics: [SettingsDiagnostic]
     /// Retired keys the file still sets (`SettingsSchema.retiredKeys`):
     /// dropped without a diagnostic, listed for tooling.
@@ -236,6 +240,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (newTabKind, newTabKindDiagnostic) = NewTabDefaultKind.parse(root)
         snapshot.newTabKind = newTabKind
         if let newTabKindDiagnostic { snapshot.diagnostics.append(newTabKindDiagnostic) }
+        let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
+        snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
+        if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
         let (prefixes, prefixDiagnostics) = PaletteScopePrefixes.parse(root)
         snapshot.paletteScopePrefixes = prefixes
         snapshot.diagnostics += prefixDiagnostics
@@ -246,6 +253,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
         let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
         snapshot.appTheme = appTheme
         if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }

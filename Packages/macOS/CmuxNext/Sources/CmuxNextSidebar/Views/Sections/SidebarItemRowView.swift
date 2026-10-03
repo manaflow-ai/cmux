@@ -27,6 +27,9 @@ final class SidebarItemRowView: NSView {
     /// and unread items as a dot on the glyph (the Codex rail).
     var isRailButton = false
     var onPress: (() -> Void)?
+    /// Modifier-aware activation for controls whose action has a one-shot
+    /// Option override. Plain activations continue through `onPress`.
+    var onPressWithModifiers: ((NSEvent.ModifierFlags) -> Void)?
     var onContextMenu: ((NSEvent, NSView) -> Void)?
     var onHoverChanged: ((Bool) -> Void)?
 
@@ -225,7 +228,7 @@ final class SidebarItemRowView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard pill.frame.contains(convert(event.locationInWindow, from: nil)) else { return super.mouseDown(with: event) }
         isPressed = true
-        onPress?()
+        if let onPressWithModifiers { onPressWithModifiers(event.modifierFlags) } else { onPress?() }
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -239,7 +242,7 @@ final class SidebarItemRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        onPress?()
+        if let onPressWithModifiers { onPressWithModifiers([]) } else { onPress?() }
         return true
     }
 }

@@ -9,8 +9,6 @@ public final class AgentPaneModel {
     /// The session the page last reported, nil for a new chat that has not
     /// sent its first prompt.
     public private(set) var sessionId: String?
-    /// The last handshake failure shown to the page, for diagnostics.
-    public private(set) var lastError: String?
     /// Page projection of its single session-host Git capability read, never an authorization grant.
     public private(set) var checkpointAvailable = false
     @ObservationIgnored public var onCheckpointAvailability: ((Bool) -> Void)?
@@ -33,6 +31,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
     /// The new tab page's "default: X" toggle (`tab.setDefaultKind`).
     @ObservationIgnored public var onSetDefaultKind: ((String) -> Void)?
+    /// Runs an app action requested by an empty-state or new-tab control.
+    @ObservationIgnored public var onRunAction: ((String) -> Void)?
     /// Gets the composer's dictation requests (the pane's mic).
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
@@ -112,11 +112,9 @@ public final class AgentPaneModel {
                 handshake.revealTurn = pendingRevealTurn
                 pendingRevealTurn = nil
                 hasHandshake = true
-                lastError = nil
                 return AgentPaneReply.handshake(handshake)
             } catch {
                 let message = AgentPaneHostError.userMessage(for: error)
-                lastError = message
                 return AgentPaneReply.failure(code: "host_unavailable", message: message)
             }
         case .persistSession(let id):
@@ -138,6 +136,10 @@ public final class AgentPaneModel {
         case .openTab(let kind, let text, let cwd):
             guard newTab != nil, let onOpenTab else { return Self.unsupported("tab.open") }
             onOpenTab(kind, text, cwd)
+            return AgentPaneReply.success()
+        case .runAction(let id):
+            guard id == "palette.welcomeChecklist", newTab != nil, let onRunAction else { return Self.unsupported("action.run") }
+            onRunAction(id)
             return AgentPaneReply.success()
         case .jump(let target, let id):
             guard newTab != nil, let onJump else { return Self.unsupported("tab.jump") }

@@ -20,6 +20,7 @@ extension SettingsSchema {
         "window.titlebar",
         "window.rail",
         "tabs.newTabKind",
+        "newTerminal.opensWorkspace",
         "palette.scopes.tabs.prefix",
         "palette.scopes.workspaces.prefix",
         "palette.scopes.commands.prefix",
@@ -110,6 +111,8 @@ extension SettingsSchema {
         "history.terminalCommands": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
+        "feed.github.enabled": .network,
+        "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
         "app.quitBehavior": .destructive,
     ]

@@ -27,6 +27,7 @@ final class SidebarRailView: NSView {
     }
 
     var onActivate: ((LayoutItemID) -> Void)?
+    var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     private(set) var layoutResult = SidebarRailLayout.empty
     private var content: Content?
@@ -123,7 +124,13 @@ final class SidebarRailView: NSView {
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
         let view = SidebarItemRowView()
         view.isRailButton = true
-        view.onPress = { [weak self] in self?.onActivate?(id) }
+        view.onPressWithModifiers = { [weak self] flags in
+            if let onActivateWithModifiers = self?.onActivateWithModifiers {
+                onActivateWithModifiers(id, flags)
+            } else {
+                self?.onActivate?(id)
+            }
+        }
         view.onHoverChanged = { [weak self, weak view] isHovered in
             guard let view else { return }
             self?.setTooltip(for: id, view: view, visible: isHovered)

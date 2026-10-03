@@ -18,6 +18,8 @@ export interface CurrentPrincipalShape {
   readonly display_name?: string
   /** Team whose SSO created this session, resolved server-side by the Worker (sso.enforce). */
   readonly sso_team?: string
+  /** The Stack session's refresh token id (Stack-signed), so install.register can find the SSO team that created it. */
+  readonly stack_session?: string
 }
 export class CurrentPrincipal extends Context.Service<CurrentPrincipal, CurrentPrincipalShape>()("cmux/CurrentPrincipal") {}
 

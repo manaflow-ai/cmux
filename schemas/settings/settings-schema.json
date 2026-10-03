@@ -261,6 +261,49 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.newTerminal.opensWorkspace.help",
+        "text" : "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "newTerminal.opensWorkspace",
+      "keywords" : [
+        "new terminal",
+        "workspace",
+        "space",
+        "tab",
+        "option"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "newTerminal",
+        "opensWorkspace"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "title" : {
+        "key" : "settings.newTerminal.opensWorkspace",
+        "text" : "New Terminal Opens a Workspace"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "ask",
         "keep",
         "end-keep-layout",
@@ -5695,9 +5738,106 @@
         "text" : "Show Preview Features"
       },
       "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.githubInbox",
+        "text" : "GitHub Inbox"
+      },
+      "help" : {
+        "key" : "settings.feed.github.enabled.help",
+        "text" : "Uses your gh login to read notifications and review requests on this Mac. Sign in with gh auth login first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.github.enabled",
+      "keywords" : [
+        "github",
+        "inbox",
+        "review",
+        "pull request",
+        "connection",
+        "gh"
+      ],
+      "kind" : "toggle",
+      "path" : [
+        "feed",
+        "github",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.feed.github.enabled",
+        "text" : "Connect GitHub"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        900,
+        480
+      ],
+      "agent_refusal" : "network",
+      "agent_settable" : false,
+      "default" : 120,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.githubInbox",
+        "text" : "GitHub Inbox"
+      },
+      "help" : {
+        "key" : "settings.feed.github.pollInterval.help",
+        "text" : "Seconds between GitHub refreshes. Refresh in the Inbox runs immediately."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "feed.github.pollIntervalSeconds",
+      "keywords" : [
+        "github",
+        "inbox",
+        "poll",
+        "refresh",
+        "interval"
+      ],
+      "kind" : "number",
+      "path" : [
+        "feed",
+        "github",
+        "pollIntervalSeconds"
+      ],
+      "range" : {
+        "max" : 900,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 30,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -780,
+        1740,
+        "1"
+      ],
+      "section" : "notifications",
+      "title" : {
+        "key" : "settings.feed.github.pollInterval",
+        "text" : "Refresh Interval"
+      },
+      "validation" : "portable"
     }
   ],
-  "schema_hash" : "6f97432bfb1b311b5b86f09be9205b2b1dee2d8e56632a8bb16c4ac7e73e15e3",
+  "schema_hash" : "ae6264b3b682ce65e360ba0abed0b740824081c0a2b12cb8845c4d6a1519cf38",
   "sections" : [
     {
       "id" : "general",

@@ -32,6 +32,7 @@ nonisolated enum RefusalStrings {
         text("handlers.refusal.incognitoMismatch", "Incognito and normal windows can't share workspaces, tabs or screens.")
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
+    static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
     static var notABrowserTab: String { text("handlers.refusal.notABrowserTab", "This tab is not a web page.") }
     static var directionLeft: String { text("handlers.refusal.directionLeft", "left") }
     static var directionRight: String { text("handlers.refusal.directionRight", "right") }

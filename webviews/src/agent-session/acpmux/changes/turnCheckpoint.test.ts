@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { turnFiles } from "../diff";
+import { hunkKey, turnFiles } from "../diff";
 import type { AcpmuxRow } from "../model";
+import { rejectedHunks } from "./hunkReview";
 import { readTurnCheckpoint, turnCounts, turnDisplay, type TurnCheckpointLoad } from "./turnCheckpoint";
 
 const toolFiles = turnFiles([
@@ -55,6 +56,182 @@ describe("turn checkpoint", () => {
       ["src/a.generated.ts", true],
     ]);
     expect(display.files[0]!.edits[0]!.toolId).toBe("checkpoint:cp-7");
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([hunkKey(toolFiles[0]!, 0, 0)]);
+    expect(display.files[1]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+    const decisions = new Map([[hunkKey(toolFiles[0]!, 0, 0), "rejected" as const]]);
+    expect(rejectedHunks(display.files, decisions).map((entry) => entry.key)).toEqual([hunkKey(toolFiles[0]!, 0, 0)]);
+  });
+
+  test("a checkpoint hunk only maps to a tool hunk with the same changed lines", () => {
+    const changed = turnDisplay(
+      toolFiles,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          files: [
+            {
+              path: "src/a.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n a\n-b\n+elsewhere\n",
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(changed.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("a truncated checkpoint patch never gets review controls", () => {
+    const display = turnDisplay(
+      toolFiles,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          files: [
+            {
+              path: "src/a.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n a\n-b\n+B\n",
+              patch_truncated: true,
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.patchTruncated).toBe(true);
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("a repeated changed line does not guess between tool hunks", () => {
+    const repeated = turnFiles([
+      {
+        id: "activity-3",
+        version: 1,
+        at: 3,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t2",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [
+                { path: "~/code/a.ts", oldText: "x\na\n", newText: "x\nb\n" },
+                { path: "~/code/a.ts", oldText: "x\na\n", newText: "x\nb\n" },
+              ],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      repeated,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          root: "/Users/me/code",
+          files: [
+            {
+              path: "a.ts",
+              status: "modified",
+              additions: 1,
+              deletions: 1,
+              patch: "@@ -1,2 +1,2 @@\n x\n-a\n+b\n",
+            },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("a checkpoint hunk with fewer duplicate lines does not map to the whole tool hunk", () => {
+    const repeated = turnFiles([
+      {
+        id: "activity-4",
+        version: 1,
+        at: 4,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t3",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "~/code/a.ts", oldText: "a\na\n", newText: "b\nb\n" }],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      repeated,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          root: "/Users/me/code",
+          files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
+  });
+
+  test("a matching patch at another location stays read-only", () => {
+    const tool = turnFiles([
+      {
+        id: "activity-5",
+        version: 1,
+        at: 5,
+        kind: "activity",
+        items: [
+          {
+            kind: "tool",
+            text: "Edit",
+            tool: {
+              id: "t4",
+              title: "Edit",
+              kind: "edit",
+              status: "completed",
+              diffs: [{ path: "~/code/a.ts", oldText: "x\na\n", newText: "x\nb\n" }],
+            },
+          },
+        ],
+      },
+    ] as AcpmuxRow[]);
+    const display = turnDisplay(
+      tool,
+      readTurnCheckpoint({
+        ...wire(),
+        diff: {
+          scope: "lastTurn",
+          root: "/Users/me/code",
+          files: [
+            { path: "a.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -9,2 +9,2 @@\n x\n-a\n+b\n" },
+          ],
+        },
+      }),
+      false,
+    );
+    expect(display.files[0]!.edits[0]!.hunks[0]!.reviewKeys).toEqual([]);
   });
 
   test("every case without a usable checkpoint shows the tool calls' edits, with a note when one was expected", () => {
