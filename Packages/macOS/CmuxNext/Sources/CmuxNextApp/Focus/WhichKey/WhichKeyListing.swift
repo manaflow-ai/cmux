@@ -10,11 +10,11 @@ struct WhichKeyRow: Equatable {
 }
 
 /// The which-key overlay's rows: one per key bound under a chord prefix
-/// (`ActionRegistry.chords(after:)`), ordered by key. Where several actions
+/// (`LeaderLayer.chords(after:)`), ordered by key. Where several actions
 /// share a key, the one that key would run now is listed, else the first.
 enum WhichKeyListing {
     static func rows(after prefix: Shortcut, in registry: ActionRegistry) -> [WhichKeyRow] {
-        Dictionary(grouping: registry.chords(after: prefix), by: \.second).map { second, bindings in
+        Dictionary(grouping: LeaderLayer(registry: registry).chords(after: prefix), by: \.second).map { second, bindings in
             let id = registry.resolveChord(after: prefix, second)?.id ?? bindings[0].id
             return WhichKeyRow(key: registry.shortcutDisplay(second, for: id), title: registry.title(for: id) ?? id.rawValue,
                                isEnabled: registry.canPerform(id))

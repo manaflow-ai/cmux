@@ -91,7 +91,7 @@ import Testing
         registry.setShortcutOverride(LeaderLayer.prefix, for: "toggleSidebar")
         #expect(registry.resolve(LeaderLayer.prefix)?.id == "toggleSidebar")
         #expect(registry.effectiveChord(for: "terminal.scrollToSelection") == nil)
-        #expect(!registry.hasChords(after: LeaderLayer.prefix))
+        #expect(!LeaderLayer(registry: registry).hasChords())
 
         // A chord the user put under Cmd-J themselves still counts.
         let k = Shortcut("k", modifiers: [])
@@ -103,10 +103,11 @@ import Testing
     /// performable or not.
     @Test func chordsAfterThePrefixListEveryLeaderBinding() {
         let registry = ActionRegistry.standard()
-        let bindings = registry.chords(after: LeaderLayer.prefix)
+        let leader = LeaderLayer(registry: registry)
+        let bindings = leader.chords()
         #expect(Set(bindings.map(\.id)) == Set(LeaderLayer.defaultChords.map { $0.id }))
         #expect(bindings.contains(ChordBinding(second: Self.j, id: "terminal.scrollToSelection")))
-        #expect(registry.chords(after: Shortcut("b", modifiers: [.control])).isEmpty)
-        #expect(registry.hasChords(after: LeaderLayer.prefix))
+        #expect(leader.chords(after: Shortcut("b", modifiers: [.control])).isEmpty)
+        #expect(leader.hasChords())
     }
 }

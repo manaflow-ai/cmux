@@ -28,32 +28,11 @@ public nonisolated struct ChordBinding: Hashable, Sendable {
 }
 
 extension ActionRegistry {
-    /// `id`'s chord: from cmux.json, else the catalog's `defaultChord`
-    /// unless cmux.json gives it a single key or unbinds it, or binds some
-    /// action's single key to the chord's first key (a user's own `cmd+j`
-    /// wins over the leader defaults). A cmux.json chord replaces the
-    /// single-key shortcut (``effectiveShortcut(for:)`` is nil then); a
-    /// default chord adds to it.
+    /// `id`'s chord: from cmux.json (it replaces the single key), else its
+    /// default chord (it adds to it; `LeaderLayer.defaultChord(for:)`).
     public func effectiveChord(for id: ActionID) -> ShortcutChord? {
         let id = canonicalID(for: id)
-        if let chord = chordOverrides[id] { return chord }
-        guard shortcutOverrides[id] == nil, let chord = descriptor(for: id)?.defaultChord else { return nil }
-        return shortcutOverrides.values.contains(.some(chord.first)) ? nil : chord
-    }
-
-    /// Every binding under `prefix` (the which-key overlay), whether or not
-    /// its action can run now; numbered families keyed by their `1`.
-    public func chords(after prefix: Shortcut) -> [ChordBinding] {
-        let index = currentShortcutIndex()
-        return [index.chords[prefix], index.chordDigitFamilies[prefix]].compactMap { $0 }.flatMap { table in
-            table.flatMap { second, ids in ids.map { ChordBinding(second: second, id: $0) } }
-        }
-    }
-
-    /// Whether any binding sits under `prefix`.
-    public func hasChords(after prefix: Shortcut) -> Bool {
-        let index = currentShortcutIndex()
-        return index.chords[prefix]?.isEmpty == false || index.chordDigitFamilies[prefix]?.isEmpty == false
+        return chordOverrides[id] ?? LeaderLayer(registry: self).defaultChord(for: id)
     }
 
     /// Sets a chord override (replacing any single-key override).

@@ -59,7 +59,7 @@ struct ChordTracker {
             }
         }
         guard KeyRouter.isChord(event.modifierFlags),
-              let prefix = LeaderLayer.chordPrefix(for: event, in: registry),
+              let prefix = LeaderLayer(registry: registry).chordPrefix(for: event),
               canArm() else { return .pass }
         pending = (prefix, window, focus)
         return .armed
