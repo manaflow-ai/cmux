@@ -241,6 +241,41 @@ Today a clone sends a gratuitous ARP burst at bind and every 30 s, because an ea
 
 Kernel 6.1.102 with everything built in and no loadable modules: WireGuard (`ip link add type wireguard` works, `wg` installed), `/dev/net/tun`, nftables and iptables-nft, IP forwarding on, cgroup v2 with cpu, memory, io and pids controllers and working user delegation (`systemd-run --user -p MemoryMax=… -p CPUQuota=…`), user namespaces (rootless overlay mounts work), overlayfs, loop devices, `/dev/kvm` (nested virtualization), systemd 255 with socket activation, Docker 29.1.3. FUSE works (`/dev/fuse` 0666) once the image installs `fuse3` (setuid `fusermount3`; add `user_allow_other` to `/etc/fuse.conf` for JuiceFS); POSIX ACLs work on the ext4 root once `acl` is installed. Pause takes 104 to 219 ms (the first call 7 s), start 71 to 217 ms; inotify watches survive, and monotonic timers count paused time.
 
+## 6b. Team VM bind route (owner: lane 1; pairing side reviewed by lane 10)
+
+Goal: bind the team VM's own install to `TeamVmDO` for the current epoch (`team_vm.bind_install`, internal, once per epoch, landed in S6 at e4c59605b9e), and only after the VM has proved which provider instance it is. Until then the team journal is unreachable in deployments.
+
+Why the metadata service alone is not proof: the instance id is readable by every process in the guest and by nobody outside it. A guest can therefore claim any id. The proof must come through a channel that only our control plane holds: the provider API key, which the guest never sees.
+
+Flow (control-plane initiated, no secret in the image):
+1. `TeamVmDO` gets a provider result for the epoch (`create` or `start` ok, `vm` = provider id) and does not have a binding for that epoch yet. It mints a single-use nonce (32 random bytes, stored with epoch, vm and an expiry of 5 minutes).
+2. `TeamVmDO` runs one provider exec on that exact VM (Freestyle `vm.exec`, authenticated by our API key): `cmux host enroll --team <team> --epoch <e> --nonce <nonce>`. Only the holder of the provider key can reach this VM's exec, so the channel authenticates the machine.
+3. On the VM, `cmux host enroll`:
+   - checks that the machine is bound (the bind agent has reseeded and re-keyed for this instance id), and refuses while parked;
+   - reads the metadata instance id;
+   - creates the install key if missing (Ed25519, private key 0600 under the host state directory, never exported);
+   - prints one JSON line `{instance_id, public_key, signature}`. The signature covers `cmux-team-vm-bind\n<team>\n<epoch>\n<instance_id>\n<nonce>`.
+4. `TeamVmDO` checks all of these and refuses on any mismatch (no binding, nonce burned):
+   - the nonce is unexpired and unused;
+   - `instance_id` equals the record's `vm`;
+   - the signature is valid for `public_key`;
+   - the epoch is still the record's epoch (re-read after every await).
+5. `TeamVmDO` registers the install with the team as a server-class install (the same path as lane 10's enrollment: `TeamDO.enrollServer` with `kind: server`, `tags: [team-vm]`, `op_classes` limited to the journal and team-host ops). It then submits `team_vm.bind_install {install, epoch}` with idempotency key `bind_install:<epoch>:<install>`.
+6. The VM gets tokens like any server install: it signs a fresh `TeamDO` challenge with its install key (D5). No token is pushed through exec, and nothing is written into the image.
+
+Properties:
+- A restored or forked VM gets a new epoch and a new instance id. The bind for the old epoch is refused (`team_vm.stale_epoch`), and the old install is revoked at restore (team-vm-plan section 3).
+- A guest that lies about its instance id fails step 4.
+- A guest that replays an old enroll output fails on the nonce.
+- An exec that times out or fails leaves the epoch unbound. Each provider result retries it with backoff. The journal stays refused (`team_vm.not_bound`); nothing queues (U5).
+
+Rollout: the route is enabled on staging only (`TEAM_VM_BIND_ENABLED=1` on the staging Worker) until the backend lead reviews it. A security review subagent runs before landing. It is built after the `cmux-host` crate lands (the `enroll` verb lives there).
+
+Ownership:
+- `TeamVmDO` owns the nonce, the epoch and the binding.
+- `TeamDO` owns the install record.
+- The VM's `cmux host` owns the install key.
+
 ## 7. Ownership
 
 | Entity | Owner | Others |
