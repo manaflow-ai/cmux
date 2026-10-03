@@ -21,7 +21,7 @@ struct SidebarSeed {
 
     /// `live` with loading sections filled in. `launching` is true until the
     /// app restored its windows (or the local daemon is unavailable).
-    mutating func merge(_ live: [SidebarSection], launching: Bool) -> [SidebarSection] {
+    mutating func merge(_ live: [SidebarSection], launching: Bool, failed: Set<MachineID> = []) -> [SidebarSection] {
         var result: [SidebarSection] = []
         for section in live {
             let loading = Self.isLoading(section, launching: launching)
