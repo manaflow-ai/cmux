@@ -63,6 +63,14 @@ fn cases() -> Vec<Case> {
         .collect()
 }
 
+/// `CMUX_TERMINAL_CORPUS_CELL_PX=WxH`: the viewer's cell pixel size (the
+/// cross check passes the surface's). Kitty placements size in cells from it.
+fn cell_pixels() -> Option<(u32, u32)> {
+    let value = std::env::var("CMUX_TERMINAL_CORPUS_CELL_PX").ok()?;
+    let (width, height) = value.split_once('x')?;
+    Some((width.trim().parse().ok()?, height.trim().parse().ok()?))
+}
+
 fn out_dir() -> PathBuf {
     let dir = std::env::var_os("CMUX_TERMINAL_CORPUS_OUT")
         .map(PathBuf::from)
@@ -85,6 +93,9 @@ fn terminal_corpus_snapshots_encode_ready_and_complete() {
             Terminal::new(case.cols, case.rows, HOST_SCROLLBACK_BYTES, Callbacks::default())
                 .unwrap();
         term.set_default_colors(Some(HOST_DEFAULT_FOREGROUND), Some(HOST_DEFAULT_BACKGROUND), None);
+        if let Some((width, height)) = cell_pixels() {
+            term.resize(case.cols, case.rows, width, height).unwrap();
+        }
         term.vt_write(&bytes);
         let ready = term.encode_snapshot(SnapshotPhase::Ready).unwrap();
         let complete = term.encode_snapshot(SnapshotPhase::Complete).unwrap();
