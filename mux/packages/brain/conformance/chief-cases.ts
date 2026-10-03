@@ -544,6 +544,21 @@ function turnCases(): CorpusCase[] {
   }
 
   {
+    const c = new CaseBuilder("turns: an event whose seq or at is not a non-negative integer is dropped with a log");
+    boot(c);
+    c.step(mux(ev(1, "turn_started")), ["typing"]);
+    c.step(mux({ ...chunk(2, "float seq "), seq: 2.5 }), []);
+    c.step(mux({ ...chunk(2, "float at "), at: 7.25 }), []);
+    c.step(mux({ ...chunk(2, "negative seq "), seq: -1 }), []);
+    c.step(mux(chunk(3, "good")), []);
+    c.step(mux(ev(4, "turn_end")), ["persist", "conversation_op", "typing"], (e) => {
+      const op = c.get(e, "conversation_op");
+      c.check(op.op.kind === "message.send" && op.op.parts[0].type === "text" && op.op.parts[0].text === "good", "only the valid chunk");
+    });
+    cases.push(c.end());
+  }
+
+  {
     const c = new CaseBuilder("turns: an event without seq or msg folds as seq 0 and {}; an empty default conversation is none");
     boot(c);
     c.step(mux(ev(1, "turn_started")), ["typing"]);
