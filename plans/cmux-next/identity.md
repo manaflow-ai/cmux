@@ -90,13 +90,30 @@ Rules:
   an `actor` field next to `origin` and `idempotency_key` (beside them, not in the
   payload). Projections never depend on the caller. Every durable write path must
   set it; a test fails when a mutation path leaves it empty.
-- Only the local Unix socket accepts `credential`. Known gap (slice 3a review):
-  the cmux-remote mux control bridge pumps a paired peer's bytes into that
-  same Unix socket, so the session host sees it as local. A paired peer is
-  already trusted as the user, so the gap is attribution only (it could act
-  as a terminal whose credential it read), never more reach. Slice 3b closes
-  it, before any frontend-only `secret.release` depends on it: the bridge
-  marks its connection remote and the server refuses `credential` on it. `secret.release` already refuses every credential.
+- Only a LOCAL PRINCIPAL accepts `credential`: a Unix connection that no
+  remote bridge carries. The cmux-remote mux control bridge pumps a paired
+  peer's bytes into the same Unix socket, so it writes a mark line
+  (`connection-origin`, `remote_bridge`) before any peer byte, through one
+  connect function; the session records it for that connection and nothing
+  clears it (slice 3b-1, server/connection_origin.rs, cmux-remote
+  bridge_mark.rs). A marked connection cannot present a launch credential,
+  never becomes the frontend, and cannot list, resolve or answer pairing
+  requests (it does not get pending pairings in a subscription). Other
+  `is_unix` gates keep their meaning.
+- Residual window (coordinator decision 2026-10-03, option (a) of three): the
+  mark is claimed by the bridge, not set by the listener. An OLD sidecar
+  binary sends no mark. It cannot outlive the daemon that accepted it: a
+  handoff or a crash closes every accepted connection, the sidecar's monitor
+  sees end of file and the sidecar exits (tests/bridge_monitor_lifecycle.rs),
+  and the new owner starts a new sidecar. In the gap (at most one 250 ms
+  monitor poll) an old sidecar may open an unmarked peer connection to the
+  new daemon. That connection counts as local: it could present a credential
+  it read (attribution only) AND pass the pairing-approval gate. The risk is
+  low: it needs a version upgrade or a crash, a pending pairing request at
+  that moment, and a peer that is already paired and trusted as the user;
+  `secret.release` refuses every credential. Follow-up (c): the in-process
+  `--headless` bridge gets a daemon-made socketpair, so its mark is set by
+  the listener.
 - The daemon never keeps an inherited `CMUX_LAUNCH_CREDENTIAL`: a mux process
   removes it from its own environment at start, and the CLI removes it from
   the detached owner it spawns, so no helper or plugin acts as a terminal.
