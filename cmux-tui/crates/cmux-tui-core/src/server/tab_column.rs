@@ -49,7 +49,9 @@ pub(super) fn move_tab_to_column(
     get_surface(mux, surface)?;
     let anchor = column_anchor(mux, pane, screen)?;
     let outcome = match respawn {
-        None => mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?,
+        None => {
+            mux.move_tab_to_column(surface, anchor, after_column, width, sticky, transaction)?
+        }
         Some(respawn) => {
             let respawn = respawn.into_respawn()?;
             let destination = crate::mux::ColumnMove { pane: anchor, after_column, width, sticky };
