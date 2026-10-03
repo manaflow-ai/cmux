@@ -116,6 +116,11 @@ memory functions. Rust runs it with `include_str!` in `cmux-chief/tests/corpus.r
 it in `bun test`. A required check runs both (the corpus is the contract, like
 `cmux-conversation-conformance/1`).
 
+Float gap (coordinator rule): JSON text inside prompts and replies is canonical (sorted keys,
+compact), but the cores write floats differently (`{"x":1.0}` is `{"x":1}` in TypeScript and
+`{"x":1.0}` in Rust serde_json). No code compares that text between the cores, and corpus cases
+put no floats in rawInput or turn errors. A unit test in each language pins its current text.
+
 ## 5. Tools come from the catalog
 
 No hand-written tool list. The Chief's verbs become catalog operations in
