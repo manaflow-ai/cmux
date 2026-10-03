@@ -1,36 +1,90 @@
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { linkSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 
 /**
  * One holder at a time: a lock file holding the owner's pid, stale when that
  * pid is gone. Returns a release function, or undefined when a live process
- * holds it.
+ * holds it (or another taker is taking a stale lock over right now).
+ *
+ * The lock file is never empty: the pid is written to a private file first and
+ * then hard-linked into place, which fails if the lock exists. Only a taker
+ * that holds the takeover lock (`<path>.takeover`, taken the same way) may
+ * remove a stale lock, and it reads the lock again under the takeover lock
+ * first, so it never removes a lock that another taker has just taken.
  */
 export function takeLock(path: string): (() => void) | undefined {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (linkPid(path)) return release(path);
+    const owner = readOwner(path);
+    if (owner === "gone") continue; // Released between our link and read: try again.
+    if (owner === "held") return undefined;
+    // Stale: only the takeover lock's holder may remove it.
+    const takeover = `${path}.takeover`;
+    if (!linkPid(takeover)) {
+      // Another taker is taking it over. A takeover lock outlives its taker
+      // only if that taker died inside these few calls; then it is old.
+      if (!isOld(takeover)) return undefined;
+      rmSync(takeover, { force: true });
+      if (!linkPid(takeover)) return undefined;
+    }
     try {
-      const fd = openSync(path, "wx");
-      writeSync(fd, String(process.pid));
-      closeSync(fd);
-      return () => {
-        try {
-          if (Number(readFileSync(path, "utf8").trim()) === process.pid) rmSync(path, { force: true });
-        } catch {
-          // Already gone.
-        }
-      };
-    } catch {
-      let owner = 0;
-      try {
-        owner = Number(readFileSync(path, "utf8").trim());
-      } catch {
-        continue; // Released between our open and read: try again.
-      }
-      // Our own pid counts as held: a second host in this process is still a second host.
-      if (owner && isAlive(owner)) return undefined;
-      rmSync(path, { force: true });
+      const again = readOwner(path);
+      if (again === "held") return undefined; // Another taker won the takeover first.
+      if (again === "stale") rmSync(path, { force: true });
+      if (linkPid(path)) return release(path);
+    } finally {
+      rmSync(takeover, { force: true });
     }
   }
   return undefined;
+}
+
+/** A lock file with no valid pid this old is left over from a crashed writer (older hosts wrote the pid after creating the file). */
+const ORPHAN_MS = 10_000;
+
+/** Writes this process's pid to a private file and links it to `path`; false if `path` exists. */
+function linkPid(path: string): boolean {
+  const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+  writeFileSync(tmp, String(process.pid));
+  try {
+    linkSync(tmp, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  } finally {
+    rmSync(tmp, { force: true });
+  }
+}
+
+function release(path: string): () => void {
+  return () => {
+    try {
+      if (Number(readFileSync(path, "utf8").trim()) === process.pid) rmSync(path, { force: true });
+    } catch {
+      // Already gone.
+    }
+  };
+}
+
+/** "held": a live pid (our own counts: a second host in this process is still a second host). */
+function readOwner(path: string): "held" | "stale" | "gone" {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8").trim();
+  } catch {
+    return "gone";
+  }
+  const pid = Number(text);
+  if (!Number.isInteger(pid) || pid <= 0) return isOld(path) ? "stale" : "held";
+  return isAlive(pid) ? "held" : "stale";
+}
+
+function isOld(path: string): boolean {
+  try {
+    return Date.now() - statSync(path).mtimeMs > ORPHAN_MS;
+  } catch {
+    return true;
+  }
 }
 
 export function lockHolder(path: string): number | undefined {
