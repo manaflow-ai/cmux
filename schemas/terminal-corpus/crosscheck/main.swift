@@ -5,18 +5,20 @@
 // libghostty-vt snapshots (ghostty-vt tests/terminal_corpus.rs output).
 //
 // Usage: crosscheck <corpus dir> <host snapshot dir> <out dir> <ghostty config file>
+//        crosscheck --cell-size <ghostty config file>   (prints WxH of a surface cell)
 import AppKit
 import GhosttyNextKit
 
 let args = CommandLine.arguments
-guard args.count == 5 else {
+let probeCellSize = args.count == 3 && args[1] == "--cell-size"
+guard args.count == 5 || probeCellSize else {
     print("usage: crosscheck <corpus dir> <host dir> <out dir> <config file>")
     exit(2)
 }
-let corpus = URL(fileURLWithPath: args[1])
-let hostDir = URL(fileURLWithPath: args[2])
-let outDir = URL(fileURLWithPath: args[3])
-let configPath = args[4]
+let corpus = URL(fileURLWithPath: probeCellSize ? "/" : args[1])
+let hostDir = URL(fileURLWithPath: probeCellSize ? "/" : args[2])
+let outDir = URL(fileURLWithPath: probeCellSize ? "/" : args[3])
+let configPath = probeCellSize ? args[2] : args[4]
 
 struct Case: Decodable { let name: String; let file: String; let cols: UInt16; let rows: UInt16; let features: [String] }
 struct Manifest: Decodable { let cases: [Case] }
@@ -106,20 +108,38 @@ func compare(_ label: String, _ phone: [UInt8], _ host: [UInt8]) -> (Bool, Strin
     return (false, "\(label) DIFFERS phone \(phone.count) B host \(host.count) B: \(diffs.prefix(8).joined(separator: ", "))")
 }
 
+/// A MANUAL_MIRROR surface on an unattached view, like the corpus cases use.
+@MainActor
+func makeSurface() -> (NSView, ghostty_surface_t) {
+    let view = NSView(frame: NSRect(x: 0, y: 0, width: 1600, height: 1200))
+    var config = ghostty_surface_config_new()
+    config.platform_tag = GHOSTTY_PLATFORM_MACOS
+    config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(view).toOpaque()))
+    config.scale_factor = 1
+    config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
+    config.io_write_cb = { _, _, _ in }
+    guard let raw = ghostty_surface_new(app, &config) else { print("surface_new failed"); exit(1) }
+    return (view, raw)
+}
+
+/// The surface's cell pixel size, for the host corpus terminal.
+@MainActor
+func printCellSize() {
+    let (_, raw) = makeSurface()
+    let size = ghostty_surface_size(raw)
+    print("\(size.cell_width_px)x\(size.cell_height_px)")
+    ghostty_surface_free(raw)
+    exit(0)
+}
+
 @MainActor
 func run() {
     let manifest = try! JSONDecoder().decode(Manifest.self, from: Data(contentsOf: corpus.appendingPathComponent("manifest.json")))
     print("snapshot version phone=\(ghostty_surface_snapshot_version())")
     var allEqual = true
     for c in manifest.cases {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 1600, height: 1200))
-        var config = ghostty_surface_config_new()
-        config.platform_tag = GHOSTTY_PLATFORM_MACOS
-        config.platform = ghostty_platform_u(macos: ghostty_platform_macos_s(nsview: Unmanaged.passUnretained(view).toOpaque()))
-        config.scale_factor = 1
-        config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
-        config.io_write_cb = { _, _, _ in }
-        guard let raw = ghostty_surface_new(app, &config) else { print("\(c.name): surface_new failed"); exit(1) }
+        let (view, raw) = makeSurface()
+        defer { _ = view }
         let surface = SurfaceRef(raw: raw)
         let bytes = try! Data(contentsOf: corpus.appendingPathComponent(c.file))
         let done = DispatchSemaphore(value: 0)
@@ -169,4 +189,4 @@ runtime.write_clipboard_cb = { _, _, _, _, _ in }
 runtime.close_surface_cb = { _, _ in }
 guard let created = ghostty_app_new(&runtime, config) else { print("ghostty_app_new failed"); exit(1) }
 app = created
-MainActor.assumeIsolated { run() }
+MainActor.assumeIsolated { probeCellSize ? printCellSize() : run() }

@@ -11,19 +11,14 @@ mkdir -p "$out/host" "$out/phone"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# 1. Host snapshots: the corpus test writes READY and COMPLETE per case.
-git -C "$root" submodule update --init --depth 1 ghostty ghostty-next
-(cd "$root/cmux-tui" && CMUX_TERMINAL_CORPUS_OUT="$out/host" \
-  cargo test -p ghostty-vt --test terminal_corpus -- --nocapture)
-
-# 2. GhosttyNextKit release, checked against its pinned sha256.
+# 1. GhosttyNextKit release, checked against its pinned sha256.
 curl -fsSL -o "$work/kit.zip" \
   "https://github.com/manaflow-ai/ghostty-next/releases/download/$tag/GhosttyNextKit.xcframework.zip"
 echo "$sha  $work/kit.zip" | shasum -a 256 -c -
 (cd "$work" && unzip -q kit.zip)
 x="$work/GhosttyNextKit.xcframework"
 
-# 3. The surface side, configured like the session host's terminal:
+# 2. The surface side, configured like the session host's terminal:
 #    - scrollback budget 50 MB (cmux-tui DEFAULT_SCROLLBACK_LIMIT_BYTES);
 #    - the default colors the frontend sends the host (Ghostty's theme);
 #    - no cursor-blink default (libghostty-vt's default cursor policy);
@@ -40,4 +35,14 @@ xcrun --sdk macosx swiftc -O -swift-version 6 -target arm64-apple-macos13 \
   -framework CoreFoundation -framework CoreGraphics -framework CoreText -framework CoreVideo \
   -framework QuartzCore -framework IOSurface -framework Metal -framework Foundation \
   -framework AppKit -framework Carbon -lc++ -o "$work/crosscheck"
+# 4. Host snapshots: the corpus test writes READY and COMPLETE per case, with
+#    the surface's cell pixel size (Kitty placements size in cells from it).
+git -C "$root" submodule update --init --depth 1 ghostty ghostty-next
+cell="$("$work/crosscheck" --cell-size "$work/ghostty.conf")"
+echo "surface cell size: $cell"
+(cd "$root/cmux-tui" && CMUX_TERMINAL_CORPUS_OUT="$out/host" CMUX_TERMINAL_CORPUS_CELL_PX="$cell" \
+  cargo test -p ghostty-vt --test terminal_corpus -- --nocapture)
+
+
+# 5. Compare.
 "$work/crosscheck" "$root/schemas/terminal-corpus" "$out/host" "$out/phone" "$work/ghostty.conf"
