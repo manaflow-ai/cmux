@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 extension CMUXCLI {
     private typealias SessionListAgentSpec = (name: String, displayName: String, sessionStoreSuffix: String, configDirEnvOverride: String?)
@@ -13,7 +14,11 @@ extension CMUXCLI {
     ) throws {
         var args = rawArgs
         let subcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if subcommand == "debug" || subcommand == "list" {
+        if subcommand == "scratch" {
+            args.removeFirst()
+            try runSessionsScratchCommand(commandArgs: args, jsonOutput: jsonOutput, processEnv: processEnv, fileManager: fileManager)
+            return
+        } else if subcommand == "debug" || subcommand == "list" {
             args.removeFirst()
         } else if subcommand == "help" {
             print(sessionsUsage())
@@ -313,6 +318,7 @@ extension CMUXCLI {
         String(localized: "cli.sessions.usage", defaultValue: """
         Usage: cmux sessions list [options]
                cmux sessions [options]
+               cmux sessions scratch [preview] [options]
 
         Print saved agent session records from ~/.cmuxterm/*-hook-sessions.json.
         This command does not require a running cmux socket.
@@ -338,6 +344,10 @@ extension CMUXCLI {
         Compatibility aliases:
           cmux sessions debug [options]
           cmux session-debug [options]
+
+        Scratch preview:
+          cmux sessions scratch [preview] [--agent <name>] [--limit <n>] [--json]
+          Reports only marked cmux-owned scratch roots. It never deletes or compresses files.
         """)
     }
 
@@ -442,7 +452,7 @@ extension CMUXCLI {
         let scratch = ((payload["scratch_owned"] as? Bool) == true) ? "yes" : "no"
         parts.append("scratch=\(scratch)")
         if scratch == "yes" {
-            parts.append("scratch_bytes=\((payload["scratch_bytes"] as? Int) ?? 0)")
+            parts.append("scratch_bytes=\((payload["scratch_bytes"] as? Int64) ?? 0)")
             parts.append("scratch_files=\((payload["scratch_file_count"] as? Int) ?? 0)")
             parts.append("scratch_root=\(scratchRoot)")
         }
@@ -474,38 +484,20 @@ extension CMUXCLI {
         homeDirectory: String,
         fileManager: FileManager
     ) -> [String: Any] {
-        let root = URL(fileURLWithPath: homeDirectory, isDirectory: true)
-            .appendingPathComponent(".local", isDirectory: true)
-            .appendingPathComponent("state", isDirectory: true)
-            .appendingPathComponent("cmux", isDirectory: true)
-            .appendingPathComponent("agent-artifacts", isDirectory: true)
-            .appendingPathComponent(provider, isDirectory: true)
-            .appendingPathComponent(sessionID, isDirectory: true)
-        let marker = root.appendingPathComponent(".cmux-owned", isDirectory: false)
-        guard fileManager.fileExists(atPath: marker.path),
-              (try? String(contentsOf: marker, encoding: .utf8))?.hasPrefix("cmux-agent-artifact-v1") == true else {
+        guard let entry = AgentArtifactInventory.inspect(
+            provider: provider,
+            sessionID: sessionID,
+            homeDirectory: URL(fileURLWithPath: homeDirectory, isDirectory: true),
+            fileManager: fileManager
+        ) else {
             return ["scratch_owned": false]
-        }
-
-        var bytes = 0
-        var fileCount = 0
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey]
-        if let enumerator = fileManager.enumerator(at: root, includingPropertiesForKeys: Array(keys)) {
-            for case let url as URL in enumerator {
-                guard url.path != marker.path,
-                      fileCount < 10_000,
-                      let values = try? url.resourceValues(forKeys: keys),
-                      values.isRegularFile == true else { continue }
-                fileCount += 1
-                bytes += values.fileSize ?? 0
-            }
         }
         return [
             "scratch_owned": true,
-            "scratch_root": root.path,
-            "scratch_bytes": bytes,
-            "scratch_file_count": fileCount,
-            "scratch_scan_truncated": fileCount >= 10_000
+            "scratch_root": entry.root.path,
+            "scratch_bytes": entry.bytes,
+            "scratch_file_count": entry.fileCount,
+            "scratch_scan_truncated": entry.scanTruncated
         ]
     }
 
@@ -536,6 +528,92 @@ extension CMUXCLI {
             return uuid
         }
         return normalized
+    }
+
+    func runSessionsScratchCommand(
+        commandArgs rawArgs: [String],
+        jsonOutput: Bool,
+        processEnv: [String: String],
+        fileManager: FileManager
+    ) throws {
+        var args = rawArgs
+        if let first = args.first, first == "help" {
+            print("Usage: cmux sessions scratch [preview] [--agent <name>] [--limit <n>] [--json]")
+            return
+        }
+        if args.first == "preview" || args.first == "list" {
+            args.removeFirst()
+        }
+        let (agentRaw, rem0) = parseOption(args, name: "--agent")
+        let (limitRaw, rem1) = parseOption(rem0, name: "--limit")
+        var localJSONOutput = jsonOutput
+        var remaining: [String] = []
+        for arg in rem1 {
+            if arg == "--json" {
+                localJSONOutput = true
+            } else {
+                remaining.append(arg)
+            }
+        }
+        if let unexpected = remaining.first {
+            throw CLIError(message: "sessions scratch: unexpected argument '\(unexpected)'")
+        }
+        let limit: Int
+        if let limitRaw {
+            guard let parsed = Int(limitRaw), parsed > 0 else {
+                throw CLIError(message: "sessions scratch: --limit must be a positive integer")
+            }
+            limit = parsed
+        } else {
+            limit = 256
+        }
+
+        let homeDirectory = URL(
+            fileURLWithPath: processEnv["HOME"] ?? NSHomeDirectory(),
+            isDirectory: true
+        )
+        let agentFilter = agentRaw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let report = AgentArtifactInventory.scan(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            limits: .init(maximumRuns: limit),
+            providerFilter: agentFilter
+        )
+        let entries = report.entries
+        if localJSONOutput {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let payload: [String: Any] = [
+                "canonical_root": report.canonicalRoot.path,
+                "total_bytes": entries.reduce(Int64(0)) { $0 + $1.bytes },
+                "total_files": entries.reduce(0) { $0 + $1.fileCount },
+                "runs": entries.map { entry in
+                    var value: [String: Any] = [
+                        "provider": entry.provider,
+                        "session_id": entry.sessionID,
+                        "root": entry.root.path,
+                        "bytes": entry.bytes,
+                        "file_count": entry.fileCount,
+                        "scan_truncated": entry.scanTruncated,
+                        "action": "keep",
+                        "reason": "read-only preview; retention state is not recorded"
+                    ]
+                    value["modified_at"] = entry.modifiedAt.map { formatter.string(from: $0) } ?? NSNull()
+                    return value
+                }
+            ]
+            print(jsonString(payload))
+            return
+        }
+        if entries.isEmpty {
+            print("No cmux-owned agent scratch runs found under \(report.canonicalRoot.path).")
+            return
+        }
+        for entry in entries {
+            let modified = entry.modifiedAt.map { String(describing: $0) } ?? "unknown"
+            let truncated = entry.scanTruncated ? " truncated=yes" : ""
+            print("\(entry.provider)/\(entry.sessionID)  bytes=\(entry.bytes)  files=\(entry.fileCount)\(truncated)  modified=\(modified)  root=\(entry.root.path)")
+        }
     }
 
 }
