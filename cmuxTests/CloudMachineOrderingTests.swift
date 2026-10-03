@@ -134,7 +134,7 @@ struct CloudMachineOrderingTests {
         for id in ids { outline.expandItem(try fixture.root(id), expandChildren: true) }
         fixture.base.container.layoutSubtreeIfNeeded()
         var bottom = clip.bounds
-        bottom.origin.y = .greatestFiniteMagnitude
+        bottom.origin.y = outline.frame.height
         clip.scroll(to: clip.constrainBoundsRect(bottom).origin)
         outline.enclosingScrollView?.reflectScrolledClipView(clip)
         fixture.base.container.layoutSubtreeIfNeeded()
@@ -241,7 +241,7 @@ struct CloudMachineOrderingTests {
 
         // Scrolled all the way up mid-drag, the first row shows.
         var top = clip.bounds
-        top.origin.y = -.greatestFiniteMagnitude
+        top.origin.y = -outline.frame.height
         clip.scroll(to: clip.constrainBoundsRect(top).origin)
         outline.enclosingScrollView?.reflectScrolledClipView(clip)
         fixture.base.container.layoutSubtreeIfNeeded()
