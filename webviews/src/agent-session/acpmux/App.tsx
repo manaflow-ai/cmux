@@ -47,7 +47,7 @@ import { DictationButton } from "./DictationButton";
 import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
-import type { GitWriteOp } from "./changes/gitWrite";
+import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { Counts } from "./changes/Counts";
 import { ChevronDown, DiffFile } from "./changeIcons";
 import { Markdown } from "./conversation/Markdown";
@@ -184,6 +184,16 @@ const changesSource: ChangesSource = {
   commit: (params) => callNative("git.commit", params),
   push: (params) => callNative("git.push", params),
 };
+/// Commit and Push keys per session, for the page's life: a view closed and opened again after a
+/// write whose reply was lost retries with the same key, so the session host reports the first
+/// result instead of committing or pushing twice.
+const gitWriteKeys = new Map<string, WriteKeys>();
+function writeKeysFor(sessionId: string | undefined): WriteKeys | undefined {
+  if (!sessionId) return undefined;
+  let keys = gitWriteKeys.get(sessionId);
+  if (!keys) gitWriteKeys.set(sessionId, (keys = new WriteKeys()));
+  return keys;
+}
 /// The host opens a changed file in a tab beside the agent or in the editor (`file.open`).
 const openChangedFile = (path: string, where: "tab" | "editor") => callNative("file.open", { path, where });
 
@@ -836,6 +846,10 @@ function AcpmuxPane() {
       return rowId ? { sessionId: sessionIdRef.current, rowId, opener, gitIntent: { op, nonce } } : view;
     });
   };
+  const clearGitIntent = useCallback(
+    () => setDiffView((view) => (view?.gitIntent ? { ...view, gitIntent: undefined } : view)),
+    [],
+  );
   const closedByUser = useRef(false);
   const closeDiff = useCallback(() => {
     closedByUser.current = true;
@@ -1629,6 +1643,8 @@ function AcpmuxPane() {
                     review={hunkReview}
                     turnCheckpoint={diffCheckpoint}
                     gitIntent={diffView.gitIntent}
+                    onGitIntentHandled={clearGitIntent}
+                    writeKeys={writeKeysFor(diffView.sessionId)}
                   />
                 )}
               </div>

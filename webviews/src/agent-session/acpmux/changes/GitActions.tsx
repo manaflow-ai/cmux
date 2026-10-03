@@ -1,9 +1,10 @@
 // The changes view's Commit and Push: two toolbar buttons, the commit form under the header
-// (a message, Staged or All), and one status line for the latest write: busy, done, or why it
-// failed, with Retry when the write may pass on a second try and Refresh when HEAD moved.
-import React, { useId, useState } from "react";
+// (a message, Staged or All, Include new files), and one status line for the latest write: busy,
+// done, or why it failed, with Retry when it may pass on a second try and Refresh when the view
+// is stale.
+import React, { useId, useRef, useState } from "react";
 import { t } from "../i18n";
-import { canPush, type CommitScope } from "./gitWrite";
+import { canPush, messageTooLong, type CommitScope, type NewFiles } from "./gitWrite";
 import type { GitWrite } from "./useGitWrite";
 
 /// Commit opens or closes the form; Push pushes the branch and shows how far it is ahead.
@@ -85,8 +86,9 @@ export function GitWriteBar({
   );
 }
 
-/// A message and Staged or All. The view closes the form when the commit succeeds, which drops
-/// the message; Cancel and Escape drop it too.
+/// A message, Staged or All, and with All an "Include new files" box. Ticking it lists the new
+/// files from the Uncommitted diff; Commit waits until that list is shown in full. The view
+/// closes the form when the commit succeeds, which drops the message; Cancel and Escape do too.
 function CommitForm({
   git,
   onClose: onCloseForm,
@@ -98,12 +100,33 @@ function CommitForm({
 }) {
   const [message, setMessage] = useState("");
   const [scope, setScope] = useState<CommitScope>("staged");
+  const [includeNew, setIncludeNew] = useState(false);
+  const [newFiles, setNewFiles] = useState<NewFilesLoad>();
+  const listing = useRef(0);
   const scopeName = useId();
   const busy = git.state?.phase === "busy";
-  const ready = message.trim().length > 0 && !busy && !git.statusFailed;
+  const tooLong = messageTooLong(message);
+  const withNew = scope === "all" && includeNew;
+  // New files are committed only after the reader has seen all of them.
+  const newFilesShown = !withNew || (newFiles?.state === "loaded" && newFiles.files.skipped === 0);
+  const ready = message.trim().length > 0 && !tooLong && !busy && !git.statusFailed && newFilesShown;
   const submit = () => {
-    if (ready) void git.commit(message, scope);
+    if (ready) void git.commit(message, scope, withNew);
   };
+  const toggleNew = (on: boolean) => {
+    setIncludeNew(on);
+    const request = ++listing.current;
+    if (!on) return setNewFiles(undefined);
+    setNewFiles({ state: "loading" });
+    git.listNewFiles().then(
+      (files) => request === listing.current && setNewFiles({ state: "loaded", files }),
+      () => request === listing.current && setNewFiles({ state: "failed" }),
+    );
+  };
+  const options = [
+    { value: "staged" as const, label: t("git.commit.staged") },
+    { value: "all" as const, label: t("git.commit.all") },
+  ];
   return (
     <form
       className="acpmux-git-form"
@@ -117,6 +140,7 @@ function CommitForm({
         ref={messageRef}
         className="acpmux-git-message"
         aria-label={t("git.commit.message")}
+        aria-invalid={tooLong}
         placeholder={t("git.commit.placeholder")}
         rows={2}
         value={message}
@@ -135,23 +159,36 @@ function CommitForm({
           }
         }}
       />
+      {tooLong && <span className="acpmux-git-form-note">{t("git.commit.tooLong")}</span>}
       <div className="acpmux-git-form-row">
         <div className="acpmux-git-scope" role="radiogroup" aria-label={t("git.commit.scope")}>
-          {(["staged", "all"] as const).map((value) => (
+          {options.map(({ value, label }) => (
             <label key={value} className="acpmux-git-scope-option" data-checked={scope === value}>
               <input
                 type="radio"
-                aria-label={t(value === "staged" ? "git.commit.staged" : "git.commit.all")}
+                aria-labelledby={`${scopeName}-${value}`}
                 name={scopeName}
                 value={value}
                 checked={scope === value}
                 disabled={busy}
                 onChange={() => setScope(value)}
               />
-              {t(value === "staged" ? "git.commit.staged" : "git.commit.all")}
+              <span id={`${scopeName}-${value}`}>{label}</span>
             </label>
           ))}
         </div>
+        {scope === "all" && (
+          <label className="acpmux-git-include-new">
+            <input
+              type="checkbox"
+              aria-labelledby={`${scopeName}-new`}
+              checked={includeNew}
+              disabled={busy}
+              onChange={(event) => toggleNew(event.target.checked)}
+            />
+            <span id={`${scopeName}-new`}>{t("git.commit.includeNew")}</span>
+          </label>
+        )}
         <span className="acpmux-git-scope-hint">
           {t(scope === "staged" ? "git.commit.stagedHint" : "git.commit.allHint")}
         </span>
@@ -162,43 +199,81 @@ function CommitForm({
           {t("git.commit.submit")}
         </button>
       </div>
+      {withNew && <NewFileList files={newFiles} />}
     </form>
   );
 }
 
+type NewFilesLoad = { state: "loading" } | { state: "failed" } | { state: "loaded"; files: NewFiles };
+
+/// The new files a commit with "Include new files" adds, as the Uncommitted diff lists them.
+function NewFileList({ files }: { files?: NewFilesLoad }) {
+  if (!files || files.state === "loading")
+    return <span className="acpmux-git-form-note">{t("git.commit.newFilesLoading")}</span>;
+  if (files.state === "failed") return <span className="acpmux-git-form-note">{t("git.commit.newFilesFailed")}</span>;
+  const { paths, skipped } = files.files;
+  return (
+    <div className="acpmux-git-new-files">
+      <span className="acpmux-git-form-note">
+        {paths.length ? t("git.commit.newFiles") : t("git.commit.newFilesNone")}
+      </span>
+      {paths.length > 0 && (
+        <ul aria-label={t("git.commit.newFiles")}>
+          {paths.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
+      )}
+      {skipped > 0 && <span className="acpmux-git-form-note">{t("git.commit.newFilesSkipped", { n: skipped })}</span>}
+    </div>
+  );
+}
+
 /// The latest write: busy, done, or why it failed, with Retry, Refresh and Dismiss as they apply.
+/// A status read that failed shows here too, with Refresh. The `role=status` region stays
+/// mounted and only its text changes, so screen readers announce busy and done; a failure is
+/// its own alert.
 function WriteStatusLine({ git }: { git: GitWrite }) {
   const state = git.state;
-  if (!state) return null;
+  const failed = state?.phase === "failed" ? state : undefined;
+  const statusFailed = !state && git.statusFailed;
+  const phase = state?.phase ?? (statusFailed ? "failed" : "idle");
+  const progress =
+    state?.phase === "busy"
+      ? t(state.op === "commit" ? "git.commit.busy" : "git.push.busy")
+      : state?.phase === "done"
+        ? state.text
+        : "";
+  const canRefresh = failed ? failed.canRefresh : statusFailed;
   return (
-    <div
-      className="acpmux-git-status"
-      data-phase={state.phase}
-      role={state.phase === "failed" ? "alert" : "status"}
-      aria-live={state.phase === "failed" ? "assertive" : "polite"}
-    >
-      <span className="acpmux-git-status-text">
-        {state.phase === "busy" ? t(state.op === "commit" ? "git.commit.busy" : "git.push.busy") : state.text}
-      </span>
-      {state.phase === "failed" && state.failure.reason === "head_moved" && (
+    <div className="acpmux-git-status" data-phase={phase}>
+      <output className="acpmux-git-status-text" aria-live="polite">
+        {progress}
+      </output>
+      {(failed || statusFailed) && (
+        <span className="acpmux-git-status-text" role="alert">
+          {failed ? failed.text : t("git.statusFailed")}
+        </span>
+      )}
+      {canRefresh && (
         <button type="button" className="acpmux-git-secondary" onClick={git.refresh}>
           {t("git.refresh")}
         </button>
       )}
-      {state.phase === "failed" && state.canRetry && (
+      {failed?.canRetry && (
         <button type="button" className="acpmux-git-secondary" onClick={git.retry}>
           {t("git.retry")}
         </button>
       )}
-      {state.phase !== "busy" && (
+      {state && state.phase !== "busy" && (
         <button type="button" className="acpmux-git-secondary" aria-label={t("git.dismiss")} onClick={git.dismiss}>
           ×
         </button>
       )}
-      {state.phase === "failed" && state.failure.output && (
+      {failed?.failure.output && (
         <details className="acpmux-git-output">
           <summary>{t("git.output")}</summary>
-          <pre>{state.failure.output}</pre>
+          <pre>{failed.failure.output}</pre>
         </details>
       )}
     </div>

@@ -237,7 +237,7 @@ final class AgentTabStore {
         model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         // A local session's folder is read by the local session host; the page refuses cloud sessions.
         if let git { model.onGit = { request in try await git.read(request) } }
-        if let gitWrite { model.onGitWrite = { request in try await gitWrite.write(request) } }
+        if let gitWrite { model.onGitWrite = { request, cwd in try await gitWrite.write(request, in: cwd) } }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
         view.shortcuts = shortcuts

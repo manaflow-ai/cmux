@@ -5,6 +5,9 @@ import {
   commitParams,
   failureText,
   KNOWN_REASONS,
+  messageTooLong,
+  readNewFiles,
+  REFRESH_REASONS,
   pushParams,
   readCommitDone,
   readPushDone,
@@ -15,14 +18,36 @@ import {
 
 const HEAD = "4be1c2e9a0f1b2c3d4e5f60718293a4b5c6d7e8f";
 
-test("Staged commits the index as it is; All stages every change, untracked included", () => {
+test("Staged commits the index as it is; All is tracked files only unless new files are included", () => {
   expect(commitParams("Fix", "staged", HEAD)).toEqual({ message: "Fix", expected_head: HEAD });
-  expect(commitParams("Fix", "all", HEAD)).toEqual({
+  // git commit -a: an untracked .env stays out.
+  expect(commitParams("Fix", "all", HEAD)).toEqual({ message: "Fix", all: true, expected_head: HEAD });
+  expect(commitParams("Fix", "all", HEAD, true)).toEqual({
     message: "Fix",
     all: true,
     include_untracked: true,
     expected_head: HEAD,
   });
+  // Staged ignores the new-files box.
+  expect(commitParams("Fix", "staged", HEAD, true)).toEqual({ message: "Fix", expected_head: HEAD });
+  expect(messageTooLong("a".repeat(65_536))).toBe(false);
+  expect(messageTooLong("é".repeat(32_769))).toBe(true);
+  expect(
+    readNewFiles({
+      files: [
+        { path: "a.ts", status: "modified" },
+        { path: ".env", status: "untracked" },
+      ],
+      untracked_skipped: 2,
+    }),
+  ).toEqual({ paths: [".env"], skipped: 2 });
+  expect(readNewFiles({})).toBeUndefined();
+  expect([...REFRESH_REASONS].sort()).toEqual([
+    "branch_not_found",
+    "head_moved",
+    "path_not_found",
+    "repository_changed",
+  ]);
   // Before the first commit there is no HEAD to expect.
   expect(commitParams("Init", "staged", undefined)).toEqual({ message: "Init" });
   expect(pushParams(HEAD)).toEqual({ expected_head: HEAD });

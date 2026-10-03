@@ -23,7 +23,7 @@ import { ScopeMenu } from "./changes/ScopeMenu";
 import { TrackedOnlyBanner } from "./changes/TrackedOnlyBanner";
 import { useScopeChanges } from "./changes/useScopeChanges";
 import { GitToolbarButtons, GitWriteBar } from "./changes/GitActions";
-import type { GitWriteOp } from "./changes/gitWrite";
+import type { GitWriteOp, WriteKeys } from "./changes/gitWrite";
 import { useGitWrite } from "./changes/useGitWrite";
 
 const LAYOUT_KEY = "cmux.acpmux.diffLayout";
@@ -62,6 +62,8 @@ export function DiffPanel({
   review,
   turnCheckpoint,
   gitIntent,
+  onGitIntentHandled,
+  writeKeys,
 }: {
   files: TurnFile[];
   initialPath?: string;
@@ -78,6 +80,10 @@ export function DiffPanel({
   /// The palette's Commit or Push (`agentPane.git.*`): each new nonce opens the commit form or
   /// pushes, as the toolbar's buttons do.
   gitIntent?: { op: GitWriteOp; nonce: number };
+  /// The view took `gitIntent`; the page clears it so a later view never replays it.
+  onGitIntentHandled?: () => void;
+  /// The session's idempotency keys, kept by the page across a close and reopen of the view.
+  writeKeys?: WriteKeys;
 }) {
   registerAgentDiffTheme();
   const [scope, setScope] = useState<ChangeScope>("lastTurn");
@@ -85,10 +91,14 @@ export function DiffPanel({
   // Commit and Push read the branch state again whenever the scope loads again.
   const [commitOpen, setCommitOpen] = useState(false);
   // A commit closes the form and reloads the scope; a push changes only the branch state.
-  const git = useGitWrite(source, (op) => {
-    if (op === "commit") setCommitOpen(false);
-    if (op !== "push") retry();
-  });
+  const git = useGitWrite(
+    source,
+    (op) => {
+      if (op === "commit") setCommitOpen(false);
+      if (op !== "push") retry();
+    },
+    writeKeys,
+  );
   const commitMessage = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
     if (commitOpen) commitMessage.current?.focus();
@@ -100,7 +110,8 @@ export function DiffPanel({
     if (gitIntent.op === "push") void git.push();
     else if (commitOpen) commitMessage.current?.focus();
     else setCommitOpen(true);
-  }, [gitIntent, git, commitOpen]);
+    onGitIntentHandled?.();
+  }, [gitIntent, git, commitOpen, onGitIntentHandled]);
   const scopeFiles = useMemo(() => (load.state === "loaded" ? changeSetFiles(load.changeSet) : []), [load]);
   /// Last turn reads the transcript's files unless acpmux recorded the turn's checkpoints.
   const fromTranscript = scope === "lastTurn" && !turnCheckpoint;

@@ -47,7 +47,7 @@ final class AgentPaneGitLink {
     /// page's idempotency key. Throws like ``read(_:)``; a commit or push
     /// that may have run without an answer is `native.timed_out`, and the
     /// page's retry with the same key reports what it did.
-    func write(_ request: AgentPaneGitWrite) async throws(AgentPaneGitFailure) -> Data {
+    func write(_ request: AgentPaneGitWrite, in cwd: String) async throws(AgentPaneGitFailure) -> Data {
         let connection: DaemonConnection
         do {
             connection = try await self.connection()
@@ -56,7 +56,7 @@ final class AgentPaneGitLink {
         }
         do {
             let result = try await GitResourceClient(connection: connection)
-                .write(request.operation, params: request.sessionHostParams, idempotencyKey: request.key)
+                .write(request.operation, params: request.sessionHostParams(cwd: cwd), idempotencyKey: request.key)
             return try JSONEncoder().encode(result)
         } catch {
             throw AgentPaneGitFailure(reading: error)
@@ -119,17 +119,17 @@ extension AgentPaneGitRequest {
 }
 
 extension AgentPaneGitWrite {
-    /// The session host's params: the folder as `path`; the key travels in
-    /// the envelope, not in the params.
-    var sessionHostParams: [String: JSONValue] {
+    /// The session host's params: `cwd` (the pane's session's folder) as
+    /// `path`; the key travels in the envelope, not in the params.
+    func sessionHostParams(cwd: String) -> [String: JSONValue] {
         switch self {
-        case .commit(let cwd, let message, let all, let includeUntracked, let expectedHead, _):
+        case .commit(let message, let all, let includeUntracked, let expectedHead, _):
             var params: [String: JSONValue] = ["path": .string(cwd), "message": .string(message)]
             if all { params["all"] = .bool(true) }
             if includeUntracked { params["include_untracked"] = .bool(true) }
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params
-        case .push(let cwd, let expectedHead, _):
+        case .push(let expectedHead, _):
             var params: [String: JSONValue] = ["path": .string(cwd)]
             if let expectedHead { params["expected_head"] = .string(expectedHead) }
             return params

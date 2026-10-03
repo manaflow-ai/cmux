@@ -19,7 +19,7 @@ nonisolated enum AcpmuxStatusClient {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let webURL = try await withAgentPaneDeadline(deadline, label: "acpmux status", onTimeout: { connection.cancel() }) {
-            try await exchange(on: connection)
+            try await call("_acpmux/status", on: connection)["webUrl"] as? String
         }
         guard let webURL, let endpoint = AcpmuxWebEndpoint(webURL: webURL) else {
             throw Failure.noWebSocket
@@ -27,32 +27,46 @@ nonisolated enum AcpmuxStatusClient {
         return endpoint
     }
 
-    /// The status reply's `webUrl`, nil when the daemon reports none (its
-    /// WebSocket listener failed to bind).
-    private static func exchange(on connection: NWConnection) async throws -> String? {
+    /// The folder of the daemon's session `sessionId` from its session list
+    /// (`_acpmux/watch`), nil when the daemon has no such session or names
+    /// no folder. The agent pane's commits and pushes run here, never in a
+    /// folder the page names.
+    @concurrent static func sessionFolder(socketPath: String, sessionId: String,
+                                          deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
+        let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
+        defer { connection.cancel() }
+        return try await withAgentPaneDeadline(deadline, label: "acpmux sessions", onTimeout: { connection.cancel() }) {
+            let result = try await call("_acpmux/watch", params: ["enabled": true], on: connection, limit: 16 << 20)
+            return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
+        }
+    }
+
+    /// The `result` of `method` after `initialize`; an error reply throws.
+    private static func call(_ method: String, params: [String: Any] = [:], on connection: NWConnection,
+                             limit: Int = 1 << 20) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-agent-pane", "version": "1"], "clientCapabilities": [:]],
         ]
-        let status: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/status", "params": [:]]
+        let request: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": method, "params": params]
         var payload = Data()
-        for request in [initialize, status] {
+        for request in [initialize, request] {
             payload += try JSONSerialization.data(withJSONObject: request)
             payload.append(0x0A)
         }
         try await send(payload, on: connection)
         var buffer = Data()
-        // Reads until the status reply; notifications and the initialize reply are skipped.
+        // Reads until the reply; notifications and the initialize reply are skipped.
         while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
             guard let chunk = try await receive(on: connection) else { throw Failure.closed }
             buffer += chunk
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = buffer[buffer.startIndex..<newline]
                 buffer.removeSubrange(buffer.startIndex...newline)
-                if let reply = try reply(to: 2, in: Data(line)) { return reply["webUrl"] as? String }
+                if let reply = try reply(to: 2, in: Data(line)) { return reply }
             }
-            if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
+            if buffer.count > limit { throw Failure.rpc("\(method) reply too large") }
         }
     }
 

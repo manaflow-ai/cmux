@@ -1909,7 +1909,7 @@ describe("acpmux turn diff", () => {
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
-      const failure = panel.querySelector('[role="alert"]');
+      const failure = panel.querySelector('.acpmux-changes-state[role="alert"]');
       expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
       expect(paths()).toEqual([]);
       // With no files the pill names the scope only.
@@ -1926,7 +1926,7 @@ describe("acpmux turn diff", () => {
       ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
-      expect(panel.querySelector('[role="alert"]')).toBeNull();
+      expect(panel.querySelector('.acpmux-changes-state[role="alert"]')).toBeNull();
       expect(paths()).toEqual(["/repo/src/main.ts"]);
       expect(panel.querySelector(".acpmux-diff-file .acpmux-fh-name")?.textContent).toBe("src/main.ts");
       // The same file in another scope is other contents: open and not viewed.
@@ -1941,7 +1941,7 @@ describe("acpmux turn diff", () => {
       await click(items()[1]!);
       expect(asked.length).toBe(3);
       expect(paths()).toEqual([]);
-      expect(panel.querySelector("output")?.textContent).toBe("Loading changes…");
+      expect(panel.querySelector("output.acpmux-changes-state")?.textContent).toBe("Loading changes…");
       // A scope with nothing in it says so. An arrow key opens the menu from the pill too.
       await key(pill, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Uncommitted");

@@ -126,7 +126,7 @@ const en = {
   "git.commit.staged": "Staged",
   "git.commit.all": "All",
   "git.commit.stagedHint": "Commits the staged changes only.",
-  "git.commit.allHint": "Stages and commits every change, new files included.",
+  "git.commit.allHint": "Commits every change to tracked files, like git commit -a.",
   "git.commit.submit": "Commit",
   "git.commit.busy": "Committing…",
   "git.commit.done": "Committed {commit}: {summary}",
@@ -175,6 +175,14 @@ const en = {
   "git.retry": "Retry",
   "git.dismiss": "Dismiss",
   "git.output": "git output",
+  "git.commit.includeNew": "Include new files",
+  "git.commit.newFiles": "New files this commit adds (untracked, not ignored):",
+  "git.commit.newFilesLoading": "Listing new files…",
+  "git.commit.newFilesNone": "There are no new files.",
+  "git.commit.newFilesSkipped":
+    "{n} more new files could not be listed, so new files cannot be committed from here. Clean them up or commit in a terminal.",
+  "git.commit.newFilesFailed": "The new files could not be listed, so they cannot be committed from here.",
+  "git.commit.tooLong": "The message is longer than 64 KiB. Shorten it to commit.",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -304,7 +312,7 @@ const ja: Record<StringKey, string> = {
   "git.commit.staged": "ステージ済み",
   "git.commit.all": "すべて",
   "git.commit.stagedHint": "ステージ済みの変更だけをコミットします。",
-  "git.commit.allHint": "新しいファイルを含むすべての変更をステージしてコミットします。",
+  "git.commit.allHint": "追跡中のファイルのすべての変更をコミットします（git commit -a と同じ）。",
   "git.commit.submit": "コミット",
   "git.commit.busy": "コミット中…",
   "git.commit.done": "{commit} をコミットしました: {summary}",
@@ -357,6 +365,14 @@ const ja: Record<StringKey, string> = {
   "git.retry": "再試行",
   "git.dismiss": "閉じる",
   "git.output": "git の出力",
+  "git.commit.includeNew": "新しいファイルを含める",
+  "git.commit.newFiles": "このコミットで追加される新しいファイル（未追跡で、無視されていないもの）:",
+  "git.commit.newFilesLoading": "新しいファイルを一覧表示しています…",
+  "git.commit.newFilesNone": "新しいファイルはありません。",
+  "git.commit.newFilesSkipped":
+    "ほかに {n} 件の新しいファイルを一覧表示できなかったため、ここから新しいファイルをコミットできません。不要なファイルを削除するか、ターミナルでコミットしてください。",
+  "git.commit.newFilesFailed": "新しいファイルを一覧表示できなかったため、ここからはコミットできません。",
+  "git.commit.tooLong": "メッセージが 64 KiB を超えています。コミットするには短くしてください。",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };

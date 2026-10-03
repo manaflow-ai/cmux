@@ -10,13 +10,16 @@ import {
   failureText,
   pushParams,
   readCommitDone,
+  readNewFiles,
   readPushDone,
   readWriteFailure,
   readWriteStatus,
+  REFRESH_REASONS,
   shortCommit,
   WriteKeys,
   type CommitScope,
   type GitWriteOp,
+  type NewFiles,
   type WriteFailure,
   type WriteStatus,
 } from "./gitWrite";
@@ -24,7 +27,7 @@ import {
 export type GitWriteState =
   | { phase: "busy"; op: GitWriteOp }
   | { phase: "done"; op: GitWriteOp; text: string }
-  | { phase: "failed"; op: GitWriteOp; text: string; failure: WriteFailure; canRetry: boolean };
+  | { phase: "failed"; op: GitWriteOp; text: string; failure: WriteFailure; canRetry: boolean; canRefresh: boolean };
 
 export type GitWrite = {
   /// Commit and Push are offered only when the source can run them.
@@ -32,11 +35,14 @@ export type GitWrite = {
   status?: WriteStatus;
   statusFailed: boolean;
   state?: GitWriteState;
-  commit: (message: string, scope: CommitScope) => Promise<boolean>;
+  commit: (message: string, scope: CommitScope, includeNew: boolean) => Promise<boolean>;
+  /// The untracked files "Include new files" would commit, from the Uncommitted diff.
+  listNewFiles: () => Promise<NewFiles>;
   push: () => Promise<boolean>;
   /// Runs the failed write again with its params and key.
   retry: () => void;
-  /// Reads the status again and drops the outcome (after HEAD moved).
+  /// Reads the status again, reloads the scope and drops the outcome (a stale view, or a
+  /// status read that failed).
   refresh: () => void;
   dismiss: () => void;
 };
@@ -45,10 +51,12 @@ export type GitWrite = {
 /// reloads its scope. The status is read when the view opens, after each write and on Refresh;
 /// not on a scope reload, so Commit and Push keep the HEAD the reader saw and a view that went
 /// stale refuses with `head_moved` instead of acting on a state nobody looked at.
+/// `keys` is the session's key ring, kept by the page across a close and reopen of the view, so
+/// a retry after an uncertain write still sends its key.
 export function useGitWrite(
   source: ChangesSource | undefined,
   onChanged: (op?: GitWriteOp) => void,
-  mintKey?: () => string,
+  keys?: WriteKeys,
 ): GitWrite {
   const available = !!(source?.status && source.commit && source.push);
   const [status, setStatus] = useState<WriteStatus>();
@@ -59,8 +67,8 @@ export function useGitWrite(
   const writes = useRef(0);
   const busy = useRef(false);
   const last = useRef<{ op: GitWriteOp; params: Record<string, unknown> } | undefined>(undefined);
-  // One key ring per open view: its session's repository, and the actions taken in it.
-  const [keyRing] = useState(() => new WriteKeys(mintKey));
+  const [ownKeys] = useState(() => new WriteKeys());
+  const keyRing = keys ?? ownKeys;
 
   const readStatus = useCallback(async (): Promise<WriteStatus | undefined> => {
     if (!source?.status) return undefined;
@@ -113,6 +121,7 @@ export function useGitWrite(
             failure,
             text: failureText(op, failure),
             canRetry: failure.kind === "uncertain" || RETRYABLE.has(failure.reason ?? ""),
+            canRefresh: REFRESH_REASONS.has(failure.reason ?? ""),
           });
         return false;
       } finally {
@@ -123,15 +132,18 @@ export function useGitWrite(
   );
 
   const commit = useCallback(
-    async (message: string, scope: CommitScope) => {
+    async (message: string, scope: CommitScope, includeNew: boolean) => {
       const current = statusRef.current ?? (await readStatus());
-      return run("commit", commitParams(message, scope, current?.head));
+      return run("commit", commitParams(message, scope, current?.head, includeNew));
     },
     [run, readStatus],
   );
 
   const push = useCallback(async () => {
-    const current = statusRef.current ?? (await readStatus());
+    let current = statusRef.current ?? (await readStatus());
+    // A status that says nothing to push may be stale: read it once more before refusing.
+    // `expected_head` still guards the push against a branch that moves after this read.
+    if (!canPush(current)) current = await readStatus();
     if (!canPush(current)) {
       const failure: WriteFailure = {
         kind: "refused",
@@ -143,6 +155,7 @@ export function useGitWrite(
         failure,
         text: current?.detached ? t("git.push.detachedHead") : current ? t("git.push.nothing") : t("git.statusFailed"),
         canRetry: false,
+        canRefresh: !current,
       });
       return false;
     }
@@ -158,8 +171,13 @@ export function useGitWrite(
     onChanged();
   }, [readStatus, onChanged]);
   const dismiss = useCallback(() => setState(undefined), []);
+  const listNewFiles = useCallback(async () => {
+    const files = source ? readNewFiles(await source.diff("uncommitted")) : undefined;
+    if (!files) throw new Error("No new file list");
+    return files;
+  }, [source]);
 
-  return { available, status, statusFailed, state, commit, push, retry, refresh, dismiss };
+  return { available, status, statusFailed, state, commit, listNewFiles, push, retry, refresh, dismiss };
 }
 
 function doneText(op: GitWriteOp, result: unknown): string {
@@ -174,5 +192,6 @@ function doneText(op: GitWriteOp, result: unknown): string {
   return t(done.upToDate ? "git.push.upToDate" : "git.push.done", { upstream: done.upstream });
 }
 
-/// Refusals that can pass on their own, so Retry is offered: a timeout, the network, a lock.
-const RETRYABLE = new Set(["timed_out", "network_failed", "index_locked"]);
+/// Refusals that can pass on their own, so Retry is offered: a timeout, the network, a lock,
+/// cmux failing to record a result it may have reached.
+const RETRYABLE = new Set(["timed_out", "network_failed", "index_locked", "store_failed"]);

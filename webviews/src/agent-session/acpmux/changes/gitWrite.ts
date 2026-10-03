@@ -4,10 +4,12 @@
 // one idempotency key per user action: a retry of the same action sends the same key and
 // params, so a commit or push whose reply was lost is reported, not repeated.
 import { t, type StringKey } from "../i18n";
+import { readChangeSet } from "./model";
 
 export type GitWriteOp = "commit" | "push";
 
-/// What Commit stages: the index as it is, or every change (tracked and untracked).
+/// What Commit stages: the index as it is, or every change to tracked files (git commit -a).
+/// New (untracked) files join All only when the reader ticks "Include new files".
 export type CommitScope = "staged" | "all";
 
 /// The branch state Commit and Push need, from `git.status`.
@@ -40,12 +42,30 @@ export function readWriteStatus(value: unknown): WriteStatus | undefined {
 }
 
 /// The commit params for `message` and `scope`. Staged sends neither `paths` nor `all`, so the
-/// index is committed as it is; All stages every change first, untracked files included.
-export function commitParams(message: string, scope: CommitScope, head: string | undefined) {
+/// index is committed as it is; All stages every tracked change first, and with `includeNew` the
+/// untracked, nonignored files too. Staged ignores `includeNew`.
+export function commitParams(message: string, scope: CommitScope, head: string | undefined, includeNew = false) {
   return {
     message,
-    ...(scope === "all" ? { all: true, include_untracked: true } : {}),
+    ...(scope === "all" ? { all: true, ...(includeNew ? { include_untracked: true } : {}) } : {}),
     ...(head ? { expected_head: head } : {}),
+  };
+}
+
+/// The session host's limit on a commit message, in UTF-8 bytes.
+export const MAX_MESSAGE_BYTES = 65_536;
+export const messageTooLong = (message: string) => new TextEncoder().encode(message).length > MAX_MESSAGE_BYTES;
+
+/// The new files "Include new files" would commit, from the Uncommitted diff (`git.diff`
+/// scope uncommitted lists untracked, nonignored files with status "untracked"; `git.status`
+/// lists no files). `skipped` counts untracked files the diff left out to stay responsive.
+export type NewFiles = { paths: string[]; skipped: number };
+export function readNewFiles(value: unknown): NewFiles | undefined {
+  const changeSet = readChangeSet(value, "uncommitted");
+  if (!changeSet) return undefined;
+  return {
+    paths: changeSet.files.filter((file) => file.status === "untracked").map((file) => file.path),
+    skipped: changeSet.untrackedSkipped ?? 0,
   };
 }
 
@@ -166,6 +186,9 @@ const SHARED_REASONS: Record<string, StringKey> = {
   repository_changed: "git.repositoryChanged",
   store_failed: "git.storeFailed",
 };
+
+/// Refusals whose text tells the reader to refresh: the view is stale, so Refresh is offered.
+export const REFRESH_REASONS = new Set(["head_moved", "path_not_found", "repository_changed", "branch_not_found"]);
 
 export function failureText(op: GitWriteOp, failure: WriteFailure): string {
   if (failure.kind === "uncertain") return t(op === "commit" ? "git.commit.uncertain" : "git.push.uncertain");

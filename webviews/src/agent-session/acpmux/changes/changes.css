@@ -120,3 +120,9 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-git-output summary{color:var(--agent-muted);cursor:default}
 .acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font:11px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap}
 @media (prefers-reduced-motion: reduce){.acpmux-git-tool,.acpmux-git-primary,.acpmux-git-secondary{transition:none}}
+.acpmux-git-status[data-phase=idle]{padding:0;border-bottom:0}
+.acpmux-git-status-text:empty{display:none}
+.acpmux-git-include-new{display:inline-flex;align-items:center;gap:6px;color:var(--agent-text);font-size:12px}
+.acpmux-git-form-note{color:var(--agent-muted);font-size:12px}
+.acpmux-git-new-files{display:flex;flex-direction:column;gap:4px}
+.acpmux-git-new-files ul{max-height:120px;overflow:auto;margin:0;padding:0 0 0 16px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--agent-text)}

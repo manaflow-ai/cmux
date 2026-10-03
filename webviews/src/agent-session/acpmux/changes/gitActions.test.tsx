@@ -57,6 +57,7 @@ const { act, createElement } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { DiffPanel } = await import("../DiffPanel");
 const { t } = await import("../i18n");
+const { WriteKeys } = await import("./gitWrite");
 
 const doc = dom.window.document;
 let root: ReturnType<typeof createRoot>;
@@ -84,20 +85,38 @@ const type = async (field: Element | null, value: string) => {
   });
 };
 const statusLine = () => doc.querySelector(".acpmux-git-status");
+const alertText = () => statusLine()?.querySelector('[role="alert"]')?.textContent ?? "";
+const statusButton = (label: string) =>
+  [...doc.querySelectorAll(".acpmux-git-status button")].find((button) => button.textContent === label) ?? null;
 const HEAD = "4be1c2e9a0f1b2c3d4e5f60718293a4b5c6d7e8f";
 
 type Call = Record<string, unknown>;
+/// The Uncommitted diff of a repository with one untracked, unignored `.env`.
+const uncommitted = {
+  root: "/repo",
+  files: [
+    { path: "src/a.ts", status: "modified", additions: 1, deletions: 0 },
+    { path: ".env", status: "untracked", additions: 1, deletions: 0 },
+    { path: "notes/todo.md", status: "untracked", additions: 3, deletions: 0 },
+  ],
+};
 function fakeSource({
-  status = { detached: false, branch: "feat", head: HEAD, upstream: "origin/feat", ahead: 1, behind: 0 } as Call,
+  status = { detached: false, branch: "feat", head: HEAD, upstream: "origin/feat", ahead: 1, behind: 0 } as
+    | Call
+    | (() => Promise<Call>),
   commit = [] as (() => Promise<unknown>)[],
   push = [] as (() => Promise<unknown>)[],
+  diff = uncommitted as unknown,
 } = {}) {
-  const calls = { status: 0, commit: [] as Call[], push: [] as Call[] };
+  const calls = { status: 0, commit: [] as Call[], push: [] as Call[], diff: [] as string[] };
   return {
     calls,
     source: {
-      diff: () => Promise.resolve({ files: [] }),
-      status: () => (calls.status++, Promise.resolve(status)),
+      diff: (scope: string) => (
+        calls.diff.push(scope),
+        Promise.resolve(scope === "uncommitted" ? diff : { files: [] })
+      ),
+      status: () => (calls.status++, typeof status === "function" ? status() : Promise.resolve(status)),
       commit: (params: Call) => (calls.commit.push(params), commit.shift()!()),
       push: (params: Call) => (calls.push.push(params), push.shift()!()),
     },
@@ -134,12 +153,12 @@ test("Commit sends the message and the HEAD the view read; a lost reply's Retry 
   await type(message, "Fix upload");
   await click(doc.querySelector(".acpmux-git-primary"));
   await settle(() => statusLine()?.getAttribute("data-phase") === "failed");
-  expect(statusLine()?.getAttribute("role")).toBe("alert");
-  expect(statusLine()?.textContent).toContain(t("git.commit.uncertain"));
+  expect(alertText()).toBe(t("git.commit.uncertain"));
   const retry = [...doc.querySelectorAll(".acpmux-git-status button")].find((b) => b.textContent === t("git.retry"));
   await click(retry ?? null);
   await settle(() => statusLine()?.getAttribute("data-phase") === "done");
-  expect(statusLine()?.textContent).toContain("Committed abcdef0: Fix upload");
+  // Busy and done are announced by the status region, which stayed mounted.
+  expect(statusLine()?.querySelector("output")?.textContent).toBe("Committed abcdef0: Fix upload");
   expect(calls.commit).toHaveLength(2);
   expect(calls.commit[0]).toEqual({
     message: "Fix upload",
@@ -153,7 +172,7 @@ test("Commit sends the message and the HEAD the view read; a lost reply's Retry 
   expect(calls.status).toBeGreaterThan(1);
 });
 
-test("All commits every change, new files included; Escape closes the form, not the view", async () => {
+test("All commits tracked changes only: an untracked .env is not sent; Escape closes the form", async () => {
   let closed = 0;
   const { calls, source } = fakeSource({ commit: [() => committed()] });
   await render(source, { onClose: () => closed++ });
@@ -161,14 +180,19 @@ test("All commits every change, new files included; Escape closes the form, not 
   await click(doc.querySelector('[data-tool="commit"]'));
   await type(doc.querySelector(".acpmux-git-message"), "Add files");
   await click(doc.querySelector('.acpmux-git-scope input[value="all"]'));
+  // "Include new files" shows with All and starts off.
+  const includeNew = doc.querySelector<HTMLInputElement>('.acpmux-git-include-new input[type="checkbox"]');
+  expect(includeNew?.checked).toBe(false);
   await click(doc.querySelector(".acpmux-git-primary"));
   await settle(() => calls.commit.length > 0 && statusLine()?.getAttribute("data-phase") === "done");
-  expect(calls.commit[0]).toMatchObject({
+  // git commit -a: no include_untracked, so the session host leaves .env untracked.
+  expect(calls.commit[0]).toEqual({
     message: "Add files",
     all: true,
-    include_untracked: true,
     expected_head: HEAD,
+    idempotency_key: calls.commit[0]!.idempotency_key,
   });
+  expect(calls.diff).toEqual([]);
   await click(doc.querySelector('[data-tool="commit"]'));
   const field = doc.querySelector(".acpmux-git-message")!;
   await act(async () => {
@@ -176,6 +200,122 @@ test("All commits every change, new files included; Escape closes the form, not 
   });
   expect(doc.querySelector(".acpmux-git-form")).toBeNull();
   expect(closed).toBe(0);
+});
+
+test("Include new files lists the untracked files from the Uncommitted diff, then sends include_untracked", async () => {
+  const { calls, source } = fakeSource({ commit: [() => committed()] });
+  await render(source);
+  await settle(() => calls.status > 0);
+  await click(doc.querySelector('[data-tool="commit"]'));
+  await type(doc.querySelector(".acpmux-git-message"), "Add files");
+  await click(doc.querySelector('.acpmux-git-scope input[value="all"]'));
+  await click(doc.querySelector('.acpmux-git-include-new input[type="checkbox"]'));
+  await settle(() => doc.querySelectorAll(".acpmux-git-new-files li").length > 0);
+  expect(calls.diff).toEqual(["uncommitted"]);
+  expect([...doc.querySelectorAll(".acpmux-git-new-files li")].map((item) => item.textContent)).toEqual([
+    ".env",
+    "notes/todo.md",
+  ]);
+  await click(doc.querySelector(".acpmux-git-primary"));
+  await settle(() => calls.commit.length > 0);
+  expect(calls.commit[0]).toMatchObject({ message: "Add files", all: true, include_untracked: true });
+});
+
+test("new files the diff could not list block Include new files; an over-long message says so", async () => {
+  const { calls, source } = fakeSource({ diff: { ...uncommitted, untracked_skipped: 4 } });
+  await render(source);
+  await settle(() => calls.status > 0);
+  await click(doc.querySelector('[data-tool="commit"]'));
+  await type(doc.querySelector(".acpmux-git-message"), "é".repeat(32_769));
+  expect(doc.querySelector(".acpmux-git-form")?.textContent).toContain(t("git.commit.tooLong"));
+  expect((doc.querySelector(".acpmux-git-primary") as HTMLButtonElement).disabled).toBe(true);
+  await type(doc.querySelector(".acpmux-git-message"), "Add files");
+  await click(doc.querySelector('.acpmux-git-scope input[value="all"]'));
+  await click(doc.querySelector('.acpmux-git-include-new input[type="checkbox"]'));
+  await settle(() => doc.querySelectorAll(".acpmux-git-new-files li").length > 0);
+  expect(doc.querySelector(".acpmux-git-new-files")?.textContent).toContain(t("git.commit.newFilesSkipped", { n: 4 }));
+  expect((doc.querySelector(".acpmux-git-primary") as HTMLButtonElement).disabled).toBe(true);
+  expect(calls.commit).toEqual([]);
+});
+
+test("a failed status read says so with Refresh, which reads it again", async () => {
+  let fail = true;
+  const { calls, source } = fakeSource({
+    status: () =>
+      fail
+        ? Promise.reject(new Error("Not a git repository"))
+        : Promise.resolve({
+            detached: false,
+            branch: "feat",
+            head: HEAD,
+            upstream: "origin/feat",
+            ahead: 1,
+            behind: 0,
+          }),
+  });
+  await render(source);
+  await settle(() => alertText() === t("git.statusFailed"));
+  fail = false;
+  await click(statusButton(t("git.refresh")));
+  await settle(() => calls.status === 2 && statusLine()?.getAttribute("data-phase") === "idle");
+  expect(alertText()).toBe("");
+  expect((doc.querySelector('[data-tool="push"]') as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("Push reads a stale status again before saying there is nothing to push", async () => {
+  const ahead = [0, 2];
+  const { calls, source } = fakeSource({
+    status: () =>
+      Promise.resolve({
+        detached: false,
+        branch: "feat",
+        head: HEAD,
+        upstream: "origin/feat",
+        ahead: ahead.shift() ?? 2,
+        behind: 0,
+      }),
+    push: [
+      () =>
+        Promise.resolve({
+          value: { upstream: "origin/feat", up_to_date: false, created_upstream: false, pushed_commit: HEAD },
+          replayed: false,
+        }),
+    ],
+  });
+  await render(source);
+  await settle(() => calls.status === 1 && (doc.querySelector('[data-tool="push"]') as HTMLButtonElement)?.disabled);
+  // The palette's Push arrives while the view's status says nothing is ahead.
+  await render(source, { gitIntent: { op: "push", nonce: 1 } });
+  await settle(() => calls.push.length === 1);
+  // Reads: when the view opened, again before refusing, and after the push.
+  expect(calls.status).toBe(3);
+  expect(calls.push[0]).toMatchObject({ expected_head: HEAD });
+});
+
+test("a view opened again after a lost reply retries with the session's key", async () => {
+  const keys = new WriteKeys();
+  const { calls, source } = fakeSource({
+    push: [
+      () => Promise.reject({ code: "native.timed_out", origin: "native" }),
+      () =>
+        Promise.resolve({
+          value: { upstream: "origin/feat", up_to_date: true, created_upstream: false, pushed_commit: HEAD },
+          replayed: true,
+        }),
+    ],
+  });
+  const pushEnabled = () => (doc.querySelector('[data-tool="push"]') as HTMLButtonElement | null)?.disabled === false;
+  await render(source, { writeKeys: keys });
+  await settle(pushEnabled);
+  await click(doc.querySelector('[data-tool="push"]'));
+  await settle(() => statusLine()?.getAttribute("data-phase") === "failed");
+  await act(async () => root.unmount());
+  root = createRoot(doc.getElementById("root")!);
+  await render(source, { writeKeys: keys });
+  await settle(pushEnabled);
+  await click(doc.querySelector('[data-tool="push"]'));
+  await settle(() => calls.push.length === 2 && statusLine()?.getAttribute("data-phase") === "done");
+  expect(calls.push[1]).toEqual(calls.push[0]!);
 });
 
 test("HEAD moved since the view was read: the line says so and Refresh reads the status again", async () => {
@@ -195,14 +335,11 @@ test("HEAD moved since the view was read: the line says so and Refresh reads the
   await type(doc.querySelector(".acpmux-git-message"), "Fix");
   await click(doc.querySelector(".acpmux-git-primary"));
   await settle(() => statusLine()?.getAttribute("data-phase") === "failed");
-  expect(statusLine()?.textContent).toContain(t("git.headMoved"));
+  expect(alertText()).toBe(t("git.headMoved"));
   const before = calls.status;
-  const refresh = [...doc.querySelectorAll(".acpmux-git-status button")].find(
-    (b) => b.textContent === t("git.refresh"),
-  );
-  await click(refresh ?? null);
+  await click(statusButton(t("git.refresh")));
   await settle(() => calls.status > before);
-  expect(statusLine()).toBeNull();
+  expect(statusLine()?.getAttribute("data-phase")).toBe("idle");
 });
 
 test("Push shows how far the branch is ahead, and a rejected push says why with git's output", async () => {
@@ -231,7 +368,7 @@ test("Push shows how far the branch is ahead, and a rejected push says why with 
   await click(push);
   await settle(() => statusLine()?.getAttribute("data-phase") === "failed");
   expect(calls.push).toEqual([{ expected_head: HEAD, idempotency_key: calls.push[0]!.idempotency_key }]);
-  expect(statusLine()?.textContent).toContain(t("git.push.nonFastForward"));
+  expect(alertText()).toBe(t("git.push.nonFastForward"));
   expect(statusLine()?.querySelector(".acpmux-git-output pre")?.textContent).toContain("fetch first");
   // No Retry: pushing again cannot pass until the branch is pulled.
   expect([...doc.querySelectorAll(".acpmux-git-status button")].some((b) => b.textContent === t("git.retry"))).toBe(
