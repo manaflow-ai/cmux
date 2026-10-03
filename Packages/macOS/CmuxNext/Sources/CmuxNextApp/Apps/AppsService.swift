@@ -12,7 +12,8 @@ import Foundation
 final class AppsService {
     unowned let services: AppServices
     let client: AppsClient
-    private(set) lazy var sections = AppSectionProvider(client: client)
+    /// App sidebar sections; they show only for presented apps (`presence`).
+    private(set) lazy var sections = AppSectionProvider(client: client) { [unowned self] in presence.isPresented($0) }
     private var store: AppStoreWindowController?
 
     init(services: AppServices) {

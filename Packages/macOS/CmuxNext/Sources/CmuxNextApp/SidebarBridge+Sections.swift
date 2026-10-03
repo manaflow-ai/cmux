@@ -55,15 +55,15 @@ extension SidebarBridge {
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
-        let apps = services.apps.registry
+        let apps = services.apps.client
         sectionsObservation = Task { [weak self] in
-            // The app registry is observed too: hiding or installing an app
+            // The apps client is observed too: hiding or installing an app
             // changes its item at once.
             for await layout in Observations({ _ = apps.apps; return service.document }) {
                 guard self != nil else { return }
                 if model.layout != layout { model.layout = layout }
                 let infos = Self.itemInfo(for: layout, registered: { registry.action(for: $0) != nil },
-                                          app: { Self.appInfo($0, registry: apps) })
+                                          app: { Self.appInfo($0, client: apps) })
                 if model.itemInfo != infos { model.itemInfo = infos }
                 let suppressed = AppPresence(apps.apps).suppressed
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
@@ -93,10 +93,10 @@ extension SidebarBridge {
 
     /// How an app item draws: its name and symbol; hidden while the app is
     /// hidden or not active (D55); dimmed when the app is not installed.
-    static func appInfo(_ id: String, registry: AppRegistry) -> SidebarItemInfo {
-        guard let app = registry.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
+    static func appInfo(_ id: String, client: AppsClient) -> SidebarItemInfo {
+        guard let app = client.app(id) else { return SidebarItemInfo.fallback(for: .app(id)) }
         let symbol = if case .symbol(let name)? = app.manifest.icon { name } else { "app" }
-        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.isInstalled,
+        return SidebarItemInfo(title: app.manifest.name.resolved(), symbol: symbol, isMissing: !app.installed,
                                isHidden: AppPresence([app]).suppressed.contains(id))
     }
 

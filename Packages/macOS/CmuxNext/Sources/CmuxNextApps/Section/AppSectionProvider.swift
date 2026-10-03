@@ -13,12 +13,15 @@ import SwiftUI
 @MainActor
 public final class AppSectionProvider {
     let client: AppsClient
+    /// The App's one presence rule (`AppPresence`); default: the record's own state.
+    let isPresented: (String) -> Bool
     private var mounts: [String: (mount: AppMount, view: NSView)] = [:]
     /// `apps.section.look` unless overridden (demo).
     public var lookOverride: AppSectionLook?
 
-    public init(client: AppsClient) {
+    public init(client: AppsClient, isPresented: ((String) -> Bool)? = nil) {
         self.client = client
+        self.isPresented = isPresented ?? { [client] in client.app($0)?.isVisible == true }
     }
 
     /// The section's title, or nil when no visible app implements it (the
@@ -55,7 +58,7 @@ public final class AppSectionProvider {
 
     private func resolve(_ contribution: String) -> (AppRecord, AppImplementation)? {
         let parts = contribution.split(separator: "#", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let app = client.app(parts[0]), app.isVisible,
+        guard parts.count == 2, isPresented(parts[0]), let app = client.app(parts[0]),
               let section = app.manifest.sections.first(where: { $0.id == parts[1] }) else { return nil }
         return (app, section)
     }

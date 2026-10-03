@@ -79,7 +79,7 @@ final class DaemonAppsTransport: AppsTransport {
             return try await connection.request(request)
         } catch let error as DaemonError {
             switch error {
-            case .command(_, let message, let code): throw AppsTransportError(code: code, message: message)
+            case .command(_, let message, let code, _, _): throw AppsTransportError(code: code, message: message)
             case .notConnected, .connectionClosed, .daemonShutdown: throw AppsTransportError(message: error.description, connectionLost: true)
             default: throw AppsTransportError(message: error.description)
             }

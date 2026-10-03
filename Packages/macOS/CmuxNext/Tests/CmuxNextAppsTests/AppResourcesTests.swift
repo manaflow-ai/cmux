@@ -36,7 +36,7 @@ struct AppResourcesTests {
         let controller = AppStoreWindowController(model: model)
         controller.present(appID: "cmux/github-prs")
         #expect(model.selectedListing?.id == "cmux/github-prs")
-        #expect(model.listings.count == 3)
+        #expect(model.listings.count == client.apps.count)
         #expect(AppBundleLocator.directory(for: "never/loaded") == nil)
         #expect(loader.calls.withLock { $0.isEmpty })
         controller.close()

@@ -24,6 +24,12 @@ struct AppManifestTests {
         #expect(status.implementations.contains { $0.isStatusItem })
     }
 
+    @Test func bundledFirstPartyAppsDecode() {
+        let firstParty = AppPlatformResources.firstPartyManifests().map(\.manifest)
+        #expect(!firstParty.isEmpty)
+        #expect(firstParty.allSatisfy { $0.publisher == "cmux" })
+    }
+
     @Test func version2ImplementsMapToImplementations() throws {
         let manifest = try #require(AppManifest(json: AppJSON.parse(#"""
         {"manifestVersion":2,"id":"cmux/tasks","name":"Tasks","version":"1.0.0","description":"d","engines":{"cmux":"^2.0"},

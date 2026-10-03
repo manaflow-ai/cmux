@@ -28,11 +28,18 @@ public final class FakeAppsTransport: AppsTransport {
         availability = available ? .available(epoch: 1) : .unavailable(.needsNewerDaemon)
     }
 
-    /// The bundled samples: agent-status as a default first-party app, the
-    /// others available and not installed. Reads the bundled manifests from
+    /// The bundled first-party apps installed for everyone (source default,
+    /// required scopes granted), then the samples: agent-status as a default
+    /// app, the others available and not installed. Reads the bundled manifests from
     /// disk (tests and demos only, never the shipping store path).
     public static func sampleRecords() -> [AppRecord] {
-        AppPlatformResources.sampleManifests().map { sample in
+        let firstParty = AppPlatformResources.firstPartyManifests().map { sample in
+            var record = AppRecord(manifest: sample.manifest, tier: .firstParty, installed: true, source: .default,
+                                   grants: Set(sample.manifest.scopes.map(\.scope)))
+            record.bundleDirectory = sample.directory
+            return record
+        }
+        return firstParty + AppPlatformResources.sampleManifests().map { sample in
             let manifest = sample.manifest
             let isDefault = manifest.id == "cmux/agent-status"
             var record = AppRecord(manifest: manifest, tier: AppStoreTier.local(manifest), installed: isDefault,

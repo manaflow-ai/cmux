@@ -32,7 +32,7 @@ enum TestClient {
         let transport = FakeAppsTransport(available: available)
         let client = AppsClient(transport: transport)
         client.start()
-        if available { _ = await eventually { await MainActor.run { client.apps.count == 3 } } }
+        if available { _ = await eventually { await MainActor.run { client.apps.count == transport.records.count } } }
         return (client, transport)
     }
 }

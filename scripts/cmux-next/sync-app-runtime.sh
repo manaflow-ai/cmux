@@ -2,6 +2,8 @@
 # Copies the app platform files the Swift module CmuxNextApps still needs
 # from their owners into Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform:
 #   cmux-tui/crates/cmux-app-host/generated/scopes.json -> scopes.json (permission policy)
+#   first-party-apps/<name>/{cmux-app.json,assets/}     -> first-party/<name>/ (only apps with a BUNDLED
+#     marker; store icons until the supervisor's bundle_dir arrives, demo transport)
 #   samples/apps/<name>/{cmux-app.json,assets/}         -> samples/<name>/ (demo transport, store icons;
 #     a sample with a NOT_BUNDLED file stays out)
 # The app supervisor in the daemon runs apps (step 3), so the client bundles
@@ -14,6 +16,7 @@ set -euo pipefail
 root="$(git rev-parse --show-toplevel)"
 host="${CMUX_APP_HOST_DIR:-$root/cmux-tui/crates/cmux-app-host}"
 samples="${CMUX_APP_SAMPLES_DIR:-$root/samples/apps}"
+first_party="${CMUX_APP_FIRST_PARTY_DIR:-$root/first-party-apps}"
 dest="$root/Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform"
 mode="sync"
 [[ "${1:-}" == "--check" ]] && mode="check"
@@ -37,6 +40,15 @@ if [[ -d "$samples" ]]; then
     [[ -f "$app/NOT_BUNDLED" ]] && continue
     copy "$app/cmux-app.json" "samples/$name/cmux-app.json"
     if [[ -d "$app/assets" ]]; then copy "$app/assets" "samples/$name/assets"; fi
+  done
+fi
+mkdir -p "$stage/first-party"
+if [[ -d "$first_party" ]]; then
+  for app in "$first_party"/*/; do
+    name="$(basename "$app")"
+    [[ -f "$app/BUNDLED" && -f "$app/cmux-app.json" ]] || continue
+    copy "$app/cmux-app.json" "first-party/$name/cmux-app.json"
+    if [[ -d "$app/assets" ]]; then copy "$app/assets" "first-party/$name/assets"; fi
   done
 fi
 # Empty directories do not survive git; keep a marker in each.

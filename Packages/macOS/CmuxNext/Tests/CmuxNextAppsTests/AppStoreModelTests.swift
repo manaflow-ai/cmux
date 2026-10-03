@@ -9,11 +9,15 @@ struct AppStoreModelTests {
     @Test func listingsComeFromTheSupervisor() async throws {
         let (client, _) = await TestClient.make()
         let model = AppStoreModel(client: client)
-        #expect(Set(model.listings.map(\.id)) == ["cmux/github-prs", "cmux/running-agents", "cmux/agent-status"])
+        #expect(Set(model.listings.map(\.id)) == Set(client.apps.map(\.id)))
+        #expect(Set(["cmux/github-prs", "cmux/running-agents", "cmux/agent-status"]).isSubset(of: Set(model.listings.map(\.id))))
         #expect(model.listings.allSatisfy { $0.tier == .firstParty && $0.publisherVerified })
         #expect(model.allCategories == Set(client.apps.flatMap(\.manifest.categories)).sorted())
         #expect(Set(["agents", "git", "monitoring", "sidebar"]).isSubset(of: model.allCategories))
-        #expect(model.installedApps.map(\.id) == ["cmux/agent-status"])
+        // First-party apps ship installed for everyone; samples are opt-in.
+        #expect(model.installedApps.allSatisfy { $0.isDefault })
+        #expect(model.installedApps.contains { $0.id == "cmux/agent-status" })
+        #expect(!model.installedApps.contains { $0.id == "cmux/github-prs" })
         #expect(model.state(of: "cmux/agent-status")?.isDefault == true)
     }
 
@@ -24,7 +28,8 @@ struct AppStoreModelTests {
         #expect(model.listings.map(\.id) == ["cmux/github-prs"])
         model.query = ""
         model.category = "monitoring"
-        #expect(model.listings.map(\.id) == ["cmux/agent-status"])
+        #expect(model.listings.map(\.id).contains("cmux/agent-status"))
+        #expect(model.listings.allSatisfy { $0.categories.contains("monitoring") })
         #expect(model.allCategories.contains("git"))
     }
 

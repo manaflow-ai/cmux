@@ -16,13 +16,20 @@ public nonisolated enum AppPlatformResources {
     public static var scopesFile: URL { root.appending(path: "scopes.json") }
     /// The sample apps' manifests and assets, one directory per app.
     public static var samples: URL { root.appending(path: "samples", directoryHint: .isDirectory) }
+    /// First-party apps shipped inside cmux (`first-party-apps/<name>` with a BUNDLED marker).
+    public static var firstParty: URL { root.appending(path: "first-party", directoryHint: .isDirectory) }
 
     /// The bundled sample manifests (sorted by directory name). Reads the
     /// disk: call it off the main actor (`preload`), or in tests and the
     /// fake supervisor.
-    public static func sampleManifests() -> [(manifest: AppManifest, directory: URL)] {
+    public static func sampleManifests() -> [(manifest: AppManifest, directory: URL)] { manifests(in: samples) }
+
+    /// The bundled first-party manifests (same rules as `sampleManifests`).
+    public static func firstPartyManifests() -> [(manifest: AppManifest, directory: URL)] { manifests(in: firstParty) }
+
+    static func manifests(in folder: URL) -> [(manifest: AppManifest, directory: URL)] {
         let fm = FileManager.default
-        guard let entries = try? fm.contentsOfDirectory(at: samples, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
+        guard let entries = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else { return [] }
         return entries.sorted { $0.lastPathComponent < $1.lastPathComponent }.compactMap { directory in
             (try? Data(contentsOf: directory.appending(path: "cmux-app.json"))).flatMap(AppManifest.decode).map { ($0, directory) }
         }
@@ -44,7 +51,8 @@ public nonisolated struct BundledAppResources: AppResourceLoading {
     public init() {}
 
     public func sampleDirectories() -> [String: URL] {
-        Dictionary(AppPlatformResources.sampleManifests().map { ($0.manifest.id, $0.directory) }, uniquingKeysWith: { first, _ in first })
+        Dictionary((AppPlatformResources.firstPartyManifests() + AppPlatformResources.sampleManifests()).map { ($0.manifest.id, $0.directory) },
+                   uniquingKeysWith: { first, _ in first })
     }
 
     public func warmScopeTable() { _ = AppScopeTable.bundled }
