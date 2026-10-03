@@ -24,8 +24,10 @@ final class AppServices {
     /// The local daemon. Cloud machines are in `machines`; code acting on a
     /// workspace, pane, or tab resolves its daemon through `machines`.
     let daemon = DaemonService()
-    /// Agent panes' git reads on the local daemon (AgentPaneGitReads.swift).
+    /// Agent panes' git reads, and their commits and pushes, on the local
+    /// daemon (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLink(daemon: daemon)
+    private(set) lazy var agentGitWrite = AgentPaneGitLink(daemon: daemon, clientName: "cmux-next-agent-git-write")
     let machines: MachineRegistry
     /// The machine of the action being run, while its handler runs
     /// (`ActionRouting`); `activeDaemon` prefers it.
@@ -140,7 +142,7 @@ final class AppServices {
     /// Browser profiles: records, the new-tab cascade, each tab's store.
     private(set) lazy var browserProfiles = BrowserProfileService(services: self)
     /// Agent chat tabs and their shared acpmux host (New Agent Chat).
-    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit)
+    private(set) lazy var agentTabs = AgentTabStore(tag: environment.tag, registry: registry, linkScheme: linkScheme, git: agentGit, gitWrite: agentGitWrite)
     /// Quick Agent Chat's floating composer (`palette.quickAgentChat`).
     private(set) lazy var quickComposer = makeQuickComposer()
     /// Internal page tabs (Settings, Debug Settings, the App Store).

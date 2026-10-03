@@ -24,6 +24,22 @@ struct AgentPaneGitReadsTests {
         #expect(bare == AgentPaneGitFailure(code: "resource.not_found", details: nil, retryable: nil, origin: .sessionHost))
     }
 
+    /// A commit or push names the folder as `path` and sends only the
+    /// fields the page set; the key rides in the envelope, not the params.
+    @Test func aWriteSendsTheFolderAsPathAndOnlyTheFieldsItSet() {
+        let commit = AgentPaneGitWrite.commit(
+            cwd: "/repo", message: "Fix", all: true, includeUntracked: true, expectedHead: "abcd1234", key: "k")
+        #expect(commit.sessionHostParams == [
+            "path": .string("/repo"), "message": .string("Fix"), "all": .bool(true),
+            "include_untracked": .bool(true), "expected_head": .string("abcd1234"),
+        ])
+        let staged = AgentPaneGitWrite.commit(cwd: "/repo", message: "Fix", all: false, includeUntracked: false, expectedHead: nil, key: "k")
+        #expect(staged.sessionHostParams == ["path": .string("/repo"), "message": .string("Fix")])
+        #expect(AgentPaneGitWrite.push(cwd: "/repo", expectedHead: nil, key: "k").sessionHostParams == ["path": .string("/repo")])
+        #expect(AgentPaneGitWrite.push(cwd: "/repo", expectedHead: "abcd1234", key: "k").sessionHostParams
+            == ["path": .string("/repo"), "expected_head": .string("abcd1234")])
+    }
+
     @Test func aRequestWithNoAnswerGetsANativeCode() {
         #expect(AgentPaneGitFailure(reading: DaemonError.notConnected) == .notConnected)
         #expect(AgentPaneGitFailure(reading: DaemonError.timedOut("git.diff")) == .timedOut)

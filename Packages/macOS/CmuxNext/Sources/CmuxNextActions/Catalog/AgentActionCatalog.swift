@@ -54,6 +54,26 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
+                id: "agentPane.git.commit",
+                title: String(localized: "action.agentPane.git.commit", defaultValue: "Commit changes…", bundle: .module),
+                keywords: ["agent", "git", "commit", "changes", "stage", "message"],
+                category: .agents, symbol: "checkmark.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git commit` (git.commit); this
+                // action opens the changes view's commit form for that op.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
+                id: "agentPane.git.push",
+                title: String(localized: "action.agentPane.git.push", defaultValue: "Push branch", bundle: .module),
+                keywords: ["agent", "git", "push", "upload", "remote", "branch", "upstream"],
+                category: .agents, symbol: "arrow.up.circle", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The session host owns `cmux git push` (git.push); this runs
+                // the changes view's Push button, which never forces.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.ownerVerb), contextMenuExemption: .noTargetSurface)
+            ),
+            ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],

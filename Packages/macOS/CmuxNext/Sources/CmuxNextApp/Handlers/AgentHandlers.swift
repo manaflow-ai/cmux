@@ -102,6 +102,20 @@ enum AgentHandlers {
             }
             view.showCreateCheckpoint()
         })
+        // Commit and Push run the changes view's own path. Headless callers
+        // use the session host's `cmux git commit|push` instead.
+        for (id, action) in [("agentPane.git.commit", AgentPaneGitAction.commit), ("agentPane.git.push", .push)] as [(ActionID, AgentPaneGitAction)] {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else {
+                    return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
+                }
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.runGitAction(action)
+            })
+        }
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(

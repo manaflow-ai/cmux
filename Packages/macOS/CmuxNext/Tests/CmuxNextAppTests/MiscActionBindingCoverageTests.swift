@@ -90,4 +90,17 @@ struct MiscActionBindingCoverageTests {
         #expect(!services.registry.isAvailable(id, in: [.checkpointCaptureAvailable]))
         #expect(services.registry.isAvailable(id, in: [.agentPaneFocused, .checkpointCaptureAvailable]))
     }
+    /// Commit and Push are the changes view's buttons for a focused agent
+    /// chat; their CLI verbs are the session host's `cmux git commit|push`.
+    @Test func commitAndPushAreBoundForAFocusedAgentChat() throws {
+        let services = ActionBindingCoverageTests.boundServices()
+        for id: ActionID in ["agentPane.git.commit", "agentPane.git.push"] {
+            #expect(services.registry.isBound(id))
+            #expect(!services.registry.isAvailable(id, in: []))
+            #expect(services.registry.isAvailable(id, in: [.agentPaneFocused]))
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.surfacePlan.cli == .exempt(.ownerVerb))
+            #expect(descriptor.surfacePlan.palette == .offered)
+        }
+    }
 }
