@@ -58,10 +58,22 @@ export function automationState(host: AutomationHost) {
   };
 }
 
-export async function sendPrompt(host: AutomationHost, text: string) {
+/// How long sendPrompt waits for chat.send to fail before it reports the prompt as sent.
+/// chat.send settles only when the turn ends, which can be minutes or wait on an ask.
+export const SEND_ACCEPT_WINDOW_MS = 1_500;
+
+export async function sendPrompt(host: AutomationHost, text: string, acceptWindowMs = SEND_ACCEPT_WINDOW_MS) {
   if (!text.trim()) return { error: "empty prompt" };
-  await host.call("chat.send", { text });
-  return { sent: true, sessionId: host.snapshot().sessionId ?? null };
+  const turn = host.call("chat.send", { text }).then(
+    () => ({ ended: true as const }),
+    (error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }),
+  );
+  const outcome = await Promise.race([
+    turn,
+    new Promise<{ running: true }>((resolve) => setTimeout(() => resolve({ running: true }), acceptWindowMs)),
+  ]);
+  if ("error" in outcome) return { error: outcome.error };
+  return { sent: true, turnEnded: "ended" in outcome, sessionId: host.snapshot().sessionId ?? null };
 }
 
 export async function newChat(host: AutomationHost, harness?: string, cwd?: string) {
