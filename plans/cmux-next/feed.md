@@ -314,6 +314,27 @@ Live finding: `sr claude` drops hooks passed with `--settings`; project or user 
 
 Steps: (1) bridge: the daemon's `notify` path also posts the notice to the feed owner; the app keeps today's ledger; (2) the app reads rings, badges and the panel from the feed mirror; (3) the daemon ledger stops keeping read state (producer only), and `ack-tab-notifications` becomes `feed.read`. Step 3 changes a daemon protocol and needs the daemon owners (COORDINATION.md line).
 
+### 9.1 Steps 2 and 3 as one change (plan for the daemon owner's review)
+
+Step 1 (1c9b829aeb2, hardened in the next commit) is a bridge: the app copies alerting daemon notifications into FeedDO and mirrors reads. Read state then has two writers (the daemon's unread markers and `read_by` sets, and FeedDO's `read_at`). Steps 2 and 3 land together so that read state has exactly one writer per item.
+
+Target:
+1. One writer per item for lifecycle and read state: the item's owner (section 5). A local item's owner is the daemon's local feed owner; a cloud item's owner is FeedDO. The daemon's notification ledger stops being a store: it becomes a producer that posts items.
+2. The daemon hosts the local owner (F4) as a module (`cmux-feed-core`, the same reducer as FeedDO, checked by the shared conformance vectors). It runs with or without an account, so rings and badges keep working signed out.
+3. Every daemon notification (`cmux notify`, `notification.create*`, OSC 9/777/99 after Ghostty's rate limit, `status run`) is a local `feed.post` in the daemon's own commit: poster kind `system` (or `agent` with the launch credential), context `{host, workspace, tab, terminal}`, dedupe key `notify:<daemon session>:<public notification id>`. Content stays on the Mac.
+4. Handoff to the cloud follows section 5 rule 3: only when the user is signed in, and only for items that `feed.mirrorNotifications` allows (agents on by default; terminal off, title or full). The app holds the cloud credential, so it drives `feed.adopt` for the daemon (the daemon marks `handing_off`, the app sends `feed.adopt` with key `adopt:<item>`, the daemon commits `moved`). Items the setting keeps local never leave the Mac. Until the daemon has its own install token this keeps the "no app, no cloud" limit of step 1.
+5. Reads: `ack-tab-notifications`, Mark Read, focus and keystroke policy triggers, `cmux` clear and the iPhone all become `feed.read` on the items whose context is that tab, routed to each item's owner (local or cloud, `owner.moved` reroutes). The old verbs stay as aliases. `read_by` per client is dropped: a read is per user (3.7).
+6. Rings, the tab unread marker, the sidebar dot and the dock badge derive on each client from unread items (local stream plus cloud stream, merged by item id). No client keeps a second unread flag.
+7. The step-1 bridge is deleted in the same change.
+
+Migration (daemon journal): on first start of the new daemon, each entry of the 256-entry notification ledger becomes a local item (read when its marker was cleared), with the same dedupe key, so a step-1 cloud copy and the local item do not double. The `notification` event and `list-notifications` stay for one release as read-only projections of local items.
+
+Open points for the daemon owner:
+- TUI and iPhone clients without a cloud credential see only local items: a cloud item's ring needs the cloud stream. Proposal: the daemon keeps a read-only cache of moved items (id, context, read_at) fed by the app, so every client of that daemon still draws rings.
+- Journal cost: one local commit per notification (today the ledger write is in memory plus a persisted ack). OSC spam needs the coalescing rule from step 1 (one pending post per terminal, latest wins) inside the daemon.
+- Who stamps the actor of a read (P8 shape `{kind: user|terminal|acp_session, id, host, agent?}`): the daemon stamps local reads; FeedDO stamps cloud reads.
+- Retention: FeedDO events keep full `feed.post` params up to 30 days (or the newest 10,000 events). Before terminal text is mirrored by default, event params for notices need redaction (title, body, label), which the shared engine does not allow without `rowMode` today (backend lead).
+
 ## 10. Sign-in and passkey requests (N12)
 
 ### 10.1 Feasibility per engine (code and docs read; nothing run live)
@@ -437,7 +458,7 @@ Screenshots and the recommendation are in section 15 when built.
 
 ## 14. Settings (cmux.json, Settings > Feed)
 
-`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.menubar` (`off`), `feed.requestDefaults.expiry` (24 h). Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
+`feed.desktop`, `feed.sound`, `feed.quietHours`, `feed.mutedPosters`, `feed.inViewIdleSeconds` (60), `feed.dismissal` (`keystroke`), `feed.badge` (`requestsAndUnread`), `feed.attention.*` (ring, from notifications.md), `feed.layout` (prototype switch), `feed.menubar` (`off`), `feed.requestDefaults.expiry` (24 h). `feed.mirrorNotifications.agents` (true: notices from agents, agent hooks and `cmux notify` go to the feed) and `feed.mirrorNotifications.terminal` (`off` default, `title`, `full`: terminal program notifications; off sends nothing, title sends the title only). Only notifications that would alert on this Mac (a banner) are mirrored; muted workspaces, quiet hours and banners turned off stay on the Mac. Text is scrubbed of known secret shapes; the poster label is the source (`agent`, `cli`, `terminal`), never the tab title. Owner-side (synced, `feed.prefs.set`): `push.enabled` (true), `push.delay.{urgent,high,normal,low}` (0, 20, 120, never), `push.skipWhenMacActive` (true).
 
 ## 15. Prototype screenshots and recommendation
 
