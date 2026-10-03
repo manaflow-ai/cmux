@@ -20,6 +20,7 @@ final class SidebarRegionView: NSView {
 
     let region: SidebarRegion
     var onActivate: ((LayoutItemID) -> Void)?
+    var onActivateWithModifiers: ((LayoutItemID, NSEvent.ModifierFlags) -> Void)?
     var onToggleSection: ((LayoutSectionID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
@@ -145,7 +146,13 @@ final class SidebarRegionView: NSView {
 
     private func makeItem(_ id: LayoutItemID) -> SidebarItemRowView {
         let view = SidebarItemRowView()
-        view.onPress = { [weak self] in self?.onActivate?(id) }
+        view.onPressWithModifiers = { [weak self] flags in
+            if let onActivateWithModifiers = self?.onActivateWithModifiers {
+                onActivateWithModifiers(id, flags)
+            } else {
+                self?.onActivate?(id)
+            }
+        }
         view.onContextMenu = { [weak self] event, view in
             guard let menu = self?.contextMenuProvider?(.layoutItem(id)) else { return }
             NSMenu.popUpContextMenu(menu, with: event, for: view)

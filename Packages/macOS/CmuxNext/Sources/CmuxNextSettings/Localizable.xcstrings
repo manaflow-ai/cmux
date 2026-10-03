@@ -32750,6 +32750,268 @@
           }
         }
       }
+    },
+    "settings.newTerminal.opensWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "New Terminal Opens a Workspace"
+          }
+        }
+      }
+    },
+    "settings.newTerminal.opensWorkspace.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click."
+          }
+        }
+      }
     }
   },
   "version": "1.0"

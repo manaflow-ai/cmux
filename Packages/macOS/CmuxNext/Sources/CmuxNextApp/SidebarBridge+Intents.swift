@@ -94,8 +94,8 @@ extension SidebarBridge {
         case .setPinned(let ids, let pinned):
             model.apply(intent)
             sendPinned(ids, pinned)
-        case .activateItem(let id):
-            activateLayoutItem(id)
+        case .activateItem(let id, let opensWorkspace):
+            activateLayoutItem(id, opensWorkspace: opensWorkspace)
         case .layout(let op):
             applyLayoutOp(op)
         case .toggleLayoutSection:

@@ -174,7 +174,7 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "selectSurfaceByNumber",
                 title: String(localized: "action.selectSurfaceByNumber", defaultValue: "Select Tab 1…9", bundle: .module),
-                keywords: ["tab", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control]),
+                keywords: ["tab", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control, .option]),
                 shortcutFamily: .digits, category: .tab, symbol: "number.square", surfaces: [.keyboard],
                 arguments: [CatalogArgument.indexNumber], targets: [.tab], cliName: "tab select-1-9"
             ),
