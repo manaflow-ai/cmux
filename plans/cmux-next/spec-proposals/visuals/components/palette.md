@@ -1,6 +1,6 @@
 # Command palette and overlays
 
-Cmd-Shift-P opens a floating glass panel over the window. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextPalette/` at `dd5e6216935`; images from `1824883286a`. JSON key `components["palette.panel"]`.
+Cmd-Shift-P opens a floating glass panel over the window. Sources: `Packages/macOS/CmuxNext/Sources/CmuxNextPalette/` at `d445a445556`; images from `1824883286a`. JSON key `components["palette.panel"]`.
 
 ![Palette open, dark: Window section, first row selected, keycaps](../images/palette/dark-open.png)
 
@@ -16,18 +16,18 @@ Width paletteWidth (640/720). Search field height 44/52, search font 16/18 regul
 
 | element | state | token | source |
 |---|---|---|---|
-| panel | open | Liquid Glass .regular, tint glassTint; shadow alpha(shadow, 0.22), blur 24, y 8 | PaletteContentView.swift:17 (`PaletteContentView.glass`), :244-251 (`applyColors`) |
+| panel | open | Liquid Glass .regular, tint glassTint; shadow alpha(shadow, 0.22), blur 24, y 8 | PaletteContentView.swift:17 (`PaletteContentView.glass`), :247-254 (`applyColors`) |
 | row | default | no fill, icon textSecondary, title textPrimary, subtitle caption textSecondary, accessory caption textTertiary | PaletteRowCell.swift:80-138 (`PaletteRowCell`) |
 | row | hover | hoverFill, inset 4 from the list edges | PaletteRowCell.swift:65 (`PaletteTableRowView.drawBackground`) |
 | row | selected (keyboard) | selectionFill, icon textPrimary | PaletteRowCell.swift:65, :123 |
 | row | filtering | unmatched title chars alpha(textPrimary, 0.78), matched bodyEmphasized textPrimary | PaletteRowCell.swift:182-187 |
-| field | caret / selection | textPrimary / selectionFill | PaletteContentView.swift:259-260 (`applyEditorColors`) |
-| empty | | title bodyEmphasized textSecondary, hint caption textTertiary | PaletteContentView.swift:25-26 (`emptyTitle`, `emptyHint`) |
+| field | caret / selection | textPrimary / selectionFill | PaletteContentView.swift:262-263 (`applyEditorColors`) |
+| empty | | title bodyEmphasized textSecondary, hint caption textTertiary | PaletteContentView.swift:26-27 (`emptyTitle`, `emptyHint`) |
 | actions menu (⌘K) | | glass panel, width palette/2-16, rows rowHeight-4, selected selectionFill | PaletteActionsMenuView.swift (`PaletteActionsMenuView`) |
 
 Motion: opens from scale 0.97 (spring appear) with a 0.12 s fade; closes to 0.98 with a 0.08 s fade.
 
-Materials (target): macOS 26+ Liquid Glass; vibrancy (.popover) with the glassTint layer and a 1/scale separator border where Liquid Glass is missing; Reduce Transparency opaque mix(window, textPrimary, 0.14) with an opaque separator border (`CmuxNextDesign/OverlaySurface.swift (OverlayMaterial, OverlaySurfaceView)`). Today the panel, its actions menu and its shortcut recorder call `Glass.makePanel` directly, so Reduce Transparency shows system Liquid Glass instead of the opaque fallback. A code fix is in progress in a separate lane.
+Materials: macOS 26+ Liquid Glass; vibrancy (.popover) with the glassTint layer and a 1/scale separator border where Liquid Glass is missing; Reduce Transparency opaque mix(window, textPrimary, 0.14) with an opaque separator border (`CmuxNextDesign/OverlaySurface.swift (OverlayMaterial, OverlaySurfaceView)`).
 
 UNVERIFIED: palette row hover screenshot (`debug.mouse` targets the main window, not the panel); light palette screenshot (the panel was captured while not on screen, so Liquid Glass sampled no backdrop and rendered gray; the dark capture is also missing real backdrop sampling). Capture both with the window on a visible test screen.
 

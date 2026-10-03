@@ -24,4 +24,14 @@ import Testing
         #expect(descriptor.targets == [.pane])
         #expect(ContextMenuCatalog.shared.referencedIDs(ContextMenuCatalog.shared.entries(for: .newTab)).contains(.newAgentChat))
     }
+
+    @Test func continueInUsesTheFrontendCommand() throws {
+        let page = FileManager.default.temporaryDirectory.appendingPathComponent("agent-pane-continue-in-test.html")
+        let view = try #require(AgentPaneView(model: AgentPaneModel(host: MockAgentPaneHost()), source: .bundled(page)))
+        defer { view.close() }
+        var scripts: [String] = []
+        view.evaluateScript = { scripts.append($0) }
+        view.showContinueIn()
+        #expect(scripts == ["window.cmuxAcpmuxBridge?.command?.(\"continueIn\");"])
+    }
 }

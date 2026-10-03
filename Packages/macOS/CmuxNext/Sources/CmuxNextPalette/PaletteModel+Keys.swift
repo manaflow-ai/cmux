@@ -40,7 +40,9 @@ extension PaletteModel {
             break
         case .escape:
             if pop() { return true }
-            if !query.isEmpty {
+            // A text step's text is the answer, not a search: Escape
+            // cancels the prompt instead of clearing it first.
+            if !query.isEmpty, !isTextInput {
                 query = ""
                 return true
             }

@@ -1,29 +1,77 @@
 {
- "ops": {
-  "app.storage.get": null,
-  "app.storage.set": null,
-  "workspace.list": [
-   {
-    "id": "workspace_api",
-    "session_id": "session_1",
-    "name": "api",
-    "index": 0,
-    "focused": true
-   },
-   {
-    "id": "workspace_web",
-    "session_id": "session_1",
-    "name": "web",
-    "index": 1,
-    "focused": false
-   },
-   {
-    "id": "workspace_docs",
-    "session_id": "session_1",
-    "name": "docs",
-    "index": 2,
-    "focused": false
-   }
-  ]
- }
+  "grant": [
+    "workspace:read",
+    "mcp:expose",
+    "notes:read",
+    "notes:write",
+    "fs:read",
+    "workspace:write"
+  ],
+  "scopes": {
+    "note.list": {
+      "scope": "notes:read",
+      "class": "read"
+    },
+    "note.get": {
+      "scope": "notes:read",
+      "class": "read"
+    },
+    "note.search": {
+      "scope": "notes:read",
+      "class": "read"
+    },
+    "note.append": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "note.create": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "note.update": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "document.edit": {
+      "scope": "notes:write",
+      "class": "mutation"
+    },
+    "fs.pick": {
+      "scope": "fs:read",
+      "class": "read"
+    },
+    "app.pane.open": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    }
+  },
+  "ops": {
+    "note.list": {
+      "notes": [],
+      "next": null
+    },
+    "workspace.list": [
+      {
+        "id": "workspace_api",
+        "session_id": "session_1",
+        "name": "api",
+        "index": 0,
+        "focused": true
+      },
+      {
+        "id": "workspace_web",
+        "session_id": "session_1",
+        "name": "web",
+        "index": 1,
+        "focused": false
+      },
+      {
+        "id": "workspace_docs",
+        "session_id": "session_1",
+        "name": "docs",
+        "index": 2,
+        "focused": false
+      }
+    ]
+  }
 }

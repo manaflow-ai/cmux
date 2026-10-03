@@ -20,6 +20,7 @@ const saved = Object.fromEntries(
     "HTMLElement",
     "customElements",
     "Node",
+    "MutationObserver",
     "IntersectionObserver",
     "ResizeObserver",
     "requestAnimationFrame",
@@ -34,6 +35,8 @@ Object.assign(globals, {
   HTMLElement: dom.window.HTMLElement,
   customElements: dom.window.customElements,
   Node: dom.window.Node,
+  // Code blocks and edit diffs watch the pane's theme attribute.
+  MutationObserver: dom.window.MutationObserver,
   IntersectionObserver: class {
     observe() {}
     unobserve() {}
@@ -293,7 +296,7 @@ describe("acpmux transcript accessibility", () => {
     }
   });
 
-  /// A prompt draws as typed in one bubble, as Codex draws it: no Markdown, so a blank line is
+  /// A prompt draws as typed in one bubble: no Markdown, so a blank line is
   /// one blank line and not an empty paragraph of two newlines.
   test("a prompt draws as typed in one bubble", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
@@ -838,13 +841,17 @@ describe("acpmux host handshake", () => {
         },
       },
     };
-    // The picker lists its models while open; open it once it exists and read the menu.
+    // The picker lists its models while open: open it once it exists, type "m" to list every
+    // model (ids m1, m2), and read the matches.
     const models = () => {
-      const button = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
+      const doc = dom.window.document;
+      const button = doc.querySelector<HTMLButtonElement>(".acpmux-model .acpmux-picker-button");
       if (button && button.getAttribute("aria-expanded") !== "true") button.click();
-      return [...dom.window.document.querySelectorAll(".acpmux-model [role=option]")].map((option) =>
-        option.getAttribute("data-value"),
-      );
+      if (button && doc.querySelector(".acpmux-mp .acpmux-menu-search")?.textContent !== "m")
+        button.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", bubbles: true, cancelable: true }));
+      return [...doc.querySelectorAll('.acpmux-mp [data-key^="model:"]')]
+        .map((row) => row.getAttribute("data-key")!.slice("model:".length))
+        .sort();
     };
     const waitFor = async (done: () => boolean) => {
       for (let tries = 0; tries < 100 && !done(); tries += 1)
@@ -862,6 +869,84 @@ describe("acpmux host handshake", () => {
       await act(async () => CatalogSocket.held.splice(0).forEach((reply) => reply()));
       await waitFor(() => models().length === 2);
       expect(models()).toEqual(["m1", "m2"]);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
+  /// Onboarding's first task: the handshake's prompt starts the chat in its cwd without a Send press,
+  /// and the composer stays empty. Swift hands the prompt out once, so it survives a first connect
+  /// that fails (a daemon still starting) and is sent after the retry.
+  test("a seeded prompt creates the chat in its cwd and sends once, even after a failed connect", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    let readies = 0;
+    class PromptSocket extends FakeSocket {
+      constructor(url: URL) {
+        super(url);
+        // The first daemon connect fails before it opens.
+        if (FakeSocket.made.length === 1) {
+          Object.defineProperty(this, "onopen", { get: () => undefined, set: () => undefined });
+          queueMicrotask(() => this.onerror?.());
+        }
+      }
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-new" }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-new", harness: "codex" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = PromptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string }) {
+            if (message.method !== "ready") return Promise.resolve({ ok: true, value: null });
+            readies += 1;
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                cwd: "/tmp/first-task",
+                ...(readies === 1 ? { prompt: "Leave a note on my Desktop" } : {}),
+              },
+            });
+          },
+        },
+      },
+    };
+    const prompts = () => sent.filter((message) => message.method === "session/prompt");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && prompts().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(readies).toBe(2);
+      expect(sent.find((message) => message.method === "session/new")?.params.cwd).toBe("/tmp/first-task");
+      expect(prompts().map((message) => message.params.sessionId)).toEqual(["s-new"]);
+      expect(prompts()[0]!.params.prompt).toEqual([{ type: "text", text: "Leave a note on my Desktop" }]);
+      expect(dom.window.document.querySelector("textarea")?.value ?? "").toBe("");
     } finally {
       await act(async () => root.unmount());
       globals.WebSocket = realSocket;
@@ -1116,23 +1201,24 @@ describe("acpmux turn diff", () => {
       more.focus();
       await click(more);
       expect(more.getAttribute("aria-expanded")).toBe("true");
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Collapse file"]);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Collapse file"]);
       expect(document.activeElement).toBe(items()[0]);
       await click(items()[0]!);
       expect(copied).toEqual(["/repo/notes.md"]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(more);
-      // From the keyboard: Arrow Down moves to Collapse file, Enter folds the file.
+      // From the keyboard: Arrow Down twice moves to Collapse file, Enter folds the file.
       await click(more);
       await key(items()[0]!, "ArrowDown");
+      await key(document.activeElement!, "ArrowDown");
       expect(document.activeElement?.textContent).toBe("Collapse file");
       await key(document.activeElement!, "Enter");
       expect(diffShown()).toEqual([true, false]);
       expect(items()).toEqual([]);
       // Folded, the item opens the file again.
       await click(more);
-      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Expand file"]);
-      await click(items()[1]!);
+      expect(items().map((item) => item.textContent)).toEqual(["Copy path", "Open file in a tab", "Expand file"]);
+      await click(items()[2]!);
       expect(diffShown()).toEqual([true, true]);
       // Escape closes only the menu and returns focus to its button; the view stays open.
       await click(more);
@@ -1153,6 +1239,198 @@ describe("acpmux turn diff", () => {
       delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
       if (clipboard) Object.defineProperty(globalThis.navigator, "clipboard", clipboard);
       else delete (globalThis.navigator as unknown as Record<string, unknown>).clipboard;
+    }
+  });
+
+  test("a changed file opens in a tab or the editor from its header and its More menu, and a failed open says so", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const asked: unknown[] = [];
+    let refuse = false;
+    host.cmuxAcpmuxActions = {
+      "file.open": (params) => {
+        asked.push(params);
+        return refuse ? Promise.reject(new Error("The file could not be opened.")) : Promise.resolve(null);
+      },
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
+      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      expect([tab?.title, editor?.title]).toEqual(["Open file in a tab", "Open in editor"]);
+      // The header's buttons ask the host to open the file's full path.
+      await click(tab);
+      await click(editor);
+      expect(asked).toEqual([
+        { path: "/repo/notes.md", where: "tab" },
+        { path: "/repo/notes.md", where: "editor" },
+      ]);
+      // So does the More menu's Open file in a tab.
+      await click(panel.querySelector('[aria-label="More actions for notes.md"]')!);
+      const item = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+        (node) => node.textContent === "Open file in a tab",
+      )!;
+      await click(item);
+      expect(asked.at(-1)).toEqual({ path: "/repo/notes.md", where: "tab" });
+      expect(panel.querySelector('.acpmux-diff-notice[role="alert"]')).toBeNull();
+      // A refused open says why, in the host's words; the next open clears it.
+      refuse = true;
+      await click(editor);
+      expect(panel.querySelector('.acpmux-diff-notice[role="alert"]')?.textContent).toBe(
+        "The file could not be opened.",
+      );
+      refuse = false;
+      await click(tab);
+      expect(panel.querySelector(".acpmux-diff-notice")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
+    }
+  });
+
+  test("an open's failure gives way to a later open or another scope, and a deleted file offers no open", async () => {
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Window & {
+      cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
+    };
+    const document = dom.window.document;
+    const opens: { resolve: (value: unknown) => void; reject: (error: Error) => void }[] = [];
+    host.cmuxAcpmuxActions = {
+      "file.open": () => new Promise((resolve, reject) => opens.push({ resolve, reject })),
+      "git.diff": () =>
+        Promise.resolve({
+          scope: "uncommitted",
+          root: "/repo",
+          files: [
+            { path: "src/main.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+A\n" },
+            { path: "src/old.ts", status: "deleted", additions: 0, deletions: 1, patch: "@@ -1 +0,0 @@\n-gone\n" },
+          ],
+        }),
+    };
+    const diffRow: AcpmuxRow = {
+      id: "activity-2",
+      version: 1,
+      at: 2,
+      kind: "activity",
+      toolCount: 1,
+      items: [
+        {
+          kind: "tool",
+          text: "Write notes.md",
+          tool: {
+            id: "t2",
+            title: "Write notes.md",
+            kind: "edit",
+            status: "completed",
+            diffs: [{ path: "/repo/notes.md", newText: "hello\n" }],
+          },
+        },
+      ],
+    };
+    const settle = () => act(() => new Promise((resolve) => setTimeout(resolve, 0)));
+    const click = async (node: Element) => {
+      await act(async () => {
+        node.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      });
+      await settle();
+    };
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      await act(async () =>
+        host.cmuxAcpmuxBridge!.receive({
+          type: "snapshot",
+          protocolVersion: 1,
+          rows: [{ id: "user-1", version: 1, at: 1, kind: "user", text: "fix it" }, diffRow],
+          sessions: [],
+          connection: "connected",
+          isWorking: false,
+          queue: [],
+          catalog: [],
+          canLoadOlder: false,
+        }),
+      );
+      await click([...document.querySelectorAll("button")].find((button) => button.textContent === "View changes")!);
+      const panel = document.querySelector("section.acpmux-diff-panel")!;
+      const notice = () => panel.querySelector('.acpmux-diff-notice[role="alert"]');
+      const tab = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in a tab"]')!;
+      const editor = panel.querySelector<HTMLElement>('[aria-label="Open notes.md in the editor"]')!;
+      // A slow open that fails after a later one worked says nothing: the file is open.
+      await click(tab);
+      await click(editor);
+      opens[1].resolve(null);
+      await settle();
+      opens[0].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()).toBeNull();
+      // A failure shows until another scope replaces the files it was about.
+      await click(tab);
+      opens[2].reject(new Error("The file could not be opened."));
+      await settle();
+      expect(notice()?.textContent).toBe("The file could not be opened.");
+      await click(panel.querySelector('.acpmux-diff-header [aria-haspopup="menu"]')!);
+      await click(
+        [...panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]')].find(
+          (node) => node.textContent === "Uncommitted",
+        )!,
+      );
+      expect(panel.querySelector('[aria-label="Open src/main.ts in a tab"]')).not.toBeNull();
+      expect(notice()).toBeNull();
+      // A deleted file has nothing on disk to open.
+      expect(panel.querySelector('[aria-label="Open src/old.ts in a tab"]')).toBeNull();
+      expect(panel.querySelector('[aria-label="Open src/old.ts in the editor"]')).toBeNull();
+      await click(panel.querySelector('[aria-label="More actions for src/old.ts"]')!);
+      const items = [...panel.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((node) => node.textContent);
+      expect(items).toEqual(["Copy path", "Collapse file"]);
+    } finally {
+      await act(async () => root.unmount());
+      delete host.cmuxAcpmuxActions;
+      delete (host as unknown as Record<string, unknown>).cmuxAcpmuxRegistry;
     }
   });
 
@@ -1402,7 +1680,7 @@ describe("acpmux turn diff", () => {
       () => Promise.resolve({ scope: "staged", files: [] }),
     ];
     host.cmuxAcpmuxActions = {
-      "git.scope.diff": (params) => {
+      "git.diff": (params) => {
         asked.push(params);
         return answers.shift()!();
       },
@@ -1466,7 +1744,7 @@ describe("acpmux turn diff", () => {
       await click(eye());
       expect(eye().getAttribute("aria-pressed")).toBe("true");
       expect(panel.querySelector(".acpmux-diff-file diffs-container")).toBeNull();
-      // The menu lists the scopes in Codex's order, in three groups, and opens on the chosen one.
+      // The menu lists the scopes in a fixed order, in three groups, and opens on the chosen one.
       pill.focus();
       await click(pill);
       expect(pill.getAttribute("aria-expanded")).toBe("true");
@@ -1490,14 +1768,14 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement).toBe(items()[0]);
       // A scope that fails to load says so and offers Retry; Retry asks again and shows its files.
       await click(items()[1]!);
-      expect(asked).toEqual([{ scope: "uncommitted" }]);
+      expect(asked).toEqual([{ scope: "uncommitted", include_patch: true }]);
       expect(items()).toEqual([]);
       expect(document.activeElement).toBe(pill);
       expect(pill.querySelector("strong")?.textContent).toBe("Uncommitted");
       const failure = panel.querySelector('[role="alert"]');
       expect(failure?.querySelector("strong")?.textContent).toBe("Couldn't load changes");
       expect(paths()).toEqual([]);
-      // With no files the pill names the scope only, as in Codex.
+      // With no files the pill names the scope only.
       expect(pill.querySelector(".acpmux-diff-counts")).toBeNull();
       const retryButton = [...failure!.querySelectorAll<HTMLElement>("button")].find(
         (button) => button.textContent === "Retry",
@@ -1505,7 +1783,10 @@ describe("acpmux turn diff", () => {
       retryButton.focus();
       expect(document.activeElement).toBe(retryButton);
       await click(retryButton);
-      expect(asked).toEqual([{ scope: "uncommitted" }, { scope: "uncommitted" }]);
+      expect(asked).toEqual([
+        { scope: "uncommitted", include_patch: true },
+        { scope: "uncommitted", include_patch: true },
+      ]);
       // Retry leaves as the load starts; focus moves to the scope pill, not the page.
       expect(document.activeElement).toBe(pill);
       expect(panel.querySelector('[role="alert"]')).toBeNull();
@@ -1532,7 +1813,7 @@ describe("acpmux turn diff", () => {
       expect(document.activeElement?.textContent).toBe("Staged");
       await key(document.activeElement!, "Enter");
       await settle();
-      expect(asked.at(-1)).toEqual({ scope: "staged" });
+      expect(asked.at(-1)).toEqual({ scope: "staged", include_patch: true });
       expect(asked.length).toBe(4);
       expect(panel.querySelector("output strong")?.textContent).toBe("No changes");
       // Last turn is the transcript's own files again, without asking the host.
@@ -1639,7 +1920,7 @@ describe("acpmux turn counts", () => {
 });
 
 describe("acpmux new chat", () => {
-  /// A new chat drew an empty transcript; it now names the project, as Codex's home and new-chat screens do.
+  /// A new chat drew an empty transcript; it now names the project.
   test("an attached session with no turns shows the hero with its folder; rows, turns, a queued prompt, a lost daemon or a missing summary hide it", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);
     const host = dom.window as unknown as Window;
@@ -1786,7 +2067,7 @@ describe("acpmux tool runs", () => {
     tool: { id, title: id, kind, status },
   });
 
-  /// In an ended turn's open "Worked for", Codex folds a run of calls under one summary line.
+  /// In an ended turn's open "Worked for", a run of calls folds under one summary line.
   test("a run in an ended turn shows one summary line and opens to its calls", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
     const root = createRoot(dom.window.document.getElementById("root")!);
@@ -1909,7 +2190,7 @@ describe("acpmux shell calls", () => {
 });
 
 describe("acpmux timestamp lines", () => {
-  /// Codex dates a turn that starts over an hour after the last answer; the pane showed no
+  /// A turn that starts over an hour after the last answer gets a date; the pane showed no
   /// date at all.
   test("a turn over an hour after the previous answer draws its time above it", async () => {
     const restore = fakeViewport({ width: 760, height: 600 });
@@ -1946,7 +2227,7 @@ describe("acpmux timestamp lines", () => {
 });
 
 describe("acpmux edit diffs", () => {
-  /// An edit inside an opened "Worked for" was a dead row: Codex opens it to the change.
+  /// An edit inside an opened "Worked for" was a dead row: it now opens to the change.
   test("an edit in an opened fold opens to its diff", async () => {
     const restore = fakeViewport({ width: 760, height: 900 });
     const root = createRoot(dom.window.document.getElementById("root")!);

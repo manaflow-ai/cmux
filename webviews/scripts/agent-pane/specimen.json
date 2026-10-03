@@ -1,5 +1,5 @@
 {
-  "source": "codex-atlas-clone src/conversation/fixtures/rollouts/specimen.jsonl",
+  "source": "reference prototype src/conversation/fixtures/rollouts/specimen.jsonl",
   "prompt": "UI rendering specimen for a screenshot atlas. Do not read my files, change settings, or run commands. Reply with rendered examples, not one enclosing code fence. Keep it about 900 words. Include: H1/H2/H3 headings; bold, italic, strikethrough, inline code, links; nested numbered and bullet lists; task checkboxes; blockquotes; horizontal rule; a 5-column Markdown table with alignment and a long cell; fenced Python, JSON, diff, and plain text; inline LaTeX and display LaTeX with a fraction, integral, aligned equations and a matrix; Unicode Greek, emoji, CJK, RTL Arabic; definition list, footnote, escaped Markdown; HTML details/summary and sup/sub; Mermaid flowchart; and an ASCII tree. Label each example and preserve unsupported formats as source. Finally solve a small arithmetic puzzle using thoughtful explanation so the UI can show working status. Title this conversation UI rendering atlas specimen.\n",
   "steps": [
     {

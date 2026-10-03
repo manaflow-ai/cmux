@@ -1,76 +1,38 @@
-// The notes store: one in-memory copy (a signal every surface reads), ordered
-// writes, and two backends.
-//
-// - "documents": the proposed document store (`document.list/get/put/delete`,
-//   event `document.changed`; README "Proposed operations"). Per-note writes
-//   with a base revision; on a conflict the op is replayed on the newer copy.
-// - "local": `cmux.storage` (5 MiB local KV) as one key holding the whole set.
-//   Works today; local to this machine.
-//
-// Commands and sections run in the same app VM, so a write from an agent's
-// MCP call updates every mounted section through the signal, with no reload
-// and no focus change.
+/// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
+// What this app shows of the notes server: note summaries (from `note.list`,
+// then the typed `note.watch` stream) and the bodies a surface displays
+// (`note.get`, refreshed when a newer revision arrives). The server owns every
+// note; this is a projection, so a write from an agent, another device or the
+// native editor shows up here through the stream, never by polling.
 
-import { applyOp, LIMITS, NoteError, parseDocument, serializeDocument, type Note, type NoteOp, type Stamp } from "./model.ts"
+import { applyEdits, rebaseLine, toggleEdit } from "./model.ts"
+import { api, NOTE_STREAM, type Note, type NoteEvent, type NoteSummary, type SortOrder } from "./notes.ts"
 
-export type Backend = "documents" | "local"
-
-export const STORAGE_KEY = "notes.v1"
-export const COLLECTION = "notes"
-/** Leave headroom under the 5 MiB local quota for the app's other keys. */
-export const LOCAL_BUDGET_BYTES = 4_500_000
-
-const [notes, setNotes] = signal<Note[]>([])
+const [summaries, setSummaries] = signal<NoteSummary[]>([])
+const [bodies, setBodies] = signal<ReadonlyMap<string, { revision: number; body: string }>>(new Map())
 const [ready, setReady] = signal(false)
-const [loadError, setLoadError] = signal<string | null>(null)
+const [loadError, setLoadError] = signal<{ code: string; message: string } | null>(null)
 const [saveError, setSaveError] = signal<string | null>(null)
-const [backendSignal, setBackend] = signal<Backend | null>(null)
 
-export { notes, ready, loadError, saveError }
-export const backend = backendSignal
+export { summaries, ready, loadError, saveError }
+
+export const codeOf = (e: unknown) => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "")
+export const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e))
 
 let loading: Promise<void> | null = null
+let lastSeq = 0
 
-const errorCode = (e: unknown) => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "")
-/** The op does not exist on this host, or the app lacks its scope: use the fallback. */
-const unavailable = (e: unknown) => ["operation.unsupported", "scope.missing", "operation.forbidden"].includes(errorCode(e))
-const message = (e: unknown) => (e instanceof Error ? e.message : String(e))
-
-interface DocumentRecord {
-  id: string
-  revision: string | number
-  data: Record<string, unknown>
-}
-
-/** Revision the document store last confirmed per note (the base of the next write). */
-const known = new Map<string, number>()
-
-const fromRecord = (r: DocumentRecord): Note | undefined => {
-  const note = parseDocument({ notes: [{ ...r.data, id: r.id, revision: Number(r.revision) }] })[0]
-  if (note) known.set(note.id, Number(r.revision))
-  return note
-}
-/** What the document store keeps per note (the id and revision live on the record). */
-const toData = (n: Note) => {
-  const { id: _id, revision: _rev, ...data } = n
-  return data
-}
-
+/** Summaries of every note (the server caps a user at 2000 notes, so one page holds them). */
 async function loadOnce(): Promise<void> {
-  try {
-    const r = await cmux.call<{ documents: DocumentRecord[] }>("document.list", { collection: COLLECTION })
-    setNotes(r.documents.map(fromRecord).filter((n): n is Note => !!n))
-    setBackend("documents")
-    cmux.events.on("document.changed", (payload) => void onRemoteChange(payload as { collection?: string; id?: string; revision?: string | number; deleted?: boolean }), { collection: COLLECTION })
-  } catch (e) {
-    if (!unavailable(e)) throw e
-    const value = await cmux.storage.get(STORAGE_KEY)
-    setNotes(parseDocument(value))
-    setBackend("local")
-  }
+  const r = await api.list({ limit: 2000 })
+  setSummaries(r.notes)
 }
 
-/** Loads once; every surface and command awaits the same promise. A failed load is retried on the next call. */
+/**
+ * Loads once per app VM; every surface and command awaits the same promise. A
+ * failed load is retried on the next call. The stream subscription belongs to
+ * the mount that asked first (`attach` re-subscribes for each mount).
+ */
 export function ensureLoaded(): Promise<void> {
   if (!loading) {
     loading = loadOnce().then(
@@ -80,7 +42,7 @@ export function ensureLoaded(): Promise<void> {
       },
       (e) => {
         loading = null
-        setLoadError(message(e))
+        setLoadError({ code: codeOf(e), message: messageOf(e) })
         throw e
       }
     )
@@ -88,127 +50,135 @@ export function ensureLoaded(): Promise<void> {
   return loading
 }
 
-export const findNote = (id: string) => notes().find((n) => n.id === id) ?? null
-
-// Writes leave in commit order. Local writes coalesce: a queued write that
-// finds a newer snapshot already saved skips itself.
-let chain: Promise<unknown> = Promise.resolve()
-let generation = 0
-let savedGeneration = 0
-
-const enqueue = <T>(work: () => Promise<T>): Promise<T> => {
-  const next = chain.then(work, work)
-  chain = next.catch(() => undefined)
-  return next
+/** Applies one note: a newer revision replaces the summary and any cached body it makes stale. */
+function upsert(note: NoteSummary | Note): void {
+  const current = summaries().find((n) => n.id === note.id)
+  if (current && current.revision > note.revision) return
+  const { body, ...summary } = note as Note
+  setSummaries((list) => (current ? list.map((n) => (n.id === note.id ? summary : n)) : [...list, summary]))
+  if (typeof body === "string") setBodies((m) => new Map(m).set(note.id, { revision: note.revision, body }))
 }
 
-function persistLocal(target: number): Promise<void> {
-  return enqueue(async () => {
-    if (savedGeneration >= target) return
-    const at = generation
-    await cmux.storage.set(STORAGE_KEY, serializeDocument(notes()))
-    savedGeneration = Math.max(savedGeneration, at)
+function remove(id: string): void {
+  setSummaries((list) => list.filter((n) => n.id !== id))
+  setBodies((m) => {
+    const next = new Map(m)
+    next.delete(id)
+    return next
   })
 }
 
-function persistDocument(op: NoteOp, stamp: Stamp): Promise<void> {
-  return enqueue(async () => {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const local = findNote(op.id)
-      try {
-        if (op.kind === "delete") {
-          await cmux.call("document.delete", { collection: COLLECTION, id: op.id, base_revision: String(known.get(op.id) ?? 0) })
-          known.delete(op.id)
-          return
-        }
-        if (!local) return // deleted locally after this op was queued
-        const r = await cmux.call<{ revision: string | number }>("document.put", { collection: COLLECTION, id: local.id, data: toData(local), base_revision: String(known.get(local.id) ?? 0) })
-        const revision = Number(r.revision)
-        known.set(local.id, revision)
-        const latest = findNote(local.id)
-        if (latest && latest.revision < revision) replaceNote({ ...latest, revision })
-        return
-      } catch (e) {
-        if (errorCode(e) !== "revision.conflict") throw e
-        // Someone else wrote this note first: take their copy and replay our op on it.
-        const current = await cmux.call<DocumentRecord | null>("document.get", { collection: COLLECTION, id: op.id })
-        const theirs = current ? fromRecord(current) : undefined
-        if (!theirs) {
-          removeNote(op.id)
-          return
-        }
-        replaceNote(theirs)
-        if (op.kind === "create") return
-        const replay = applyOp(notes(), op, stamp)
-        setNotes(replay.notes)
-        if (!replay.changed) return
-      }
-    }
-    throw new NoteError("note.invalid", "the note kept changing while saving; try again")
-  })
-}
-
-const replaceNote = (note: Note) => setNotes((list) => (list.some((n) => n.id === note.id) ? list.map((n) => (n.id === note.id ? note : n)) : [...list, note]))
-const removeNote = (id: string) => setNotes((list) => list.filter((n) => n.id !== id))
-
-async function onRemoteChange(e: { collection?: string; id?: string; revision?: string | number; deleted?: boolean }) {
-  if (!e || e.collection !== COLLECTION || !e.id) return
-  if (e.deleted) {
-    known.delete(e.id)
-    return removeNote(e.id)
+function onEvent(payload: unknown): void {
+  const ev = payload as NoteEvent
+  if (!ev || !ev.note || typeof ev.note.id !== "string") return
+  // The stream is at-least-once: an event seen twice changes nothing.
+  if (typeof ev.seq === "number") {
+    if (ev.seq <= lastSeq) return
+    lastSeq = ev.seq
   }
-  if (e.revision !== undefined && Number(e.revision) <= (known.get(e.id) ?? 0)) return
-  const r = await cmux.call<DocumentRecord | null>("document.get", { collection: COLLECTION, id: e.id })
-  const note = r ? fromRecord(r) : undefined
-  if (note) replaceNote(note)
-  else removeNote(e.id)
+  if (ev.kind === "deleted") return remove(ev.note.id)
+  upsert(ev.note)
 }
 
-const sizeOf = (list: readonly Note[]) => JSON.stringify(serializeDocument(list)).length
+/** Subscribes the calling mount to the server's stream (the subscription ends with the mount). */
+export function attach(): void {
+  cmux.events.on(NOTE_STREAM, onEvent)
+  ensureLoaded().catch(() => undefined) // the status row shows the error
+}
+
+export const findSummary = (id: string) => summaries().find((n) => n.id === id) ?? null
+
+const inflight = new Set<string>()
 
 /**
- * Applies one op now (every surface sees it at once) and resolves when it is
- * saved. Rejects with a NoteError for invalid ops and with the storage error
- * when the save fails; the in-memory copy keeps the change and the next write
- * saves it again.
+ * The body of a note a surface shows, fetched when missing or older than the
+ * summary's revision; null until it arrives.
  */
-export async function commit(op: NoteOp, stamp: Stamp): Promise<Note | null> {
-  await ensureLoaded()
-  const result = applyOp(notes(), op, stamp)
-  if (!result.changed) return result.note
-  if (backendSignal() === "local" && op.kind !== "delete" && sizeOf(result.notes) > LOCAL_BUDGET_BYTES) {
-    throw new NoteError("notes.full", `notes use more than ${Math.round(LOCAL_BUDGET_BYTES / 1_000_000)} MB of local storage`)
+export function bodyOf(id: string): string | null {
+  const summary = findSummary(id)
+  const cached = bodies().get(id)
+  if (summary && (!cached || cached.revision < summary.revision) && !inflight.has(id)) {
+    inflight.add(id)
+    api
+      .get(id)
+      .then(upsert, (e: unknown) => setSaveError(messageOf(e)))
+      .finally(() => inflight.delete(id))
   }
-  setNotes(result.notes)
-  generation++
+  return cached?.body ?? null
+}
+
+/** Runs a write; its result (the note at the new revision) applies at once, the stream echo is ignored. */
+async function write(fn: () => Promise<Note>): Promise<Note | null> {
   try {
-    if (backendSignal() === "documents") await persistDocument(op, stamp)
-    else await persistLocal(generation)
+    const note = await fn()
+    upsert(note)
     setSaveError(null)
+    return note
   } catch (e) {
-    setSaveError(message(e))
+    setSaveError(messageOf(e))
     throw e
   }
-  return op.kind === "delete" ? null : findNote(op.id)
 }
 
-/** A fresh id: "note_" + 16 base-36 characters. */
-export function newNoteId(): string {
-  let s = ""
-  for (let i = 0; i < 16; i++) s += Math.floor(Math.random() * 36).toString(36)
-  return `note_${s}`
+export const appendTo = (target: { note: string } | { workspace: string }, text: string) => write(() => api.append({ ...target, text }))
+export const createNote = (params: Parameters<typeof api.create>[0], key?: string) => write(() => api.create(params, key))
+export const updateNote = (id: string, change: Parameters<typeof api.update>[1]) => write(() => api.update(id, change))
+
+export async function deleteNote(id: string): Promise<void> {
+  try {
+    await api.delete(id)
+    remove(id)
+  } catch (e) {
+    setSaveError(messageOf(e))
+    throw e
+  }
 }
 
-export const limits = LIMITS
-
-/** For tests: forget everything loaded. */
-export function resetForTests(): void {
-  setNotes([])
-  setReady(false)
-  setBackend(null)
-  loading = null
-  known.clear()
-  chain = Promise.resolve()
-  generation = 0
-  savedGeneration = 0
+/**
+ * Toggles the checkbox on one line through the note's document
+ * (`document.edit` with the revision the line was read at). When someone else
+ * wrote first, the edit is rebased once onto the current text: the same line
+ * is found again by its text, or the toggle is dropped.
+ */
+export async function toggleCheck(id: string, index: number): Promise<boolean> {
+  const summary = findSummary(id)
+  const cached = bodies().get(id)
+  if (!summary || !cached) return false
+  let base = { revision: cached.revision, body: cached.body }
+  let line = index
+  const lineText = base.body.split("\n")[index] ?? ""
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const edit = toggleEdit(base.body, line)
+    if (!edit) return false
+    try {
+      const r = await api.edit(summary.doc, base.revision, [edit])
+      const body = applyEdits(base.body, [edit])
+      setBodies((m) => new Map(m).set(id, { revision: r.revision, body }))
+      return true
+    } catch (e) {
+      if (codeOf(e) !== "revision.conflict") {
+        setSaveError(messageOf(e))
+        return false
+      }
+      const current = await api.get(id)
+      upsert(current)
+      const moved = rebaseLine(current.body, line, lineText)
+      if (moved === null) return false
+      base = { revision: current.revision, body: current.body }
+      line = moved
+    }
+  }
+  return false
 }
+
+/** Pinned first, then the chosen order (the server's rule for `note.list`, applied to a projection that the stream changes). */
+export function sorted(list: readonly NoteSummary[], order: SortOrder): NoteSummary[] {
+  const by: Record<SortOrder, (a: NoteSummary, b: NoteSummary) => number> = {
+    updated: (a, b) => b.updated_at - a.updated_at,
+    created: (a, b) => b.created_at - a.created_at,
+    title: (a, b) => a.title.localeCompare(b.title)
+  }
+  return list.slice().sort((a, b) => Number(b.pinned) - Number(a.pinned) || by[order](a, b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+}
+
+export const scratchpadOf = (workspaceId: string) => summaries().find((n) => n.scratchpad && n.workspace?.id === workspaceId) ?? null

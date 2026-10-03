@@ -13,6 +13,7 @@ final class PermissionsAppearance {
 struct PermissionsRoot: View {
     var surface: AppPermissionsSurface
     var style: any AppPermissionsStyleSource
+    var installedStyle: (any AppInstalledStyleSource)?
     var appearance: PermissionsAppearance
     var scrolls: Bool
 
@@ -33,6 +34,9 @@ struct PermissionsRoot: View {
         case .consent(let model): ConsentSheetView(model: model, style: style.permissionsStyle)
         case .permissions(let model): PermissionsPaneView(model: model, style: style.permissionsStyle)
         case .firstUse(let prompt): FirstUsePromptView(prompt: prompt)
+        case .installed(let model):
+            InstalledAppsView(model: model, style: installedStyle?.installedStyle ?? .defaultStyle) { model.presentHidden() }
+        case .hiddenApps(let model): HiddenAppsSheetView(model: model) { model.dismissHidden() }
         }
     }
 

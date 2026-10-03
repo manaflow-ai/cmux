@@ -27,7 +27,7 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false
-    /// Group this tab belongs to. Ignored for pinned tabs (Chrome rule) and
+    /// Group this tab belongs to. Ignored for pinned tabs and
     /// for ids missing from `TabStripModel.groups`.
     public var groupID: TabGroupID?
     /// User color of this tab (screens carry one). Tints the icon; a tab

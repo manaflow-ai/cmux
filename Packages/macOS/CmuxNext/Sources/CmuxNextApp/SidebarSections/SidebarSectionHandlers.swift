@@ -42,6 +42,18 @@ enum SidebarSectionHandlers {
         bind("sidebar.item.remove") { invocation, doc in
             .itemRemove(try SidebarSectionResolve.item(invocation.target, in: doc).id)
         }
+        bind("sidebar.item.removeEverywhere") { invocation, doc in
+            .itemRemoveRef(try SidebarSectionResolve.item(invocation.target, in: doc).ref)
+        }
+        // Hide is app-level state owned by the app platform (D55): the
+        // sidebar forwards to its `app.hide` action and changes no layout.
+        registry.bind("sidebar.item.hideApp", run: { [weak registry] invocation in
+            guard let app = try SidebarSectionResolve.owningApp(invocation.target, in: layout.document) else {
+                throw ActionFailure(message: SidebarSectionStrings.notAnApp)
+            }
+            guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
+            _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
+        })
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
             let title = invocation["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
@@ -100,7 +112,7 @@ enum SidebarSectionHandlers {
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             return .sectionUpdate(section.id, SectionPatch(showsTitle: !section.showsTitle))
         }
-        bind("sidebar.section.toggleRoomScope") { [weak services = context.services] invocation, doc in
+        bind("sidebar.section.toggleSpaceScope") { [weak services = context.services] invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             guard section.room == nil else { return .sectionUpdate(section.id, SectionPatch(room: .clear)) }
             let room = services?.windows.active?.state.profileID.rawValue
@@ -135,6 +147,15 @@ enum SidebarSectionResolve {
     static func section(_ name: String, in doc: SidebarLayoutDocument) throws -> LayoutSection {
         if let section = doc.section(LayoutSectionID(name)) ?? doc.sections.first(where: { $0.title == name }) { return section }
         throw ActionFailure(message: SidebarSectionStrings.noSuchSection)
+    }
+
+    /// The app an item or section target belongs to (an app item's app, an
+    /// app section's contribution owner), or nil.
+    static func owningApp(_ target: ActionTargetRef?, in doc: SidebarLayoutDocument) throws -> String? {
+        switch target?.kind {
+        case .sidebarSection?: try section(target, in: doc).owningAppID
+        default: try item(target, in: doc).owningAppID
+        }
     }
 
     /// By item id, else by built-in name (`home`).

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextTerminalFind
 import CmuxNextWakeups
 import GhosttyKit
 
@@ -27,6 +28,8 @@ import GhosttyKit
 public final class TerminalSession {
     public let model = TerminalSurfaceModel()
     public let view: TerminalHostView
+    /// The find bar over this terminal and the search it drives.
+    public let find = TerminalFindController()
     public weak var delegate: (any TerminalSessionDelegate)?
 
     /// The live surface. Replaced when a later replay arrives.
@@ -36,7 +39,7 @@ public final class TerminalSession {
         didSet { surfaceView.ownsGeometry = ownsGeometry }
     }
 
-    /// Pauses rendering while the terminal is scrolled off-screen (niri
+    /// Pauses rendering while the terminal is scrolled off-screen (strip
     /// columns) or its tab is not selected. Output keeps being parsed.
     public var isRenderingSuspended = false {
         didSet { surfaceView.isRenderingSuspended = isRenderingSuspended }
@@ -92,6 +95,8 @@ public final class TerminalSession {
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
+        find.target = self
+        view.attachFind(find)
 
         writerTask = Task.detached(priority: .userInitiated) { [io] in
             for await item in outgoing {
@@ -284,6 +289,8 @@ public final class TerminalSession {
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
         if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
         surfaceHasContent = false
+        // The fresh surface has no search; an open find bar searches it again.
+        find.surfaceReplaced()
     }
 
     /// A new surface starts from the app config, so only a theme needs

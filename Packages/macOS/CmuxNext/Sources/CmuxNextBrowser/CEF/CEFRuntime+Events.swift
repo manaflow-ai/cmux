@@ -101,7 +101,7 @@ extension CEFRuntime {
     /// App content shortcuts first (through the host's key router, which
     /// also runs extension shortcuts), then, for Option chords the router
     /// does not see, the profile's extension shortcuts (`chrome.commands`),
-    /// which Chromium would dispatch from the Chrome toolbar cmux hides.
+    /// which Chromium would dispatch from the Chromium toolbar cmux hides.
     func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
         guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
         if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
@@ -145,7 +145,7 @@ extension CEFRuntime {
 
     private func browserClosed(_ browser: Int32) {
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
-            tab.browserDidClose()
+            tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
             // Never registered: drop a pending adoption of it.
             orphans.closedUnregistered(browser)
@@ -299,7 +299,7 @@ extension CEFShimEvent {
              .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .keyUnhandled(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _):
+             .navigationReroute(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .unknown:
             nil

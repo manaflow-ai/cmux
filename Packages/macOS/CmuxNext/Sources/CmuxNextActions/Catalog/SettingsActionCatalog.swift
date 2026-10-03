@@ -205,19 +205,19 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.never",
                 title: String(localized: "action.layout.centerFocusedColumn.never", defaultValue: "Scroll Columns Minimally", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "reveal", "never", "minimal", "layout"], category: .settings,
                 symbol: "arrow.left.and.right", surfaces: [.palette], cliName: "settings scroll-columns-minimally"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.always",
                 title: String(localized: "action.layout.centerFocusedColumn.always", defaultValue: "Always Center Focused Column", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "always", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "always", "layout"], category: .settings,
                 symbol: "align.horizontal.center", surfaces: [.palette], cliName: "settings always-center-focused-column"
             ),
             ActionDescriptor(
                 id: "layout.centerFocusedColumn.onOverflow",
                 title: String(localized: "action.layout.centerFocusedColumn.onOverflow", defaultValue: "Center Focused Column on Overflow", bundle: .module),
-                keywords: ["niri", "column", "center", "scroll", "overflow", "layout"], category: .settings,
+                keywords: ["column", "center", "scroll", "overflow", "layout"], category: .settings,
                 symbol: "align.horizontal.center.fill", surfaces: [.palette], cliName: "settings center-focused-column-on-overflow"
             ),
             ActionDescriptor(
@@ -267,6 +267,13 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.appearance.titlebar.standard", defaultValue: "Use Standard Titlebar", bundle: .module),
                 keywords: ["titlebar", "title bar", "window", "workspace name", "show", "appearance"], category: .settings,
                 symbol: "macwindow.badge.plus", surfaces: [.palette], cliName: "settings use-standard-titlebar"
+            ),
+            ActionDescriptor(
+                id: "appearance.customize",
+                title: String(localized: "action.appearance.customize", defaultValue: "Customize Appearance…", bundle: .module),
+                keywords: ["appearance", "customize", "personalize", "theme", "colors", "background", "wallpaper", "font", "make it yours"],
+                category: .settings, symbol: "paintbrush", surfaces: [.palette, .keyboard, .menu],
+                cliName: "settings customize-appearance", mainMenu: .view
             ),
             ActionDescriptor(
                 id: "appearance.interfaceSize.increase",

@@ -74,10 +74,17 @@ import Testing
         catalog.debugActionsAvailable = true
         router.updateCatalog(catalog)
 
+        // The socket refuses a person-only action (ActionOriginTests checks the reason).
+        let personOnly = Set(ActionCatalog.all.filter(\.isPersonOnly).map(\.id.rawValue))
         for action in router.catalog.actions {
             ran.removeAll()
             let params = Self.runParams(action, name: action.cliName)
             let result = await router.handle(ControlRequest(id: "1", method: "action.run", params: params))
+            if personOnly.contains(action.id) {
+                if case .success = result { Issue.record("\(action.cliName): a person-only action ran over the socket") }
+                #expect(ran.isEmpty, "\(action.id)")
+                continue
+            }
             guard case .success = result else {
                 Issue.record("\(action.cliName): \(result)")
                 continue
@@ -88,6 +95,28 @@ import Testing
             }
             #expect(invocation.arguments.count == action.arguments.count, "\(action.id)")
         }
+    }
+
+    @Test func checkpointCaptureReportsItsCapabilityAndStaysGatedUntilAvailable() async throws {
+        let registry = ActionRegistry.standard()
+        registry.context = [.agentPaneFocused]
+        let executor = RecordingExecutor()
+        let router = ControlRouter(identity: testIdentity(), executor: executor)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        let described = try await router.handle(ControlRequest(method: "action.describe", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(described["action"]?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(described["action"]?["available"] == false)
+        let refused = await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"]))
+        #expect(refused.failure?.code == "unavailable")
+        #expect(refused.failure?.data?["requires"] == .array(["agentPaneFocused", "checkpointCaptureAvailable"]))
+        #expect(executor.requests.withLock { $0.isEmpty })
+
+        registry.context.insert(.checkpointCaptureAvailable)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+        let accepted = try await router.handle(ControlRequest(method: "action.run", params: ["action": "agentPane.createCheckpoint"])).get()
+        #expect(accepted["action"] == "agentPane.createCheckpoint")
+        #expect(executor.requests.withLock { $0.count } == 1)
     }
 
     @Test func everyContextMenuIDResolves() async throws {

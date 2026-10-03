@@ -47,7 +47,9 @@ export const Install = Schema.Struct({
   thumbprint: Schema.String,
   grant: GrantId,
   created_at: Schema.Int,
-  revoked_at: Schema.NullOr(Schema.Int)
+  revoked_at: Schema.NullOr(Schema.Int),
+  /** The team whose TeamDO may revoke this install (a paired cmux server; plans/cmux-next/server.md 6.5). */
+  bound_team: Schema.optionalKey(TeamId)
 }).annotate({ identifier: "Install" })
 
 export const Grant = Schema.Struct({
@@ -70,13 +72,30 @@ export const UserProfile = Schema.Struct({
   personal_team: TeamId
 }).annotate({ identifier: "UserProfile" })
 
+export const HostKind = Schema.Literals(["device", "server"]).annotate({ identifier: "HostKind" })
+export const WgPublicKey = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9+/]{43}=$/)).annotate({
+  identifier: "WgPublicKey",
+  description: "A WireGuard public key, standard base64 of 32 bytes."
+})
+/** Pairing code: 8 Crockford base32 symbols, shown as XXXX-XXXX (plans/cmux-next/server.md 6.2). */
+export const PairingCode = Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{8}$/)).annotate({
+  identifier: "PairingCode",
+  description: "A normalized pairing code: 8 Crockford base32 symbols, no hyphen."
+})
+
 export const Host = Schema.Struct({
   id: HostId,
   name: DisplayName,
   platform: Platform,
   owner_user: UserId,
   enrolled_by: InstallId,
-  enrolled_at: Schema.Int
+  enrolled_at: Schema.Int,
+  /** `server` when the owner turned on the server role set (plans/cmux-next/server.md 6); absent means a device. */
+  kind: Schema.optionalKey(HostKind),
+  /** The host's WireGuard public key (base64, 32 bytes), made on the host and never leaving it. */
+  wg_public_key: Schema.optionalKey(WgPublicKey),
+  /** Network policy tags, for example `tag:server`. */
+  tags: Schema.optionalKey(Schema.Array(Schema.String))
 }).annotate({ identifier: "Host" })
 
 export const TeamMember = Schema.Struct({
@@ -96,5 +115,9 @@ export const ErrorCode = Schema.Literals([
   "auth.forbidden",
   "owner.unreachable",
   "mutation.indeterminate",
-  "policy.invalid"
+  "policy.invalid",
+  "domain.not_verified",
+  "domain.taken",
+  "sso.not_configured",
+  "sso.discovery_failed"
 ]).annotate({ identifier: "ErrorCode" })

@@ -8,7 +8,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openSettings", defaultValue: "Settings…", bundle: .module),
                 keywords: ["preferences", "options", "config"], defaultShortcut: Shortcut(",", modifiers: [.command]),
                 category: .window, symbol: "gearshape", surfaces: [.palette, .keyboard, .menu],
-                arguments: [CatalogArgument.settingsSectionChoice], cliName: "app settings",
+                arguments: [CatalogArgument.settingsSectionChoice, CatalogArgument.settingString.optional], cliName: "app settings",
                 mainMenu: .app
             ),
             ActionDescriptor(
@@ -87,13 +87,18 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 keywords: ["exit", "close", "kill", "terminals", "cmux-tui", "stop", "workspaces", "fresh", "reset"], category: .window,
                 symbol: "power", surfaces: [.palette, .menu], cliName: "app quit-end-everything", mainMenu: .app
             ),
-            ActionDescriptor(
-                id: "showHideAllWindows",
-                title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
-                keywords: ["global", "hotkey", "summon"],
-                defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
-                symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
-            ),
+            {
+                var showHide = ActionDescriptor(
+                    id: "showHideAllWindows",
+                    title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
+                    keywords: ["global", "hotkey", "summon"],
+                    defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
+                    symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
+                )
+                // Summons cmux from any app, so the key works while cmux is in the background.
+                showHide.isGlobalHotKey = true
+                return showHide
+            }(),
             ActionDescriptor(
                 id: "globalSearch",
                 title: String(localized: "action.globalSearch", defaultValue: "Search All Windows…", bundle: .module),

@@ -25,6 +25,8 @@ export interface IntegrationSyncState extends PolicyState {
   readonly integration_managed_by?: "sso" | "mdm" | null
   /** ConnectionDO's lock version TeamDO last recorded (notices may arrive out of order). */
   readonly integration_lock_version?: number
+  /** The ConnectionDO lock epoch that version belongs to. */
+  readonly integration_lock_epoch?: string
   /** Admin release requests (team.integration.release_lock) and the last one ConnectionDO carried out. */
   readonly integration_release_requested?: number
   readonly integration_release_done?: number
@@ -99,9 +101,10 @@ export const reduceIntegrationSeed = <S extends IntegrationSyncState>(state: S, 
 
 /** System op `team.policy.integration_synced {version, slice_hash}`. */
 export const reduceIntegrationSynced = <S extends IntegrationSyncState>(state: S, params: unknown): Result<S> => {
-  const p = params as { version?: unknown; slice_hash?: unknown; managed_by?: unknown; lock_version?: unknown }
-  // A push result older than the latest lock notice must not overwrite it (it still settles the version).
-  if (typeof p?.lock_version === "number" && p.lock_version < (state.integration_lock_version ?? 0)) {
+  const p = params as { version?: unknown; slice_hash?: unknown; managed_by?: unknown; lock_version?: unknown; lock_epoch?: unknown }
+  // A push result older than the latest lock notice (lower version, or another epoch) must not overwrite it.
+  const otherEpoch = typeof p?.lock_epoch === "string" && p.lock_epoch !== (state.integration_lock_epoch ?? "")
+  if (otherEpoch || (typeof p?.lock_version === "number" && p.lock_version < (state.integration_lock_version ?? 0))) {
     return { ok: true, state, value: { version: p.version, stale: true }, changed: false }
   }
   const managedBy = p?.managed_by === "sso" || p?.managed_by === "mdm" ? p.managed_by : null
@@ -117,13 +120,22 @@ export const reduceIntegrationSynced = <S extends IntegrationSyncState>(state: S
 
 /** System op `team.policy.integration_lock {managed_by, version}`: ConnectionDO's notice. */
 export const reduceIntegrationLock = <S extends IntegrationSyncState>(state: S, params: unknown): Result<S> => {
-  const p = params as { managed_by?: unknown; version?: unknown }
+  const p = params as { managed_by?: unknown; version?: unknown; epoch?: unknown }
   const managedBy = p?.managed_by === "sso" || p?.managed_by === "mdm" ? p.managed_by : null
   if (typeof p?.version !== "number" || !Number.isInteger(p.version)) return { ok: false, code: "validation.invalid", message: "version required" }
-  if (p.version <= (state.integration_lock_version ?? 0)) return { ok: true, state, value: { version: p.version }, changed: false }
+  const epoch = typeof p.epoch === "string" ? p.epoch : ""
+  // Within one epoch, older notices change nothing; a new epoch (recreated ConnectionDO) starts over.
+  // Epochs have no order: this relies on one live ConnectionDO per team, whose notices arrive in
+  // order (it awaits each delivery), so an earlier epoch never speaks again.
+  const sameEpoch = epoch === (state.integration_lock_epoch ?? "")
+  if (sameEpoch && p.version <= (state.integration_lock_version ?? 0)) return { ok: true, state, value: { version: p.version }, changed: false }
   // A changed lock invalidates the acknowledged slice, so TeamDO pushes its policy again
   // (a no-op under a lock, the team policy once the lock is gone).
-  return { ok: true, state: { ...state, integration_lock_version: p.version, integration_managed_by: managedBy, integration_synced_hash: undefined }, value: { version: p.version } }
+  return {
+    ok: true,
+    state: { ...state, integration_lock_version: p.version, integration_lock_epoch: epoch, integration_managed_by: managedBy, integration_synced_hash: undefined },
+    value: { version: p.version }
+  }
 }
 
 /** Admin op `team.integration.release_lock`: records the request (audited by the caller). */

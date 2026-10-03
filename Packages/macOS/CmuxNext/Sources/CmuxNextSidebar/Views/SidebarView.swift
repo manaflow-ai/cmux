@@ -29,7 +29,7 @@ public final class SidebarView: NSView {
     /// Hosts the list's scroll view and fades rows out at its top or bottom
     /// while more are hidden there.
     private var edgeFade: ScrollEdgeFadeView!
-    /// No rubber band while every row fits (Finder's sidebar).
+    /// No rubber band while every row fits.
     private var scrollFit: ScrollFitElasticity?
     let profileBar: ProfileBarView
     /// Item sections above and below the workspace list
@@ -321,6 +321,7 @@ public final class SidebarView: NSView {
         var look: SectionsLookVariant
         var drawsLines: Bool
         var preferences: SidebarSectionsPreferences
+        var suppressedApps: Set<String>
         /// Design tokens (density, overrides, chrome font size). Reading them
         /// inside the tracked closure makes a settings change re-render.
         var metrics: SidebarLayoutMetrics
@@ -345,6 +346,7 @@ public final class SidebarView: NSView {
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
                     preferences: DesignSettings.shared.sidebarSections,
+                    suppressedApps: model.suppressedApps,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,
                     titlebarHeight: Metrics.titlebarHeight
@@ -364,6 +366,7 @@ public final class SidebarView: NSView {
             || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences
+            || lastState?.suppressedApps != state.suppressedApps
         let listChanged = lastState?.sections != state.sections || lastState?.selection != state.selection
             || lastState?.active != state.active || lastState?.filter != state.filter || chromeChanged
         lastState = state

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d. */
+/* cmux-tui mux protocol 12, IR 4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7d33ca155141a61733bebb4d83fc03c361de8d0753fe56a8600349fb1cc97f1d" as const;
+export const SDK_IR_SHA256 = "4a59825cd43eedde1d1abef1833d07e90af4b64773ad9eacd346e4966b461d4c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -506,6 +506,16 @@ export const COMMAND_METADATA = {
       "Trusted local connections only. Rejects use error_code conversation_rejected with the reason as the error text. See spec/commands.md."
     ]
   },
+  "conversation-search": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "conversation-search-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. limit is 1-100; query is at most 200 characters, and every word matches as a prefix. See spec/commands.md for the result object."
+    ]
+  },
   "conversation-snapshot": {
     "authority": "local-admin",
     "since": 12,
@@ -814,6 +824,16 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "get-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
   },
   "get-frontend-projection": {
     "authority": "control",
@@ -1170,7 +1190,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-drag-v1",
-    "fields": {},
+    "fields": {
+      "respawn": {
+        "since": 12,
+        "capability": "tab-split-respawn-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -1914,6 +1939,16 @@ export const COMMAND_METADATA = {
     "constraints": [
       "Color strings are exactly #rrggbb.",
       "With complete:true, absent optional values reset to built-in defaults."
+    ]
+  },
+  "set-frontend-browser-history": {
+    "authority": "control",
+    "since": 12,
+    "capability": "frontend-browser-history-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
     ]
   },
   "set-personal-terminal": {
@@ -7514,6 +7549,89 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "down"
     ]
   },
+  "SplitRespawn": {
+    "additional_properties": false,
+    "fields": {
+      "cwd": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "engine": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "env": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "profile_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "shell_args": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "terminal_id": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "default": null,
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "SurfaceResult": {
     "additional_properties": false,
     "fields": {
@@ -10538,6 +10656,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "conversation-search": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "limit": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "query": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "conversation-snapshot": {
     "request": {
       "additional_properties": false,
@@ -11946,6 +12092,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "GetCellPixelsResult"
     }
   },
+  "get-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
   "get-frontend-projection": {
     "request": {
       "additional_properties": false,
@@ -13107,6 +13273,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "float32"
+          }
+        },
+        "respawn": {
+          "capability": "tab-split-respawn-v1",
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "ref",
+            "name": "SplitRespawn"
           }
         },
         "surface": {
@@ -16147,6 +16324,38 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "set-frontend-browser-history": {
+    "request": {
+      "additional_properties": false,
+      "constraints": [
+        "history is a JSON object or null; null clears the stored history.",
+        "Serialized history must be at most 65536 bytes."
+      ],
+      "fields": {
+        "history": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "set-personal-terminal": {

@@ -42,7 +42,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     private let nameField = NSTextField()
     private let field = NSView()
-    private var glass: NSGlassEffectView?
+    /// The bubble's material: glass, or opaque under Reduce Transparency.
+    private(set) var glass: OverlaySurfaceView?
     private var swatches: [TabGroupSwatchView] = []
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
@@ -58,7 +59,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         animationBehavior = .none
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
         let content = ThemeHookView()
-        let glass = Glass.makePanel(content: content, cornerRadius: Metrics.panelCornerRadius)
+        let glass = Glass.makeOverlayPanel(content: content, cornerRadius: Metrics.panelCornerRadius)
         glass.translatesAutoresizingMaskIntoConstraints = true
         contentView = glass
         self.glass = glass
@@ -130,8 +131,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
 
     private func applyColors() {
         guard let glass else { return }
+        glass.applyTheme()
         glass.performWithTheme {
-            glass.tintColor = Palette.glassTint
             nameField.textColor = Palette.textPrimary
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
         }
@@ -217,7 +218,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         dismiss()
     }
 
-    // Return commits the name and closes, as in Chrome.
+    // Return commits the name and closes.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         if selector == #selector(NSResponder.insertNewline(_:)) {
             dismiss()

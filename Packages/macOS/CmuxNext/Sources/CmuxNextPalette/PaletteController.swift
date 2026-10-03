@@ -62,15 +62,13 @@ public final class PaletteController {
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace, Go to Tab, and Search Keyboard Shortcuts.
+    /// Go to Workspace and Search Keyboard Shortcuts. Go to Tab is Search
+    /// Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
         if sources.workspaces != nil {
             registry.bind("goToWorkspace") { [weak self] in self?.show(.workspaces) }
-        }
-        if sources.tabs != nil {
-            registry.bind("palette.goToTab") { [weak self] in self?.show(.tabs) }
         }
         registry.argumentCollector = { [weak self] id, invocation in
             self?.collectArguments(for: id, invocation: invocation)
@@ -297,7 +295,7 @@ public final class PaletteController {
         // window closes it like a click outside.
         panel.onKeyElsewhere = { [weak self] in self?.hide(restoringKey: false) }
         panel.onResignKey = { [weak self] in
-            // Clicking elsewhere closes the palette, like Spotlight; the
+            // Clicking elsewhere closes the palette; the
             // clicked window keeps the keys.
             self?.hide(restoringKey: false)
         }

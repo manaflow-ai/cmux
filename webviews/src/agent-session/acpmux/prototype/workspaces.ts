@@ -13,7 +13,7 @@ export type WorkspaceTab = {
   /** A browser tab's profile, fixed when the tab is made (data-model.md 5). */
   browserProfile?: string;
 };
-/** `browserProfile` is the workspace's own default, over its room's. */
+/** `browserProfile` is the workspace's own default, over its space's. */
 export type Workspace = { id: string; tabs: WorkspaceTab[]; activeTabId: string; browserProfile?: string };
 export type Stack = { workspaces: Workspace[]; activeId: string };
 
@@ -55,7 +55,7 @@ export const seedStack: Stack = {
     ),
     workspace(
       "ws-home",
-      agent("mock-home-screen", "Match the Codex home screen"),
+      agent("mock-home-screen", "Polish the home screen"),
       browser("b-home", "atlas-web", "localhost:4321"),
     ),
     workspace("ws-docs", browser("b-docs", "Ghostty configuration", "ghostty.org/docs/config")),

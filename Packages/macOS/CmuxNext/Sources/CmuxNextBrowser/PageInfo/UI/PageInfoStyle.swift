@@ -2,10 +2,10 @@ import AppKit
 import CmuxNextDesign
 
 /// Page Info geometry and colors. Sizes come from `Metrics`/`Typography`;
-/// colors from `Palette` (Ghostty-derived). Chrome draws toggles and links
-/// in its blue accent; cmux has none, so "on" and links use the foreground.
+/// colors from `Palette` (Ghostty-derived). cmux has no accent color, so
+/// "on" toggles and links use the foreground.
 enum PageInfoStyle {
-    /// Chrome's page info bubble is 320 dp minimum.
+    /// The page info bubble is at least 320 points wide.
     static var bubbleWidth: CGFloat { Metrics.density == .compact ? 320 : 344 }
     static var rowHeight: CGFloat { Metrics.paletteRowHeight }
     static var rowHeightWithSubtitle: CGFloat { Metrics.sidebarRowHeightWithSubtitle + Metrics.panelInset }

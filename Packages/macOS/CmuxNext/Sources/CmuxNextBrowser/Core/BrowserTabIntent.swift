@@ -47,9 +47,12 @@ public enum BrowserTabIntent {
     /// The page did not handle an Escape key down (a popup panel closes on
     /// it; a tab ignores it).
     case unhandledEscape
+    /// The page did not handle a letter key while no editable field had
+    /// focus (Chromium only). The host may run a single-key shortcut on it.
+    case unhandledKey(BrowserPageKey)
     /// Keyboard focus left the page: Tab past its last element (`forward`)
     /// or Shift-Tab past its first. The host moves focus to the tab's
-    /// omnibar, as Chrome moves it to the toolbar.
+    /// omnibar.
     case takeFocus(forward: Bool)
     /// The page's popup window asked for a new size or position
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab

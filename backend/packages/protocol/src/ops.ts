@@ -8,6 +8,7 @@ import {
   Install,
   InstallId,
   InstallKind,
+  OpClass,
   Platform,
   PublicJwk,
   TeamId,
@@ -18,7 +19,10 @@ import { automationOps } from "./automation-ops.ts"
 import { integrationOps } from "./integrations.ts"
 import { feedOps } from "./feed.ts"
 import { enrollmentOps } from "./enrollment-ops.ts"
+import { ssoOps } from "./sso-ops.ts"
 import { policyOps } from "./policy-ops.ts"
+import { networkOps } from "./network-ops.ts"
+import { serverOps } from "./server-ops.ts"
 
 export { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
@@ -52,7 +56,11 @@ export const InstallRegister = def({
     name: DisplayName,
     device_name: DisplayName,
     platform: Platform,
-    device: Schema.optionalKey(DeviceId)
+    device: Schema.optionalKey(DeviceId),
+    /** Narrows the install's default grant (never widens it); a paired cmux server registers with read and mutate-own only. */
+    op_classes: Schema.optionalKey(Schema.Array(OpClass)),
+    /** Lets this team's TeamDO revoke the install (a paired server); only the user can bind it. */
+    bound_team: Schema.optionalKey(TeamId)
   }),
   result: Install,
   errors: mutationErrors,
@@ -164,7 +172,10 @@ export const cloudOps = [
   ...integrationOps,
   ...feedOps,
   ...policyOps,
-  ...enrollmentOps
+  ...networkOps,
+  ...enrollmentOps,
+  ...ssoOps,
+  ...serverOps
 ] as const
 
 export type CloudOpName = (typeof cloudOps)[number]["name"]

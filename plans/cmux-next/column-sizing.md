@@ -18,7 +18,7 @@ path. The ownership lead owns the crate after its first landing and reviews fiel
   ended divider intents once the split succeeded. Interim: two undo entries until `Split` carries
   the sizing policy.
 - `layout.newColumnWidth` (matchCurrent default, fitScreen, fixed; a number means fixed at that
-  share) through `NewColumnWidth.plan(mode:)`; fixed keeps niri.md W4 (a lone full-width column
+  share) through `NewColumnWidth.plan(mode:)`; fixed keeps column-scroll.md W4 (a lone full-width column
   shrinks), the other modes never resize except fitScreen's visible scrolling columns.
 - `layout.stickyColumnEdge` (right), `layout.stickyColumnMode` (docked), `layout.minimumPaneWidth`
   (200 pt), `layout.minimumPaneHeight` (64 pt): Settings window (General > Columns) and cmux.json;

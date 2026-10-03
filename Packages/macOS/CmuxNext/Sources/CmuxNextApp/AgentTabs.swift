@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -30,9 +31,15 @@ final class AgentTabStore {
     private let customization: AgentPaneCustomizationWatcher
     private var tabsByPane: [String: [String]] = [:]
     private var views: [String: AgentPaneView] = [:]
+    /// Chats outside any pane (onboarding's first task), weakly held, so
+    /// they get customization changes too.
+    private let standaloneViews = NSHashTable<AgentPaneView>.weakObjects()
     /// Session each tab last showed, kept across a web content crash or a
     /// view rebuilt after the tab was released.
     private var sessions: [String: String] = [:]
+    /// Tabs opened as the new tab page, and what each does with the kind
+    /// the user picks there (``PaneController/newTabPage()``).
+    private var newTabPages: [String: (page: AgentPaneNewTab, handler: NewTabPageHandler)] = [:]
     /// What each new chat inherits from the tab it was opened from, until
     /// its view reads it.
     private var seeds: [String: AgentPaneSeedSource] = [:]
@@ -41,8 +48,14 @@ final class AgentTabStore {
     /// workspace, its daemon away) close once the live tree drops the pane.
     private var paneStores: [String: DaemonStore] = [:]
     private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
+    /// The app shortcuts every agent page shows, kept current on rebinds.
+    private var shortcuts = AgentPaneShortcuts()
+    private var shortcutObservation: Task<Void, Never>?
+    private weak var actionRegistry: ActionRegistry?
+    private var checkpointFocusTab: String?
 
-    init(tag: String?, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(tag: String?, registry: ActionRegistry, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        actionRegistry = registry
         if environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             host = MockAgentPaneHost()
         } else {
@@ -74,6 +87,17 @@ final class AgentTabStore {
         customization.onChange = { [weak self] value in
             guard let self else { return }
             for view in views.values { view.customization = value }
+            for view in standaloneViews.allObjects { view.customization = value }
+        }
+        shortcuts = AgentPaneShortcuts.read(registry)
+        // Rebinds in Settings or cmux.json reach every open page.
+        shortcutObservation = Task { [weak self] in
+            for await value in Observations({ AgentPaneShortcuts.read(registry) }) {
+                guard let self else { return }
+                shortcuts = value
+                for view in views.values { view.shortcuts = value }
+                for view in standaloneViews.allObjects { view.shortcuts = value }
+            }
         }
     }
 
@@ -84,9 +108,12 @@ final class AgentTabStore {
     ///   - store: The tree of the daemon that owns the pane.
     ///   - after: The tab to place it after; nil appends it.
     ///   - session: The acpmux session it shows; nil starts a new chat.
+    ///   - newTab: Shows the new tab page until it becomes a chat; the
+    ///     handler gets the terminal or browser choices and shortcut edits.
     ///   - seed: What a new chat inherits (cwd, a draft); ignored with a session.
     func open(in paneKey: String, of store: DaemonStore, after: String? = nil, session: String? = nil,
-              seed: AgentPaneSeedSource? = nil) -> String {
+              seed: AgentPaneSeedSource? = nil,
+              newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil) -> String {
         let key = LocalAgentTab.prefix + UUID().uuidString.lowercased()
         var tabs = tabsByPane[paneKey] ?? []
         if let after, let index = tabs.firstIndex(of: after) {
@@ -96,6 +123,7 @@ final class AgentTabStore {
         }
         tabsByPane[paneKey] = tabs
         sessions[key] = session
+        newTabPages[key] = newTab
         if session == nil { seeds[key] = seed }
         paneStores[paneKey] = store
         watch(store)
@@ -118,10 +146,22 @@ final class AgentTabStore {
     func view(for key: String) -> AgentPaneView? {
         if let view = views[key] { return view }
         guard tabsByPane.values.contains(where: { $0.contains(key) }) else { return nil }
-        let model = AgentPaneModel(host: host, sessionId: sessions[key], seed: seeds.removeValue(forKey: key))
-        model.onSessionChange = { [weak self] session in self?.sessions[key] = session }
+        let model = AgentPaneModel(
+            host: host,
+            sessionId: sessions[key],
+            seed: seeds.removeValue(forKey: key),
+            newTab: newTabPages[key]?.page
+        )
+        model.onSessionChange = { [weak self] session in
+            self?.sessions[key] = session
+            self?.newTabPages[key] = nil
+        }
+        model.onOpenTab = { [weak self] kind, text in self?.newTabPages[key]?.handler.open(key, kind, text) }
+        model.onEditShortcut = { [weak self] kind in self?.newTabPages[key]?.handler.editShortcut(kind) }
+        model.onCheckpointAvailability = { [weak self] _ in self?.publishCheckpointAvailability() }
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
         view.customization = customization.current
+        view.shortcuts = shortcuts
         views[key] = view
         customization.start()
         return view
@@ -129,12 +169,42 @@ final class AgentTabStore {
 
     func existingView(_ key: String) -> AgentPaneView? { views[key] }
 
+    /// A new chat outside any pane (onboarding's first task), on the same
+    /// daemon and page as the tabs. The caller owns it and closes it.
+    func standaloneView(seed: AgentPaneSeed) -> AgentPaneView? {
+        let model = AgentPaneModel(host: host, seed: AgentPaneSeedSource(seed))
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate) else { return nil }
+        view.customization = customization.current
+        view.shortcuts = shortcuts
+        standaloneViews.add(view)
+        customization.start()
+        return view
+    }
+
+    /// True when this build has the agent page (bundled or dev server).
+    var canHostChat: Bool { source != nil }
+
+    /// Focus changes and the page's capability mirror update one registry fact.
+    func setCheckpointFocus(_ key: String?) {
+        checkpointFocusTab = key
+        publishCheckpointAvailability()
+    }
+    private func publishCheckpointAvailability() {
+        guard let registry = actionRegistry else { return }
+        let available = checkpointFocusTab.flatMap { views[$0] }?.model.checkpointAvailable == true
+        var next = registry.context
+        if available { next.insert(.checkpointCaptureAvailable) }
+        else { next.remove(.checkpointCaptureAvailable) }
+        if next != registry.context { registry.context = next }
+    }
+
     /// The tab closed: stop its page and forget it.
     func close(_ key: String) {
         for pane in tabsByPane.keys { tabsByPane[pane]?.removeAll { $0 == key } }
         tabsByPane = tabsByPane.filter { !$0.value.isEmpty }
         views.removeValue(forKey: key)?.close()
         sessions[key] = nil
+        newTabPages[key] = nil
         seeds[key] = nil
         forgetUnusedStores()
         stopCustomizationWhenUnused()
@@ -145,6 +215,7 @@ final class AgentTabStore {
         for key in tabsByPane.removeValue(forKey: paneKey) ?? [] {
             views.removeValue(forKey: key)?.close()
             sessions[key] = nil
+            newTabPages[key] = nil
             seeds[key] = nil
         }
         forgetUnusedStores()
@@ -187,7 +258,7 @@ final class AgentTabStore {
     }
 
     private func stopCustomizationWhenUnused() {
-        if views.isEmpty { customization.stop() }
+        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
     }
 }
 
@@ -203,7 +274,7 @@ extension PaneController {
         showAgentTab(services.agentTabs.duplicate(key, in: paneKey, of: daemon.store))
     }
 
-    private func showAgentTab(_ key: String) {
+    func showAgentTab(_ key: String) {
         apply(snapshot())
         select(StripTabID(key))
     }

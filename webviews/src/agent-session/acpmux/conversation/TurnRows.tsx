@@ -1,5 +1,5 @@
-// Codex's turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
-// footer under an answer. Markup and metrics from codex-atlas-clone (messages.tsx,
+// Turn rows for the pane's transcript: the "Worked for" disclosure, tool rows and the
+// footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { useContext, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
@@ -27,7 +27,7 @@ export function WorkedFor({ row, expanded, onToggle }: { row: AcpmuxRow; expande
   );
 }
 
-/// ACP tool kinds (`ToolKind`) to Codex's row glyphs.
+/// ACP tool kinds (`ToolKind`) to row glyphs.
 function toolIcon(kind?: string): ReactNode {
   switch (kind) {
     case "read":
@@ -48,7 +48,7 @@ function toolIcon(kind?: string): ReactNode {
   }
 }
 
-/// One tool call. A call with output opens it below, as Codex's command and tool rows do; a
+/// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
 function ToolRow({ item }: { item: AcpmuxActivity }) {

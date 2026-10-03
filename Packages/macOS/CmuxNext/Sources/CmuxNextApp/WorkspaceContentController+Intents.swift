@@ -29,15 +29,18 @@ extension WorkspaceContentController {
             guard daemon.supports(DaemonCapabilities.shared.stickyColumns), let handle = handles.panes[anyPane] else {
                 return layoutModel.rejectTransaction(transaction)
             }
+            // A top or bottom dock has no `sticky` encoding (it travels in
+            // `dock`, edge-docks-v1): never send it as a left or right column.
+            if let sticky, LayoutMapping.snapshot(sticky) == nil { return layoutModel.rejectTransaction(transaction) }
             let daemonTransaction = gestureTransaction(transaction, phase: .ended)
-            let wire = sticky.map(LayoutMapping.snapshot)
+            let wire = sticky.flatMap(LayoutMapping.snapshot)
             sendGesture(transaction, phase: .ended, label: "set-column-sticky") { connection in
                 try await connection.setColumnSticky(of: handle, sticky: wire, transaction: daemonTransaction)
             }
         case .selectScreen(let screen):
             // Every screen switch (switcher click, screen actions) focuses the
-            // screen's most recently focused pane, like a tmux window's
-            // active pane, through the coordinator so history and the window's
+            // screen's most recently focused pane (its active
+            // pane), through the coordinator so history and the window's
             // remembered focus move too.
             focusRememberedPane(on: screen)
             services.windows.stateDidChange(state)

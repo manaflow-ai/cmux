@@ -1186,6 +1186,19 @@ class SizingIdentity:
 
 
 @dataclass(frozen=True)
+class SplitRespawn:
+    __cmux_schema_path__: ClassVar[str] = 'types/SplitRespawn'
+    kind: str
+    terminal_id: Union[str, None, MissingType] = field(default=MISSING)
+    cwd: Union[str, None, MissingType] = field(default=MISSING)
+    engine: Union[str, None, MissingType] = field(default=MISSING)
+    env: Union[Dict[str, str], None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
+    shell_args: Union[List[str], None, MissingType] = field(default=MISSING)
+    url: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class SurfaceResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SurfaceResult'
     surface: Id
@@ -1751,6 +1764,13 @@ class ConversationOpRequest:
 
 
 @dataclass(frozen=True)
+class ConversationSearchRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/conversation-search/request'
+    limit: int
+    query: str
+
+
+@dataclass(frozen=True)
 class ConversationSnapshotRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/conversation-snapshot/request'
     conversation: str
@@ -2002,6 +2022,12 @@ class GetBrowserProviderRequest:
 class GetCellPixelsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/get-cell-pixels/request'
     pass
+
+
+@dataclass(frozen=True)
+class GetFrontendBrowserHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/get-frontend-browser-history/request'
+    surface: Id
 
 
 @dataclass(frozen=True)
@@ -2286,6 +2312,7 @@ class MoveTabToSplitRequest:
     pane: Id
     edge: str
     ratio: Union[float, None, MissingType] = field(default=MISSING)
+    respawn: Union[SplitRespawn, None, MissingType] = field(default=MISSING)
     transaction: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -2821,6 +2848,13 @@ class SetDefaultColorsRequest:
     cursor_blink: Union[bool, None, MissingType] = field(default=MISSING)
     palette: Union[Dict[str, ColorHex], None, MissingType] = field(default=MISSING)
     complete: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class SetFrontendBrowserHistoryRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-frontend-browser-history/request'
+    surface: Id
+    history: Union[JsonValue, None]
 
 
 @dataclass(frozen=True)
@@ -3979,6 +4013,7 @@ __all__ = [
     'SizePolicy',
     'SizeState',
     'SizingIdentity',
+    'SplitRespawn',
     'SurfaceResult',
     'Tab',
     'TerminalColorOverrides',
@@ -4041,6 +4076,7 @@ __all__ = [
     'ConversationHistoryRequest',
     'ConversationListRequest',
     'ConversationOpRequest',
+    'ConversationSearchRequest',
     'ConversationSnapshotRequest',
     'ConversationTypingRequest',
     'CopyRequest',
@@ -4069,6 +4105,7 @@ __all__ = [
     'ForgetSessionRequest',
     'GetBrowserProviderRequest',
     'GetCellPixelsRequest',
+    'GetFrontendBrowserHistoryRequest',
     'GetFrontendProjectionRequest',
     'GetSizeStateRequest',
     'IdentifyRequest',
@@ -4167,6 +4204,7 @@ __all__ = [
     'SetClientSizingRequest',
     'SetColumnStickyRequest',
     'SetDefaultColorsRequest',
+    'SetFrontendBrowserHistoryRequest',
     'SetPersonalTerminalRequest',
     'SetPersonalWorkspaceRequest',
     'SetProfileFollowsRequest',

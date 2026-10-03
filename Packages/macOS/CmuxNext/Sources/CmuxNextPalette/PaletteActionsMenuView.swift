@@ -7,7 +7,8 @@ import CmuxNextDesign
 final class PaletteActionsMenuView: NSView {
     var onRun: ((Int) -> Void)?
 
-    private let glass = Glass.makePanel(cornerRadius: PaletteLayout.cornerRadius)
+    /// The panel's material: glass, or opaque under Reduce Transparency.
+    let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius)
     private let content = FlippedView()
     private let title = PaletteText.label(Typography.header, tone: .secondary)
     private let filter = PaletteText.label(Typography.body, tone: .tertiary)
@@ -17,7 +18,7 @@ final class PaletteActionsMenuView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
-        glass.contentView = content
+        glass.contentView.addSubview(content)
         separator.wantsLayer = true
         [title, separator, filter].forEach(content.addSubview)
         addSubview(glass)
@@ -51,7 +52,7 @@ final class PaletteActionsMenuView: NSView {
     override func layout() {
         super.layout()
         glass.frame = bounds
-        content.frame = glass.bounds
+        content.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let inset = Metrics.space2
         let padding = PaletteLayout.horizontalPadding
         var y = Metrics.space4
@@ -78,7 +79,7 @@ final class PaletteActionsMenuView: NSView {
 
     private func applyColors() {
         performWithTheme {
-            glass.tintColor = Palette.glassTint
+            glass.applyTheme()
             separator.layer?.backgroundColor = Palette.separator.cgColor
         }
     }

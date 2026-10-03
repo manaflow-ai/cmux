@@ -1,76 +1,59 @@
 /// <reference path="../../../cmux-tui/crates/cmux-app-host/generated/cmux-app.d.ts" />
-// View state only: the last `feed.list` answer, the filters the user chose,
-// the selection and transient notices. Items, order, groups, counts, seen,
-// done and snooze state belong to the feed owner; this view re-lists when
-// the owner says the feed changed.
+// View state only: the listed page, the filters the user chose, the
+// selection and transient notices. Items, lifecycle, triage, order, groups and
+// counts belong to the feed owner. A listed page follows the owner's op
+// events (src/events.ts); it lists again only when an event brings items the
+// page cannot know.
 
-import { feed, FEED_CHANGED, type FeedChanged, type FeedCounts, type FeedFilter, type FeedGroupBy, type FeedItem, type FeedListParams, type FeedListResult, type SourceKind } from "./feed.ts"
+import { applyEvent, type Page } from "./events.ts"
+import { feed, FEED_STREAM, type Counts, type FeedEvent, type FeedItem, type GroupBy, type ListParams, type PosterKind } from "./feed.ts"
 import { t } from "./l10n.ts"
-import { asGroupBy, asVariant, settings, VARIANTS, type Variant } from "./settings.ts"
-
-/** A readable reason for a failed call. */
-export function describe(e: unknown): string {
-  const code = e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : ""
-  if (code === "scope.missing") return t("reason.scope", "permission not granted")
-  if (code === "operation.unsupported") return t("reason.unsupported", "not supported by this version of cmux")
-  return e instanceof Error ? e.message : String(e)
-}
+import { asGroupBy, settings, VARIANTS, type Variant } from "./settings.ts"
 
 export const codeOf = (e: unknown) => (e && typeof e === "object" && "code" in e ? String((e as { code: unknown }).code) : "")
 
-// Filters the user picks; they map onto the owner's `FeedFilter`.
+/** A readable reason for a failed call. */
+export function describe(e: unknown): string {
+  const code = codeOf(e)
+  if (code === "scope.missing") return t("reason.scope")
+  if (code === "operation.unsupported") return t("reason.unsupported")
+  if (code === "feed.closed") return t("reason.closed")
+  return e instanceof Error ? e.message : String(e)
+}
 
-export type SourceFilter = "all" | "agent" | "integration" | "other"
+// Filters the user picks; they map onto `feed.list` params.
+
+export type SourceFilter = "all" | "agent" | "integration" | "automation" | "app" | "system"
+export const SOURCES: readonly SourceFilter[] = ["all", "agent", "integration", "automation", "app", "system"]
 
 export interface ViewFilters {
   source: SourceFilter
-  unseenOnly: boolean
+  unreadOnly: boolean
   needsResponseOnly: boolean
-  showSnoozed: boolean
+  /** The archived ("done") list instead of the active one. */
+  showDone: boolean
 }
 
-export const DEFAULT_FILTERS: ViewFilters = { source: "all", unseenOnly: false, needsResponseOnly: false, showSnoozed: false }
-
-const SOURCE_KINDS: Record<Exclude<SourceFilter, "all">, SourceKind[]> = { agent: ["agent"], integration: ["integration"], other: ["app", "run", "user"] }
-
-export function toFeedFilter(f: ViewFilters): FeedFilter {
-  const filter: FeedFilter = { status: [f.showSnoozed ? "snoozed" : "open"] }
-  if (f.source !== "all") filter.sources = SOURCE_KINDS[f.source]
-  if (f.unseenOnly) filter.unseen = true
-  if (f.needsResponseOnly) filter.needsResponse = true
-  return filter
-}
+export const DEFAULT_FILTERS: ViewFilters = { source: "all", unreadOnly: false, needsResponseOnly: false, showDone: false }
 
 export const LIST_LIMIT = 100
 
+export function listParamsFor(f: ViewFilters, groupBy: GroupBy | null, limit = LIST_LIMIT): ListParams {
+  const p: ListParams = f.showDone ? { state: "all", archived: true, order: "recent" } : { state: "open", order: "urgent" }
+  if (f.source !== "all") p.poster_kind = f.source as PosterKind
+  if (f.unreadOnly) p.unread = true
+  if (f.needsResponseOnly && !f.showDone) p.needs_response = true
+  if (groupBy) p.group_by = groupBy
+  p.limit = limit
+  return p
+}
+
 export const [filters, setFiltersSignal] = signal<ViewFilters>(DEFAULT_FILTERS)
-const [groupOverride, setGroupOverride] = signal<FeedGroupBy | null>(null)
-export const groupBy = computed<FeedGroupBy>(() => groupOverride() ?? settings().groupBy)
+const [groupOverride, setGroupOverride] = signal<GroupBy | null>(null)
+export const groupBy = computed<GroupBy>(() => groupOverride() ?? settings().groupBy)
+export const variant = computed<Variant>(() => settings().variant)
 export const [selected, setSelected] = signal<string | null>(null)
 export const [notice, setNotice] = signal<string | null>(null)
-const [variantOverride, setVariantOverride] = signal<{ variant: Variant; base: Variant } | null>(null)
-export const variant = computed<Variant>(() => {
-  const base = settings().variant
-  const o = variantOverride()
-  return o && o.base === base ? o.variant : base
-})
-
-// The owner's answers.
-export const [result, setResult] = signal<FeedListResult | null>(null)
-export const [counts, setCounts] = signal<FeedCounts | null>(null)
-export const [feedError, setFeedError] = signal<{ code: string; message: string } | null>(null)
-
-export const items = computed<FeedItem[]>(() => result()?.items ?? [])
-export const current = computed<FeedItem | null>(() => items().find((i) => i.id === selected()) ?? items()[0] ?? null)
-export const loaded = computed(() => result() !== null || feedError() !== null)
-
-/** Groups from the owner, resolved to items (the view never groups by itself). */
-export const groups = computed(() => {
-  const r = result()
-  if (!r?.groups) return [{ key: "all", label: "", sourceKind: undefined as SourceKind | undefined, items: r?.items ?? [] }]
-  const byId = new Map(r.items.map((i) => [i.id, i]))
-  return r.groups.map((g) => ({ key: g.key, label: g.label, sourceKind: g.sourceKind, items: g.itemIds.map((id) => byId.get(id)).filter((i): i is FeedItem => !!i) })).filter((g) => g.items.length > 0)
-})
 
 // View preferences in app storage (per viewer; never item state).
 
@@ -78,112 +61,166 @@ let viewLoading: Promise<void> | null = null
 const persist = (key: string, value: unknown) => cmux.storage.set(key, value).catch((e: unknown) => cmux.log(`storage ${key}: ${describe(e)}`))
 
 export function ensureView(): Promise<void> {
-  viewLoading ??= Promise.all([
-    cmux.storage.get<{ filters?: Partial<ViewFilters>; groupBy?: string }>("view").catch(() => null),
-    cmux.storage.get<{ variant?: string; base?: string }>("variantOverride").catch(() => null)
-  ]).then(([view, override]) => {
-    if (view?.filters) setFiltersSignal({ ...DEFAULT_FILTERS, ...view.filters, showSnoozed: false })
-    if (view?.groupBy) setGroupOverride(asGroupBy(view.groupBy))
-    if (override?.variant) setVariantOverride({ variant: asVariant(override.variant), base: asVariant(override.base) })
-  })
+  viewLoading ??= cmux.storage
+    .get<{ filters?: Partial<ViewFilters>; groupBy?: string }>("view")
+    .catch(() => null)
+    .then((view) => {
+      if (view?.filters) setFiltersSignal({ ...DEFAULT_FILTERS, ...view.filters, showDone: false })
+      if (view?.groupBy) setGroupOverride(asGroupBy(view.groupBy))
+    })
   return viewLoading
 }
 
+const saveView = () => void persist("view", { filters: { ...filters(), showDone: false }, groupBy: groupOverride() })
+
 export function setFilters(change: Partial<ViewFilters>): void {
-  const next = { ...filters(), ...change }
-  setFiltersSignal(next)
-  void persist("view", { filters: { ...next, showSnoozed: false }, groupBy: groupOverride() })
+  setFiltersSignal({ ...filters(), ...change })
+  saveView()
 }
 
-export function setGrouping(by: FeedGroupBy): void {
+export function setGrouping(by: GroupBy): void {
   setGroupOverride(by)
-  void persist("view", { filters: { ...filters(), showSnoozed: false }, groupBy: by })
+  saveView()
 }
 
-// Reading the feed.
+// A listed page that follows the owner's events.
 
-export const listParams = (grouped: boolean): FeedListParams => ({ filter: toFeedFilter(filters()), ...(grouped ? { groupBy: groupBy() } : {}), limit: LIST_LIMIT })
+export interface FeedView {
+  page: () => Page | null
+  items: () => FeedItem[]
+  error: () => { code: string; message: string } | null
+  loaded: () => boolean
+  /** Lists now (commands with nothing mounted, and the first read). */
+  reload: () => Promise<Page>
+}
 
-/** Bumped to make every mounted list re-read (mounts that went away dropped their effects). */
-const [reloadTick, setReloadTick] = signal(0)
+const [counts, setCounts] = signal<Counts | null>(null)
+export { counts }
+let countsLoading = false
+let countsAgain = false
 
-/**
- * Lists the feed for the calling mount: now, whenever its filters change, and
- * on every `feed.changed`. `grouped` asks the owner for groups. Call from a render.
- */
-export function attachList(grouped: boolean): void {
-  void ensureView()
-  let seq = 0
-  const load = () => {
-    const params = listParams(grouped)
-    const mine = ++seq
-    feed
-      .list(params)
-      .then((r) => {
-        if (mine !== seq) return
-        setResult(r)
-        setCounts(r.counts)
-        setFeedError(null)
-      })
-      .catch((e: unknown) => {
-        if (mine === seq) setFeedError({ code: codeOf(e), message: describe(e) })
-      })
+/** Reads `feed.counts`; a read asked for while one is in flight runs once after it. */
+function loadCounts(): void {
+  if (countsLoading) {
+    countsAgain = true
+    return
   }
-  effect(() => {
-    filters()
-    groupBy()
-    reloadTick()
-    load()
-  })
-  cmux.events.on(FEED_CHANGED, (payload) => {
-    const p = payload as Partial<FeedChanged> | null
-    if (p?.counts) setCounts(p.counts)
-    load()
-  })
-}
-
-/** Counts only (the status item): one read, then the counts each `feed.changed` carries. */
-export function attachCounts(): void {
+  countsLoading = true
   feed
     .counts()
     .then(setCounts)
-    .catch((e: unknown) => setFeedError({ code: codeOf(e), message: describe(e) }))
-  cmux.events.on(FEED_CHANGED, (payload) => {
-    const p = payload as Partial<FeedChanged> | null
-    if (p?.counts) setCounts(p.counts)
-  })
+    .catch((e: unknown) => cmux.log(`feed.counts: ${describe(e)}`))
+    .finally(() => {
+      countsLoading = false
+      if (countsAgain) {
+        countsAgain = false
+        loadCounts()
+      }
+    })
 }
 
 /**
- * After this view's own mutation: re-list when the owner's revision moved and
- * its `feed.changed` has not arrived yet (the event re-lists too).
+ * A page for `params` in the calling mount: it lists when params change and
+ * patches itself from the owner's op events. The subscription and the effect
+ * belong to the mount and end with it.
  */
-export function noteRevision(revision: string | undefined): void {
-  if (!revision || result()?.revision === revision) return
-  setReloadTick((n) => n + 1)
+export function createFeedView(params: () => ListParams, options: { primary?: boolean } = {}): FeedView {
+  const [page, setPageSignal] = signal<Page | null>(null)
+  const [error, setError] = signal<{ code: string; message: string } | null>(null)
+  const setPage = (p: Page) => {
+    setPageSignal(p)
+    if (options.primary) setLatest(p.items)
+  }
+  let seq = 0
+  let lastSeq = 0
+  let queued = false
+  const reload = () => {
+    const mine = ++seq
+    return feed.list(params()).then(
+      (r) => {
+        const next: Page = r.groups ? { items: r.items, groups: r.groups } : { items: r.items }
+        if (mine === seq) {
+          setPage(next)
+          setError(null)
+        }
+        return next
+      },
+      (e: unknown) => {
+        if (mine === seq) setError({ code: codeOf(e), message: describe(e) })
+        throw e
+      }
+    )
+  }
+  // Several events in one turn cost one list.
+  const relistSoon = () => {
+    if (queued) return
+    queued = true
+    void Promise.resolve().then(() => {
+      queued = false
+      reload().catch(() => undefined)
+    })
+  }
+  cmux.events.on(FEED_STREAM, (payload) => {
+    const ev = payload as FeedEvent
+    if (!ev || typeof ev.op !== "string") return
+    // The stream is at-least-once: an event seen twice changes nothing.
+    if (typeof ev.seq === "number") {
+      if (ev.seq <= lastSeq) return
+      lastSeq = ev.seq
+    }
+    const current = page()
+    if (current) {
+      const patch = applyEvent(current, ev, params(), Date.now())
+      if (patch.page !== current) setPage(patch.page)
+      if (patch.relist) relistSoon()
+    }
+    if (!["feed.seen", "feed.push_due", "feed.prefs.set"].includes(ev.op)) loadCounts()
+  })
+  if (counts() === null) loadCounts()
+  effect(() => {
+    params()
+    reload().catch(() => undefined)
+  })
+  return {
+    page,
+    items: computed(() => page()?.items ?? []),
+    error,
+    loaded: computed(() => page() !== null || error() !== null),
+    reload
+  }
 }
 
-/** Reads once without subscribing (commands run with nothing mounted). */
-export async function listNow(params: FeedListParams = listParams(false)): Promise<FeedListResult> {
+/** The main list's params (sections and panes share one filter set). */
+export const mainParams = () => listParamsFor(filters(), variant() === "grouped" ? groupBy() : null)
+
+/** The most recent main page, for commands (palette, keyboard) that run with or without a mounted list. */
+const [latest, setLatest] = signal<FeedItem[]>([])
+export const items = latest
+export const current = computed<FeedItem | null>(() => latest().find((i) => i.id === selected()) ?? latest()[0] ?? null)
+
+/** Lists once without subscribing (commands with nothing mounted). */
+export async function listNow(): Promise<FeedItem[]> {
   await ensureView()
-  const r = await feed.list(params)
-  setResult(r)
-  setCounts(r.counts)
-  return r
+  const r = await feed.list(listParamsFor(filters(), null))
+  setLatest(r.items)
+  return r.items
 }
 
-// Variant switching (dogfood only).
+/** The owner's groups resolved to items (the view never groups by itself). */
+export function groupsOf(view: FeedView) {
+  return computed(() => {
+    const p = view.page()
+    if (!p?.groups) return [{ key: "all", label: "", items: p?.items ?? [] }]
+    const byId = new Map(p.items.map((i) => [i.id, i]))
+    return p.groups.map((g) => ({ key: g.key, label: g.label, items: g.items.map((id) => byId.get(id)).filter((i): i is FeedItem => !!i) })).filter((g) => g.items.length > 0)
+  })
+}
+
+// Variant switching (dogfood only): the config layer owns the setting.
 
 export async function cycleVariant(): Promise<Variant> {
   const next = VARIANTS[(VARIANTS.indexOf(variant()) + 1) % VARIANTS.length]!
-  const base = settings().variant
-  setVariantOverride({ variant: next, base })
-  try {
-    // Proposed op: the config layer owns settings; apps cannot write them yet.
-    await cmux.call("app.settings.set", { key: "variant", value: next })
-  } catch {
-    await persist("variantOverride", { variant: next, base })
-  }
+  await cmux.app.settings.set({ variant: next })
   return next
 }
 

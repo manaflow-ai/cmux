@@ -18,10 +18,13 @@ extension ScreenContentView {
         let uncovered = uncoveredRect
         let inset = Metrics.space4
         let height = StripScrollbarView.bandHeight
-        let band = CGRect(x: uncovered.minX + inset, y: bounds.height - height, width: max(0, uncovered.width - inset * 2), height: height)
+        // Along the bottom of the strip's uncovered area, so it sits above a
+        // bottom dock (layout-model.md F4).
+        let band = CGRect(x: uncovered.minX + inset, y: uncovered.maxY - height, width: max(0, uncovered.width - inset * 2), height: height)
         let offset = scroll.value
-        // Only scrolling flashes it (a spring step, a gesture, the wheel, the
-        // scrollbar); a resize or layout change that moves the offset does not.
+        // Only scrolling flashes it (a spring step or a reveal that snapped in
+        // its place, a gesture, the wheel, the scrollbar); a resize or layout
+        // change that moves the offset does not.
         let scrolled = scrollbarFlash && (scrollbarOffset.map { abs($0 - offset) > 0.25 } ?? true)
         scrollbarFlash = false
         scrollbarOffset = offset

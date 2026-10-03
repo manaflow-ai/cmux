@@ -105,6 +105,9 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case toggleFocusedWorkspaceGroupCollapsed
     case reopenClosedWorkspace
     case reopenClosedBrowserPanel
+    /// Opens Search Tabs, which finds open and recently closed tabs across workspaces.
+    /// Only cmux-next implements it; the dotted id matches cmux-next's action id.
+    case tabSearch = "tab.search"
     case newSurface
     case toggleTerminalCopyMode
     case focusTextBoxInput

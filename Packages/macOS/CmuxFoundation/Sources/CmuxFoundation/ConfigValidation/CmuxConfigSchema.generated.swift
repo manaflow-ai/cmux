@@ -2178,6 +2178,7 @@ enum CmuxEmbeddedConfigSchema {
               "toggleFocusedWorkspaceGroupCollapsed",
               "reopenClosedWorkspace",
               "reopenClosedBrowserPanel",
+              "tab.search",
               "newSurface",
               "toggleTerminalCopyMode",
               "focusTextBoxInput",

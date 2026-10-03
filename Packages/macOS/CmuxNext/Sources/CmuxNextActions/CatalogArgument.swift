@@ -88,6 +88,18 @@ nonisolated enum CatalogArgument {
         ActionArgument(name: "command", title: String(localized: "argument.command", defaultValue: "Command", bundle: .module), kind: .string)
     }
 
+    static var pathString: ActionArgument {
+        ActionArgument(name: "path", title: String(localized: "argument.path", defaultValue: "Path", bundle: .module), kind: .string)
+    }
+
+    static var contentsString: ActionArgument {
+        ActionArgument(name: "contents", title: String(localized: "argument.contents", defaultValue: "Contents", bundle: .module), kind: .string)
+    }
+
+    static var publicKeyString: ActionArgument {
+        ActionArgument(name: "publicKey", title: String(localized: "argument.publicKey", defaultValue: "SSH Public Key", bundle: .module), kind: .string)
+    }
+
     static var appString: ActionArgument {
         ActionArgument(name: "app", title: String(localized: "argument.app", defaultValue: "App", bundle: .module), kind: .string)
     }
@@ -138,7 +150,7 @@ nonisolated enum CatalogArgument {
             ActionEnumCase(value: "cmux", title: String(localized: "argument.value.keymap.cmux", defaultValue: "cmux (Default)", bundle: .module)),
             ActionEnumCase(value: "iterm2", title: String(localized: "argument.value.keymap.iterm2", defaultValue: "iTerm2", bundle: .module)),
             ActionEnumCase(value: "terminal", title: String(localized: "argument.value.keymap.terminal", defaultValue: "Terminal.app", bundle: .module)),
-            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "tmux-style (Ctrl-B Prefix)", bundle: .module)),
+            ActionEnumCase(value: "tmux", title: String(localized: "argument.value.keymap.tmux", defaultValue: "Prefix chords (Ctrl-B)", bundle: .module)),
         ]))
     }
 
@@ -182,7 +194,8 @@ nonisolated enum CatalogArgument {
         switch value {
         case "grey": String(localized: "argument.value.grey", defaultValue: "Grey", bundle: .module)
         case "docked": String(localized: "argument.value.docked", defaultValue: "Docked", bundle: .module)
-        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Overlay", bundle: .module)
+        // UI name "Floating"; the value stays `overlay` on the wire and in cmux.json.
+        case "overlay": String(localized: "argument.value.overlay", defaultValue: "Floating", bundle: .module)
         case "blue": String(localized: "argument.value.blue", defaultValue: "Blue", bundle: .module)
         case "red": String(localized: "argument.value.red", defaultValue: "Red", bundle: .module)
         case "yellow": String(localized: "argument.value.yellow", defaultValue: "Yellow", bundle: .module)

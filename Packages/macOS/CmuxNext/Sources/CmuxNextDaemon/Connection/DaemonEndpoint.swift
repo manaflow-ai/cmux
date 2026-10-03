@@ -35,6 +35,9 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceMetadata = "workspace-metadata-v1"
     public let tabMetadata = "tab-metadata-v1"
     public let frontendBrowserTabs = "frontend-browser-tabs-v1"
+    /// A frontend browser tab's back/forward entries and scroll positions,
+    /// stored opaque and outside the journal (`set-`/`get-frontend-browser-history`).
+    public let frontendBrowserHistory = "frontend-browser-history-v1"
     public let tabDrag = "tab-drag-v1"
     public let notificationAck = "notification-ack-v1"
     public let tabGroups = "tab-groups-v1"
@@ -92,6 +95,10 @@ public struct DaemonCapabilities: Sendable {
     /// Sticky columns: `set-column-sticky` and `columns[].sticky`
     /// (plans/cmux-next/sticky-column.md).
     public let stickyColumns = "sticky-columns-v1"
+    /// Top and bottom docks (`columns[].dock`, plans/cmux-next/layout-model.md).
+    /// No daemon serves it yet; the app refuses to send a top or bottom dock
+    /// until one does.
+    public let edgeDocks = "edge-docks-v1"
     /// `create-terminal {detached: true}`: a kept terminal with no tab.
     public let detachedTerminals = "detached-terminals-v1"
     /// Personal state kept only on the home (local) session
@@ -118,7 +125,8 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, batchClose, loopbackForward, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, launchSnapshot] }
+                                            terminalShellArgs, launchSnapshot, bookmarks, workspacePin, notificationMarkUnread,
+                                            terminalCommandJournal, stickyColumns, endTerminalsKeepLayout, stateResources] }
 
     /// Capabilities the app already speaks but the pinned cmux-tui does not
     /// serve yet. They are advertised, so a daemon that has them enables them,
@@ -132,9 +140,15 @@ public struct DaemonCapabilities: Sendable {
     /// `screen.move`, `screen_group.*`, ...) with idempotency keys, one commit
     /// path shared with the raw commands (PR #16174, cmux-tui 52103e740).
     public let stateResources = "state-resources-v1"
+    /// `sidebar_layout.get|update` (plans/cmux-next/sidebar-sections.md 5;
+    /// cmux-tui PR #16842).
+    public let sidebarLayout = "sidebar-layout-v1"
+    /// `move-tab-to-split` `respawn`: splitting a pane with its only tab
+    /// spawns a new tab of the same kind in the source pane, in the same
+    /// owner op (plans/cmux-next/layout-invariants.md).
+    public let tabSplitRespawn = "tab-split-respawn-v1"
     public var awaitingPin: [String] {
-        [remoteTerminalTabs, detachedTerminals, bookmarks, workspacePin, notificationMarkUnread, terminalCommandJournal, stickyColumns,
-         endTerminalsKeepLayout, stateResources, localConversations]
+        [remoteTerminalTabs, detachedTerminals, localConversations, sidebarLayout, tabSplitRespawn, frontendBrowserHistory]
     }
 
     /// Echoed through `set-client-info` so the daemon enables additive shapes.

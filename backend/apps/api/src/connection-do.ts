@@ -140,11 +140,9 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     if (this.skipped().has(`lock-acked:${version}`)) return
     try {
       const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team))
-      const r = (await stub.integrationLockChanged(team, lockOf(policyOf(state)), version)) as { ok: boolean; message?: string }
-      // A recreated ConnectionDO restarts its lock count; TeamDO's key for that version then conflicts.
-      // Log and acknowledge rather than retry forever (TeamDO learns the lock at its next push).
-      if (!r.ok && !(r.message ?? "").includes("idempotency key reused")) throw new Error(r.message ?? "refused")
-      if (!r.ok) console.error(JSON.stringify({ msg: "lock notice conflicts with an earlier notice; acknowledged", team, version }))
+      const r = (await stub.integrationLockChanged(team, lockOf(policyOf(state)), version, state.lock_epoch ?? "")) as { ok: boolean; message?: string }
+      // Notices carry this object's epoch, so a key conflict here is a real fault: retry with backoff.
+      if (!r.ok) throw new Error(r.message ?? "refused")
       if (this.runSystem("integration.policy.lock_acked", { version }, `lock-acked:${version}`)) throw new Error("lock_acked refused")
       this.noticeAttempts = 0
       this.noticeRetryAt = null

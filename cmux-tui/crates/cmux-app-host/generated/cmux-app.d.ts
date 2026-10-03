@@ -37,6 +37,7 @@ declare namespace Cmux {
   type Cursor = { generation: string; revision: string }
   type DeviceId = string
   type DeviceStatus = { install: Cmux.InstallId; user: string; policy_version: number; app_version: string; mdm_keys: Array<string>; conflicts: Array<string>; reported_at: number }
+  type EmailDomain = string
   type EmptyResult = Record<string, never>
   type EnrollmentToken = { id: Cmux.EnrollmentTokenId; label: string; allowed_domains: Array<string> | null; expires_at: number | null; created_by: string; created_at: number; revoked_at: number | null; uses: number }
   type EnrollmentTokenHash = string
@@ -163,12 +164,15 @@ declare namespace Cmux {
   type SidebarPluginSnapshot = { id: string /* sidebar_plugin_… */; name: string; source: string; revision?: string; active: boolean; enabled: boolean; extra?: Record<string, Cmux.JsonValue> }
   type SidebarViewSnapshot = { id: string /* sidebar_view_… */; session_id: string /* session_… */; cols: number; rows: number; running: boolean; extra?: Record<string, Cmux.JsonValue> }
   type Size = { cols: number; rows: number }
+  type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
+  type SsoConnectionId = string
   type Step = unknown
   type StreamEnd = { reason: "completed" | "canceled" | "closed" | "gap" | "error"; cursor?: Cmux.Cursor; recovery?: string; error?: Cmux.StreamError }
   type StreamError = { code: string; message: string; details: Cmux.JsonValue; retryable: boolean }
   type StreamOpened = { stream_id: string /* stream_… */; cursor?: Cmux.Cursor }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
+  type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
   type TeamIntegrationPolicy = { allowed_providers: Array<Cmux.IntegrationProvider> | null; github: { scope: "linking_user_repos" | "installation"; require_org_admin: boolean; repo_allowlist: Array<Cmux.RepoPattern> | null }; source: "default" | "admin" | "sso" | "mdm" | "team_policy"; locked: boolean; updated_at: number | null; updated_by: string | null }
   type TeamMember = { user: Cmux.UserId; role: "owner" | "admin" | "member"; display_name: string }
@@ -200,7 +204,7 @@ declare namespace Cmux {
   type TriggerId = string
   type TriggerInput = unknown
   type UserId = string
-  type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; display_name: string; personal_team: Cmux.TeamId }
+  type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
   type ViewAttachmentOutcome = "applied" | "passive" | "superseded"
   type ViewAttachmentStreamOpened = { stream_id: string /* stream_… */; attachment_lease: string }
   type ViewerReleaseResult = { outcome: Cmux.ViewAttachmentOutcome }
@@ -209,7 +213,8 @@ declare namespace Cmux {
   type MutationResult<T> = { value: T; generation: string; revision: string; replayed: boolean }
 }
 
-interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string }
+interface CmuxAbortSignal { readonly aborted: boolean; readonly reason: unknown; onabort: ((ev: { type: "abort" }) => void) | null; addEventListener(type: "abort", fn: () => void): void; removeEventListener(type: "abort", fn: () => void): void; throwIfAborted(): void }
+interface CmuxCallOptions { idempotencyKey?: string; expectedRevision?: string; gesture?: string; /** Rejects the call with `aborted` when the signal fires. */ signal?: CmuxAbortSignal }
 type CmuxOp<P, R> = ((params?: P, options?: CmuxCallOptions) => Promise<R>) & { readonly opName: string }
 type CmuxSignal<T> = () => T
 interface CmuxLive<T> { (): T | undefined; error(): CmuxError | null; loading(): boolean; refresh(): void }
@@ -277,6 +282,14 @@ interface CmuxGlobal {
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
   }
+  domain: {
+    /** `domain.claim` (mutation, scope `domain:write`): Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused. */
+    claim: CmuxOp<{ domain: Cmux.EmailDomain; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamDomain>>
+    /** `domain.list` (read, scope `domain:read`): The team's claimed and verified email domains (owners and admins). */
+    list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; domains: Array<Cmux.TeamDomain>; revision: string }>
+    /** `domain.verify` (mutation, scope `domain:write`): Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins). */
+    verify: CmuxOp<{ domain: Cmux.EmailDomain; expected_revision?: string }, Cmux.MutationResult<Cmux.TeamDomain>>
+  }
   feed: {
     /** `feed.adopt` (mutation, scope `feed:write`): Handoff: a daemon's local feed owner moves one of its items (same id) to the cloud owner after a reconnect. */
     adopt: CmuxOp<{ item: Cmux.FeedItem; expected_revision?: string }, Cmux.MutationResult<{ item: Cmux.FeedItem }>>
@@ -308,6 +321,14 @@ interface CmuxGlobal {
     snooze: CmuxOp<{ items: Array<Cmux.FeedItemId>; until: number; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
     /** `feed.unarchive` (mutation, scope `feed:write`): Move archived items back to the active list. */
     unarchive: CmuxOp<{ items: Array<Cmux.FeedItemId>; expected_revision?: string }, Cmux.MutationResult<{ items: Array<{ id: Cmux.FeedItemId; revision: number }> }>>
+  }
+  firewall: {
+    /** `firewall.create` (mutation, scope `firewall:write`): Allow a validated path through the caller's private network. */
+    create: CmuxOp<{ source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string; expected_revision?: string }, Cmux.MutationResult<{ id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }>>
+    /** `firewall.get` (read, scope `firewall:read`): Read one firewall rule owned by the caller. */
+    get: CmuxOp<{ rule_id: string }, { id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }>
+    /** `firewall.list` (read, scope `firewall:read`): List firewall rules attached to the caller's private network. */
+    list: CmuxOp<{ vpc_id?: string; vm_id?: string; tunnel_id?: string }, { rules: Array<{ id: string; action: "allow"; source: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; destination: { vmId?: string; vpcId?: string; tunnelId?: string; cidr?: string; public?: boolean; port?: number; protocol?: "tcp" | "udp" | "icmp" }; description?: string }> }>
   }
   github: {
     issue: {
@@ -344,6 +365,10 @@ interface CmuxGlobal {
     get: CmuxOp<{ machine?: string }, Cmux.MachineSnapshot>
     /** `machine.list` (read, scope `machine:read`) */
     list: CmuxOp<Record<string, never>, Array<Cmux.MachineSnapshot>>
+  }
+  network: {
+    /** `network.list` (read, scope `network:read`): List the caller-owned private Cloud networks. */
+    list: CmuxOp<Record<string, never>, { networks: Array<{ id: string; cidr: string | null; cidrV6: string | null; scope: "user" | "team" }> }>
   }
   notification: {
     /** `notification.ack` (mutation, scope `notification:write`) */
@@ -477,6 +502,18 @@ interface CmuxGlobal {
     /** `slack.post_as_bot` (mutation, scope `slack:external`): Post a message to a Slack channel as the cmux bot. */
     post_as_bot: CmuxOp<{ connection: Cmux.ConnectionId; channel: string; text: string; expected_revision?: string }, Cmux.MutationResult<string>>
   }
+  sso: {
+    connection: {
+      /** `sso.connection.activate` (mutation, scope `sso:write`): Fetch the issuer's OpenID discovery document and activate the connection (owners and admins). Needs the secret and every domain verified by this team. */
+      activate: CmuxOp<{ connection: Cmux.SsoConnectionId; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+      /** `sso.connection.create` (mutation, scope `sso:write`): Create an OIDC connection in draft (owners and admins). Then set its client secret and activate it. */
+      create: CmuxOp<{ issuer: string; client_id: string; domains: Array<Cmux.EmailDomain>; scopes?: Array<string>; jit?: { enabled: boolean; default_role: "member" | "admin" }; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+      /** `sso.connection.list` (read, scope `sso:read`): The team's SSO connections, without secrets (owners and admins). */
+      list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; connections: Array<Cmux.SsoConnection>; revision: string }>
+      /** `sso.connection.set_secret` (mutation, scope `sso:write`): Seal the OIDC client secret (owners and admins). The secret is never returned, logged or recorded in events. */
+      set_secret: CmuxOp<{ connection: Cmux.SsoConnectionId; client_secret: string; expected_revision?: string }, Cmux.MutationResult<Cmux.SsoConnection>>
+    }
+  }
   tab: {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
     create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
@@ -513,6 +550,10 @@ interface CmuxGlobal {
       create: CmuxOp<{ label: string; token_hash: Cmux.EnrollmentTokenHash; allowed_domains?: Array<string>; expires_at?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.EnrollmentToken>>
       /** `team.enrollment_token.list` (read, scope `team:read`): List enrollment tokens and managed devices (owners and admins). */
       list: CmuxOp<Record<string, never>, { team: Cmux.TeamId; tokens: Array<Cmux.EnrollmentToken>; devices: Array<Cmux.ManagedDevice>; revision: string }>
+    }
+    integration: {
+      /** `team.integration.release_lock` (mutation, scope `team:write`): Release the SSO or MDM lock on the team's integration policy (owners and admins; audited). The team policy then applies again. */
+      release_lock: CmuxOp<{ reason?: string; expected_revision?: string }, Cmux.MutationResult<{ released: "sso" | "mdm" }>>
     }
     policy: {
       /** `team.policy.get` (read, scope `team:read`): Read the team policy (current or a retained past version). Every member may read it; clients apply its device-scoped keys. */
@@ -575,6 +616,14 @@ interface CmuxGlobal {
     /** `terminal.wait_exit` (read, scope `terminal:read`) */
     wait_exit: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal: string; timeout_ms?: string }, Cmux.TerminalWaitExitResult>
   }
+  tunnel: {
+    /** `tunnel.attach` (mutation, scope `tunnel:write`): Attach an owned WireGuard tunnel to an owned private network. */
+    attach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
+    /** `tunnel.detach` (mutation, scope `tunnel:write`): Detach an owned WireGuard tunnel from an owned private network. */
+    detach: CmuxOp<{ device_fingerprint: string; network_id: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; network_id: string }>>
+    /** `tunnel.rotate-key` (mutation, scope `tunnel:write`): Rotate an owned tunnel's WireGuard public key without changing its address. */
+    "rotate-key": CmuxOp<{ device_fingerprint: string; client_public_key: string; expected_revision?: string }, Cmux.MutationResult<{ tunnel_id: string; client_public_key: string }>>
+  }
   workspace: {
     /** `workspace.create` (mutation, scope `workspace:write`) */
     create: CmuxOp<{ machine?: string; session?: string; name?: string; initial_content: "terminal" | "empty"; correlation_key?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedPath>>
@@ -604,13 +653,47 @@ interface CmuxGlobal {
   integrations: Record<string, { request(params: { method: string; path: string; body?: unknown }): Promise<unknown> }>
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> } }
-  /** The current user-gesture token: only inside a user event handler before its first await; pass it as options.gesture later. */
+  /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
   t(key: string, fallbackOrParams?: string | Record<string, unknown>, params?: Record<string, unknown>): string
+  palette: CmuxPalette
+  act: typeof act
   log(...parts: unknown[]): void
 }
 declare const cmux: CmuxGlobal
+
+// Palette scopes (contributes.paletteScopes). Items are plain data: at most 2 KiB each, 10000 per snapshot, 200 per batch, no functions.
+/** A typed reference to a catalog action or op, or an app command `app:<id>#<command>`. */
+interface CmuxActionRef { id: string; args: Record<string, unknown>; title?: string; symbol?: string }
+interface CmuxPaletteItem {
+  id: string; title: string; subtitle?: string; symbol?: string; keywords?: string[]
+  accessory?: { date?: number | string; text?: string; badge?: string | number; symbol?: string }
+  /** Return runs the first, Cmd-Return the second; Tab (default drill) lists them all. */
+  actions?: CmuxActionRef[]
+  /** Tab drills into this scope with the item as context (default `actions`). */
+  drill?: string
+  /** A scope row: Return or Tab enters this scope. */
+  enters?: string
+}
+interface CmuxPaletteContext { readonly scope: string; readonly generation: number; readonly signal: CmuxAbortSignal; readonly context?: string; readonly filter?: string; readonly session?: string }
+interface CmuxPaletteDetail { markdown?: string; metadata?: Array<{ label: string; value: string; symbol?: string }>; actions?: CmuxActionRef[] }
+interface CmuxPaletteCached { readonly __cmuxPaletteCached: true }
+type CmuxPaletteSource<F> = F & { readonly __cmuxPaletteKind: "snapshot" | "query" | "detail" }
+interface CmuxPalette {
+  /** The whole candidate set; the host ranks it and caches it. Runs once per invalidation, never per keystroke. */
+  snapshot(fn: (ctx: CmuxPaletteContext) => CmuxPaletteItem[] | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(ctx: CmuxPaletteContext) => Promise<CmuxPaletteItem[]>>
+  /** Per query: every `yield` is a batch; a new query aborts the old generator through `ctx.signal`. */
+  query(fn: (query: string, ctx: CmuxPaletteContext) => AsyncIterable<CmuxPaletteItem[] | CmuxPaletteCached> | Promise<CmuxPaletteItem[]>): CmuxPaletteSource<(query: string, ctx: CmuxPaletteContext) => unknown>
+  /** Detail of the highlighted row (layout listWithDetail). */
+  detail(fn: (itemId: string, ctx: { scope: string; signal: CmuxAbortSignal }) => CmuxPaletteDetail | null | Promise<CmuxPaletteDetail | null>): CmuxPaletteSource<(itemId: string) => unknown>
+  /** Yield from a query source: the last complete result of the longest cached prefix of the query (provisional until the first live batch). */
+  cached(): CmuxPaletteCached
+}
+declare const palette: CmuxPalette
+declare function act(op: string, args?: Record<string, unknown>, overrides?: { title?: string; symbol?: string }): CmuxActionRef
+/** The second argument of a command export. `cmux` here carries the invocation's user gesture until the command settles (origin user); the global `cmux` does not. */
+interface CmuxCommandContext { readonly app: { id: string; version: string }; readonly gesture?: string; readonly cmux: CmuxGlobal }
 
 // Reactivity and views (the old cmux JS sidebar API).
 declare function signal<T>(initial: T): [CmuxSignal<T>, (next: T | ((prev: T) => T)) => void]

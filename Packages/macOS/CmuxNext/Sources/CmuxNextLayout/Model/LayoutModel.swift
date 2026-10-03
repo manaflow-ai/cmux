@@ -35,7 +35,7 @@ public final class LayoutModel {
     /// Pins the strip scrollbar mode (tests, the demo); nil follows
     /// cmux.json `layout.stripScrollbar`.
     public var stripScrollbarOverride: StripScrollbarMode?
-    /// niri `center-focused-column`: the override, else the live setting
+    /// Column centering mode: the override, else the live setting
     /// while `followsDesignMetrics` is on, else `.never`.
     public var centerFocusedColumn: CenterFocusedColumn {
         centerFocusedColumnOverride ?? (followsDesignMetrics ? DesignSettings.shared.centerFocusedColumn : .never)
@@ -74,8 +74,7 @@ public final class LayoutModel {
     /// True while a divider or column drag is in progress.
     public private(set) var isGestureActive = false
 
-    /// The latest one-shot "center this column" request (niri
-    /// `center-column`). The view scrolls the column to the viewport center
+    /// The latest one-shot "center this column" request. The view scrolls the column to the viewport center
     /// once per request; `sequence` distinguishes repeats of the same pane.
     public private(set) var centerRequest: ColumnCenterRequest?
 
@@ -240,8 +239,7 @@ public final class LayoutModel {
     }
 
     /// Scrolls the column holding `pane` (default: the focused pane) to the
-    /// center of the viewport and focuses that pane, like niri's
-    /// `center-column`. Client-local: scroll offsets are never sent to the
+    /// center of the viewport and focuses that pane. Client-local: scroll offsets are never sent to the
     /// daemon. Returns false when the pane is not in a columns screen.
     @discardableResult
     public func centerColumn(containing pane: PaneID? = nil) -> Bool {

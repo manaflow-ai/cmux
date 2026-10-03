@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextTerminal
 
 /// One-shot launch event: the first live terminal frame is drawn (the
@@ -17,6 +18,13 @@ final class LaunchSettle {
     private var waiters: [@MainActor () -> Void] = []
     private(set) var isSettled = false
     private var unavailableWatch: Task<Void, Never>?
+    /// The launch load-in: the pane region comes in on the first terminal
+    /// frame, and everything shows if the daemon is unavailable.
+    private let reveal: LaunchReveal
+
+    init(reveal: LaunchReveal = .shared) {
+        self.reveal = reveal
+    }
 
     /// Runs `work` once the launch settled (at once when it has).
     func whenSettled(_ work: @escaping @MainActor () -> Void) {
@@ -44,6 +52,7 @@ final class LaunchSettle {
             CATransaction.setCompletionBlock {
                 MainActor.assumeIsolated {
                     DebugTimings.markLaunch("first_terminal_frame")
+                    self?.reveal.markReady(.pane)
                     self?.settle()
                 }
             }
@@ -51,6 +60,8 @@ final class LaunchSettle {
         // task-owner: ends when the daemon is unavailable or the launch settled (cancelled in settle)
         unavailableWatch = Task { [weak self] in
             for await unavailable in Observations({ daemon.startup.isUnavailable }) where unavailable {
+                // No region will get its data: show everything as it is.
+                self?.reveal.markAllReady()
                 self?.settle()
                 return
             }

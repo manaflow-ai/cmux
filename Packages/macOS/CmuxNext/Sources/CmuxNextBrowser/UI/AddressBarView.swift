@@ -1,7 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 
-/// The omnibar, drawn after Helium's location bar (`OmnibarStyle`): a gray
+/// The omnibar, drawn by `OmnibarStyle`: a gray
 /// 8 pt pill with a page-info chip, the compact URL with the host at full
 /// strength, and on focus the full URL, all selected. While suggestions show,
 /// the bar turns into the top of a white card that continues as the dropdown.
@@ -212,7 +212,7 @@ public final class AddressBarView: NSView {
     }
 
     /// The focus coordinator's way in (Cmd-L, a new browser tab): focuses
-    /// the field with the full URL selected (Chrome `SetFocus(true)`).
+    /// the field with the full URL selected (Chromium `SetFocus(true)`).
     /// Focusing again while focused selects everything again. This is the
     /// only place the omnibar moves the first responder, and only on the
     /// coordinator's behalf (`FocusEffectApplier`).

@@ -17,6 +17,7 @@ import { Route as TeamRouteImport } from './routes/team'
 import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
+import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -58,6 +59,11 @@ const IntegrationsCallbackRoute = IntegrationsCallbackRouteImport.update({
   path: '/integrations/callback',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
+  id: '/og/invite/$code',
+  path: '/og/invite/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations/': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -89,6 +97,7 @@ export interface FileRoutesById {
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/integrations/': typeof IntegrationsIndexRoute
+  '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -101,6 +110,7 @@ export interface FileRouteTypes {
     | '/i/$code'
     | '/integrations/callback'
     | '/integrations/'
+    | '/og/invite/$code'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/i/$code'
     | '/integrations/callback'
     | '/integrations'
+    | '/og/invite/$code'
   id:
     | '__root__'
     | '/'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/i/$code'
     | '/integrations/callback'
     | '/integrations/'
+    | '/og/invite/$code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -132,6 +144,7 @@ export interface RootRouteChildren {
   ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
+  OgInviteCodeRoute: typeof OgInviteCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -192,6 +205,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IntegrationsCallbackRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/og/invite/$code': {
+      id: '/og/invite/$code'
+      path: '/og/invite/$code'
+      fullPath: '/og/invite/$code'
+      preLoaderRoute: typeof OgInviteCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -204,6 +224,7 @@ const rootRouteChildren: RootRouteChildren = {
   ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
+  OgInviteCodeRoute: OgInviteCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

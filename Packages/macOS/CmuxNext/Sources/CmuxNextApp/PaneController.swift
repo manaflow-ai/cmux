@@ -28,7 +28,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     /// How near the layout reports this pane to the viewport.
     private(set) var presence: SurfacePresence = .hidden
     var isVisible: Bool { presence == .visible }
-    /// Tabs closed locally while the daemon confirms (Chrome-speed close).
+    /// Tabs closed locally while the daemon confirms, so a close looks instant.
     var pendingClosed: Set<String> = []
     /// A tab this app just created here; selected once the daemon reports it.
     var pendingSelectSurface: SurfaceID?
@@ -176,6 +176,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if force { view.stripView.discardPendingReorder() }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }
         if stripModel.tabs != snapshot.items { stripModel.tabs = snapshot.items }
+        if !snapshot.items.isEmpty { LaunchReveal.shared.markReady(.tabs) }
         var selectNew = false
         if let pending = pendingSelectSurface, let tab = pane.tabs.first(where: { $0.surface == pending }) {
             state?.selection.select(tab.id, in: paneKey)
@@ -230,6 +231,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
         view.show(content?.view)
+        // Terminals come in on their first frame (`LaunchSettle`); other
+        // content (a page, an agent) is ready once shown.
+        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { workspace?.focus.send(.contentPresented(pane: paneKey)) }

@@ -31,10 +31,24 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarBackground, .create, 310, folder: .new), p(.sidebarSection, .create, 110)])
             ),
             ActionDescriptor(
-                id: "sidebar.item.remove", title: t("action.sidebar.item.remove", "Remove from Sidebar"),
-                keywords: ["sidebar", "section", "unpin", "remove", "hide"], category: .sidebar, symbol: "minus.circle",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-item",
+                id: "sidebar.item.removeEverywhere", title: t("action.sidebar.item.removeEverywhere", "Remove from Sidebar"),
+                keywords: ["sidebar", "unpin", "remove", "hide", "home"], category: .sidebar, symbol: "minus.circle",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-from-sidebar",
                 surfacePlan: plan(menus: [p(.sidebarItem, .close, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.item.remove", title: t("action.sidebar.item.removeFromSection", "Remove from Section"),
+                keywords: ["sidebar", "section", "unpin", "remove"], category: .sidebar, symbol: "minus.square",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar remove-item",
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 110)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.item.hideApp", title: t("action.sidebar.item.hideApp", "Hide"),
+                keywords: ["sidebar", "app", "hide", "extension"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem, .sidebarSection], cliName: "sidebar hide-app",
+                // Offered on app items and app sections only (SidebarBridge
+                // filters the menus); the app comes from the target.
+                surfacePlan: plan(menus: [p(.sidebarItem, .close, 120), p(.sidebarSection, .close, 120)])
             ),
             ActionDescriptor(
                 id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show or Hide Label"),
@@ -58,7 +72,7 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "sidebar.section.rename", title: t("action.sidebar.section.rename", "Rename Section…"),
                 keywords: ["sidebar", "section", "rename", "title"], category: .sidebar, symbol: "pencil",
-                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true)], targets: section,
+                surfaces: [.palette, .keyboard, .contextMenu], arguments: [titleArgument(required: true).renamingTarget], targets: section,
                 cliName: "sidebar rename-section", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 100)])
             ),
             ActionDescriptor(
@@ -134,9 +148,9 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 220, folder: .appearance)])
             ),
             ActionDescriptor(
-                id: "sidebar.section.toggleRoomScope", title: t("action.sidebar.section.toggleRoomScope", "Show Only in This Room"),
+                id: "sidebar.section.toggleSpaceScope", title: t("action.sidebar.section.toggleSpaceScope", "Show Only in This Space"),
                 keywords: ["sidebar", "section", "room", "scope", "all rooms"], category: .sidebar, symbol: "circle.grid.2x2",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-room",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-space",
                 surfacePlan: plan(menus: [p(.sidebarSection, .identity, 300, folder: .options)])
             ),
             ActionDescriptor(
@@ -177,6 +191,11 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ("notifications", t("argument.sidebar.builtin.notifications", "Notifications")),
             ("history", t("argument.sidebar.builtin.history", "History")),
             ("bookmarks", t("argument.sidebar.builtin.bookmarks", "Bookmarks")),
+            ("app_store", t("argument.sidebar.builtin.appStore", "App Store")),
+            ("new_terminal", t("argument.sidebar.builtin.newTerminal", "New Terminal Tab")),
+            ("new_browser", t("argument.sidebar.builtin.newBrowser", "New Browser Tab")),
+            ("new_agent_chat", t("argument.sidebar.builtin.newAgentChat", "New Agent Chat")),
+            ("customize", t("argument.sidebar.builtin.customize", "Customize Appearance")),
         ]
         return ActionArgument(name: "item", title: t("argument.sidebar.item", "Item"),
                               kind: .enumeration(cases.map { ActionEnumCase(value: $0.0, title: $0.1) }))

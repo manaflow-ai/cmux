@@ -45,6 +45,20 @@ describe("event redaction and the idempotency key in the reducer context (lane 1
     expect(keys.at(-1)).toBe("k1")
   })
 
+  it("never sends writes of private tables (keys may be secrets)", () => {
+    const d: Domain<{ n: number }, { k: string }> = {
+      initial: () => ({ n: 0 }),
+      reduce: (s, _op, p) => ({ ok: true, state: { n: s.n + 1 }, value: null, writes: [{ table: "inv", op: "upsert", key: "inv_1", n: s.n + 1, row: {} }, { table: "invhash", op: "upsert", key: p.k, n: null, row: { invite_id: "inv_1" } }] })
+    }
+    const e = new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), d, { stream: "c", rowMode: { snapshotTable: "inv", snapshotTail: 5 }, redact: { privateTables: ["invhash"] } })
+    const out: Array<OwnerFrame> = []
+    e.submit({ identity: "a" }, { t: "op", op: "x", params: { k: "TOKENHASHKEY" }, idempotency_key: "k" }, (_t, f) => out.push(f))
+    const event = out.find((f) => f.t === "event")
+    expect(event && event.t === "event" ? event.effects?.writes.map((w) => w.table) : []).toEqual(["inv"])
+    expect(JSON.stringify(e.eventsAfter(0).map((x) => x.effects))).not.toContain("TOKENHASHKEY")
+    expect(e.rows.get("invhash", "TOKENHASHKEY")).toBeDefined()
+  })
+
   it("refuses redaction without row mode (JSON mirrors replay params)", () => {
     expect(() => new OwnerEngine(sqliteStore(new DatabaseSync(":memory:")), invites, { stream: "x", redact: { params: (_o, p) => p } })).toThrow(/rowMode/)
   })

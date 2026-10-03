@@ -61,7 +61,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserDefaultEngine: BrowserDefaultEngine = .fallback
     /// `browser.newTabPage`; nil opens a blank page.
     public var browserNewTabPage: URL?
-    /// `browser.showBookmarksBar`; off when unset (Chrome's default).
+    /// `browser.showBookmarksBar`; off when unset.
     public var browserShowBookmarksBar = false
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`.
     public var browserHibernation: BrowserHibernationSetting = .fallback
@@ -81,6 +81,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var newColumnWidth: NewColumnWidthMode = ColumnLayoutSettings.newColumnWidthFallback
     public var stickyColumnEdge: StickyDefaultEdge = ColumnLayoutSettings.stickyEdgeFallback
     public var stickyColumnMode: StickyDefaultMode = ColumnLayoutSettings.stickyModeFallback
+    /// `layout.frameOrientation`: which docks own the frame's corners.
+    public var frameOrientation: FrameOrientation = ColumnLayoutSettings.frameOrientationFallback
     public var minimumPaneContentSize = CGSize(width: ColumnLayoutSettings.minimumPaneWidthFallback,
                                                height: ColumnLayoutSettings.minimumPaneHeightFallback)
     /// `layout.closeFocus`; "previousNeighbor" when unset or invalid.
@@ -91,6 +93,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusRing = FocusRingSettings()
     /// `notifications.attention.*`.
     public var attention = AttentionSettings()
+    /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
+    /// nil (Ghostty's values) when unset or invalid.
+    public var windowBackground = WindowBackgroundOverride()
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -101,12 +106,21 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var focusIndicator: FocusIndicator = PaneFocusSettings.focusIndicatorFallback
     /// `appearance.tabBarBackground`; "window" when unset or invalid.
     public var tabBarBackground: TabBarBackground = PaneFocusSettings.tabBarBackgroundFallback
+    /// `focus.inactiveTabStyle`; "fade" when unset or invalid.
+    public var inactiveTabStyle: InactiveTabStyle = PaneFocusSettings.inactiveTabStyleFallback
     /// `window.titlebar`; "minimal" when unset or invalid.
     public var titlebar: TitlebarStyle = WindowTitlebarSetting.fallback
     /// `window.rail`; "off" when unset or invalid.
     public var rail: WindowRailPlacement = WindowRailSetting.fallback
     /// `app.quitBehavior`; "ask" when unset or invalid.
     public var quitBehavior: QuitBehavior = QuitBehaviorSetting.fallback
+    /// `appearance.theme`: a Ghostty theme spec; nil (the Ghostty config's
+    /// theme) when unset, empty or invalid.
+    public var appTheme: String?
+    /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
+    public var terminalFontFamily: String?
+    /// `terminal.fontSize` in points; nil (the Ghostty config's size) when unset or invalid.
+    public var terminalFontSize: Double?
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
@@ -170,6 +184,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         ColumnLayoutSettings.parse(root, into: &snapshot)
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
+        snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)
@@ -183,6 +198,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.tabBarBackgroundPath, fallback: PaneFocusSettings.tabBarBackgroundFallback)
         snapshot.tabBarBackground = tabBarBackground
         if let tabBarDiagnostic { snapshot.diagnostics.append(tabBarDiagnostic) }
+        let (inactiveTabStyle, inactiveTabDiagnostic) = PaneFocusSettings.parse(
+            root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleFallback)
+        snapshot.inactiveTabStyle = inactiveTabStyle
+        if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
         let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
         snapshot.titlebar = titlebar
         if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
@@ -196,6 +215,15 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.recordsTerminalCommands = recordsCommands
         if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
+        let (appTheme, appThemeDiagnostic) = AppThemeSetting().parse(root)
+        snapshot.appTheme = appTheme
+        if let appThemeDiagnostic { snapshot.diagnostics.append(appThemeDiagnostic) }
+        let (fontFamily, fontFamilyDiagnostic) = TerminalFontSetting().parseFamily(root)
+        snapshot.terminalFontFamily = fontFamily
+        if let fontFamilyDiagnostic { snapshot.diagnostics.append(fontFamilyDiagnostic) }
+        let (fontSize, fontSizeDiagnostic) = TerminalFontSetting().parseSize(root)
+        snapshot.terminalFontSize = fontSize
+        if let fontSizeDiagnostic { snapshot.diagnostics.append(fontSizeDiagnostic) }
 
         if let appearance = root["appearance"] {
             if case .object(let members) = appearance {
@@ -222,6 +250,14 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                                 continue
                             }
                             snapshot.metrics[name] = number
+                            // The applier clamps; the diagnostic says so, as the Settings window refuses it.
+                            let interfaceSize = InterfaceSizeSetting()
+                            if name == interfaceSize.metricName, !interfaceSize.range.contains(number) {
+                                snapshot.diagnostics.append(SettingsDiagnostic(
+                                    kind: .invalidValue, path: path,
+                                    message: "expected a size in points from \(Int(interfaceSize.range.lowerBound)) to \(Int(interfaceSize.range.upperBound)); clamped"
+                                ))
+                            }
                         }
                     } else {
                         snapshot.diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.metrics", message: "expected an object"))

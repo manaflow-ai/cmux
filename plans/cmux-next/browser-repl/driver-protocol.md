@@ -1,10 +1,10 @@
-> Moved from https://github.com/manaflow-ai/cmux/pull/15570 (docs/browser-repl/driver-protocol.md at 3add499853b). History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
+> Moved from https://github.com/manaflow-ai/cmux/pull/15570. History and authorship are in that PR. The runtime JS now lives in cmux-tui/crates/cmux-browser-host/js and the suite in tests/browser-parity; paths that name Sources/Panels/BrowserRepl, CmuxBrowser/Repl or TerminalController refer to the legacy Swift app in #15570 (cmux-next homes: browser-host.md).
 
 # Browser driver protocol
 
 The contract between the REPL runtime (JavaScript, engine-neutral) and an engine
-driver. The runtime builds the Aside and ChatGPT APIs on these primitives the
-same way Playwright builds its API on a browser protocol. Drivers:
+driver. The runtime builds its API on these primitives the same way Playwright
+builds its API on a browser protocol. Drivers:
 
 - `webkit`: cmux app, `WKWebView` panes (Swift).
 - `chromium`: CDP passthrough, when a Chromium engine lands.

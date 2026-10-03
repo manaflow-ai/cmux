@@ -6,7 +6,7 @@ Gate: `scripts/cmux-next/check-motion.sh` (no literal timing outside that
 directory). User request (2026-09-29): "animations need to be faster, think
 about how apple would do it." Earlier decisions that still apply: Cmd-D and
 Cmd-Shift-D splits apply in one frame (no animation); the sidebar is only
-shown or hidden; tab animations target Chrome quality.
+shown or hidden; tab animations must be fast and smooth.
 
 ## Rules
 
@@ -67,7 +67,7 @@ nxmot (MacBook Pro, 120 Hz).
 | `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar row insert, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
 | `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar row removal, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
-| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, niri column reveal, wheel notch, trackpad fling snap |
+| `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
 | `track` | 0.12 / 0.90 | 117 ms | 167 ms | drop-zone highlight, drag ghost jumps between targets |
 | `selection` | 0.15 / 0.90 | 142 ms | 200 ms | sidebar selection pill |
@@ -81,7 +81,9 @@ nxmot (MacBook Pro, 120 Hz).
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
 | `lift` | 0.12 s | sidebar drag lift shadow |
-| `theme` | 0.16 s | room, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
+| `theme` | 0.16 s | space, workspace or terminal theme switch (a `CATransition` fade on the scope's root layer; no layout change) |
+| `launch` | 0.24 s | the cmux mark resolving on the glass of a window still connecting (`LaunchMarkView`); 0.36 s at normal speed, under 400 ms; a plain fade under Reduce Motion |
+| `highlight` | 1.20 s | Settings row highlight after a search jump or `openSettings setting:` deep link fades out; under Reduce Motion it holds this long and goes in one frame |
 
 | Loop | Period | Used by |
 | --- | --- | --- |
@@ -112,17 +114,11 @@ not change. Loops keep their period (they show state, not transitions).
   interactive spring are under-damped for the same reason.
 - Response 0.15 to 0.22 s. Apple's system defaults (`.smooth` / `.snappy`
   at 0.5 s perceptual duration, NSAnimationContext 0.25 s) suit consumer
-  apps; a tab strip is used hundreds of times an hour. Chrome's tab strip
-  animates bounds with `views::BoundsAnimator`'s default 200 ms ease-out and
-  its title fade in 100 ms ([Chromium tab.cc](https://github.com/chromium/chromium/blob/main/chrome/browser/ui/views/tabs/tab.cc),
-  [analysis of BoundsAnimator's 200 ms default](https://danglingpointer.fun/posts/FasterChromium)).
-  Our `move` ends visibly at 192 ms: Chrome-level length with a spring's
-  continuity (Chrome's linear-time animations restart on interruption; ours
-  retarget). Safari, Finder and Spotlight timings were not measured here
-  (see "Not verified").
-- niri's default horizontal view movement is a spring with stiffness 800
-  and damping ratio 1 (response 0.222 s). `scroll` keeps niri's stiffness and
-  uses 0.9 damping to drop the tail.
+  apps; a tab strip is used hundreds of times an hour. Our `move` ends
+  visibly at 192 ms, with a spring's continuity: an interrupted move
+  retargets instead of restarting.
+- `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
+  damping; damping 1 leaves a slow sub-pixel tail.
 - Hover in 0.08 s and focus in 0.1 s: fast enough to read as instant
   feedback, slow enough that sweeping the pointer across tabs does not
   strobe. Press states have no animation.
@@ -164,13 +160,13 @@ rest).
 | Palette close | opacity + shrink 0.14 s ease-in | `fadeOut` | 140 ms | 80 ms | 83-92 ms |
 | Palette reopen during close | removed animations, restarted from 0 (jump) | continues from presentation | jump | no jump | - |
 | Palette actions menu | fade 0.14 s | `fadeIn` / `fadeOut` | 140 ms | 120 / 80 ms | - |
-| Palette result changes | instant | instant (unchanged, as Spotlight and Raycast) | 0 | 0 | - |
+| Palette result changes | instant | instant (unchanged) | 0 | 0 | - |
 | Omnibar fill / ring | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
-| Omnibar dropdown | instant show and hide | instant (unchanged, as Chrome) | 0 | 0 | - |
+| Omnibar dropdown | instant show and hide | instant (unchanged) | 0 | 0 | - |
 | Browser find bar, notices | fade in 0.14 s, out 0.12 s, curve (0.2, 0.9, 0.3, 1) | `fadeIn` / `fadeOut` | 140 / 120 ms | 120 / 80 ms | - |
 | Browser toolbar show / hide | constraint 0.2 s, same curve | `appear` / `disappear` (timed equivalent) | 200 ms | 175 / 142 ms | - |
 | Browser progress line | CATransaction 0.2 s | `move` (timed equivalent) | 200 ms | 192 ms | - |
-| niri column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
+| strip column scroll (reveal, wheel, fling) | display-link spring 0.42/0.96 | `scroll` | 458 / 592 ms | 208 / 267 ms | 366-377 ms (reveal of a full-width column; rest is longer for long travel) |
 | Screen switch | display-link spring 0.38/0.92 | `screen` | 367 / 475 ms | 208 / 267 ms | 244-249 ms |
 | Splits (Cmd-D, Cmd-Shift-D), close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
@@ -243,16 +239,13 @@ point. The palette's scale math assumed a centered anchor, so it pivoted
 on the bottom-left corner and grew in from the left (about 10 pt of
 sideways travel at 0.97). `Motion.scale(_:about:in:)` builds a scale about
 an explicit pivot for any anchor point; every panel scale goes through it.
-The palette now opens like Linear's command menu: `fadeIn` plus an `appear`
+The palette now opens with `fadeIn` plus an `appear`
 spring from 0.97 about its center (visible end 175 ms), and closes with
 `fadeOut` (80 ms) plus a shrink to 0.98. Result changes stay instant. The
 palette keeps a fixed height, so there is no list-height animation yet.
 
 ## Not verified
 
-- Safari, Finder, Chrome and Spotlight timings were not measured on this
-  machine; the Chrome numbers above come from Chromium sources and a
-  published analysis.
 - Visual smoothness (screenshots or video) was not captured: the Computer
   Use tool was unavailable in this session. Evidence is span timing, frame
   intervals and stalls.

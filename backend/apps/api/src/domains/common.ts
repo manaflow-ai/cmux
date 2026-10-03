@@ -1,5 +1,5 @@
 import type { Principal, Reject } from "@cmux/ownership"
-import { cloudOpByName, connectionInternalOps, feedInternalOps, schedulerInternalOps, type CloudOpDef } from "@cmux/protocol"
+import { cloudOpByName, connectionInternalOps, DisplayName, feedInternalOps, InstallId, Platform, schedulerInternalOps, TeamId, UserId, WgPublicKey, type CloudOpDef } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 
 export const reject = (code: string, message: string, details?: unknown): { ok: false } & Reject => ({
@@ -70,6 +70,98 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
       mcp: { expose: "never", group: "internal" }
     } as CloudOpDef
   ],
+  [
+    "sso.signed_in",
+    {
+      name: "sso.signed_in",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ connection: Schema.String, subject: Schema.String, stack_user: Schema.String, linked: Schema.Boolean }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: a person signed in through an SSO connection (audit; subject is a hash of connection and IdP subject).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "domain.rechecked",
+    {
+      name: "domain.rechecked",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "team",
+      principals: ["system"],
+      params: Schema.Struct({ domain: Schema.String, record_value: Schema.String, ok: Schema.Boolean, at: Schema.Number }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: one weekly DNS re-check of a verified domain.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  ...(["sso.connection.secret_set", "sso.connection.activated"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team",
+          principals: ["system"],
+          params:
+            name === "sso.connection.secret_set"
+              ? Schema.Struct({ connection: Schema.String, generation: Schema.Number, by: Schema.optionalKey(Schema.String) })
+              : Schema.Struct({
+                  connection: Schema.String,
+                  authorization_endpoint: Schema.String,
+                  token_endpoint: Schema.String,
+                  jwks_uri: Schema.String,
+                  by: Schema.optionalKey(Schema.String),
+                  expected_updated_at: Schema.Number
+                }),
+          result: Schema.Unknown,
+          errors: [],
+          docs: name === "sso.connection.secret_set" ? "Internal: the connection's client secret was sealed (never in params)." : "Internal: discovery succeeded; the connection is active.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
+  ...(["domain.mark_verified", "domain.mark_released", "domain.mark_lost"] as const).map(
+    (name) =>
+      [
+        name,
+        {
+          name,
+          owner: "cloud:TeamDO",
+          class: "mutation",
+          risk: "mutate-shared",
+          target: "team",
+          principals: ["system"],
+          params:
+            name === "domain.mark_verified"
+              ? Schema.Struct({ domain: Schema.String, record_value: Schema.String, verified_at: Schema.Number, by: Schema.optionalKey(Schema.String) })
+              : Schema.Struct({ domain: Schema.String, by: Schema.optionalKey(Schema.String) }),
+          result: Schema.Unknown,
+          errors: [],
+          docs:
+            name === "domain.mark_verified"
+              ? "Internal: DomainDO made this team the domain's owner."
+              : name === "domain.mark_lost"
+                ? "Internal: DomainDO refused a re-check; another team owns the domain."
+                : "Internal: DomainDO dropped this team's claim.",
+          cli: { path: "", visible: false },
+          mcp: { expose: "never", group: "internal" }
+        } as CloudOpDef
+      ] as const
+  ),
   ...(["team.policy.integration_lock", "team.integration.release_done"] as const).map(
     (name) =>
       [
@@ -83,7 +175,11 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
           principals: ["system"],
           params:
             name === "team.policy.integration_lock"
-              ? Schema.Struct({ managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])), version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) })
+              ? Schema.Struct({
+                  managed_by: Schema.NullOr(Schema.Literals(["sso", "mdm"])),
+                  version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+                  epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
+                })
               : Schema.Struct({ request: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)) }),
           result: Schema.Unknown,
           errors: [],
@@ -114,7 +210,8 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
                   version: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
                   slice_hash: Schema.String,
                   managed_by: Schema.optionalKey(Schema.NullOr(Schema.Literals(["sso", "mdm"]))),
-                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)))
+                  lock_version: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
+                  lock_epoch: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
                 }),
           result: Schema.Unknown,
           errors: [],
@@ -127,6 +224,64 @@ export const internalOps: ReadonlyMap<string, CloudOpDef> = new Map([
         } as CloudOpDef
       ] as const
   ),
+  [
+    "install.revoke_by_team",
+    {
+      name: "install.revoke_by_team",
+      owner: "cloud:UserDO",
+      class: "mutation",
+      risk: "destructive",
+      target: "install",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId, team: TeamId, by: UserId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: the bound team's TeamDO revokes a paired server's install (plans/cmux-next/server.md 6.5).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.install_revoked",
+    {
+      name: "server.install_revoked",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({ install: InstallId }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: UserDO confirmed the revocation of a removed server's install.",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
+  [
+    "server.enrolled",
+    {
+      name: "server.enrolled",
+      owner: "cloud:TeamDO",
+      class: "mutation",
+      risk: "mutate-shared",
+      target: "host",
+      principals: ["system"],
+      params: Schema.Struct({
+        install: InstallId,
+        name: DisplayName,
+        platform: Platform,
+        wg_public_key: WgPublicKey,
+        owner_user: UserId,
+        approved_by: UserId
+      }),
+      result: Schema.Unknown,
+      errors: [],
+      docs: "Internal: an approved pairing adds the server to the directory (plans/cmux-next/server.md 6.2).",
+      cli: { path: "", visible: false },
+      mcp: { expose: "never", group: "internal" }
+    } as CloudOpDef
+  ],
   ...schedulerInternalOps.map((d) => [d.name, d] as const),
   ...connectionInternalOps.map((d) => [d.name, d] as const),
   ...feedInternalOps.map((d) => [d.name, d] as const)

@@ -1,137 +1,110 @@
 # Notes (`cmux/notes`)
 
-Plain-text and markdown notes inside cmux. Global notes, one scratchpad per workspace that follows the workspace, quick capture, pins, search, markdown export, and the same commands as MCP tools so an agent can keep notes for you. Agent writes go through commands: they never move focus or selection, and they show a sparkles mark when the host reports an agent actor.
+Markdown notes inside cmux: a scratchpad per workspace, quick capture, pins, search, Markdown import and export, and tools so an agent can keep notes for you.
 
-Prototype on the public app API only (`cmux` global and view builders). Everything the API lacks is a proposed operation called through `cmux.call` with a fallback, or a gap listed below.
+Notes are documents owned by the notes server: `server {kind: native, binary: cmux-notes, args: [serve], instances: user, data: durable}`. One instance per user keeps every note (text, revision, title, pin, workspace), derives titles and previews, searches, stamps who wrote last (user, agent, app, automation, from the caller's principal), and streams typed changes on `note.watch`. It is also the document host of each note's document (`doc_…`): body edits are `document.edit {doc, base_revision, edits}`, a stale base is refused with `revision.conflict` and the current text, and the editor rebases. Its ops are the catalog fragment `catalog/notes-catalog.json` (family `note`, owner `app:cmux/notes`). The text is edited in a native editor pane; this app keeps the sidebar section as scene trees. Nothing implements the server or the pane yet: on today's runtime the section shows "Notes are not available yet".
+
+This app keeps no copy of the notes and no storage of its own: it renders the server's summaries (`note.list`, then `note.watch`) and fetches the bodies a surface shows (`note.get`, again when a newer revision arrives). The earlier single-key local store and its fallback are removed.
+
+Build: `bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/notes`. Validate: `bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/notes`. Test: `bun test first-party-apps/notes/test` (FakeHost with the mock notes server and file broker in `test/mock-server.ts`). Preview fixtures: `bun first-party-apps/notes/test/fixtures.ts --write`. `cmux-app.v2.json` is the manifest v2 sketch.
 
 ## Contributions
 
 | Kind | Id | What |
 | --- | --- | --- |
 | sidebar section | `notes` (`renderNotes`) | the main surface; design picked by the `variant` setting |
-| pane kind | `notesPane` (`renderNotesPane`) | list and editor side by side. The platform does not mount pane kinds yet; the preview harness renders it |
-| command | `newNote` | palette and section menu: an empty note, selected in the app's surfaces. Not an MCP tool |
-| command | `capture {text, workspace?}` | quick capture: a new note from text, first line = title. Palette and MCP |
-| command | `list {query?, workspace?, limit?}` | titles, previews, pin, workspace, revision; never bodies |
-| command | `read {id}` | one full note |
-| command | `create {title?, body?, workspace?, pinned?}` | a new note |
-| command | `append {id or workspace, text}` | adds lines; with `workspace` appends to its scratchpad and creates it on first use |
-| command | `pin {id, pinned?}` | pin or unpin |
-| command | `search {query, limit?}` | the search-provider answer (below) |
-| command | `export {id?}` | `{files: [{id, name, text}]}` markdown per note |
-| command | `open {id}` | shows a note in the app's surfaces (target of search results). Not an MCP tool |
-| command | `cycleVariant` | "Next Notes Variant" (palette). Not an MCP tool |
-| MCP server | `notesTools` (`tools: "commands"`) | the commands above as tools |
+| native pane (v2 sketch) | `editor` | the note's text, edited natively (contract below) |
+| commands, agent tools | `list {query?, workspace?, limit?}`, `read {id}`, `create {title?, body?, workspace?, pinned?}`, `append {id \| workspace, text}`, `capture {text, workspace?}`, `search {query, limit?}` | forward to `note.list`, `note.get`, `note.create`, `note.append`, `note.capture`, `note.search`. On manifest v2 these are the catalog ops themselves (MCP `default`) and the wrappers go away |
+| commands, palette only | `newNote`, `open {id}`, `exportNotes {id?}`, `importNotes`, `cycleVariant` | not MCP tools (`x-cmux-mcp: false`) |
+| MCP server | `notesTools` (`tools: "commands"`) | the agent tools above on today's runtime |
 
-`workspace` arguments take an id, a workspace name, or `"current"` (the focused workspace). Errors carry stable codes: `invalid_params`, `note.not_found`, `note.too_large`, `notes.full`, `workspace.not_found`.
+`workspace` arguments are selectors (an id, a name, or `"current"`), passed through to the server; the op router resolves them like any selector, so `"current"` is the caller's own workspace (an agent's terminal), not a guess.
 
-Settings: `variant` (`scratchpad` default, `list`, `split`; DEV/NIGHTLY only via `x-cmux-devOnly`), `sort` (`updated`, `created`, `title`), `bodyLines` (lines shown before Show More, default 12).
+Agent writes never move focus: commands call no focus op and never touch a surface's selection; their result reaches mounted surfaces through `note.watch`, and the editor pane applies them as remote edits without moving the caret. Only `newNote` and `open` (user commands) select a note.
 
 ## Scopes
 
 | Scope | Why |
 | --- | --- |
-| `workspace:read` | find the current workspace for its scratchpad; label notes with live workspace names; resolve `workspace` arguments |
-| `mcp:expose` | offer the note commands to agents as MCP tools |
+| `workspace:read` | the current workspace for its scratchpad; live workspace names |
+| `mcp:expose` | the agent tools (today's runtime) |
+| `fs:read` (optional) | import: read the files the user picked, through the picked handle |
+| `fs:write` (optional) | export: write `.md` files into the folder the user picked, through the picked handle |
 
-Local storage (`app.storage.*`, scope `storage:local`) is always granted by the host and cannot be declared in a manifest (the schema's scope pattern has no `local` level).
+The app's own catalog ops need no scope. `fs:read` and `fs:write` are not in the generated scope table yet (the validator warns).
 
 ## Variants (pick after dogfood)
 
 | Variant | Design |
 | --- | --- |
-| `scratchpad` (default, recommended) | The current workspace's scratchpad is open at the top with one field to add a line; below it, search and every other note, the selected one open inline. |
-| `list` | Search, then all notes (pinned first); tapping a row opens its lines inline under it with an add-line field. |
-| `split` | In the sidebar: the list, and after a tap the note replaces it (title field, meta line, lines, add-line field, back chevron). As a pane: list and editor in two columns. |
+| `scratchpad` (default, recommended) | The current workspace's scratchpad open on top with one field to add a line; below it, search and every other note, the selected one shown inline. |
+| `list` | Search, then all notes (pinned first); a click shows the note's lines inline with an add-line field. |
+| `editor` | Rows only; a click opens the note in the native editor pane. |
 
-Recommendation: `scratchpad`. It is the only design that uses what cmux has and other notes tools do not: the workspace. Jotting into the workspace you are in takes no clicks, and an agent's `append {workspace: "current"}` lands in the same place you are looking.
+Inline bodies are read-only markdown-lite (headings, bullets, numbers, quotes, code); checkboxes toggle with one `document.edit`, and every inline body has an "Open in Editor" button.
 
-Strongest objection: "current workspace" is a guess. The API has only a session-wide `focused` flag, so with two windows the scratchpad can show the other window's workspace, and with no focused workspace the top half is a label and nothing else. It also spends vertical space on a scratchpad that may be empty, which `list` does not.
+Recommendation: `scratchpad`. Jotting into the workspace you are in takes no clicks, and an agent's `append {workspace: "current"}` lands where you look. Strongest objection: "current workspace" in a sidebar is a guess (the API has only a session-wide `focused` flag, gap 4), and the top half spends space on a scratchpad that may be empty.
 
-## Storage: document store or a folder of `.md` files
+## The editor pane (native, first-party)
 
-Today the app stores every note in one `cmux.storage` key (`notes.v1`, a versioned document). It works now, but it is local to one machine, rewrites the whole set on each save (bounded by the 5 MiB quota; the app refuses writes past 4.5 MB), and synced KV (256 KiB) is far too small for notes.
+The only native pane for now. Contract:
 
-| | A. Document store primitive (proposed `document.*`) | B. User-chosen folder of `.md` files (`fs` scope) |
-| --- | --- | --- |
-| Owner | app supervisor (local SQLite, per app) with sync owned by `UserDO`; one record per document | the file system; the app is one of many writers |
-| Quota | per app, for example 64 MiB local and 16 MiB synced, plus per-document 1 MiB | the disk |
-| Sync | built in (records replicate through `UserDO`, iOS and web read the same records) | none, unless the folder lives in a sync service; never on iOS or the web |
-| Conflict rule | per document: last writer wins ordered by revision; a write carries `base_revision` and gets `revision.conflict` with the current copy; the app replays its op (append is safe to replay) | none: external editors overwrite; needs file watching and a merge story |
-| Search | the owner can index documents for the search app without running the app | the search app would scan files |
-| Interop | export (below) | other markdown editors and git work directly |
-| Risk | new owner surface | `fs` read/write scope on a user folder; path escapes; watching without polling needs FSEvents through the host |
+- Input: `{doc}`, the note's document handle. No text passes through the app VM. Opened by `app.pane.open {contribution: "cmux/notes#editor", input: {doc}, placement}` with the gesture token of a tap (it moves focus); open-with maps the `note` document type to it.
+- Owner: the notes server as document host. The pane reads `document.open {doc}` -> `{text, revision}`, follows `document.watch {doc}` (remote edits with revisions), and sends `document.edit {doc, base_revision, edits}` from an intent log; on `revision.conflict` it rebases its pending edits on the current text. The host keeps the unsaved-buffer journal, so a crash or a closed window loses nothing.
+- Client view state: selection, caret, scroll, IME composition, undo stack (client-local; a remote edit clears undo only for the ranges it touched). Remote edits (an agent's append, another device) never move the caret, selection or focus.
+- Rendering: markdown-lite styling drawn natively (heading sizes, emphasis, code spans, checkbox glyphs that toggle), find, Dynamic Type, Reduce Motion, VoiceOver.
+- Title: derived by the server from the text unless set explicitly; the pane shows it and edits it with `note.update {title}`.
 
-Recommendation: A, with export to `.md` files as a user action. Notes must reach the phone and the web, follow workspaces across machines, and be searchable without waking the app; only A gives that with a single writer per note. B is the right second step as one-way export or an opt-in mirror, not as the store.
+## Markdown export and import
 
-The store module already speaks A: on start it calls `document.list {collection: "notes"}`; when the op is missing (`operation.unsupported`, `scope.missing`) it falls back to `cmux.storage`. Writes use `document.put` with `base_revision` and replay on `revision.conflict`; it subscribes to `document.changed`. Tests cover the conflict replay. When `document.*` lands, add `"documents:write"` (or the name the platform picks) to `optionalScopes` and a one-time migration from `notes.v1`.
+Export (section menu "Export All Notes as Markdown…", a row's "Export as Markdown…", palette "Export Notes as Markdown…"):
+1. `fs.pick {mode: "folder", purpose: "export", create: true}` with the tap's gesture: the system panel; the result is an opaque root handle `{root: "root_…", name}`. Cancel is `fs.cancelled`.
+2. For each note (oldest first, or the one note): `note.get`, then `fs.write {root, path: "<slug>.md", text, exists: "unique"}` with an idempotency key per note revision. Names are unique slugs of the title; the host never overwrites, it picks a free name. An explicit title becomes a leading `# Title`.
+
+Import (section menu "Import Markdown Files…", palette "Import Markdown Files as Notes…"):
+1. `fs.pick {mode: "files", purpose: "import", accept: [".md", ".markdown", ".txt"], multiple: true}` -> `{root, entries: [{path, name, size}]}`.
+2. For each entry up to 1 MB: `fs.read {root, path, max_bytes}` -> `{text}`, then `note.create {title?, body}` with idempotency key `import:<root>:<path>` (a retried import creates each note once). A leading `# Title` becomes the title (the inverse of export).
+
+The app never sees or sends an absolute path; a handle reaches only what the user picked.
 
 ## Proposed operations
 
-| Name | Params | Result | Owner | Risk | Scope | Invalidated by | Why existing ops do not suffice |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `document.list` | `{collection, cursor?, limit?}` | `{documents: [{id, revision, data, updated_at}], cursor}` | app supervisor (local), `UserDO` (synced) | read | `documents:write` (own data; one scope for the app's own store) | `document.changed` | `cmux.storage` is one flat KV: 5 MiB, local only, no revisions, no per-record conflict rule |
-| `document.get` | `{collection, id}` | `{id, revision, data} \| null` | same | read | same | `document.changed` | same |
-| `document.put` | `{collection, id, data, base_revision}` | `{revision}`; error `revision.conflict {current}` | same | mutate-own | same | emits `document.changed` | same; needs optimistic concurrency so an agent's append and a phone edit both survive |
-| `document.delete` | `{collection, id, base_revision}` | `{}` | same | mutate-own | same | emits `document.changed {deleted: true}` | same |
-| event `document.changed` | filter `{collection}` | `{collection, id, revision, deleted?}` | same | read | same | | other devices and other app instances write the same notes |
-| `app.settings.set` | `{key, value}` | `{}` | config layer | mutate-own (origin `user` only) | none (own settings) | `__cmuxAppSetSettings` | `cycleVariant` cannot persist; today it keeps a session override |
-| `client.current` | `{}` | `{workspace, screen, pane, tab}` of the client that mounted the surface | the client (projection of the workspace store) | read | `workspace:read` | event `client.current.changed` | `workspace.list` has one session-wide `focused` flag; two windows can show different workspaces |
-| `fs.write` (export) | `{handle, name, text}` where `handle` comes from a user folder pick | `{path}` | native service (file access broker) | mutate-shared | `fs:write` per picked folder | | export can only return text today; nothing can write a file |
-| `fs.pick` | `{kind: "folder", purpose}` (origin `user` only) | `{handle, display_name}` (opaque; no raw path in the VM) | native service | read | none (user gesture) | | export target and a future mirror need a user-chosen folder without giving the app the file system |
-| `asset.put` / `asset.url` | `{collection, owner_id, name, bytes_base64, mime}` / `{asset}` | `{asset}` / `{url}` (host-served, short-lived) | app supervisor + `UserDO` blob store | mutate-own / read | `documents:write` | `document.changed` | images in notes (paste, drop) need blob storage and a way to show them; there is no binary store and `Image` reads only bundle paths |
+The note ops are in `catalog/notes-catalog.json`: `note.list`, `note.get`, `note.search`, `note.watch` (stream), `note.create`, `note.capture`, `note.append`, `note.update`, `note.delete`. Summary:
 
-## Search provider (proposed `contributes.searchProviders`)
-
-The manifest schema rejects unknown `contributes` keys, so this is a proposal. Shape:
-
-```jsonc
-"searchProviders": [{ "id": "notes", "title": {"en": "Notes"}, "run": "search", "prefix": "n", "symbol": "note.text" }]
-```
-
-The search app calls `run({query, limit})` and gets:
-
-```jsonc
-{ "results": [{ "id": "note_…", "title": "Deploy runbook", "subtitle": "api", "snippet": "freeze merges", "score": 23, "symbol": "note.text", "updated_at": 1790000000000, "open": { "command": "cmux/notes#open", "args": { "id": "note_…" } } }] }
-```
-
-`open` runs with origin `user` because the user picked the result. The `search` command already returns this shape (also an MCP tool). With the document store, the owner could index note text so the search app does not wake this app.
-
-## Proposed scene nodes
-
-The renderer has single-line `TextField` and `Text`. The app shows bodies line by line with markdown-lite styling done in app code (headings, bullets, numbers, checkboxes you can tap, quotes, code), edits one line at a time (right-click > Edit Line), and appends through a field. Real editing needs:
-
-- `TextEditor {text, revision, placeholder, markdown: "lite" | "plain", minLines, maxLines, onChange, onCommit}`: multi-line, client-owned text. The client owns the text, selection, IME composition and undo stack; it sends `change {text, base_revision}` debounced and `commit` on blur. The app answers with `revision`; a prop update applies only when its revision is newer than the client's base, so an agent's append never resets what the user is typing (today a controlled `TextField` would echo stale text). Markdown-lite styling (heading sizes, bold, italic, code spans, checkbox glyphs) is drawn by the client, so no per-keystroke round trip. Undo is client-local; an app-side write clears it only for the lines it touched.
-- `Markdown {text, onLink, onToggleCheck}`: read-only rendering (CommonMark subset plus task lists, no HTML, no remote images; images through `asset.url`). `onToggleCheck {line}` lets the app toggle a task without parsing positions itself.
-- `TextField` `clearOnSubmit: true`: the app rebuilds the field to clear it (the renderer keeps typed text when the `text` prop does not change).
+| Name | Params | Result | Owner | Risk | Scope | MCP |
+| --- | --- | --- | --- | --- | --- | --- |
+| `note.list` | `{query?, workspace?, sort?, limit?, after?}` | `{notes: [NoteSummary], next}` | notes server | read | own | default |
+| `note.get` | `{note}` | `{note}` with body | notes server | read | own | default |
+| `note.search` | `{query, limit?}` | `{results}` (search-provider shape) | notes server | read | own | default |
+| `note.watch` | `{after_seq?}` | stream of `{seq, kind: created\|updated\|deleted, note}` | notes server | read | own | never |
+| `note.create` | `{title?, body?, workspace?, pinned?, scratchpad?}` | `{note}` | notes server | mutate-own | own | default |
+| `note.capture` | `{text, workspace?}` | `{note}` | notes server | mutate-own | own | default |
+| `note.append` | `{note \| workspace, text}` | `{note}` (no base revision: appends commute) | notes server | mutate-own | own | default |
+| `note.update` | `{note, title?, pinned?, workspace?}` | `{note}` | notes server | mutate-own | own | never |
+| `note.delete` | `{note}` | `{}` | notes server | mutate-own | own | never |
+| `document.edit` | `{doc, base_revision, edits: [{start, end, text}]}` | `{revision}`; `revision.conflict {current: {revision, text}}` | document host (the notes server for notes) | mutate-own | own | never |
+| `fs.pick` | `{mode: folder\|files, purpose, accept?, multiple?, create?}`, gesture required | `{root: "root_…", name, entries?}` | native file broker (the client) | read (user grant) | `fs:read` / `fs:write` | never |
+| `fs.write` | `{root, path, text, exists: unique\|replace\|fail}` | `{path}` (relative to root) | native file broker | mutate-shared | `fs:write` | never |
+| `fs.read` | `{root, path, max_bytes}` | `{text}` | native file broker | read | `fs:read` | never |
+| `app.pane.open` | `{contribution, input?, placement?}`, gesture required | `{tab_id}` | workspace store | mutate-own (focuses) | `workspace:write` | never |
+| `client.current` | `{}` | `{workspace, screen, pane, tab}` of the mounting client | the client | read | `workspace:read` | never |
 
 ## Platform gaps (most important first)
 
-1. No document store: one local KV key; no sync, no per-note conflict rule, 5 MiB (see Storage).
-2. No multi-line editor and no markdown node (see Proposed scene nodes); editing is line by line.
-3. Command context has only `{app}`: no `actor`, `origin` or `locale`. The app cannot tell an agent's write from the palette's, so the agent mark depends on a proposed `ctx.actor`, and "select the new note" is limited to commands that are not MCP tools.
+1. No notes server, no `document.*` host and no native pane host: the app has nothing to read on today's runtime.
+2. No `fs.pick`/`fs.read`/`fs.write` or root handles (V6); export and import are refused.
+3. Palette commands carry no gesture token, so the palette's Export and Import (which open the system panel) fail with `gesture.required`; the section menu works because a tap carries one.
 4. No per-client current workspace (`client.current` or a `workspace` field in the mount context); the scratchpad uses the session-wide `focused` flag.
-5. No way to mark a command as "not an MCP tool": the manifest uses `"x-cmux-mcp": false` on `newNote`, `open` and `cycleVariant`, which the platform does not honor yet.
-6. Palette commands cannot prompt for arguments: `capture` needs `text`; the palette should prompt from the command's `arguments` schema.
-7. `searchProviders` is not in the manifest schema.
-8. No file write or folder pick: export returns markdown text only.
-9. No attachments or images: no blob store, and `Image` reads bundle files only.
-10. Apps cannot write their own settings (`app.settings.set`); `cycleVariant` keeps a session override.
-11. `x-cmux-devOnly` is not honored: the `variant` setting shows in every build.
-12. No app i18n API and no locale in the mount context: `src/l10n.ts` holds English and Japanese, and the language comes from `Intl` when the engine has it.
-13. No surface visibility signal: relative ages ("5m") refresh only when the note changes, since timers must pause while hidden and the app cannot know.
-14. Typings: `CmuxError` is declared without its `(code, message)` constructor (the app casts in `src/errors.ts`), and `untrack` is a runtime global missing from `cmux-app.d.ts`.
-15. `storage:local` is needed by `app.storage.*` but cannot be declared (the scope pattern has no `local` level); it is granted implicitly.
-16. No way to reveal an app section or open a pane kind from a command (`open` selects the note in mounted surfaces but cannot scroll the sidebar to it).
+5. No per-command MCP exposure flag: the manifest uses `"x-cmux-mcp": false`, which the platform does not honor yet. Manifest v2 moves the tools into the catalog fragment, where `mcp.expose` exists.
+6. A pull-down `Menu` takes only a text title, so the section's import/export menu hangs off an icon button's right-click.
+7. `TextField` has no clear-on-submit; the append field is rebuilt after each submit.
+8. Palette commands cannot prompt for arguments (`capture` needs `text`).
+9. `searchProviders` / `cmux.search.provider/1` is not in the v1 manifest schema.
+10. Today's Swift prototype engine passes neither `locale` nor `strings`; the app's `t()` falls back to its bundled tables by `cmux.app.locale`.
+11. `x-cmux-devOnly` is not honored by today's Settings UI.
+12. The typings declare `CmuxError` without its `(code, message)` constructor (`src/errors.ts` casts).
+13. The preview engine's bundled scope table predates these ops; preview fixtures name their scopes.
 
-## Layout and checks
+## Layout
 
-`src/model.ts` (types, pure reducers, title, preview, search, sort, export), `src/markdown.ts` (line classes), `src/store.ts` (signal, ordered writes, document and local backends), `src/commands.ts`, `src/views/*` (one file per variant plus shared pieces), `src/l10n.ts`.
-
-```bash
-bun cmux-tui/crates/cmux-app-host/tools/pack.ts first-party-apps/notes        # build dist/main.js
-bun cmux-tui/crates/cmux-app-host/tools/validate-manifest.ts first-party-apps/notes
-bun test first-party-apps/notes/test
-```
-
-`preview/*.json` are fixtures for the preview harness: `scratchpad`, `list`, `split` (same invented notes), `empty`, `error`, and `documents` (the proposed document store answering).
+`src/notes.ts` (wire types, op calls), `src/store.ts` (projection of the server: summaries, bodies, the stream, writes, checkbox toggles with rebase), `src/files.ts` (export and import through handles), `src/model.ts` (pure line edits and Markdown files), `src/markdown.ts` (line classes), `src/commands.ts`, `src/views/*` (one file per variant plus shared pieces), `src/l10n.ts` with `strings/en.json` and `strings/ja.json`. `preview/*.json` are fixtures for the preview harness: `scratchpad`, `list`, `editor`, `empty`, `unavailable`.

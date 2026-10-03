@@ -22,6 +22,8 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
     integration_seeded: _seeded,
     integration_synced_hash: _hash,
     integration_synced_version: _version,
+    sso_connections: _sso,
+    domains: _domains,
     ...rest
   } = state
   const own = Object.fromEntries(Object.entries(state.managed_devices ?? {}).filter(([, d]) => d.user === principal.user))
@@ -30,7 +32,7 @@ export const teamSubscriberView = (state: TeamState, principal: Principal): Team
 }
 
 /** The seed bumps the policy version, so members see it; the sync ack is admin-only bookkeeping. */
-const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_synced"]
+const ADMIN_ONLY_PREFIXES = ["team.enrollment_token.", "team.device.", "team.policy.integration_synced", "sso.", "domain."]
 
 export const teamEventVisible = (state: TeamState, event: EventFrame, principal: Principal): boolean => {
   if (!ADMIN_ONLY_PREFIXES.some((p) => event.op.startsWith(p))) return true

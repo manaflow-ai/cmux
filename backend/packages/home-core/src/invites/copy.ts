@@ -39,6 +39,8 @@ export interface RenderedSms {
   readonly channel: "sms"
   readonly variant: Variant
   readonly body: string
+  /** An image sent with the text (the invite card); absolute https. */
+  readonly mediaUrl?: string
 }
 
 /**

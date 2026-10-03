@@ -317,7 +317,7 @@ function SessionsView({
   );
 }
 
-/** The open-folder glyph from the Codex sidebar, drawn in the muted text colour. */
+/** The open-folder glyph, drawn in the muted text colour. */
 function FolderIcon() {
   return (
     <svg

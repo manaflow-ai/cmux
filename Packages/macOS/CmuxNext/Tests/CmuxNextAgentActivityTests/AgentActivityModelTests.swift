@@ -69,11 +69,11 @@ struct AgentActivityModelTests {
         let (model, source) = makeModel()
         source.sink?(.sessions(machine: AgentActivityModel.localMachine, [
             Self.session("a", label: "research", agent: "Codex", apps: ["Safari"]),
-            Self.session("b", label: "figma-export", apps: ["Figma"]),
+            Self.session("b", label: "slides-export", apps: ["Keynote"]),
         ]))
         model.filter = "codex"
         #expect(model.groups.first?.sessions.map(\.id) == ["a"])
-        model.filter = "FIGMA"
+        model.filter = "KEYNOTE"
         #expect(model.groups.first?.sessions.map(\.id) == ["b"])
         model.filter = "  "
         #expect(model.groups.first?.sessions.count == 2)

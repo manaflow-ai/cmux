@@ -1,7 +1,7 @@
 // LaTeX delimiter normalization for the Markdown renderer.
 
 /**
- * Codex typesets LaTeX written with `\[ … \]` (display) and `\( … \)` (inline) as well as
+ * Replies write LaTeX with `\[ … \]` (display) and `\( … \)` (inline) as well as
  * dollars; rewrite them to the dollar forms outside code fences. A display block may span
  * lines; its lines are joined.
  */

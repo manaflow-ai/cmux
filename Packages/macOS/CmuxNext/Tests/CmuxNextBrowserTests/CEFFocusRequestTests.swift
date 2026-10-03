@@ -8,8 +8,8 @@ import Testing
 /// the page window, which then takes the keys from the new tab's omnibar
 /// (dogfood nxdog13: desync W5 "a Chromium page window has the keys while
 /// the model targets addressBar", 53 ms after the page attached, with no
-/// focus request from cmux). Chrome keeps a new tab's omnibar focused until
-/// the user clicks the page; in cmux only the focus coordinator moves focus.
+/// focus request from cmux). A new tab's omnibar stays focused until the
+/// user clicks the page; in cmux only the focus coordinator moves focus.
 @MainActor
 @Suite struct CEFFocusRequestTests {
     private func makeTab(lifecycleTrace: BrowserLifecycleTrace = BrowserLifecycleTrace()) -> CEFTab {

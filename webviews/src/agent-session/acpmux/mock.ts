@@ -1,5 +1,8 @@
+import { stricterTrust, type HarnessTrust, type TrustLevel } from "./folderTrust";
 import type { AcpmuxHostConfig, EventRecord } from "./direct";
 import { FORK_OP } from "./operations";
+import { HANDOFF_OPS } from "./handoff/protocol";
+import { MockHandoffs } from "./handoff/mock";
 import {
   claudeModels,
   codexModels,
@@ -11,7 +14,8 @@ import {
   WORKED_SESSION,
   type SeedStep,
 } from "./mockFixture";
-import { mockGitStatus, mockScopeDiff } from "./mockGit";
+import { mockGitDiff, mockGitStatus } from "./mockGit";
+import { mockFileSearch } from "./mockFiles";
 
 // Mock transport: the host answers `ready` with `{transport: "mock"}` when no
 // acpmux daemon is wanted (demos, screenshots, tests). The page then runs the
@@ -148,6 +152,42 @@ export class MockAcpmuxSocket {
   onclose: (() => void) | null = null;
   onmessage: ((message: { data: string }) => void) | null = null;
   private sessions: Record<string, any>[] = [];
+  /// Folder trust as acpmux would project it from Claude Code's and Codex's own files (read
+  /// only): the seeded projects the user has worked in are trusted by both, atlas-web only by
+  /// Codex so far; billing-service and dotfiles were never decided.
+  private agentTrust = new Map<string, HarnessTrust>([
+    ["~/code/cmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/acpmux", { claude: "trusted", codex: "trusted" }],
+    ["~/code/atlas-web", { claude: "unknown", codex: "trusted" }],
+  ]);
+  /// acpmux's own record, which `acp.trust.set` writes; the agents' files never change.
+  private trust = new Map<string, TrustLevel>([["~/code/atlas-web", "trusted"]]);
+  private handoffs = new MockHandoffs(
+    () => this.sessions,
+    (source, harness) => {
+      const created: Record<string, any> = {
+        ...newSessionSummary(`mock-session-${this.sessions.length + 1}`, source.cwd, Date.now()),
+        harness,
+        enforcement: source.enforcement,
+      };
+      this.sessions.push(created);
+      this.touch(created.sessionId, {}, false);
+      return created.sessionId;
+    },
+    (id) => {
+      const events = this.events.filter((event) => event.sessionId === id);
+      return {
+        seq: events.at(-1)?.seq ?? 0,
+        text: events.map((event) => JSON.stringify(event.msg)).join("\n") || "Continue this repository task.",
+      };
+    },
+    (id, text, promptId) => this.prompt(id, text, promptId),
+    (id) => {
+      const session = this.sessions.find((s) => s.sessionId === id);
+      this.sessions = this.sessions.filter((s) => s.sessionId !== id);
+      this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "purged", session } });
+    },
+  );
   private events: EventRecord[] = [];
   private seq = 0;
   private turns = 0;
@@ -226,7 +266,16 @@ export class MockAcpmuxSocket {
     if (request.id === undefined) return;
     void this.answer(request.method, request.params ?? {}).then(
       (result) => this.deliver({ jsonrpc: "2.0", id: request.id, result }),
-      (error: Error) => this.deliver({ jsonrpc: "2.0", id: request.id, error: { message: error.message } }),
+      (error: Error & { code?: string; data?: unknown }) =>
+        this.deliver({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: {
+            code: -32000,
+            message: error.message,
+            data: error.data ?? (error.code ? { code: error.code } : undefined),
+          },
+        }),
     );
   }
 
@@ -238,10 +287,16 @@ export class MockAcpmuxSocket {
 
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
+    if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { operations: [FORK_OP] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: { operations: [FORK_OP, ...Object.values(HANDOFF_OPS)], handoff: { maxCapsuleBytes: 65536 } },
+          },
+        };
       case FORK_OP:
         return this.fork(target, Number(params.throughSeq));
       case "_acpmux/watch":
@@ -254,7 +309,10 @@ export class MockAcpmuxSocket {
         if (this.sessions.find((entry) => entry.sessionId === target)?.unread)
           this.touch(target, { unread: false }, false);
         return {
-          session: this.sessions.find((entry) => entry.sessionId === target),
+          session: {
+            ...this.sessions.find((entry) => entry.sessionId === target),
+            enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
+          },
           events: this.events.filter((event) => event.sessionId === target),
         };
       }
@@ -270,7 +328,9 @@ export class MockAcpmuxSocket {
           `mock-session-${this.sessions.length + 1}`,
           String(params.cwd ?? from?.cwd ?? "~/code/cmux"),
           Date.now(),
+          params._meta?.acpmux?.harness === "codex" ? "codex" : "claude",
         );
+        if (params._meta?.acpmux?.harness) created.harness = params._meta.acpmux.harness;
         // It runs on the same machine, with the harness's model the catalog offers.
         if (from?.host) Object.assign(created, { host: from.host, hostKind: from.hostKind });
         if (this.script) created.model = scriptHarnesses[0]!.models[0]!.id;
@@ -300,8 +360,47 @@ export class MockAcpmuxSocket {
         this.queue = turn.catch(() => undefined);
         return turn;
       }
-      case "git.scope.diff":
-        return mockScopeDiff(target, params.scope);
+      // The pickers' switches land on the session the way an agent reports them.
+      case "session/set_model":
+        this.touch(target, { model: String(params.modelId) }, false);
+        return {};
+      case "session/set_config_option": {
+        const session = this.sessions.find((entry) => entry.sessionId === target);
+        const options = (session?.configOptions ?? []) as { id: string; currentValue?: string }[];
+        const configOptions = options.map((option) =>
+          option.id === params.configId ? { ...option, currentValue: String(params.value) } : option,
+        );
+        this.touch(target, { configOptions }, false);
+        return {};
+      }
+      case "acp.trust.get": {
+        const cwd = String(params.cwd ?? "");
+        const harnesses: HarnessTrust = { claude: "unknown", codex: "unknown", ...this.agentTrust.get(cwd) };
+        // acpmux's own decision answers first; without one, the stricter of the agents' levels.
+        const level = this.trust.get(cwd) ?? stricterTrust(harnesses.claude!, harnesses.codex!);
+        return { cwd, level, harnesses };
+      }
+      case "acp.trust.set": {
+        const cwd = String(params.cwd ?? "");
+        // "unknown" forgets acpmux's record, so the agents' own levels answer again.
+        if (params.level === "unknown") {
+          this.trust.delete(cwd);
+          return { cwd, level: "unknown" };
+        }
+        const level: TrustLevel = params.level === "untrusted" ? "untrusted" : "trusted";
+        this.trust.set(cwd, level);
+        return { cwd, level };
+      }
+      case "file.search":
+        return mockFileSearch(
+          typeof params.path === "string"
+            ? params.path
+            : this.sessions.find((entry) => entry.sessionId === target)?.cwd,
+          params.query,
+          params.limit,
+        );
+      case "git.diff":
+        return mockGitDiff(target, params.scope, params.include_patch === true);
       case "git.status":
         return mockGitStatus(target);
       default:

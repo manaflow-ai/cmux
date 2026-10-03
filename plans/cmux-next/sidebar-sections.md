@@ -11,9 +11,9 @@ The left sidebar is an ordered list of **sections** in three **regions**:
 
 | Region | Behavior | Default content |
 | --- | --- | --- |
-| Top | sticky under the titlebar row; never scrolls with the list | section "Home" (hidden title): Home, built-in look |
+| Top | sticky under the titlebar row; never scrolls with the list | section (hidden title): Home, then the App Store, built-in look |
 | Middle | scrolls; the only region that takes all leftover height | the Workspaces section (pinned workspaces, machines, groups; Leo's stack + history layer lives here unchanged) |
-| Bottom | sticky above the room bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
+| Bottom | sticky above the space bar | section (hidden title), one line: Settings (icon + label) at the leading edge, the account avatar (icon only) at the trailing edge |
 
 Every section has: an optional title (hidden titles draw no header), a region, an ordered item list, a
 **look** (`builtIn`: compact rows that read as app chrome, like Home; `list`: rows that look like
@@ -26,10 +26,10 @@ Items:
 | --- | --- | --- | --- |
 | `builtIn(id)` | home, settings, account, notifications, history, bookmarks (tasks later) | id defined in code (`SidebarBuiltIn`) | runs the item's registry action (`home.show`, `openSettings`, `accounts.show`, `history.show`, `bookmark.manager`, `showNotifications`) with origin `user` |
 | `workspace(ref)` | a pinned workspace | qualified public id `<session>:ws_…` | selects it |
-| `tab(ref)` | a pinned terminal, browser page or agent tab | `<session>:tab_…` | selects its workspace and focuses the tab |
-| `room(id)` | jump to a room | room id | shows that room in the window |
+| `tab(ref)` | a pinned terminal, browser page or agent tab | `<session>:tab_…` | selects its workspace and focuses the tab, in the window that lists the workspace |
+| `room(id)` (stored name; data-model.md 3.4) | jump to a space | space (profile) id | shows that space in the window; an unknown id does nothing |
 | `savedGroup(id)` | reopen a saved group | group id | reopens or focuses it |
-| `url(string)` | a pinned page with no open tab | URL | opens it in a new browser tab |
+| `url(string)` | a pinned page | http or https URL | focuses a browser tab of the window's current space already showing it (host case, a trailing slash and the fragment ignored), else opens it in a new browser tab of the focused pane on the profile the workspace or space sets (data-model.md 5) |
 
 Home is a plain built-in item: right-click "Remove from Sidebar", the palette ("Remove Home from
 Sidebar", "Add Home to Sidebar"), the CLI and MCP remove and re-add it. The Workspaces section can
@@ -40,40 +40,40 @@ Unknown items (written by a newer client) render nothing and survive every edit 
 
 ## 2. Name
 
-Lawrence: "leaning towards sections, but maybe shelves? since we have concept of room in sidebar
+Lawrence: "leaning towards sections, but maybe shelves? since we have concept of space in sidebar
 too". Candidates:
 
 | Name | For | Against |
 | --- | --- | --- |
 | **sections** (recommended) | what Finder, Mail, Xcode and Notion call these; self-explanatory in a menu ("Add Section", "Move Section to Bottom"); no new metaphor to learn | generic |
-| shelves | pairs with rooms ("this room's shelves"); playful, ownable | a second invented noun next to rooms; "shelf" also suggests a drawer that slides out (Yoink, Dropover); translators need a metaphor |
+| shelves | pairs with spaces ("this space's shelves"); playful, ownable | a second invented noun next to spaces; "shelf" also suggests a drawer that slides out (Yoink, Dropover); translators need a metaphor |
 | docks | sticky feel | collides with the macOS Dock |
 | zones / areas | neutral | read as regions, not as named lists |
-| stacks | Arc-like | collides with Leo's "stack of workspaces" |
+| stacks | switchable sets | collides with Leo's "stack of workspaces" |
 | groups / folders | familiar | taken by workspace groups and bookmark folders |
 
 Recommendation: **sections** for the user-facing noun, **regions** for top/middle/bottom (shown in
-menus as "Top", "Scrolling", "Bottom"). Rooms stay the switchable sets; sections are how a room's
+menus as "Top", "Scrolling", "Bottom"). Spaces stay the switchable sets; sections are how a space's
 sidebar is laid out. The prototype carries both nouns behind a DEV switch
 (`sidebar.sections.noun` = sections | shelves) so the menus and headers can be compared.
 
-## 3. Sections and rooms
+## 3. Sections and spaces
 
-A room (wire `profile`) chooses which workspaces a window shows. Two models:
+A space (wire `profile`) chooses which workspaces a window shows. Two models:
 
-- **A. One layout, room-scoped sections (recommended).** The user has one section layout. Each
-  section has `scope`: `allRooms` (default) or `room(id)`. Room-scoped sections show only while
-  their room is shown; the Workspaces section always lists the shown room's workspaces (today's
-  behavior). Home, Settings and the account stay put when you switch rooms, which is what built-in
-  chrome should do; a "Project X" section with pinned tabs can belong to one room (Arc's per-space
-  pinned tabs, while global sections behave like Arc's favorites).
-- **B. One layout per room.** Every room owns a complete layout, copied from the default when the
-  room is created. Maximal freedom, but adding Home back or moving Settings must be repeated in
-  every room, and a new room starts from a stale copy.
+- **A. One layout, space-scoped sections (recommended).** The user has one section layout. Each
+  section has `scope`: `allRooms` (default) or `room(id)` (stored names). Space-scoped sections show only while
+  their space is shown; the Workspaces section always lists the shown space's workspaces (today's
+  behavior). Home, Settings and the account stay put when you switch spaces, which is what built-in
+  chrome should do; a "Project X" section with pinned tabs can belong to one space
+  (per-space pinned tabs), while global sections stay the same in every space.
+- **B. One layout per space.** Every space owns a complete layout, copied from the default when the
+  space is created. Maximal freedom, but adding Home back or moving Settings must be repeated in
+  every space, and a new space starts from a stale copy.
 
 A covers B's use case at section granularity without duplicating the chrome, so phase 1 builds A
-(`scope` on every section; "Show in This Room Only" / "Show in All Rooms" actions). The prototype
-screenshots two rooms under A, and a B mock (every section room-scoped) for comparison.
+(`scope` on every section; "Show in This Space Only" / "Show in All Spaces" actions). The prototype
+screenshots two spaces under A, and a B mock (every section space-scoped) for comparison.
 
 ## 4. Data model and invariants
 
@@ -95,7 +95,7 @@ both reducers (Swift and cmux-tui-core).
 
 Arrangement is a small flexbox (Lawrence, 2026-10-02): `list` puts one item per row; `inline` puts
 items on one line with icon and label while they fit (an item with `shows_label: false` shows its icon
-only), then icons only, then wraps; `grid` puts tiles in columns (Arc's pinned tiles). `align` places
+only), then icons only, then wraps; `grid` puts tiles in columns. `align` places
 the leftover space on a line (`fill` spreads it between items, so two items sit at both edges; one
 item stays leading). `align` defaults to leading for every layout; a grid with fitted columns
 stretches its tiles, and a grid with fixed columns places every line by the leftover of a full
@@ -127,6 +127,7 @@ Ops (each carries a client-chosen idempotency key; replay returns the stored res
 | `item.move` | `id`, `section`, `index` | across sections and regions |
 | `item.remove` | `id` | |
 | `item.update` | `id`, `shows_label` | |
+| `item.remove_ref` | `ref` | every copy ("Remove from Sidebar"); `item.remove` is "Remove from Section" |
 | `layout.reset` | — | back to the defaults |
 
 A remove-Home convenience is `item.remove` on the `builtIn(home)` item; re-adding inserts it at the
@@ -136,22 +137,28 @@ top of the first top-region section (creating one when the region is empty).
 
 | State | Owner | Role | Why |
 | --- | --- | --- | --- |
-| Section layout document | workspace store, personal (home daemon `sidebar-layout-v1`) | owner | per-user arrangement that references store entities (workspaces, tabs, rooms, saved groups); synced with rooms and workspace groups (ownership.md table, "workspace store (personal)") |
+| Section layout document | workspace store, personal (home daemon `sidebar-layout-v1`) | owner | per-user arrangement that references store entities (workspaces, tabs, spaces, saved groups); synced with spaces and workspace groups (ownership.md table, "workspace store (personal)") |
 | Built-in item definitions (symbol, title, action) | code (`SidebarBuiltIn`) | definition | localized, versioned with the app |
 | Section collapse | client view state, per window (`WindowState.collapsedSections`, saved with the window) | client | a laptop window and a large display want different sections open; syncing it would make other windows jump while you glance. Workspace group collapse stays synced as today; revisit with the ownership lead |
 | Region scroll offsets, hover, drag gap | client | client | gestures |
 | Look variants (prototype) | Debug Settings tunable | client | DEV only |
 
-Wire contract (capability `sidebar-layout-v1`, home daemon, personal store next to rooms and groups):
+Wire contract (capability `sidebar-layout-v1`, `cmux.protocol/2` state operations in
+`cmux-tui-core::state`, personal state of the home session; branch feat-cmux-next-sidebar-layout-store):
 
-| cmd | params | data |
+| operation | params | result |
 | --- | --- | --- |
-| `sidebar-layout-get` | `{}` | `{layout: SidebarLayoutDocument}` (defaults when never written) |
-| `sidebar-layout-op` | `{idempotency_key, transaction?, op}` | `{layout, revision, replayed}` |
+| `sidebar_layout.get` | `{}` | `SidebarLayoutSnapshot {revision: decimal string, sections}` |
+| `sidebar_layout.update` | `{op}` with the request's idempotency key | `MutationResult<SidebarLayoutSnapshot>` |
 
-Event: `personal-changed` with `kind: "sidebar-layout"` and the new revision. The reducer is the same
-pure function in Rust (store) and Swift (client overlay for the intent log); Swift tests and the
-Rust tests share fixture JSON (`Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-*.json`).
+`op` is one `SidebarLayoutOp` (section 4, plus `item.remove_ref {ref}`: every copy of a ref). The
+commit path writes the row, the replay record and one `session.events` batch with a `state_upsert`
+of resource `sidebar_layout`, id `user`; session snapshots carry `extra.state.sidebar_layout`. A
+reducer reject is `validation.invalid` with the reason and writes nothing (no replay record: a
+retry runs again); a no-op commits no change and keeps the layout revision. A stored row that no
+longer parses reads as the defaults. The reducer is the same in Rust and Swift; the shared cases in
+`Packages/macOS/CmuxNext/Tests/CmuxNextSidebarTests/Fixtures/sidebar-layout-cases.json` run against
+both.
 
 Client: the confirmed mirror is written only by `sidebar-layout-get` replies and events; pending ops
 form the intent log (visible = mirror + pending; an op leaves on echo or reject, reject animates
@@ -180,7 +187,7 @@ feat-cmux-next-99; until then `cmux action run <id>`); MCP follows the CLI.
 | `sidebar.section.rename` (`title`) | Rename Section… | `sidebar rename-section` | section |
 | `sidebar.section.moveToTop` / `moveToScrolling` / `moveToBottom` | Move Section to … | `sidebar move-section-top` / `-scrolling` / `-bottom` | section > Move |
 | `sidebar.section.useBuiltInLook` / `useListLook` | Built-in Look / List Look | `sidebar section-look-built-in` / `section-look-list` | section > Appearance |
-| `sidebar.section.toggleRoomScope` | Show Only in This Room | `sidebar toggle-section-room` | section > Options |
+| `sidebar.section.toggleSpaceScope` | Show Only in This Space | `sidebar toggle-section-space` | section > Options |
 | `sidebar.section.setMaxRows` (`rows`, 0 = automatic) | Set Section Height… | `sidebar set-section-height` | section > Options |
 | `sidebar.section.toggleCollapsed` | Collapse or Expand Section | exempt `focusMove` (view state) | section |
 | `sidebar.section.remove` (destructive, confirms) | Remove Section | `sidebar remove-section` | section |
@@ -224,8 +231,8 @@ shrink in proportion. Looks:
 
 Every look: section titles are optional per section and the new looks hide them; sticky bands and
 the middle list show gradient edge fades while more content is hidden (the shared
-`ScrollEdgeFadeView`). Rooms model B is mocked in the screenshots by scoping every section to one
-room. The menus' noun stays "Section"; "Shelf" copy is listed in the report instead of a runtime
+`ScrollEdgeFadeView`). Spaces model B is mocked in the screenshots by scoping every section to one
+space. The menus' noun stays "Section"; "Shelf" copy is listed in the report instead of a runtime
 switch (descriptor titles are built once at launch).
 
 ## 8. Phases
@@ -234,27 +241,34 @@ switch (descriptor titles are built once at launch).
 2. Done (9ef77a69a9b, 3c7de1001eb): sticky bands, built-in and list looks, quiet/card/tray, Home as
    an item, scroll caps.
 3. Registry actions with surface plans, App-wide `SidebarLayoutService`, palette targets. Then:
-   lines and lines-icons looks, optional titles, edge fades, the room bar's hover-only "+", Cmd-1 rule
+   lines and lines-icons looks, optional titles, edge fades, the space bar's hover-only "+", Cmd-1 rule
    and the Home item's highlight after Home lands, collapse saved in `WindowState`.
 4. Store: `sidebar-layout-v1` in cmux-tui-core personal store (Rust reducer, proptest for L1-L3 and
    idempotency), client mirror + intent log, Rust CLI verbs. Coordinated with the state-module owner
    and the Rust CLI session.
-5. Drag and drop between sections and regions; tab and room items; footer accessories become items.
+5. Drag and drop between sections and regions; tab and space items; footer accessories become items.
 
 ## 9. Open decisions for Lawrence
 
 - Collapse state per window (recommended) or synced per user.
-- Whether sections subsume the room bar (rooms as an item) and the footer accessories.
+- Whether sections subsume the space bar (spaces as an item) and the footer accessories.
 
 ## 9a. Decisions (Lawrence, 2026-10-02)
 
-- Default look quiet; name "sections"; rooms model A.
+- Default look quiet; name "sections"; spaces model A.
 - Bottom band: Settings and the account avatar on one line (above).
 - Per-section arrangement list | inline | grid with alignment, gap and columns (section 4).
 - Band caps 1/3 and 1/4, then scroll; customizable (section 7).
 - Custom icons (emoji, SF Symbol or image) for workspaces and Home: the existing workspace
-  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead, in the store next to
-  `sidebar-layout-v1`); the Home lead reuses it.
+  `icon` string of workspace-metadata-v1 is extended (sidebar sections lead); the Home lead reuses
+  it. Done: one emoji draws as text, any other value is an SF Symbol name
+  (`WorkspaceIcon.parse`). Images: accepted (Lawrence, 2026-10-02); the state-module owner asked for a generic
+  shape. `blob.put {media_type, data}` -> `{ref: "blob:sha256-<hex>", size}` and `blob.get {ref}`,
+  personal store, content-addressed and idempotent by hash, at most 256 KiB, png/jpeg/webp (svg
+  refused for now); the workspace `icon` holds `blob:sha256-<hex>`. GC: a sweep at daemon start and
+  after each put deletes blobs no registered reference field names and older than 7 days, and a
+  64 MiB total cap refuses a put the sweep cannot make room for. Built after #16174 merges,
+  reviewed by the state-module owner.
 - Home is a workspace with `kind: home` (Home lead, plans/cmux-next/home.md section 7): created once
   by the store, not closable, first in its top section; tab bar hidden, fixed and not closable are
   derived from kind on the client. The sidebar item stays `built_in:home`; it runs `home.show`
@@ -266,14 +280,14 @@ switch (descriptor titles are built once at launch).
 
 What users and agents will want, in priority order; bold ones are built in this round.
 
-Per section: **hide in other rooms (room scope)**, **collapse (per window)**, **max height**, **look
+Per section: **hide in other spaces (space scope)**, **collapse (per window)**, **max height**, **look
 (built-in / list)**, **title shown or hidden**, compact density (row height), sort (manual, name,
 recent), filter (machine, agent status, unread only), counts and badges on the header, icon and color
 for the header.
 Per item: **remove**, **move between sections and regions (reducer; drag in phase 5)**, rename (a
 display title override), icon and color override, open in a new window.
 Layout: **reset to defaults**, import/export as JSON (`sidebar layout --json` and
-`sidebar import-layout`), per-room layouts if model A proves too coarse.
+`sidebar import-layout`), per-space layouts if model A proves too coarse.
 App-wide: the look (setting once Lawrence picks; Debug Settings switch now), band height shares,
 edge fades on or off (follows Reduce Transparency).
 

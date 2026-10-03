@@ -10,7 +10,7 @@ const call = (kind: string | undefined, status = "completed"): AcpmuxActivity =>
 const thought: AcpmuxActivity = { kind: "thought", text: "Thinking about it" };
 
 describe("tool run summary", () => {
-  test("names each kind once, in Codex's order, whatever order the calls ran in", () => {
+  test("names each kind once, in summary order, whatever order the calls ran in", () => {
     expect(toolRunSummary([call("execute"), call("read"), call("edit"), call("read")])).toBe(
       "Edited a file, read files, ran a command",
     );

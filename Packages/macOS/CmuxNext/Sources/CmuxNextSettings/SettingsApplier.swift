@@ -44,6 +44,7 @@ public final class SettingsApplier {
         if design.newColumnWidth != snapshot.newColumnWidth { design.newColumnWidth = snapshot.newColumnWidth }
         if design.stickyColumnEdge != snapshot.stickyColumnEdge { design.stickyColumnEdge = snapshot.stickyColumnEdge }
         if design.stickyColumnMode != snapshot.stickyColumnMode { design.stickyColumnMode = snapshot.stickyColumnMode }
+        if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
@@ -56,6 +57,7 @@ public final class SettingsApplier {
         if design.borders != snapshot.borders { design.borders = snapshot.borders }
         if design.focusIndicator != snapshot.focusIndicator { design.focusIndicator = snapshot.focusIndicator }
         if design.tabBarBackground != snapshot.tabBarBackground { design.tabBarBackground = snapshot.tabBarBackground }
+        if design.inactiveTabStyle != snapshot.inactiveTabStyle { design.inactiveTabStyle = snapshot.inactiveTabStyle }
         for key in MetricKey.allCases {
             let value = snapshot.metrics[key.rawValue].map { CGFloat($0) }
             let range = DesignSettings.allowedRange(key)

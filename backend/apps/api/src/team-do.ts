@@ -6,6 +6,13 @@ import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { integrationSyncPending, releasePending, sliceHash, type IntegrationFields } from "./domains/team-integration-sync.ts"
 import { currentPolicy, integrationSlice, POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
+import { domainExternal, RESOLVERS, txtAnswers, type DomainReply, type Http } from "./team-domain-external.ts"
+import { nextRecheckAt, RECHECK_MS, txtContains } from "./domains/team-domains.ts"
+import { ssoExternal } from "./team-sso-external.ts"
+import { ssoCallback, ssoRedeem, ssoStart, type LoginDeps } from "./team-sso-login.ts"
+import { stackServer, type StackServer } from "./stack-server.ts"
+import { connectionForDomain } from "./domains/team-sso.ts"
+import { mayEnrollServer } from "./domains/team-servers.ts"
 
 /** TeamDO: membership cache and the account directory of hosts (U2). */
 export class TeamDO extends OwnerDO<TeamState> {
@@ -49,6 +56,14 @@ export class TeamDO extends OwnerDO<TeamState> {
           revision: ""
         }
       }
+      case "sso.connection.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list SSO connections" }
+        return { ok: true, value: { team: state.team?.id, connections: Object.values(state.sso_connections ?? {}) }, revision: "" }
+      }
+      case "domain.list": {
+        if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may list domains" }
+        return { ok: true, value: { team: state.team?.id, domains: Object.values(state.domains ?? {}) }, revision: "" }
+      }
       case "team.device.compliance": {
         if (member.role !== "owner" && member.role !== "admin") return { ok: false, code: "auth.forbidden", message: "only team owners and admins may read device compliance" }
         return { ok: true, value: { team: state.team?.id, ...complianceFor(state) }, revision: "" }
@@ -68,8 +83,11 @@ export class TeamDO extends OwnerDO<TeamState> {
 
   /** Wake while ConnectionDO lacks the current policy version (spec/enterprise.md 4.6). */
   protected override nextWakeAt(state: TeamState, now: number): number | null {
-    if (!state.team || (!integrationSyncPending(state) && !releasePending(state))) return null
-    return Math.max(now, this.syncRetryAt ?? now)
+    if (!state.team) return null
+    if (Object.keys(state.server_revocations ?? {}).length > 0) return Math.max(now, this.revokeRetryAt ?? now)
+    const recheck = nextRecheckAt(state)
+    const sync = integrationSyncPending(state) || releasePending(state) ? Math.max(now, this.syncRetryAt ?? now) : null
+    return sync === null ? recheck : recheck === null ? sync : Math.min(sync, recheck)
   }
 
   /**
@@ -79,6 +97,8 @@ export class TeamDO extends OwnerDO<TeamState> {
    * version, synced by version and hash), so a crash between steps replays.
    */
   protected override async onWake(now: number): Promise<void> {
+    if (this.revokeRetryAt === null || now >= this.revokeRetryAt) await this.flushServerRevocations(this.boundEngine?.currentState.team?.id ?? "")
+    await this.recheckDomains(now)
     const engine = this.boundEngine
     let state = engine?.currentState
     if (!state?.team || (!integrationSyncPending(state) && !releasePending(state))) return
@@ -108,15 +128,49 @@ export class TeamDO extends OwnerDO<TeamState> {
       const slice = integrationSlice(policy.values)
       // The same version is pushed again after a lock change, so keys carry ConnectionDO's lock version.
       const lockVersion = state.integration_lock_version ?? 0
-      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v3:${team}:v${policy.version}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
+      const lockEpoch = state.integration_lock_epoch ?? ""
+      const r = (await stub.applyTeamPolicy(team, { policy: slice, applied_by: `team_policy:v${policy.version}` }, `team-policy:v4:${team}:v${policy.version}:${lockEpoch}:l${lockVersion}`)) as { ok: boolean; message?: string; managed_by: "sso" | "mdm" | null }
       if (!r.ok) throw new Error(r.message ?? "refused")
       // Under an SSO or MDM lock nothing changed in ConnectionDO; the version is still settled (no retry loop) and reported.
-      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion }, `integration-synced:v4:${policy.version}:l${lockVersion}`))
+      this.requireCommitted(this.submitSystem("team.policy.integration_synced", { version: policy.version, slice_hash: sliceHash(slice), managed_by: r.managed_by, lock_version: lockVersion, lock_epoch: lockEpoch }, `integration-synced:v5:${policy.version}:${lockEpoch}:l${lockVersion}`))
       this.resetSyncBackoff()
     } catch (e) {
       this.syncAttempts += 1
       this.syncRetryAt = now + Math.min(5 * 60_000, 1000 * 2 ** this.syncAttempts)
       throw e
+    }
+  }
+
+  /**
+   * Weekly DNS re-check of verified domains (spec 3.4). Every attempt records
+   * its time, so a failing resolver cannot spin the alarm. On the third failure
+   * DomainDO frees the domain first (so a new owner can verify), then the
+   * domain becomes lapsed.
+   */
+  private async recheckDomains(now: number) {
+    const state = this.boundEngine?.currentState
+    if (!state?.team) return
+    const team = state.team.id
+    const due = Object.values(state.domains ?? {}).filter((d) => d.state === "verified" && (d.last_checked_at ?? d.verified_at ?? d.requested_at) + RECHECK_MS <= now)
+    for (const d of due.slice(0, 5)) {
+      try {
+        const domainDO = this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(d.domain))
+        const results = await Promise.all(RESOLVERS.map((r) => txtAnswers(this.http, r(d.record_name))))
+        // A resolver failure is "unknown": record the attempt time without counting a failure.
+        const unknown = results.some((answers) => answers === null)
+        const ok = unknown || results.every((answers) => answers !== null && txtContains(answers, d.record_value))
+        this.requireCommitted(this.submitSystem("domain.rechecked", { domain: d.domain, record_value: d.record_value, ok, at: now }, `domain-recheck:${d.domain}:${now}`))
+        const after = this.boundEngine!.currentState.domains?.[d.domain]
+        // Commit first, then free: a lost release is retried by the next verify or re-check (release is idempotent);
+        // a passing re-check re-asserts ownership, so TeamDO and DomainDO cannot drift apart for long.
+        if (after?.state === "lapsed") await domainDO.release(team)
+        else if (ok && !unknown) {
+          const held = await domainDO.claim(d.domain, team, now)
+          if (!held.ok) this.requireCommitted(this.submitSystem("domain.mark_lost", { domain: d.domain }, `domain-lost:${d.domain}:${d.record_value}:${now}`))
+        }
+      } catch (e) {
+        console.error(JSON.stringify({ msg: "domain re-check failed", domain: d.domain, error: String(e) }))
+      }
     }
   }
 
@@ -143,11 +197,160 @@ export class TeamDO extends OwnerDO<TeamState> {
    * RPC from ConnectionDO: its SSO/MDM lock changed (appeared, changed source,
    * released). Recorded by version, so a late or repeated notice changes nothing.
    */
-  async integrationLockChanged(team: string, managedBy: "sso" | "mdm" | null, version: number): Promise<{ ok: boolean; message?: string }> {
+  async integrationLockChanged(team: string, managedBy: "sso" | "mdm" | null, version: number, epoch: string): Promise<{ ok: boolean; message?: string }> {
     this.bind(team)
-    const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version }, `integration-lock:${version}`)
+    const res = this.submitSystem("team.policy.integration_lock", { managed_by: managedBy, version, epoch }, `integration-lock:${epoch}:${version}`)
     const rej = res.frames.find((f) => f.t === "reject")
     return rej && rej.t === "reject" ? { ok: false, message: rej.message } : { ok: true }
+  }
+
+  /** Outbound fetch for DNS over HTTPS; tests replace it. */
+  http: Http = (r) => fetch(r)
+
+  /** RPC from the Worker: domain.verify and domain.release (DNS and DomainDO, then a system op). */
+  async domainOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return domainExternal(
+      {
+        state: engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        domainStub: (domain) => this.env.DOMAIN_DO.get(this.env.DOMAIN_DO.idFromName(domain)),
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        now: Date.now()
+      },
+      principal,
+      frame
+    )
+  }
+
+  /** RPC from the Worker: sso.connection.set_secret and sso.connection.activate (sealing, OIDC discovery). */
+  async ssoOp(entity: string, principal: Principal, frame: { op: string; params: unknown; idempotency_key: string }): Promise<DomainReply> {
+    const engine = this.bind(entity)
+    return ssoExternal(
+      {
+        state: engine.currentState,
+        team: entity,
+        stream: engine.stream,
+        http: this.http,
+        kek: this.env.INTEGRATIONS_KEK,
+        sql: this.ctx.storage.sql,
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+      },
+      principal,
+      frame
+    )
+  }
+
+  /**
+   * RPC from sign-in discovery (unauthenticated): whether this team serves
+   * `domain` through an active connection. Answers only yes or no, never the
+   * team or the connection, so discovery does not enumerate customers.
+   */
+  async ssoDiscover(entity: string, domain: string): Promise<{ sso: boolean }> {
+    const engine = this.boundEngine ?? this.bind(entity)
+    return { sso: Boolean(connectionForDomain(engine.currentState, domain)) }
+  }
+
+  /**
+   * RPC from the Worker's `server.pair.approve` route (plans/cmux-next/server.md 6.2):
+   * the approver must be a signed-in owner or admin of this team, never an install
+   * or an agent; then the internal `server.enrolled` commits the host. Keyed by the
+   * pairing code, so a retried approval returns the same host.
+   */
+  /** May this signed-in principal add a server to this team? Checked before the approval writes anything. */
+  async canEnrollServer(entity: string, principal: Principal): Promise<boolean> {
+    const engine = this.bind(entity)
+    return principal.kind === "session" && !principal.agent && Boolean(principal.user) && mayEnrollServer(engine.currentState, principal.user)
+  }
+
+  async enrollServer(
+    entity: string,
+    principal: Principal,
+    params: { install: string; name: string; platform: string; wg_public_key: string },
+    idempotencyKey: string
+  ): Promise<{ ok: true; host: string } | { ok: false; code: string; message: string }> {
+    const engine = this.bind(entity)
+    if (principal.kind !== "session" || principal.agent || !principal.user) return { ok: false, code: "auth.forbidden", message: "only a signed-in user may approve a server" }
+    if (!mayEnrollServer(engine.currentState, principal.user)) return { ok: false, code: "auth.forbidden", message: "only team owners and admins may add a server" }
+    const res = this.submitSystem("server.enrolled", { ...params, owner_user: principal.user, approved_by: principal.user }, idempotencyKey)
+    const reply = res.frames.find((f) => f.t === "result" || f.t === "reject")
+    if (!reply || reply.t !== "result") return { ok: false, code: reply && reply.t === "reject" ? reply.code : "owner.unreachable", message: reply && reply.t === "reject" ? reply.message : "no reply" }
+    return { ok: true, host: (reply.value as { id: string }).id }
+  }
+
+  /** Backoff after a failed revocation push (in memory: a restart retries at once). */
+  private revokeRetryAt: number | null = null
+  private revokeAttempts = 0
+
+  /**
+   * Pushes every pending server install revocation to its owner's UserDO
+   * (`install.revoke_by_team`, which also closes the install's sockets), then
+   * records the confirmation. Called by the Worker right after `server.revoke`
+   * and by the alarm until it succeeds. Returns the installs revoked now.
+   */
+  async flushServerRevocations(entity: string): Promise<{ revoked: Array<string> }> {
+    if (!entity) return { revoked: [] }
+    const engine = this.bind(entity)
+    const pending = Object.values(engine.currentState.server_revocations ?? {})
+    const revoked: Array<string> = []
+    for (const r of pending) {
+      const user = this.env.USER_DO.get(this.env.USER_DO.idFromName(r.owner_user))
+      let res: { ok: boolean; code?: string }
+      try {
+        res = (await user.revokeByTeam(r.owner_user, entity, r.install, r.by, `team-revoke:${entity}:${r.install}`)) as { ok: boolean; code?: string }
+      } catch (e) {
+        // A thrown RPC keeps the item in the retried set and never stops the rest of onWake.
+        res = { ok: false, code: `rpc:${String(e)}` }
+      }
+      // Done or permanently impossible (not bound, unknown): stop retrying either way; failures are logged.
+      if (!res.ok && res.code !== "auth.forbidden" && res.code !== "selector.not_found") {
+        this.revokeAttempts += 1
+        this.revokeRetryAt = Date.now() + Math.min(5 * 60_000, 1000 * 2 ** this.revokeAttempts)
+        console.error(JSON.stringify({ msg: "server install revocation failed", install: r.install, code: res.code }))
+        continue
+      }
+      if (!res.ok) console.error(JSON.stringify({ msg: "server install revocation refused", install: r.install, code: res.code }))
+      this.requireCommitted(this.submitSystem("server.install_revoked", { install: r.install }, `server-install-revoked:${r.install}`))
+      if (res.ok) revoked.push(r.install)
+    }
+    if (Object.keys(this.boundEngine?.currentState.server_revocations ?? {}).length === 0) {
+      this.revokeAttempts = 0
+      this.revokeRetryAt = null
+    }
+    return { revoked }
+  }
+
+  /** Stack server access for SSO sign-in; tests replace it. */
+  stack: StackServer | undefined = undefined
+
+  private loginDeps(entity: string): LoginDeps {
+    const engine = this.bind(entity)
+    return {
+      state: engine.currentState,
+      team: entity,
+      sql: this.ctx.storage.sql,
+      http: this.http,
+      kek: this.env.INTEGRATIONS_KEK,
+      stack: this.stack ?? stackServer(this.env),
+      now: Date.now(),
+      submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+    }
+  }
+
+  /** RPCs from the unauthenticated SSO routes (sso-routes.ts). */
+  async ssoStart(entity: string, email: string, callbackBase: string, returnTo: string, clientChallenge: string) {
+    return ssoStart(this.loginDeps(entity), email, callbackBase, returnTo, clientChallenge)
+  }
+
+  async ssoCallback(entity: string, state: string, code: string, pathConnection: string, iss: string | null) {
+    return ssoCallback(this.loginDeps(entity), state, code, pathConnection, iss)
+  }
+
+  async ssoRedeem(entity: string, code: string, clientVerifier: string) {
+    this.bind(entity)
+    return ssoRedeem(this.ctx.storage.sql, this.env.INTEGRATIONS_KEK, entity, code, clientVerifier, Date.now())
   }
 
   protected maySubscribe(state: TeamState, principal: Principal): boolean {

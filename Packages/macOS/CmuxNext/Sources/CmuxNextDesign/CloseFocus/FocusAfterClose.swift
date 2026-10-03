@@ -81,7 +81,7 @@ public nonisolated enum FocusAfterClose {
 
     // MARK: Tabs
 
-    /// The tab a pane selects after `selected` closed (Chrome's rule): the
+    /// The tab a pane selects after `selected` closed: the
     /// next shown tab after it, else the previous shown one. `old` is the
     /// strip order before the close, `shown` the tabs that survive and are
     /// not hidden (a collapsed group's members are hidden). When no shown

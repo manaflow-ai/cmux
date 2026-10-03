@@ -78,3 +78,11 @@ export const parseInviteLink = (link: string): ParsedInvite | null => {
   if (!isCrockford(suffix, CONVERSATION_SUFFIX) || !isCrockford(secret, SECRET_CHARS)) return null
   return { conversation: kind === "d" ? `conv_dm_${suffix}` : `conv_${suffix}`, secret }
 }
+
+/**
+ * The invite card image (`/og/invite/<code>.png` on the accept origin): the og:image of the
+ * accept page and the attachment of the first text (decision: first contact = contact card,
+ * then the text with this image and the link on the last line).
+ */
+export const inviteImageUrl = (environment: string | undefined, conversation: string, originOverride?: string): string =>
+  `${inviteOrigin(environment, originOverride)}/og/invite/${linkCode(conversation)}.png`

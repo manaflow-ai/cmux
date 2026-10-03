@@ -70,6 +70,21 @@ private actor RecordingHost: AgentPaneHostProviding {
         #expect((reply["error"] as? [String: Any])?["userMessage"] as? String == AgentPaneHostError.userMessage(for: AgentPaneHostError.acpmuxNotFound))
     }
 
+    /// The page shows this message as the next step, so it names every
+    /// install directory the host searches besides PATH.
+    @Test func aMissingAcpmuxSaysWhereToInstallIt() {
+        let message = AgentPaneHostError.userMessage(for: AgentPaneHostError.acpmuxNotFound)
+        for directory in ["~/.local/bin", "~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"] {
+            #expect(message.contains(directory), "\(message) should name \(directory)")
+        }
+        let candidates = AcpmuxEnvironment.executableCandidates(
+            bundledBinDirectory: nil, environment: [:], userHome: URL(fileURLWithPath: "/Users/me")
+        ).map(\.path)
+        #expect(candidates == [
+            "/Users/me/.local/bin/acpmux", "/Users/me/.cargo/bin/acpmux", "/opt/homebrew/bin/acpmux", "/usr/local/bin/acpmux",
+        ])
+    }
+
     @Test func unsupportedRequestsAreRefused() async {
         let reply = await AgentPaneModel(host: MockAgentPaneHost()).respond(to: .unsupported("chat.send"))
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unsupported")
@@ -88,6 +103,17 @@ private actor RecordingHost: AgentPaneHostProviding {
         _ = await model.respond(to: .persistSession("s-1"))
         let attached = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
         #expect(attached["cwd"] == nil)
+    }
+
+    /// Onboarding's first task: the prompt goes to the page once, so a
+    /// reload does not run the task again.
+    @Test func aSeededPromptIsHandedOutOnce() async throws {
+        let model = AgentPaneModel(host: RecordingHost(), seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "/tmp/w", prompt: "Leave a note")))
+        let first = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(first["prompt"] as? String == "Leave a note")
+        #expect(first["draft"] == nil)
+        let reload = try #require(await model.respond(to: .ready)["value"] as? [String: Any])
+        #expect(reload["prompt"] == nil)
     }
 
     /// A chat that reopens a session ignores the seed.

@@ -20,10 +20,30 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 targets: [.pane], cliName: "agent toggle-dictation", mainMenu: .edit
             ),
             ActionDescriptor(
+                id: "agentPane.continueIn",
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
+                category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
+                requires: [.agentPaneFocused], targets: [.pane],
+                // The named CLI handoff is owned by acpmux. This action is the
+                // user-facing chooser that invokes that same frontend flow.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
+                id: "agentPane.createCheckpoint",
+                title: String(localized: "action.agentPane.createCheckpoint", defaultValue: "Create checkpoint", bundle: .module),
+                keywords: ["agent", "git", "snapshot", "checkpoint", "handoff"],
+                category: .agents, symbol: "camera", surfaces: [.palette],
+                requires: [.agentPaneFocused, .checkpointCaptureAvailable], targets: [.pane],
+                // CLI/MCP capture runs headlessly through git.checkpoint.create.
+                // This action opens its GUI approval checklist, without writing.
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
+            ),
+            ActionDescriptor(
                 id: "agentPane.searchChats",
                 title: String(localized: "action.agentPane.searchChats", defaultValue: "Search Agent Chats", bundle: .module),
                 keywords: ["agent", "chat", "search", "find", "sessions", "acpmux"],
-                // Cmd-K as in Codex and Claude; only while an agent chat has the keyboard,
+                // Cmd-K searches chats only while an agent chat has the keyboard,
                 // so the simulator's Cmd-K keeps its meaning.
                 defaultShortcut: Shortcut("k", modifiers: [.command]),
                 category: .agents, symbol: "magnifyingglass", surfaces: [.palette, .keyboard],
