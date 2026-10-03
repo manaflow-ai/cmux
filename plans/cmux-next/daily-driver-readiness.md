@@ -10,9 +10,10 @@ remote, or shared-backend behavior.
 
 **Not ready to replace classic cmux today.** Tagged builds have separate bundle,
 control-socket, and cmux-tui state identities, but the default settings file
-is shared, the untagged release identity and socket collide with classic, the
-Settings window is not implemented, and the required interactive capture could
-not start because the capture mini was occupied by another active dogfood lease.
+is shared, the untagged release identity and socket collide with classic, and
+the Settings window is not implemented. The source audit is complete without
+the capture mini; runtime checklist rows remain unverified until bounded
+interactive chunks are scheduled.
 
 ## Checklist
 
@@ -22,7 +23,7 @@ row is recorded as a missing evidence item rather than inferred from source.
 
 | Area | Score | Evidence and screenshot |
 | --- | --- | --- |
-| Terminal input | UNVERIFIED | No capture: mini host lock held by `pr-17180-activity-dogfood-v1`. |
+| Terminal input | UNVERIFIED | No runtime chunk run yet; schedule one <=5-minute lock window. |
 | Scrollback, copy/paste | UNVERIFIED | No capture. |
 | Fonts and themes | UNVERIFIED | No capture. |
 | Splits and tabs | UNVERIFIED | Source catalog exposes split-right/down and tab actions; no screenshot. |
@@ -44,9 +45,10 @@ row is recorded as a missing evidence item rather than inferred from source.
 
 ## Ranked blockers
 
-1. **Capture capacity is unavailable.** The required foreground CUA run,
-   screenshots, 20-minute session, and ten-session measurement have no evidence
-   until the active capture lease releases.
+1. **Interactive evidence is chunked.** Each foreground CUA chunk will hold
+   `with-host-lock` for at most five minutes, then release it so other lanes can
+   interleave. The 20-minute soak and ten-session measurement belong on the
+   dedicated capture host `cx-aws-fleet` is adding.
 2. **No shared backend in this build.** The local backend cannot establish
    Cloud, sign-in, SSH relay, notifications, update, or agent service behavior.
 3. **Untagged release collision.** The release identity is still
@@ -80,6 +82,20 @@ from classic. The artifact's own bundle environment also carries the local
 backend on port 3777. The normal settings path remains the user's global
 `~/.config/cmux/cmux.json`; the capture plan therefore uses a scratch config.
 
+### Source-level audit performed without the capture mini
+
+| Surface | cmux-next tagged debug | Classic / untagged comparison | Result |
+| --- | --- | --- | --- |
+| Bundle ID | `scripts/reload.sh` derives `com.cmuxterm.app.debug.<tag>`; the built artifact is `com.cmuxterm.app.debug.dd.91d0fd4c`. | Xcode defaults remain `com.cmuxterm.app.debug` and `com.cmuxterm.app`. | Tagged debug is isolated; untagged release/debug identities collide. |
+| Defaults domain | `UserDefaults.standard` therefore follows the tagged bundle domain for app defaults; updater policy also reads the release domain `com.cmuxterm.app`. | Classic uses `com.cmuxterm.app`; both products still use the global `~/.config/cmux/cmux.json` unless `CMUX_NEXT_CONFIG_FILE` is set. | App defaults are tagged, config file is shared. |
+| Control socket | `ControlSocketPath` resolves the tag to `/tmp/cmux-debug-dd-91d0fd4c.sock`; the artifact `LSEnvironment` carries the same value. | Release resolves to `~/.local/state/cmux/cmux.sock`; untagged debug resolves to `/tmp/cmux-debug.sock`. | Tagged socket is isolated; untagged release socket collides. |
+| Daemon session/state | `DaemonLauncher` uses `cmux-app-dd-91d0fd4c` and `~/Library/Application Support/cmux/tags/dd-91d0fd4c/tui`. | Untagged session is `cmux-app` with the cmux-tui default session root. | Tagged daemon state is isolated. |
+| Classic import | `ClassicSessionImporter` reads `~/Library/Application Support/cmux/session-com.cmuxterm.app.json`. | The classic snapshot is read-only input; it is not overwritten by import. | Import is present but topology/title/cwd only; commands, scrollback, and remote panels are omitted. |
+| Update identity | `UpdateBuildIdentity` classifies tagged development bundles as `.development` and disables Sparkle install. | Stable release uses the release track and stable defaults domain. | Tagged update is manual artifact distribution. |
+
+This audit is source and artifact metadata evidence only. It does not claim that
+two processes were simultaneously launched or that any runtime behavior passed.
+
 Classic import reads the stable classic session snapshot read-only and omits
 commands, scrollback, and remote panels. The untagged next release path still
 uses the classic bundle ID and stable socket, so it must not be launched beside
@@ -112,14 +128,32 @@ this local-backend artifact: HQ publication requires a shared HTTPS development
 backend with matching origins and readiness. A separate exact-SHA remote-backend
 build is needed before publishing an HQ link. No public CDN path is claimed.
 
+## Bounded capture plan
+
+Each row below is a separate invocation. It must acquire the host lock, drive
+only the tagged app, save its screenshot/evidence, and release the lock before
+the next row. No invocation may wait on the lock while holding it.
+
+1. **Terminal chunk (<=5 min):** input, scrollback, copy/paste, fonts, themes.
+2. **Layout chunk (<=5 min):** splits, tabs, workspaces, sidebar, shortcuts.
+3. **Connectivity chunk (<=5 min):** SSH and session restore after relaunch.
+4. **Agent chunk (<=5 min):** Claude and Codex ACP start/stream/approve/diff/resume.
+5. **Browser/system chunk (<=5 min):** browser pane, notifications, settings, import.
+6. **Update chunk (<=5 min):** update check/path and team artifact handoff.
+
+The crash-free 20-minute scripted session and ten-session CPU/memory run are
+deliberately excluded from these shared-mini chunks. Run them later on the
+dedicated `cx-aws-fleet` capture host, once it is available.
+
 ## Follow-up lanes
 
-The first lane should reserve the capture mini and run the checklist with the
-tagged app, preserving one screenshot per row and the idle/ten-session/20-minute
-receipts. A second lane should produce a shared-backend build and repeat Cloud,
-SSH, ACP, browser, notifications, update, and import checks. A product lane
-should decide whether Settings and the lossy import are acceptable before any
-classic replacement announcement.
+The first lane should run the six <=5-minute capture chunks with the tagged app,
+preserving one screenshot per row. The dedicated `cx-aws-fleet` host should run
+the idle/ten-session/20-minute receipts once it is available. A second lane
+should produce a shared-backend build and repeat Cloud, SSH, ACP, browser,
+notifications, update, and import checks. A product lane should decide whether
+Settings and the lossy import are acceptable before any classic replacement
+announcement.
 
 No user-facing strings or source behavior were changed by this document, so no
 localization catalog update was required.
