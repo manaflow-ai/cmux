@@ -17,7 +17,7 @@ struct LatestFrameMailboxTests {
     }
 
     @Test @MainActor func defaultPresenterIsMetal() {
-        #expect(RemoteViewTunables.presenter.defaultValue == .metal)
-        #expect(RemoteViewTunables.presenter.key == "remoteDesktop.debug.presenter")
+        #expect(RemoteViewTunables().presenter.defaultValue == .metal)
+        #expect(RemoteViewTunables().presenter.key == "remoteDesktop.debug.presenter")
     }
 }

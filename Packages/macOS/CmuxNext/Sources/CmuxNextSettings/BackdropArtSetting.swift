@@ -14,7 +14,7 @@ public struct BackdropArtSetting: Sendable {
         if value.stringValue == "none" { return nil }
         if let name = value.stringValue, let art = BackdropArt(rawValue: name) { return art }
         diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "appearance.backdropArt",
-                                              message: "expected none or wheat-field-with-cypresses"))
+                                              message: "expected none or a bundled public-domain painting"))
         return nil
     }
 }

@@ -37,6 +37,9 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onDictation: ((AgentPaneDictationCommand) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
+    /// Opens a turn's local web page in a browser tab beside the agent;
+    /// false when it could not.
+    @ObservationIgnored public var onOpenPreview: (@MainActor (URL) -> Bool)?
     /// The quick panel's page asked to hide the panel (`quick.dismiss`).
     @ObservationIgnored public var onQuickDismiss: (() -> Void)?
     /// The quick panel's page asked to open its chat in the main window
@@ -161,6 +164,11 @@ public final class AgentPaneModel {
         case .quickDismiss:
             guard let onQuickDismiss else { return Self.unsupported("quick.dismiss") }
             onQuickDismiss()
+            return AgentPaneReply.success()
+        case .openPreview(let url):
+            guard let onOpenPreview, onOpenPreview(url) else {
+                return AgentPaneReply.failure(code: "open_failed", message: Self.openPreviewFailedMessage)
+            }
             return AgentPaneReply.success()
         case .quickOpenInWindow(let session):
             guard let onQuickOpenInWindow else { return Self.unsupported("quick.openInWindow") }

@@ -12,14 +12,14 @@ public nonisolated struct RemoteKeyboardState: Sendable, Equatable {
 
     /// A key down. Auto-repeat is the host's job, so repeats send nothing.
     public mutating func keyDown(keyCode: UInt16, isRepeat: Bool) -> [RemoteInputEvent] {
-        guard let usage = RemoteHIDKeyMap.usage(forKeyCode: keyCode) else { return [] }
+        guard let usage = RemoteHIDKeyMap().usage(forKeyCode: keyCode) else { return [] }
         if isRepeat, heldKeys.contains(keyCode) { return [] }
         heldKeys.insert(keyCode)
         return [.key(usage: usage, down: true)]
     }
 
     public mutating func keyUp(keyCode: UInt16) -> [RemoteInputEvent] {
-        guard heldKeys.remove(keyCode) != nil, let usage = RemoteHIDKeyMap.usage(forKeyCode: keyCode) else { return [] }
+        guard heldKeys.remove(keyCode) != nil, let usage = RemoteHIDKeyMap().usage(forKeyCode: keyCode) else { return [] }
         return [.key(usage: usage, down: false)]
     }
 
@@ -28,7 +28,7 @@ public nonisolated struct RemoteKeyboardState: Sendable, Equatable {
     /// family flag resynchronizes a missed event (flag clear = every key of
     /// that family is up). Caps Lock sends a tap: HID toggles on the press.
     public mutating func flagsChanged(keyCode: UInt16, flags: NSEvent.ModifierFlags) -> [RemoteInputEvent] {
-        guard let usage = RemoteHIDKeyMap.usage(forKeyCode: keyCode) else { return [] }
+        guard let usage = RemoteHIDKeyMap().usage(forKeyCode: keyCode) else { return [] }
         if keyCode == Self.capsLock {
             return [.key(usage: usage, down: true), .key(usage: usage, down: false)]
         }

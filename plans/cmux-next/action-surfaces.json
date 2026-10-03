@@ -15108,7 +15108,7 @@
       "title_table" : "Localizable"
     },
     {
-      "cli" : "guiOnly",
+      "cli" : "offered",
       "cli_name" : "settings import-classic-sessions",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -15117,7 +15117,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "palette.importClassicSessions",
-      "mcp" : "guiOnly",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.settings",

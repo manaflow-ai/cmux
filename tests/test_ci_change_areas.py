@@ -2802,8 +2802,9 @@ def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
     block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
-    assert "grep -Eq '^(webviews/|Resources/markdown-viewer/webviews-app/)" in block
-    assert 'echo "macos=$webview_native"' in block
+    assert "webview_native" not in block
+    assert 'echo "macos=false"' in block
+    assert 'echo "release_build=false"' in block
     assert 'echo "full_suite=false"' in block
 
 
@@ -2813,6 +2814,7 @@ def test_feat_next_route_preserves_focused_package_lane() -> None:
     block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
     assert "package_route=true" in block
     assert "cmuxnext_route=true" in block
+    assert 'echo "macos=false"' in block
     assert 'echo "swift_packages=true"' in block
     assert 'echo "release_build=false"' in block
 

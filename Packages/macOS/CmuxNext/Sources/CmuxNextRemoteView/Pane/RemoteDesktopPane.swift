@@ -35,7 +35,7 @@ public final class RemoteDesktopPane {
     public private(set) var state: RemotePaneState
     public var settings: RemoteDesktopSettings {
         didSet {
-            state = RemotePaneReducer.reduce(state, .setInteractiveMaxRtt(settings.interactiveMaxRttMs))
+            state = RemotePaneReducer().reduce(state, .setInteractiveMaxRtt(settings.interactiveMaxRttMs))
             view.render(state: state, settings: settings)
         }
     }
@@ -64,13 +64,13 @@ public final class RemoteDesktopPane {
         source: any RemoteViewStreamSource,
         inputSink: (any RemoteViewInputSink)?,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
-        presenter: RemotePresenterKind = RemoteViewTunables.presenter.value,
+        presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
         initialMode: RemoteControlMode = .control
     ) {
         self.source = source
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
-        self.presenter = RemoteFramePresenters.make(presenter)
+        self.presenter = RemoteFramePresenters().make(presenter)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
         view.capture.controller.sink = inputSink
@@ -122,7 +122,7 @@ public final class RemoteDesktopPane {
 
     /// Applies one event through the reducer and re-renders.
     public func apply(_ event: RemotePaneEvent) {
-        let next = RemotePaneReducer.reduce(state, event)
+        let next = RemotePaneReducer().reduce(state, event)
         // A frame that arrived before the session streamed did not count: wait for the next one.
         if !next.hasFrame { firstFrame.arm() }
         guard next != state else { return }
