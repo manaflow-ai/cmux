@@ -41,7 +41,11 @@ final class TerminalTabOverviewCardView: UIView {
         selectButton.accessibilityTraits = item.isSelected ? [.button, .selected] : .button
         selectButton.accessibilityIdentifier = "MobileTerminalOverviewCard-\(item.id.rawValue)"
         closeButton.isHidden = !canClose
+        closeButton.isEnabled = canClose
         closeButton.accessibilityIdentifier = "MobileTerminalOverviewClose-\(item.id.rawValue)"
+        // An explicit accessibility order must omit actions that disappear.
+        // Hiding the view alone leaves it in this container's element list.
+        accessibilityElements = canClose ? [selectButton, closeButton] : [selectButton]
         bottomTitleLabel.text = item.title
         lineStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let lines = item.previewLines.prefix(10)
@@ -107,7 +111,6 @@ final class TerminalTabOverviewCardView: UIView {
         closeButton.accessibilityLabel = L10n.string("mobile.terminal.overview.close", defaultValue: "Close Terminal")
         closeButton.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         addSubview(closeButton)
-        accessibilityElements = [selectButton, closeButton]
     }
 
     private func makeLine(_ text: String, muted: Bool) -> UILabel {
