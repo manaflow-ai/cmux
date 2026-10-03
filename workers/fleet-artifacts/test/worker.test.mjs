@@ -78,11 +78,17 @@ test("no list, uppercase digests, nested keys or arbitrary objects", async () =>
 
 test("expiry is strictly future and at most fifteen minutes", async () => {
   const now = Math.floor(Date.now() / 1000);
-  await denied(signedURL({ expires: now }));
-  await denied(signedURL({ expires: now - 1 }));
-  await denied(signedURL({ expires: now + 901 }));
-  const { env } = environment();
-  assert.equal((await worker.fetch(new Request(signedURL({ expires: now + 900 })), env)).status, 200);
+  const originalNow = Date.now;
+  Date.now = () => now * 1000;
+  try {
+    await denied(signedURL({ expires: now }));
+    await denied(signedURL({ expires: now - 1 }));
+    await denied(signedURL({ expires: now + 901 }));
+    const { env } = environment();
+    assert.equal((await worker.fetch(new Request(signedURL({ expires: now + 900 })), env)).status, 200);
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("signature binds host, pathname and exact expiry", async () => {
