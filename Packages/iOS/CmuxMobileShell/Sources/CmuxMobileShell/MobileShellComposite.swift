@@ -3578,25 +3578,44 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let allMacs = loadedMacs.filter {
             !isHidden($0) && !isDemonstrationPairedMac($0)
         }
-        // Reconnect candidates include every saved Computer, but strict
-        // Tailscale owns the recovery pass only for the selected foreground
-        // pairing. When there is no retained foreground identity (for example
-        // launch restore), the store's active row is the selection authority.
+        // Reconnect candidates include every saved Computer for launch restore,
+        // but a retained foreground pairing owns its recovery pass. Promoting a
+        // different saved Mac would replace the user's workspace after a
+        // transient transport failure. When there is no retained foreground
+        // identity (for example launch restore), the store's active row is the
+        // selection authority.
         // A retained key can outlive its row after deletion or scope refresh;
         // fall back to the current active row instead of letting a stale key
-        // make a selected Tailscale pairing look like an unrelated candidate.
+        // make the selected pairing look like an unrelated candidate.
         let retainedForegroundKey = foregroundOrRecoveryMacKey
-        let retainedForegroundKeyIsPresent = retainedForegroundKey != .anonymousForeground
-            && allMacs.contains { MacPairingKey($0) == retainedForegroundKey }
-        let reconnectSelectionKey: MacPairingKey? =
-            retainedForegroundKeyIsPresent
-                ? retainedForegroundKey
-                : activeMac.map(MacPairingKey.init)
-        // Candidate Macs in priority order: the retained foreground selection,
-        // the store-active Mac, then every other saved Mac. Rows with no locally
-        // usable route stay in the list so one authenticated registry snapshot
-        // can upgrade an older Tailscale pairing, or recover a route that was
-        // never persisted locally.
+        let retainedForegroundMac = retainedForegroundKey != .anonymousForeground
+            ? allMacs.first { mac in
+                let storedKey = MacPairingKey(mac)
+                guard storedKey.canonicalMacDeviceID
+                        == retainedForegroundKey.canonicalMacDeviceID else {
+                    return false
+                }
+                // A legacy untagged foreground target can adopt the stored
+                // instance for that physical Mac, but a tagged target must
+                // remain pinned to its exact app instance.
+                return retainedForegroundKey.normalizedInstanceTag == nil
+                    || storedKey.normalizedInstanceTag
+                        == retainedForegroundKey.normalizedInstanceTag
+            }
+            : nil
+        let retainedForegroundKeyIsPresent = retainedForegroundMac != nil
+        let reconnectSelectionKey: MacPairingKey?
+        if let retainedForegroundMac {
+            reconnectSelectionKey = MacPairingKey(retainedForegroundMac)
+        } else {
+            reconnectSelectionKey = activeMac.map(MacPairingKey.init)
+        }
+        // Candidate Macs in priority order: the retained foreground selection
+        // alone during foreground recovery; otherwise the store-active Mac,
+        // then every other saved Mac. Rows with no locally usable route stay in
+        // the list so one authenticated registry snapshot can upgrade an older
+        // Tailscale pairing, or recover a route that was never persisted
+        // locally.
         var candidates: [MobilePairedMac] = []
         // A retained foreground selection is more authoritative than a stale
         // store-active row. Try it first so another saved Mac cannot connect
@@ -3607,14 +3626,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
            }) {
             candidates.append(selectedMac)
         }
-        if let activeMac,
-           !candidates.contains(where: { $0.id == activeMac.id }) {
-            candidates.append(activeMac)
+        if !retainedForegroundKeyIsPresent {
+            if let activeMac,
+               !candidates.contains(where: { $0.id == activeMac.id }) {
+                candidates.append(activeMac)
+            }
+            let selectedCandidateIDs = Set(candidates.map(\.id))
+            candidates.append(contentsOf: allMacs.filter { mac in
+                !selectedCandidateIDs.contains(mac.id)
+            })
         }
-        let selectedCandidateIDs = Set(candidates.map(\.id))
-        candidates.append(contentsOf: allMacs.filter { mac in
-            !selectedCandidateIDs.contains(mac.id)
-        })
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return .superseded }
@@ -3690,6 +3711,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
         if connectionState != .connected,
+           !retainedForegroundKeyIsPresent,
            !strictTailscaleFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
