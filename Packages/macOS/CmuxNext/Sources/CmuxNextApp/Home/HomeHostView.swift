@@ -31,9 +31,11 @@ final class HomeHostView: NSView {
         Task { await service.homeStore.open(id) }
         // task-owner: lives as long as this view; event-driven (Observation)
         availability = Task { [weak self] in
-            for await available in Observations({ service.isAvailable }) {
+            for await (available, online) in Observations({ (service.isAvailable, service.homeStore.isOnline) }) {
                 self?.transcript.isHidden = !available
                 self?.message.isHidden = available
+                // H17: offline the user can type, but Send is off.
+                self?.transcript.isSendEnabled = online
             }
         }
     }
