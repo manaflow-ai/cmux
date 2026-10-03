@@ -244,9 +244,10 @@ import Testing
         // deinit is nonisolated, so the release lands on a later main-actor turn.
         let nextSurface = makeSurface(runtimeTeardown: coordinator)
         var reserved = false
-        for _ in 0..<100 where !reserved {
-            await Task.yield()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !reserved, ContinuousClock.now < deadline {
             reserved = nextSurface.reserveAgentHibernationRuntimeTeardown()
+            if !reserved { try? await Task.sleep(for: .milliseconds(10)) }
         }
         #expect(reserved)
         nextSurface.cancelAgentHibernationRuntimeTeardownReservation()
