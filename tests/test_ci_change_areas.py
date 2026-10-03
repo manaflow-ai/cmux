@@ -2807,6 +2807,25 @@ def test_feat_next_route_keeps_one_compile_for_webview_resources() -> None:
     assert 'echo "full_suite=false"' in block
 
 
+def test_feat_next_route_preserves_focused_package_lane() -> None:
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    start = workflow.index("      - name: Route cmux-next pull requests away from legacy product lanes")
+    block = workflow[start:workflow.index("      - name: Route standalone project workflows", start)]
+    assert "package_route=true" in block
+    assert "cmuxnext_route=true" in block
+    assert 'echo "swift_packages=true"' in block
+    assert 'echo "release_build=false"' in block
+
+
+def test_cmux_next_does_not_run_full_suite_for_unrelated_packages() -> None:
+    workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+    pull = workflow[workflow.index("  pull_request:"):workflow.index("  push:")]
+    assert "      - Packages/macOS/**" not in pull
+    assert "      - Packages/Shared/**" not in pull
+    assert "      - Packages/iOS/**" not in pull
+    assert "      - Packages/macOS/CmuxNext/**" in pull
+
+
 def test_required_tests_status_waits_for_platform_workflows() -> None:
     block = workflow_job_block("tests")
 
