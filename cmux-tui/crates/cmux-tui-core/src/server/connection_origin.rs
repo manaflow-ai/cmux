@@ -52,7 +52,8 @@ pub fn remote_bridge_mark_reply(line: &str) -> RemoteBridgeMarkReply {
         return RemoteBridgeMarkReply::Refused;
     }
     if reply.get("ok") == Some(&Value::Bool(true))
-        && reply.pointer("/data/origin").and_then(Value::as_str) == Some(REMOTE_BRIDGE_ORIGIN)
+        && reply.get("data").and_then(|data| data.get("origin")).and_then(Value::as_str)
+            == Some(REMOTE_BRIDGE_ORIGIN)
     {
         return RemoteBridgeMarkReply::Accepted;
     }
