@@ -29,7 +29,13 @@ export class HostStateFile {
     const tmp = `${this.path}.${process.pid}.tmp`;
     const fd = openSync(tmp, "w");
     try {
-      writeSync(fd, `${JSON.stringify(state)}\n`);
+      // writeSync may write less than asked: write the rest until all bytes are out.
+      const bytes = Buffer.from(`${JSON.stringify(state)}\n`);
+      for (let offset = 0; offset < bytes.length; ) {
+        const written = writeSync(fd, bytes, offset, bytes.length - offset);
+        if (written <= 0) throw new Error(`short write to ${tmp}`);
+        offset += written;
+      }
       fsyncSync(fd);
     } finally {
       closeSync(fd);
