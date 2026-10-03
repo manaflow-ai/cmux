@@ -635,6 +635,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            warn_unstable_handles(method, &value, global.output);
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
@@ -788,6 +789,17 @@ fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> 
         }
     }
     0
+}
+
+/// `accounts.list` with `handles_stable: false`: the Keychain salt failed,
+/// so the `acct_…` handles last only for this app launch.
+fn warn_unstable_handles(method: &str, value: &Value, output: OutputMode) {
+    if method == "accounts.list"
+        && output == OutputMode::Human
+        && value.get("handles_stable") == Some(&Value::Bool(false))
+    {
+        eprintln!("{}", super::coderouter::messages::messages().handles_unstable);
+    }
 }
 
 pub(super) fn failure(code: &str, message: &str, output: OutputMode, exit_code: i32) -> i32 {
