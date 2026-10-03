@@ -9,7 +9,7 @@
 //!
 //! Invariant: a screen with columns always keeps at least one scrolling
 //! column. `set-column-sticky` refuses a change that would break it, and
-//! [`crate::model::normalize_sticky_columns`] restores it after a removal.
+//! `normalize_sticky_columns` (model/layout_columns.rs) restores it after a removal.
 
 use super::*;
 use crate::model::{

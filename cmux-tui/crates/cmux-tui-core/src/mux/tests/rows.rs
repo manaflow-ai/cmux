@@ -32,7 +32,7 @@ fn seed(name: &str, edit: impl FnOnce(&mut RegistryScreen)) -> (PathBuf, String)
     let mut registry = WorkspaceRegistry::open(&root, &session).unwrap();
     registry
         .commit_resource_patch(
-            &WorkspaceMutation::new(&format!("seed-rows-{name}"), "test").unwrap(),
+            &WorkspaceMutation::new(format!("seed-rows-{name}"), "test").unwrap(),
             "session.restore_fixture",
             &serde_json::json!({"fixture":"rows"}),
             None,
