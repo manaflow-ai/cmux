@@ -14,6 +14,10 @@ public final class HomeNativeTranscriptView: NSView {
     let scroll = HomeTranscriptScrollView()
     let rowHost = HomeRowHostView()
     let field = HomeFieldView()
+    let header = HomeGlassHeaderView()
+    /// False while the owner is unreachable (H17: offline Send is off; the
+    /// text stays a draft). The wiring sets it from `HomeStore.connection`.
+    public var isSendEnabled = true
     /// A user-chosen sent-bubble colour; nil follows the theme.
     public var accentOverride: NSColor? { didSet { applyTheme() } }
     private var observers: [any NSObjectProtocol] = []
@@ -32,6 +36,12 @@ public final class HomeNativeTranscriptView: NSView {
         rowHost.layer?.addSublayer(controller.rootLayer)
         scroll.controller = controller
         addSubview(field)
+        addSubview(header)
+        controller.topInset = HomeGlassHeaderView.height
+        controller.onSummaryChange = { [weak self] summary in
+            guard let self else { return }
+            self.header.show(summary, me: self.controller.me)
+        }
         controller.onScrollGeometryChange = { [weak self] g in self?.scroll.apply(g) }
         controller.onAccessibilityChange = { [weak self] in self?.rowHost.accessibilityChanged() }
         field.onSend = { [weak self] in self?.send() }
@@ -67,6 +77,7 @@ public final class HomeNativeTranscriptView: NSView {
         controller.rootLayer.frame = rowHost.bounds
         CATransaction.commit()
         controller.resize(to: bounds.size)
+        header.frame = CGRect(x: 0, y: 0, width: bounds.width, height: HomeGlassHeaderView.height)
         layoutField(send: false)
         scroll.apply(controller.scrollGeometry)
     }
@@ -74,11 +85,18 @@ public final class HomeNativeTranscriptView: NSView {
     private func layoutField(send: Bool) {
         let f = fieldFrame
         guard field.frame != f || send else { return }
-        field.frame = f
+        let old = field.frame
+        if old.height != f.height, old.height > 0, window != nil, let curve = controller.fieldCurve(send: send) {
+            HomeFieldSpring.animate(field, from: old, to: f, curve: curve)
+        } else {
+            field.animations = [:]
+            field.frame = f
+        }
         controller.setHostedField(f, send: send)
     }
 
     private func send() {
+        guard isSendEnabled else { return }
         let frame = fieldFrame
         guard controller.sendHosted(text: field.text, from: frame) != nil else { return }
         field.text = ""
@@ -114,5 +132,6 @@ public final class HomeNativeTranscriptView: NSView {
         let active = window?.isKeyWindow ?? true
         let accent = accentOverride
         controller.palette = performWithTheme { HomeThemePalette.resolveInScope(active: active, accentOverride: accent) }
+        performWithTheme { header.applyColors(disc: Palette.elevatedBackground, text: Palette.textPrimary) }
     }
 }

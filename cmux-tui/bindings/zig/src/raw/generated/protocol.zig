@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ce9a5e7f62b3f675e99bee009ceaaca54e1d348823fbc1670330ce4ce6e9a83e";
+pub const ir_sha256 = "7404a8e17454cc6c21668d097c65296444533595166a321dccb83d8d7c673029";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4727,6 +4727,7 @@ pub const NewFrontendBrowserTabRequest = struct {
     cols: wire.Field(u16) = .absent,
     engine: []const u8,
     favicon_url: wire.Field([]const u8) = .absent,
+    idempotency_key: wire.Field([]const u8) = .absent,
     owner: wire.Field([]const u8) = .absent,
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,

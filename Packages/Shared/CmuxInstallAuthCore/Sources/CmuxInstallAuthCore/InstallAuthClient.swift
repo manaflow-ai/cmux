@@ -30,7 +30,13 @@ public actor InstallAuthClient {
     private let signer: any InstallSigner
     private let sessionToken: SessionToken?
     private let stackUser: String
-    private let environment: String
+    /// The API's `ENVIRONMENT` (`staging`, `production`, `development`,
+    /// `local`), learned from the server: the challenge prefix names it and
+    /// the minted token's issuer (`https://cmux-api/<environment>`) must
+    /// agree. Never derived from the host name. Nil before the first mint.
+    /// The issuer check is a consistency check (the token signature is the
+    /// owner's to verify); trust comes from TLS and the per-host install key.
+    public private(set) var environment: String?
     private let deviceName: String
     private let onRecord: @Sendable (InstallRecord?) async -> Void
     private let now: @Sendable () -> Date
@@ -44,18 +50,15 @@ public actor InstallAuthClient {
     public static let maximumLifetime: TimeInterval = 540
 
     /// - Parameters:
-    ///   - environment: the API's `ENVIRONMENT` (`staging`, `production`); the
-    ///     challenge prefix must name it.
     ///   - onRecord: persists the record (Keychain) the moment it changes.
     public init(transport: any InstallAuthTransport, signer: any InstallSigner, sessionToken: SessionToken?,
-                stackUser: String, environment: String, deviceName: String, record: InstallRecord?,
+                stackUser: String, deviceName: String, record: InstallRecord?,
                 onRecord: @escaping @Sendable (InstallRecord?) async -> Void = { _ in },
                 now: @escaping @Sendable () -> Date = Date.init) {
         self.transport = transport
         self.signer = signer
         self.sessionToken = sessionToken
         self.stackUser = stackUser
-        self.environment = environment
         self.deviceName = deviceName
         self.record = record
         self.onRecord = onRecord
@@ -119,17 +122,42 @@ public actor InstallAuthClient {
         let record = try await ensureRegistered()
         let challenge = try await postJSON("/v1/auth/challenge", ["user": record.user, "install": record.install], bearer: nil)
         guard let nonce = challenge["nonce"] as? String, let prefix = challenge["message_prefix"] as? String,
-              prefix == "cmux-auth-v1\n\(environment)\n\(record.install)\n", Self.isNonce(nonce) else {
+              let named = Self.environment(inPrefix: prefix, install: record.install), Self.isNonce(nonce) else {
             throw InstallAuthError.unexpectedChallenge
         }
+        // Once learned, the environment never changes for this client.
+        if let environment, environment != named { throw InstallAuthError.unexpectedChallenge }
         let signature = try await signer.sign(Data((prefix + nonce).utf8))
         let reply = try await postJSON("/v1/auth/token", ["user": record.user, "install": record.install,
                                                           "nonce": nonce, "signature": (signature).base64URLEncoded], bearer: nil)
         guard let value = reply["access_token"] as? String else { throw InstallAuthError.malformedReply }
+        guard Self.issuer(of: value) == "https://cmux-api/\(named)" else { throw InstallAuthError.unexpectedChallenge }
+        // A mint cancelled by reset() (sign-out) must not store its token.
+        try Task.checkCancellation()
+        environment = named
         let cap = now().addingTimeInterval(Self.maximumLifetime)
         let stated = (reply["expires_at"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) } ?? cap
         token = (value, min(stated, cap))
         return value
+    }
+
+    /// The environment in `cmux-auth-v1\n<environment>\n<install>\n`, or nil
+    /// when the prefix has any other shape.
+    static func environment(inPrefix prefix: String, install: String) -> String? {
+        let head = "cmux-auth-v1\n", tail = "\n\(install)\n"
+        guard prefix.hasPrefix(head), prefix.hasSuffix(tail), prefix.count > head.count + tail.count else { return nil }
+        let name = String(prefix.dropFirst(head.count).dropLast(tail.count))
+        guard name.count <= 32, let first = name.first, first.isASCII, first.isLowercase,
+              name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }) else { return nil }
+        return name
+    }
+
+    /// The `iss` claim of a JWT (payload read only; the owner verifies it).
+    static func issuer(of token: String) -> String? {
+        let parts = token.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 3, let payload = Data(base64URLEncoded: String(parts[1])),
+              let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { return nil }
+        return claims["iss"] as? String
     }
 
     static func isNonce(_ value: String) -> Bool {

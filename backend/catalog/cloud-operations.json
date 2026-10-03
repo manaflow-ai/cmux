@@ -281,6 +281,27 @@
               }
             }
           }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "code"
+                ]
+              }
+            },
+            "ref": {
+              "required": true,
+              "type": {
+                "kind": "ref",
+                "name": "CodeRef"
+              }
+            }
+          }
         }
       ]
     },
@@ -330,11 +351,49 @@
         }
       }
     },
+    "ChiefId": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
     "ClientToken": {
       "kind": "primitive",
       "name": "string",
       "pattern": "^[\\x21-\\x7e]{1,128}$",
       "description": "1 to 128 printable ASCII characters (idempotency key, client_msg_id)."
+    },
+    "CodeRef": {
+      "kind": "object",
+      "fields": {
+        "commit": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "CommitSha"
+          }
+        },
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+          }
+        },
+        "export": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+          }
+        }
+      }
+    },
+    "CommitSha": {
+      "kind": "primitive",
+      "name": "string",
+      "pattern": "^[0-9a-f]{40}$"
     },
     "Concurrency": {
       "kind": "object",
@@ -634,6 +693,12 @@
           }
         }
       }
+    },
+    "EmailAddress": {
+      "kind": "primitive",
+      "name": "string",
+      "max_length": 254,
+      "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
     },
     "EmailDomain": {
       "kind": "primitive",
@@ -1572,11 +1637,11 @@
     "HomeChief": {
       "kind": "object",
       "fields": {
-        "agent": {
+        "id": {
           "required": true,
           "type": {
             "kind": "ref",
-            "name": "AgentId"
+            "name": "ChiefId"
           }
         },
         "owner_user": {
@@ -1586,27 +1651,20 @@
             "name": "string"
           }
         },
-        "name": {
+        "display_name": {
           "required": true,
           "type": {
             "kind": "primitive",
             "name": "string",
             "min_length": 1,
-            "max_length": 60
+            "max_length": 100
           }
         },
-        "avatar": {
-          "required": false,
+        "is_default": {
+          "required": true,
           "type": {
             "kind": "primitive",
-            "name": "string"
-          }
-        },
-        "parent": {
-          "required": false,
-          "type": {
-            "kind": "ref",
-            "name": "AgentId"
+            "name": "boolean"
           }
         },
         "brain": {
@@ -1614,23 +1672,72 @@
           "type": {
             "kind": "enum",
             "values": [
-              "local",
               "cloud"
             ]
           }
         },
-        "thread": {
+        "main_conversation": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          }
+        },
+        "harness": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "rev": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "created_at": {
           "required": true,
           "type": {
             "kind": "ref",
-            "name": "ConversationId"
+            "name": "Timestamp"
           }
         },
-        "archived_at": {
-          "required": false,
+        "updated_at": {
+          "required": true,
           "type": {
             "kind": "ref",
             "name": "Timestamp"
+          }
+        },
+        "archived_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "Timestamp"
+            }
           }
         }
       }
@@ -2797,7 +2904,9 @@
       "values": [
         "github",
         "linear",
-        "slack"
+        "slack",
+        "google_calendar",
+        "gmail"
       ]
     },
     "InviteId": {
@@ -5125,6 +5234,9 @@
         "auth.forbidden",
         "auth.unauthenticated",
         "automation.limit",
+        "code.not_found",
+        "code.unavailable",
+        "deploy.limit",
         "idempotency.conflict",
         "revision.conflict",
         "trigger.invalid",
@@ -5462,6 +5574,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -5555,6 +5692,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -5989,6 +6145,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -6082,6 +6263,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -6396,6 +6596,784 @@
         ],
         "additionalProperties": true,
         "$defs": {}
+      }
+    },
+    "automation.deploy": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "automation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "automation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "AutomationId"
+            }
+          },
+          "commit": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "CommitSha"
+            }
+          },
+          "expected_version": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "Automation"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "body.not_code",
+        "code.not_found",
+        "code.unavailable",
+        "deploy.limit",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid",
+        "version.conflict"
+      ],
+      "owner": "cloud:SchedulerDO",
+      "risk": "execute",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "automation deploy",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "opt_in",
+        "group": "automation"
+      },
+      "docs": "Pin a code automation to another commit of the team's code repository (the commit must contain <path>/dist/index.js). Later runs use it; started runs keep their commit. At most 50 code changes per team per UTC day.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "automation": {
+            "$ref": "#/$defs/AutomationId"
+          },
+          "commit": {
+            "$ref": "#/$defs/CommitSha"
+          },
+          "expected_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "automation",
+          "commit"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/Automation",
+        "$defs": {
+          "AutomationId": {
+            "type": "string",
+            "pattern": "^auto_[a-z0-9]{20}$",
+            "description": "An automation definition, owned by its team's SchedulerDO."
+          },
+          "TeamId": {
+            "type": "string",
+            "pattern": "^team_[a-z0-9]{20}$",
+            "description": "A team; a personal account is a team of one."
+          },
+          "TriggerId": {
+            "type": "string",
+            "pattern": "^trg_[a-z0-9]{20}$",
+            "description": "One trigger of an automation; assigned by the owner."
+          },
+          "CronSpec": {
+            "type": "object",
+            "properties": {
+              "expr": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "tz": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              }
+            },
+            "required": [
+              "expr",
+              "tz"
+            ],
+            "additionalProperties": true
+          },
+          "TriggerInput": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "cron"
+                    ]
+                  },
+                  "expr": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "tz": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "type",
+                  "expr",
+                  "tz"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "manual"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "webhook"
+                    ]
+                  }
+                },
+                "required": [
+                  "type"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "event"
+                    ]
+                  },
+                  "source": {
+                    "type": "string",
+                    "enum": [
+                      "integration",
+                      "machine",
+                      "store",
+                      "task"
+                    ]
+                  },
+                  "connection": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "event": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120
+                  },
+                  "filter": {
+                    "type": "object",
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "source",
+                  "event"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "message"
+                    ]
+                  },
+                  "conversation": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "rule": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "type",
+                  "conversation",
+                  "rule"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "continue"
+                    ]
+                  },
+                  "until": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "goal_met",
+                        "budget",
+                        "stop"
+                      ]
+                    }
+                  },
+                  "cooldown_seconds": {
+                    "type": "integer",
+                    "minimum": 60,
+                    "maximum": 604800
+                  },
+                  "max_runs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10000
+                  }
+                },
+                "required": [
+                  "type",
+                  "until",
+                  "cooldown_seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "presence"
+                    ]
+                  },
+                  "when": {
+                    "type": "string",
+                    "enum": [
+                      "user_active",
+                      "user_returns_after"
+                    ]
+                  },
+                  "idle_minutes": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10080
+                  },
+                  "earliest": {
+                    "$ref": "#/$defs/CronSpec"
+                  }
+                },
+                "required": [
+                  "type",
+                  "when"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "Trigger": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/TriggerId"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "not_yet_supported"
+                ]
+              },
+              "spec": {
+                "$ref": "#/$defs/TriggerInput"
+              },
+              "next_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "spec",
+              "next_at"
+            ],
+            "additionalProperties": true
+          },
+          "Step": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "sleep"
+                    ]
+                  },
+                  "seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31536000
+                  }
+                },
+                "required": [
+                  "type",
+                  "seconds"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "note"
+                    ]
+                  },
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
+          "Body": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "agent_prompt"
+                    ]
+                  },
+                  "instructions": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  },
+                  "model": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high",
+                      "xhigh"
+                    ]
+                  },
+                  "workspace": {
+                    "type": "object",
+                    "properties": {
+                      "mode": {
+                        "type": "string",
+                        "enum": [
+                          "fresh_worktree",
+                          "repo"
+                        ]
+                      },
+                      "repo": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "required": [
+                      "mode"
+                    ],
+                    "additionalProperties": true
+                  },
+                  "conversation": {
+                    "type": "string",
+                    "enum": [
+                      "fresh",
+                      "continue"
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "instructions",
+                  "workspace",
+                  "conversation"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "steps"
+                    ]
+                  },
+                  "steps": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/Step"
+                    },
+                    "minItems": 1,
+                    "maxItems": 50
+                  }
+                },
+                "required": [
+                  "type",
+                  "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "HostId": {
+            "type": "string",
+            "pattern": "^host_[a-z0-9]{20}$",
+            "description": "A machine's session host, enrolled by its link."
+          },
+          "TargetPolicy": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "cloud_vm"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "host"
+                    ]
+                  },
+                  "host": {
+                    "$ref": "#/$defs/HostId"
+                  },
+                  "fallback": {
+                    "type": "string",
+                    "enum": [
+                      "cloud_vm",
+                      "wait",
+                      "fail"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "host",
+                  "fallback"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "Concurrency": {
+            "type": "object",
+            "properties": {
+              "max": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10
+              },
+              "on_limit": {
+                "type": "string",
+                "enum": [
+                  "queue",
+                  "skip"
+                ]
+              }
+            },
+            "required": [
+              "max",
+              "on_limit"
+            ],
+            "additionalProperties": true
+          },
+          "Budget": {
+            "type": "object",
+            "properties": {
+              "wall_clock_seconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 31536000
+              },
+              "vm_minutes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              },
+              "model_spend_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "tool_calls": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000000
+              }
+            },
+            "additionalProperties": true
+          },
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "Automation": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/AutomationId"
+              },
+              "owner": {
+                "$ref": "#/$defs/TeamId"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "version": {
+                "type": "integer"
+              },
+              "triggers": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Trigger"
+                }
+              },
+              "body": {
+                "$ref": "#/$defs/Body"
+              },
+              "target": {
+                "$ref": "#/$defs/TargetPolicy"
+              },
+              "concurrency": {
+                "$ref": "#/$defs/Concurrency"
+              },
+              "budget": {
+                "$ref": "#/$defs/Budget"
+              },
+              "created_by": {
+                "$ref": "#/$defs/UserId"
+              },
+              "created_at": {
+                "type": "integer"
+              },
+              "updated_at": {
+                "type": "integer"
+              },
+              "next_run_at": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner",
+              "name",
+              "description",
+              "enabled",
+              "version",
+              "triggers",
+              "body",
+              "target",
+              "concurrency",
+              "budget",
+              "created_by",
+              "created_at",
+              "updated_at",
+              "next_run_at"
+            ],
+            "additionalProperties": true
+          }
+        }
       }
     },
     "automation.get": {
@@ -6788,6 +7766,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -6881,6 +7884,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -7508,6 +8530,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -7601,6 +8648,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -8672,6 +9738,9 @@
       "errors": [
         "auth.forbidden",
         "auth.unauthenticated",
+        "code.not_found",
+        "code.unavailable",
+        "deploy.limit",
         "idempotency.conflict",
         "revision.conflict",
         "selector.not_found",
@@ -9020,6 +10089,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -9113,6 +10207,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -9547,6 +10660,31 @@
               }
             ]
           },
+          "CommitSha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40}$"
+          },
+          "CodeRef": {
+            "type": "object",
+            "properties": {
+              "commit": {
+                "$ref": "#/$defs/CommitSha"
+              },
+              "path": {
+                "type": "string",
+                "pattern": "^automations\\/[a-z0-9][a-z0-9-]{0,62}$"
+              },
+              "export": {
+                "type": "string",
+                "pattern": "^[A-Za-z_$][A-Za-z0-9_$]{0,63}$"
+              }
+            },
+            "required": [
+              "commit",
+              "path"
+            ],
+            "additionalProperties": true
+          },
           "Body": {
             "anyOf": [
               {
@@ -9640,6 +10778,25 @@
                 "required": [
                   "type",
                   "steps"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "code"
+                    ]
+                  },
+                  "ref": {
+                    "$ref": "#/$defs/CodeRef"
+                  }
+                },
+                "required": [
+                  "type",
+                  "ref"
                 ],
                 "additionalProperties": true
               }
@@ -10009,21 +11166,212 @@
         }
       }
     },
-    "chief.archive": {
-      "class": "mutation",
-      "idempotency": "required",
-      "target": "chief",
+    "calendar.calendars.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
       "ancestors": [
         "user"
       ],
       "params": {
         "selectors": {},
         "fields": {
-          "agent": {
+          "connection": {
             "required": true,
             "type": {
               "kind": "ref",
-              "name": "AgentId"
+              "name": "ConnectionId"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "calendar calendars list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "List the calendars of a Google Calendar connection (ids for the other calendar ops).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "calendar.event.create": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "summary": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            }
+          },
+          "description": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 8000
+            }
+          },
+          "location": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            }
+          },
+          "start": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "date_time": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+                  }
+                },
+                "date": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "time_zone": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 64,
+                    "pattern": "^[A-Za-z0-9_+/-]+$"
+                  }
+                }
+              }
+            }
+          },
+          "end": {
+            "required": true,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "date_time": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+                  }
+                },
+                "date": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "time_zone": {
+                  "required": false,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 64,
+                    "pattern": "^[A-Za-z0-9_+/-]+$"
+                  }
+                }
+              }
+            }
+          },
+          "attendees": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
             }
           },
           "expected_revision": {
@@ -10042,8 +11390,8 @@
         "name": "MutationResult",
         "arguments": [
           {
-            "kind": "ref",
-            "name": "HomeChief"
+            "kind": "primitive",
+            "name": "json"
           }
         ]
       },
@@ -10051,14 +11399,19 @@
         "auth.forbidden",
         "auth.unauthenticated",
         "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
         "revision.conflict",
         "selector.not_found",
         "validation.invalid"
       ],
-      "owner": "cloud:UserDO",
-      "risk": "destructive",
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
       "principals": [
-        "session"
+        "session",
+        "install"
       ],
       "focuses": false,
       "queue_offline": false,
@@ -10070,96 +11423,418 @@
         }
       },
       "cli": {
-        "path": "chief archive",
+        "path": "calendar event create",
         "visible": true
       },
       "mcp": {
-        "expose": "never",
-        "group": "home"
+        "expose": "default",
+        "group": "calendar"
       },
-      "docs": "Archive a chief: its thread stays readable, it stops waking.",
+      "docs": "Create a Google Calendar event; attendees get Google's invitation email.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
-          "agent": {
-            "$ref": "#/$defs/AgentId"
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 8000
+          },
+          "location": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "start": {
+            "type": "object",
+            "properties": {
+              "date_time": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "time_zone": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_+/-]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "end": {
+            "type": "object",
+            "properties": {
+              "date_time": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+              },
+              "date": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+              },
+              "time_zone": {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_+/-]+$"
+              }
+            },
+            "additionalProperties": true
+          },
+          "attendees": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
           }
         },
         "required": [
-          "agent"
+          "connection",
+          "summary",
+          "start",
+          "end"
         ],
         "additionalProperties": true,
         "$defs": {
-          "AgentId": {
+          "ConnectionId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "EmailAddress": {
+            "type": "string",
+            "maxLength": 254,
+            "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
           }
         }
       },
       "output_json_schema": {
-        "$ref": "#/$defs/HomeChief",
-        "$defs": {
-          "AgentId": {
-            "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
-          },
-          "ConversationId": {
-            "type": "string",
-            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
-            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
-          },
-          "Timestamp": {
-            "type": "string",
-            "description": "RFC 3339 UTC with milliseconds."
-          },
-          "HomeChief": {
-            "type": "object",
-            "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
-              },
-              "owner_user": {
-                "type": "string"
-              },
-              "name": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 60
-              },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
-              },
-              "brain": {
-                "type": "string",
-                "enum": [
-                  "local",
-                  "cloud"
-                ]
-              },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
-              },
-              "archived_at": {
-                "$ref": "#/$defs/Timestamp"
-              }
-            },
-            "required": [
-              "agent",
-              "owner_user",
-              "name",
-              "brain",
-              "thread"
-            ],
-            "additionalProperties": true
-          }
-        }
+        "$defs": {}
       }
     },
-    "chief.create": {
+    "calendar.event.respond": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "event_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+            }
+          },
+          "response": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "accepted",
+                "declined",
+                "tentative"
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "calendar event respond",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "Answer a Google Calendar invitation as the connected account; the organizer is notified.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "event_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+          },
+          "response": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "declined",
+              "tentative"
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "event_id",
+          "response"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "calendar.events.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "calendar_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 254,
+              "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+            }
+          },
+          "time_min": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+            }
+          },
+          "time_max": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+            }
+          },
+          "query": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 500
+            }
+          },
+          "max_results": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "page_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2000
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "calendar events list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "calendar"
+      },
+      "docs": "List events of a Google calendar (single events, ordered by start). Read at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "calendar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 254,
+            "pattern": "^(?!\\.{1,2}$)[^\\s/?#%]+$"
+          },
+          "time_min": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "time_max": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 250
+          },
+          "page_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "chief.archive": {
       "class": "mutation",
       "idempotency": "required",
       "target": "chief",
@@ -10169,37 +11844,30 @@
       "params": {
         "selectors": {},
         "fields": {
-          "name": {
+          "chief": {
             "required": true,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1,
-              "max_length": 60
-            }
-          },
-          "parent": {
-            "required": false,
             "type": {
               "kind": "ref",
-              "name": "AgentId"
+              "name": "ChiefId"
             }
           },
-          "avatar": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "max_length": 1024
-            }
-          },
-          "brain": {
+          "expected_rev": {
             "required": true,
             "type": {
-              "kind": "enum",
-              "values": [
-                "local",
-                "cloud"
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
               ]
             }
           },
@@ -10227,12 +11895,14 @@
       "errors": [
         "auth.forbidden",
         "auth.unauthenticated",
+        "chief_is_default",
         "idempotency.conflict",
         "revision.conflict",
+        "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:UserDO",
-      "risk": "mutate-own",
+      "risk": "destructive",
       "principals": [
         "session"
       ],
@@ -10246,56 +11916,55 @@
         }
       },
       "cli": {
-        "path": "chief create",
+        "path": "chief archive",
         "visible": true
       },
       "mcp": {
         "expose": "never",
         "group": "home"
       },
-      "docs": "Create a chief (or a subchief under parent): its agent principal and mux grant, its wake queue and its chief thread.",
+      "docs": "Archive a chief (not the default): it stops waking; restorable for 30 days, then a tombstone keeps its id forever.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 60
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
           },
-          "parent": {
-            "$ref": "#/$defs/AgentId"
-          },
-          "avatar": {
-            "type": "string",
-            "maxLength": 1024
-          },
-          "brain": {
-            "type": "string",
-            "enum": [
-              "local",
-              "cloud"
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
             ]
           }
         },
         "required": [
-          "name",
-          "brain"
+          "chief",
+          "expected_rev"
         ],
         "additionalProperties": true,
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           }
         }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "ConversationId": {
             "type": "string",
@@ -10309,50 +11978,97 @@
           "HomeChief": {
             "type": "object",
             "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
+              "id": {
+                "$ref": "#/$defs/ChiefId"
               },
               "owner_user": {
                 "type": "string"
               },
-              "name": {
+              "display_name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 60
+                "maxLength": 100
               },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
+              "is_default": {
+                "type": "boolean"
               },
               "brain": {
                 "type": "string",
                 "enum": [
-                  "local",
                   "cloud"
                 ]
               },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
               },
               "archived_at": {
-                "$ref": "#/$defs/Timestamp"
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
-              "agent",
+              "id",
               "owner_user",
-              "name",
+              "display_name",
+              "is_default",
               "brain",
-              "thread"
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
             ],
             "additionalProperties": true
           }
         }
       }
     },
-    "chief.update": {
+    "chief.create": {
       "class": "mutation",
       "idempotency": "required",
       "target": "chief",
@@ -10362,28 +12078,20 @@
       "params": {
         "selectors": {},
         "fields": {
-          "agent": {
-            "required": true,
-            "type": {
-              "kind": "ref",
-              "name": "AgentId"
-            }
-          },
-          "name": {
+          "display_name": {
             "required": false,
             "type": {
               "kind": "primitive",
               "name": "string",
               "min_length": 1,
-              "max_length": 60
+              "max_length": 100
             }
           },
-          "avatar": {
+          "is_default": {
             "required": false,
             "type": {
               "kind": "primitive",
-              "name": "string",
-              "max_length": 1024
+              "name": "boolean"
             }
           },
           "expected_revision": {
@@ -10412,13 +12120,518 @@
         "auth.unauthenticated",
         "idempotency.conflict",
         "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chief create",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Create a chief (the user's first chief is the default; use the idempotency key chief-default for it). Binds its wake queue and gives it the user's text confirmation level.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "is_default": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeChief",
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "chief.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "include_archived": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "chiefs": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeChief"
+              }
+            }
+          },
+          "tombstones": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "object",
+                "fields": {
+                  "id": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "ChiefId"
+                    }
+                  },
+                  "owner_user": {
+                    "required": true,
+                    "type": {
+                      "kind": "primitive",
+                      "name": "string"
+                    }
+                  },
+                  "archived_at": {
+                    "required": true,
+                    "type": {
+                      "kind": "ref",
+                      "name": "Timestamp"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden"
+      ],
+      "owner": "cloud:UserDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chief list",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "The user's chiefs (active first, the default marked), archived ones on request, and tombstones.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "include_archived": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "chiefs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeChief"
+            }
+          },
+          "tombstones": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/ChiefId"
+                },
+                "owner_user": {
+                  "type": "string"
+                },
+                "archived_at": {
+                  "$ref": "#/$defs/Timestamp"
+                }
+              },
+              "required": [
+                "id",
+                "owner_user",
+                "archived_at"
+              ],
+              "additionalProperties": true
+            }
+          }
+        },
+        "required": [
+          "chiefs",
+          "tombstones"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ChiefId": {
+            "type": "string",
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeChief": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ChiefId"
+              },
+              "owner_user": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "is_default": {
+                "type": "boolean"
+              },
+              "brain": {
+                "type": "string",
+                "enum": [
+                  "cloud"
+                ]
+              },
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "archived_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "owner_user",
+              "display_name",
+              "is_default",
+              "brain",
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "chief.update": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "chief",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "chief": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ChiefId"
+            }
+          },
+          "expected_rev": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "display_name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            }
+          },
+          "is_default": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                true
+              ]
+            }
+          },
+          "harness": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 64
+              }
+            }
+          },
+          "archived": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                false
+              ]
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeChief"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "chief_archived",
+        "chief_expired",
+        "idempotency.conflict",
+        "revision.conflict",
         "selector.not_found",
         "validation.invalid"
       ],
       "owner": "cloud:UserDO",
       "risk": "mutate-own",
       "principals": [
-        "session"
+        "session",
+        "install"
       ],
       "focuses": false,
       "queue_offline": false,
@@ -10437,41 +12650,76 @@
         "expose": "never",
         "group": "home"
       },
-      "docs": "Rename a chief or change its avatar.",
+      "docs": "Rename a chief, make it the default (clears the old default in the same commit), set its harness, or restore it within 30 days of archiving (archived: false).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
         "properties": {
-          "agent": {
-            "$ref": "#/$defs/AgentId"
+          "chief": {
+            "$ref": "#/$defs/ChiefId"
           },
-          "name": {
+          "expected_rev": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "display_name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 60
+            "maxLength": 100
           },
-          "avatar": {
-            "type": "string",
-            "maxLength": 1024
+          "is_default": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "archived": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
           }
         },
         "required": [
-          "agent"
+          "chief",
+          "expected_rev"
         ],
         "additionalProperties": true,
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           }
         }
       },
       "output_json_schema": {
         "$ref": "#/$defs/HomeChief",
         "$defs": {
-          "AgentId": {
+          "ChiefId": {
             "type": "string",
-            "pattern": "^agent_[A-Za-z0-9_.-]{1,64}$"
+            "pattern": "^agent_[0-9A-HJKMNP-TV-Z]{26}$"
           },
           "ConversationId": {
             "type": "string",
@@ -10485,43 +12733,90 @@
           "HomeChief": {
             "type": "object",
             "properties": {
-              "agent": {
-                "$ref": "#/$defs/AgentId"
+              "id": {
+                "$ref": "#/$defs/ChiefId"
               },
               "owner_user": {
                 "type": "string"
               },
-              "name": {
+              "display_name": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 60
+                "maxLength": 100
               },
-              "avatar": {
-                "type": "string"
-              },
-              "parent": {
-                "$ref": "#/$defs/AgentId"
+              "is_default": {
+                "type": "boolean"
               },
               "brain": {
                 "type": "string",
                 "enum": [
-                  "local",
                   "cloud"
                 ]
               },
-              "thread": {
-                "$ref": "#/$defs/ConversationId"
+              "main_conversation": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ConversationId"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "harness": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "rev": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "updated_at": {
+                "$ref": "#/$defs/Timestamp"
               },
               "archived_at": {
-                "$ref": "#/$defs/Timestamp"
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             },
             "required": [
-              "agent",
+              "id",
               "owner_user",
-              "name",
+              "display_name",
+              "is_default",
               "brain",
-              "thread"
+              "main_conversation",
+              "harness",
+              "rev",
+              "created_at",
+              "updated_at",
+              "archived_at"
             ],
             "additionalProperties": true
           }
@@ -11745,6 +14040,454 @@
               "reactions"
             ],
             "additionalProperties": true
+          }
+        }
+      }
+    },
+    "conversation.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "id": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "source": {
+            "required": false,
+            "type": {
+              "kind": "object",
+              "fields": {
+                "kind": {
+                  "required": true,
+                  "type": {
+                    "kind": "enum",
+                    "values": [
+                      "mac"
+                    ]
+                  }
+                },
+                "host": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 128
+                  }
+                },
+                "local_id": {
+                  "required": true,
+                  "type": {
+                    "kind": "primitive",
+                    "name": "string",
+                    "max_length": 128
+                  }
+                }
+              }
+            }
+          },
+          "kind": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "group",
+                "chief"
+              ]
+            }
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 200
+            }
+          },
+          "participants": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeParticipantInput"
+              }
+            }
+          },
+          "after_seq": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "messages": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "json"
+              }
+            }
+          },
+          "read_cursors": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "json"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "conversation_exists",
+        "forbidden",
+        "idempotency.conflict",
+        "import_out_of_order",
+        "importing",
+        "invalid_conversation_id",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat import",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "mac"
+                ]
+              },
+              "host": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "local_id": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "required": [
+              "kind",
+              "host",
+              "local_id"
+            ],
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "group",
+              "chief"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "participants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeParticipantInput"
+            },
+            "maxItems": 64
+          },
+          "after_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "messages": {
+            "type": "array",
+            "maxItems": 500
+          },
+          "read_cursors": {}
+        },
+        "required": [
+          "messages"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "HomeParticipantInput": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "human",
+                  "agent"
+                ]
+              },
+              "display_name": {
+                "type": "string",
+                "maxLength": 80
+              },
+              "agent_class": {
+                "type": "string",
+                "enum": [
+                  "mux",
+                  "agent"
+                ]
+              },
+              "owner_user": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "display_name"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
+          }
+        }
+      }
+    },
+    "conversation.import.commit": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "id": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "last_seq": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HomeConversationCommit"
+          }
+        ]
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "import_out_of_order",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "mutate-shared",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "chat import commit",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "home"
+      },
+      "docs": "Finish an import: read cursors are clamped, normal ops open, each human gets one inbox entry.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "last_seq": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "last_seq"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$ref": "#/$defs/HomeConversationCommit",
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "HomeConversationCommit": {
+            "type": "object",
+            "properties": {
+              "rev": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "change": {}
+            },
+            "required": [
+              "rev",
+              "change"
+            ],
+            "additionalProperties": true,
+            "description": "rev after the op; seq and message_id for a new message; change is the committed Change."
           }
         }
       }
@@ -22019,6 +24762,16 @@
                       "name": "ConversationId"
                     }
                   },
+                  "title": {
+                    "required": true,
+                    "type": {
+                      "kind": "nullable",
+                      "inner": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    }
+                  },
                   "seq": {
                     "required": true,
                     "type": {
@@ -22149,7 +24902,7 @@
           "limit": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 50
+            "maximum": 100
           }
         },
         "required": [
@@ -22192,6 +24945,16 @@
                 "conversation": {
                   "$ref": "#/$defs/ConversationId"
                 },
+                "title": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
                 "seq": {
                   "type": "integer",
                   "minimum": 0
@@ -22232,6 +24995,7 @@
               },
               "required": [
                 "conversation",
+                "title",
                 "seq",
                 "message_id",
                 "author",
@@ -25703,7 +28467,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -25972,7 +28738,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           }
         }
@@ -26013,7 +28781,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -26293,7 +29063,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -26479,7 +29251,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26752,7 +29526,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26769,7 +29545,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "RepoPattern": {
@@ -26986,7 +29764,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "ConnectionStatus": {
@@ -28067,6 +30847,809 @@
           "teams"
         ],
         "additionalProperties": true,
+        "$defs": {}
+      }
+    },
+    "mail.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "message_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Read one Gmail message (headers, plain text, attachment list) at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "message_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          }
+        },
+        "required": [
+          "connection",
+          "message_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.modify": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          },
+          "message_ids": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            }
+          },
+          "add_labels": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              }
+            }
+          },
+          "remove_labels": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,100}$"
+              }
+            }
+          },
+          "archive": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "mutate-own",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "mail modify",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Change labels of Gmail messages or a thread (archive, mark read with remove_labels UNREAD).",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "message_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "minItems": 1,
+            "maxItems": 1000
+          },
+          "add_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "maxItems": 100
+          },
+          "remove_labels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,100}$"
+            },
+            "maxItems": 100
+          },
+          "archive": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "connection"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.search": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "query": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 2000
+            }
+          },
+          "max_results": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "page_token": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2000
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail search",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Search the connected Gmail mailbox with Gmail query syntax; returns message and thread ids only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "page_token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "connection",
+          "query"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.send": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "to": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "cc": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "bcc": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "EmailAddress"
+              }
+            }
+          },
+          "subject": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 900,
+              "pattern": "^[^\\r\\n]*$"
+            }
+          },
+          "body": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1000000
+            }
+          },
+          "thread_id": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          },
+          "in_reply_to": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 998,
+              "pattern": "^[^\\r\\n]*$"
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "primitive",
+            "name": "json"
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "integration.unavailable",
+        "mutation.indeterminate",
+        "policy.denied",
+        "provider.error",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "send-external",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "mail send",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Send a plain-text email from the connected Gmail account.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "to": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100,
+            "minItems": 1
+          },
+          "cc": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
+          },
+          "bcc": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/EmailAddress"
+            },
+            "maxItems": 100
+          },
+          "subject": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 900,
+            "pattern": "^[^\\r\\n]*$"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 1000000
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 998,
+            "pattern": "^[^\\r\\n]*$",
+            "allOf": [
+              {
+                "pattern": "^<[^<>\\s]+>$"
+              }
+            ]
+          }
+        },
+        "required": [
+          "connection",
+          "to",
+          "subject",
+          "body"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          },
+          "EmailAddress": {
+            "type": "string",
+            "maxLength": 254,
+            "pattern": "^[^\\s@<>,;:\"\\\\()\\[\\]]+@[^\\s@<>,;:\"\\\\()\\[\\]]+\\.[^\\s@<>,;:\"\\\\()\\[\\]]+$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.thread.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail thread get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$"
+          }
+        },
+        "required": [
+          "connection",
+          "thread_id"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "$defs": {}
+      }
+    },
+    "mail.threads.peek": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "connection",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "connection": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConnectionId"
+            }
+          },
+          "thread_ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              }
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "primitive",
+        "name": "json"
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "integration.unavailable",
+        "policy.denied",
+        "provider.error",
+        "selector.not_found"
+      ],
+      "owner": "cloud:ConnectionDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "mail threads peek",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "mail"
+      },
+      "docs": "Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "connection": {
+            "$ref": "#/$defs/ConnectionId"
+          },
+          "thread_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,64}$"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "connection",
+          "thread_ids"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConnectionId": {
+            "type": "string",
+            "pattern": "^conn_[a-z0-9]{20}$",
+            "description": "One integration connection (a provider account linked to a team)."
+          }
+        }
+      },
+      "output_json_schema": {
         "$defs": {}
       }
     },
@@ -34424,7 +38007,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -35134,7 +38719,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -35894,7 +39481,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {
@@ -36680,7 +40269,9 @@
             "enum": [
               "github",
               "linear",
-              "slack"
+              "slack",
+              "google_calendar",
+              "gmail"
             ]
           },
           "TeamPolicyValues": {

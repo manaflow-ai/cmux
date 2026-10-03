@@ -30,6 +30,12 @@ export interface Principal {
   readonly display_name?: string
   /** The install's registered kind (mac, ios, web, cli, daemon, vm), resolved by UserDO with the grant. */
   readonly install_kind?: string
+  /**
+   * Agents (chiefs) the user owns, resolved by the Worker from UserDO's chief records for ops
+   * that add participants (Home). Owners trust it only because the Worker builds every
+   * principal; frames and params never carry it.
+   */
+  readonly owned_agents?: ReadonlyArray<{ readonly id: string; readonly display_name: string }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */
   readonly grant_classes?: ReadonlyArray<string>
   /** Token expiry (ms); long-lived connections close at this time. */

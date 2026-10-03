@@ -93,7 +93,8 @@ final class PaletteContentView: NSView {
     private func wire() {
         let model = model
         searchBar.onQueryChange = { model.query = $0 }
-        searchBar.onBack = { model.pop() }
+        searchBar.onPopTo = { model.pop(to: $0) }
+        searchBar.onKeywordHint = { model.handle(.openActions) }
         list.onHover = { model.hover($0) }
         list.onActivate = { model.activate(rowID: $0) }
         footer.onPrimary = { model.handle(.submit) }
@@ -142,11 +143,14 @@ final class PaletteContentView: NSView {
         searchBar.update(
             query: model.query,
             placeholder: model.placeholder,
-            breadcrumb: model.breadcrumbs.last,
+            chips: model.scopeChips,
+            rootTitle: model.navigation.graph.root.title,
+            style: model.chipStyle,
+            keywordHint: model.keywordHint?.title,
             isLoading: model.isLoading
         )
         footer.update(
-            pageTitle: model.pageTitle,
+            pageTitle: model.prefixHints ?? model.pageTitle,
             pageSymbol: model.pageSymbol,
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,

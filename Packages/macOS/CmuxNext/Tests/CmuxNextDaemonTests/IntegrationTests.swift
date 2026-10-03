@@ -2,50 +2,56 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the pinned hosted
-/// artifact (scripts/cmux-next/cmux-tui.pin; fetched and sha256-checked
-/// with `scripts/cmux-next/pin-cmux-tui.sh fetch` on first use, as
-/// scripts/reload.sh does, so a fresh worktree tests the pinned daemon),
-/// else the newest client that scripts/install-cmux-tui-client.sh cached.
-/// Cached slices are not executable, so they are copied into a temp dir
-/// first.
+/// Finds a real cmux-tui: `CMUX_NEXT_TUI_BIN`, else the hosted build of
+/// this checkout's own cmux-tui tree (`scripts/cmux-next/pin-cmux-tui.sh
+/// fetch`, as scripts/reload.sh and the cmux-next workflow run it; fetched on
+/// first use without waiting for an unpublished tree), else the newest client
+/// that scripts/install-cmux-tui-client.sh cached. Cached slices are not
+/// executable, so they are copied into a temp dir first.
 enum RealBinary {
     static let url: URL? = locate()
 
-    /// True when `url` is the pinned hosted build or an explicit override,
+    /// True when `url` is the same-tree hosted build or an explicit override,
     /// which serve the cmux-next capabilities (release clients do not).
     static var isBranchBuild: Bool {
         guard let url else { return false }
-        return url == pinned || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
+        return url == sameTree || ProcessInfo.processInfo.environment[DaemonLauncher.binaryOverrideKey] == url.path
     }
 
-    /// `cmux-tui/target/hosted/<pinned commit>/cmux-tui`, fetched when
-    /// missing; nil when the pin is absent or the fetch failed (offline).
-    static let pinned: URL? = {
+    /// `cmux-tui/target/hosted/tree/<key>/cmux-tui` (`pin-cmux-tui.sh path`),
+    /// fetched when missing; nil when the tree is not published yet, the
+    /// checkout's cmux-tui is dirty, or the fetch failed (offline).
+    static let sameTree: URL? = {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        guard let pin = try? String(contentsOf: root.appendingPathComponent("scripts/cmux-next/cmux-tui.pin"), encoding: .utf8),
-              let commit = pin.split(separator: "\n").first(where: { $0.hasPrefix("commit=") })?.dropFirst("commit=".count) else {
-            return nil
-        }
-        let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
-        if !FileManager.default.isExecutableFile(atPath: binary.path) { fetchPinned(root: root) }
+        guard let path = pinScript(root: root, ["path"], capture: true), !path.isEmpty else { return nil }
+        let binary = URL(fileURLWithPath: path)
+        if !FileManager.default.isExecutableFile(atPath: binary.path) { _ = pinScript(root: root, ["fetch"], capture: false) }
         return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
     }()
 
-    /// Runs `pin-cmux-tui.sh fetch` (public URL, no credentials; it keeps
-    /// the download only when its sha256 matches the pin).
-    private static func fetchPinned(root: URL) {
+    /// Runs `pin-cmux-tui.sh <arguments>` (public URLs, no credentials).
+    /// A test run never waits for an unpublished tree unless
+    /// CMUX_TUI_TREE_WAIT_SECONDS says so. Returns trimmed stdout when
+    /// `capture`, else "" on success; nil on failure.
+    private static func pinScript(root: URL, _ arguments: [String], capture: Bool) -> String? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path, "fetch"]
-        process.standardOutput = FileHandle.standardError
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path] + arguments
+        var environment = ProcessInfo.processInfo.environment
+        if environment["CMUX_TUI_TREE_WAIT_SECONDS"] == nil { environment["CMUX_TUI_TREE_WAIT_SECONDS"] = "0" }
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = capture ? pipe : FileHandle.standardError
         do {
             try process.run()
-            process.waitUntilExit()
         } catch {
-            return
+            return nil
         }
+        let output = capture ? pipe.fileHandleForReading.readDataToEndOfFile() : Data()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func locate() -> URL? {
@@ -54,7 +60,7 @@ enum RealBinary {
            fileManager.isExecutableFile(atPath: override) {
             return URL(fileURLWithPath: override)
         }
-        if let pinned { return pinned }
+        if let sameTree { return sameTree }
         let cache = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Caches/cmux/cmux-tui-client")
         let slice = "cmux-tui-\(machineArch())-apple-darwin"
         let candidates = ((try? fileManager.contentsOfDirectory(at: cache, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])

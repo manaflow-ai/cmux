@@ -63,19 +63,18 @@ extension ControlRouter {
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
                 guard let value = call.params["value"] else { throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@", "settings.set", "value")) }
-                try await store.set(value, at: path)
-                // Read-your-writes: answer from the file until the watcher republishes.
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(value, at: path, store: store)
                 return ["path": .array(path.map(JSONValue.string)), "value": value, "file": .string(store.fileLocation)]
             },
-            .async("settings.unset") { [weak self] call in
+        ] + ["settings.reset", "settings.unset"].map { name in
+            ControlMethod.async(name) { [weak self] call in
                 guard let self else { throw Self.stopped }
                 let store = try self.settingsStore()
                 let path = try Self.settingsPath(call.params, allowEmpty: false)
-                try await store.remove(path)
-                self.snapshots.publish { $0.settings = nil }
+                try await self.writeSetting(nil, at: path, store: store)
                 return ["path": .array(path.map(JSONValue.string)), "file": .string(store.fileLocation)]
-            },
+            }
+        } + [
             .snapshot("snapshot.get") { call in
                 let snapshot = call.snapshot
                 return [
@@ -187,7 +186,7 @@ extension ControlRouter {
         return ["path": .array(path.map(JSONValue.string)), "exists": .bool(value != nil), "value": value ?? .null, "file": .string(file)]
     }
 
-    private func settingsStore() throws -> any ControlSettingsStore {
+    func settingsStore() throws -> any ControlSettingsStore {
         guard let settings else { throw ControlError(code: "unavailable", message: ControlStrings.text("control.error.settingsUnavailable", "settings are not available")) }
         return settings
     }

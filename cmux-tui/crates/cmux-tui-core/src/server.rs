@@ -105,6 +105,7 @@ mod personal;
 mod raw_tab;
 mod responses;
 mod screen_json;
+mod session_stream;
 mod split_respawn;
 pub use launch_snapshot::{
     LaunchSnapshotTiming, LaunchSnapshotWriter, start_launch_snapshot_writer,
@@ -436,9 +437,11 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         STATE_RESOURCES_CAPABILITY,
         WINDOW_RECORDS_CAPABILITY,
         FRONTEND_BROWSER_OWNER_CAPABILITY,
+        crate::state::frontend_browser_keys::FRONTEND_BROWSER_TAB_KEYS_CAPABILITY,
         crate::state::home_store::WORKSPACE_KIND_CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
+        crate::git_ops::FILES_SEARCH_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -1418,26 +1421,7 @@ enum Command {
     /// `conversation-tabs-v1`: a tab showing one conversation (server/conversation_tabs_wire.rs).
     NewConversationTab(conversation_tabs_wire::NewConversationTabParams),
     /// New browser tab whose page the frontend renders (WebKit or CEF).
-    /// The daemon persists its location and never attaches a CDP target.
-    NewFrontendBrowserTab {
-        url: String,
-        engine: String,
-        #[serde(default)]
-        pane: Option<PaneId>,
-        #[serde(default)]
-        title: Option<String>,
-        #[serde(default)]
-        favicon_url: Option<String>,
-        #[serde(default)]
-        profile_id: Option<String>,
-        /// Install id of the hosting app (the record's only writer).
-        #[serde(default)]
-        owner: Option<String>,
-        #[serde(default)]
-        cols: Option<u16>,
-        #[serde(default)]
-        rows: Option<u16>,
-    },
+    NewFrontendBrowserTab(frontend_browser_history::NewTabParams),
     UpdateFrontendBrowserTab(frontend_browser_history::UpdateTabParams),
     SetFrontendBrowserHistory(frontend_browser_history::SetParams),
     GetFrontendBrowserHistory(frontend_browser_history::GetParams),
@@ -10013,14 +9997,12 @@ fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
-    // `canceled` is only set together with closing `outbound`. The stream
-    // used to wake every second to re-check both.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         let epoch = mux.wait_for_journal_event_until_interrupted(stream.epoch, &interrupt);
@@ -10585,13 +10567,12 @@ fn run_session_journal_stream(
     writer: &MessageWriter,
     mut stream: SessionJournalStreamStart,
 ) {
-    // `canceled` is only set together with closing `outbound`.
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
     mux.wake_journal_waiters_on(&interrupt);
     'stream: loop {
-        if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+        if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
             break;
         }
         if complete_bounded_journal_replay(writer, &stream) {
@@ -10753,7 +10734,7 @@ fn run_session_journal_stream(
             }
         }
         loop {
-            if stream.canceled.load(Ordering::Acquire) || !writer.is_open() {
+            if session_stream::stopped(&stream.canceled, writer, &stream.outbound) {
                 break 'stream;
             }
             let epoch = if stream.shared_fanout && stream.reader.is_none() {
@@ -14006,37 +13987,7 @@ fn handle_command_with_cancellation(
         Command::NewConversationTab(params) => {
             conversation_tabs_wire::new_conversation_tab(mux, params)
         }
-        Command::NewFrontendBrowserTab {
-            url,
-            engine,
-            pane,
-            title,
-            favicon_url,
-            profile_id,
-            owner,
-            cols,
-            rows,
-        } => {
-            let record = crate::workspace_registry::FrontendBrowserRecord {
-                engine,
-                url,
-                title,
-                favicon_url,
-                profile_id,
-                owner,
-            };
-            let surface = mux.new_frontend_browser_tab(
-                pane,
-                record,
-                paired_surface_size("new-frontend-browser-tab", cols, rows)?,
-            )?;
-            let identity = surface.resource_identity();
-            Ok(json!({
-                "surface": surface.id,
-                "tab_resource_id": identity.map(|identity| identity.tab_id.as_str()),
-                "content_resource_id": identity.map(|identity| identity.content_id.as_str()),
-            }))
-        }
+        Command::NewFrontendBrowserTab(params) => frontend_browser_history::create(mux, params),
         Command::UpdateFrontendBrowserTab(params) => frontend_browser_history::update(mux, params),
         Command::SetFrontendBrowserHistory(params) => frontend_browser_history::set(mux, params),
         Command::GetFrontendBrowserHistory(params) => frontend_browser_history::get(mux, params),
@@ -27527,6 +27478,7 @@ mod tests {
             WINDOW_RECORDS_CAPABILITY,
             FRONTEND_BROWSER_OWNER_CAPABILITY,
             crate::git_ops::CHECKPOINTS_CAPABILITY,
+            crate::git_ops::FILES_SEARCH_CAPABILITY,
         ] {
             assert!(capabilities.iter().any(|value| value.as_str() == Some(expected)));
         }

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { user as homeUser } from "@cmux/home-core"
 import type { ReduceContext, ReduceResult } from "@cmux/ownership"
 import type { UserState } from "./user.ts"
+import { activeChiefs } from "./user-chief.ts"
 
 /**
  * UserDO side of the per-user text confirmation level (home-messaging.md section 21): the
@@ -18,8 +19,8 @@ export const confirmEnv = (state: UserState, appIdHash: string): homeUser.UserCo
   installActive: (id) => state.installs[id]?.revoked_at === null,
   installKind: (id) => state.installs[id]?.kind,
   appIdHash,
-  // Chief records are not in UserDO yet (chief.* reducers pending); no chief receives the level until then.
-  chiefs: [],
+  // The user's active chiefs (user-chief.ts) receive every change of the level.
+  chiefs: activeChiefs(state),
   locale: "en"
 })
 

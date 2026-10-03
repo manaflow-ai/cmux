@@ -33,7 +33,7 @@ pub struct CcConfig {
 impl Default for CcConfig {
     fn default() -> Self {
         Self {
-            min_bps: 200_000,
+            min_bps: 1_000_000,
             max_bps: 80_000_000,
             start_bps: 8_000_000,
             relay_max_bps: 4_000_000,
@@ -122,11 +122,18 @@ impl CongestionController {
     /// grows only on evidence (feedback with arrivals and a flat delay), by
     /// at most 8 % per second of elapsed time.
     pub fn on_feedback(&mut self, arrivals: &[Arrival], loss: f64, now_us: u64) {
-        let mut deltas = Vec::new();
+        // One sample per feedback: the minimum one-way delay among its arrivals. A burst
+        // (a large keyframe) serializes its own packets, so per-packet deltas inside one
+        // burst rise without any queue on the path; the minimum filters that out.
+        let mut min_delay: Option<i64> = None;
         for a in arrivals {
             let Some(sent) = self.sent_us.remove(&a.transport_seq) else { continue };
             // Arrival clock wraps at u32; only differences between samples matter.
             let delay = i64::from(a.arrival_us) - (sent & 0xffff_ffff) as i64;
+            min_delay = Some(min_delay.map_or(delay, |m| m.min(delay)));
+        }
+        let mut deltas = Vec::new();
+        if let Some(delay) = min_delay {
             if let Some(prev) = self.last_delay_us {
                 let mut d = delay - prev;
                 if d > i64::from(u32::MAX / 2) {

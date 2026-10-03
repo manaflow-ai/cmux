@@ -94,15 +94,19 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
     public static let workspacesSectionID = LayoutSectionID("sec_workspaces")
     public static let bottomSectionID = LayoutSectionID("sec_bottom")
 
-    /// Top: Home, then the App Store. Middle: workspaces. Bottom: one line with Settings (icon
-    /// and label) at the leading edge and the account avatar (icon only) at
-    /// the trailing edge. Customize Appearance is not in the default (decision
-    /// S11): users can add it, and it stays in the palette, the View menu and
-    /// Settings. Sticky sections use the built-in look and draw no header.
+    /// Top: Home, the App Store, then CodeRouter (a first-party app's label
+    /// item; it opens the app's page). Middle: workspaces. Bottom: one line
+    /// with Settings (icon and label)
+    /// at the leading edge and the account avatar (icon only) at the trailing
+    /// edge. Customize Appearance is not in the default (decision S11): users
+    /// can add it, and it stays in the palette, the View menu and Settings.
+    /// Sticky sections use the built-in look and draw no header.
     public static let defaults = SidebarLayoutDocument(sections: [
         LayoutSection(id: topSectionID, region: .top, look: .builtIn,
                       items: [LayoutItem(id: LayoutItemID("itm_home"), ref: .builtIn(.home)),
-                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore))]),
+                              LayoutItem(id: LayoutItemID("itm_app_store"), ref: .builtIn(.appStore)),
+                              // First-party apps are label items that open their page (Lawrence R36).
+                              LayoutItem(id: LayoutItemID("itm_app_coderouter"), ref: .app("cmux/coderouter"))]),
         LayoutSection(id: workspacesSectionID, region: .middle, look: .list, content: .workspaces),
         LayoutSection(id: bottomSectionID, region: .bottom, look: .builtIn, arrangement: SectionArrangement(layout: .inline, align: .fill), items: [
             LayoutItem(id: LayoutItemID("itm_settings"), ref: .builtIn(.settings)),

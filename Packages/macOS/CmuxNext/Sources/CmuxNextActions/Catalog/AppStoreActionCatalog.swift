@@ -12,10 +12,12 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 keywords: ["apps", "store", "extensions", "plugins", "install", "marketplace", "sidebar sections"],
                 category: .settings, symbol: "bag", surfaces: [.palette, .keyboard, .contextMenu],
                 arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false)],
+                cliName: "app store",
                 surfacePlan: ActionSurfacePlan(
-                    // A window for a person to browse; agents read listings
-                    // through the store ops (`apps search|info`) instead.
-                    cli: .exempt(.guiOnly),
+                    // A tab of the active window; automation opens it without
+                    // moving focus. Agents read listings through the store
+                    // ops (`apps search|info`) instead.
+                    cli: .offered,
                     contextMenus: [ContextMenuPlacement(.sidebarBackground, .view, 301)])
             ),
             ActionDescriptor(
@@ -41,6 +43,30 @@ nonisolated enum AppStoreActionCatalog: ActionCatalogGroup {
                 category: .settings, symbol: "eye", surfaces: [.palette, .keyboard],
                 arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string)],
                 cliName: "apps unhide",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Opens an app's page as a tab (first-party apps: the sidebar label
+            // item, for example CodeRouter below the App Store); `command` then
+            // runs one of the app's commands (CodeRouter: connectAccount, the
+            // add-account flow the agent pane links to).
+            ActionDescriptor(
+                id: "app.open", title: t("action.app.open", "Open App…"),
+                keywords: ["apps", "open", "coderouter", "page", "add account", "subscription"],
+                category: .settings, symbol: "square.grid.2x2", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
+                            ActionArgument(name: "command", title: t("argument.app.command", "Command"), kind: .string, isRequired: false)],
+                cliName: "app open",
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // Runs a command an app contributes (`contributes.commands`). With no
+            // arguments it opens a palette page of the visible apps' commands.
+            ActionDescriptor(
+                id: "app.command.run", title: t("action.app.command.run", "Run App Command…"),
+                keywords: ["apps", "command", "coderouter", "status", "accounts", "usage", "route"],
+                category: .settings, symbol: "puzzlepiece.extension", surfaces: [.palette, .keyboard],
+                arguments: [ActionArgument(name: "app", title: t("argument.appStore.app", "App"), kind: .string, isRequired: false),
+                            ActionArgument(name: "command", title: t("argument.app.command", "Command"), kind: .string, isRequired: false)],
+                cliName: "app run-command",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
             ),
         ]

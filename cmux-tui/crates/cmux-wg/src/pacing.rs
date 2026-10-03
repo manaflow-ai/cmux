@@ -18,7 +18,14 @@
 //! round trip instead of leaving in one burst. Connections queue
 //! separately and the shortest queue goes first, so a keystroke on an
 //! interactive connection never waits behind a bulk connection's window.
-//! Order inside a connection is kept. Nothing is dropped: the queues are
+//! Order inside a connection is kept.
+//!
+//! Strict priority between classes (transport.md 12a): interactive
+//! datagrams and every connection with a short queue and a small flight
+//! first, then
+//! media datagrams (any older than [`MEDIA_MAX_AGE`] are dropped, oldest
+//! first: media must never queue behind a stall), then bulk: paced
+//! connections with long queues and bulk datagrams. Nothing is dropped: the queues are
 //! bounded by the connections' TCP windows, and past `MAX_QUEUED` packets
 //! the driver leaves smoltcp's output in the device, which then blocks TCP.
 
@@ -37,6 +44,18 @@ const MIN_FLIGHT: u32 = 10 * 1200;
 /// about 1 ms resolution; without credit a connection would send one packet
 /// per wake, and the pace would be the timer's, not the network's.
 const MAX_CREDIT: Duration = Duration::from_millis(2);
+/// A connection with at most this many packets queued and less than
+/// `MIN_FLIGHT` in flight is interactive: it leaves before media and bulk.
+/// Every connection stays paced; the flight floor makes an interactive
+/// connection's pace generous.
+const INTERACTIVE_QUEUE: usize = 4;
+/// Media datagrams older than this in the queue are dropped.
+pub(crate) const MEDIA_MAX_AGE: Duration = Duration::from_millis(50);
+/// Datagrams one class holds; past it media drops its oldest and the other
+/// classes refuse the newest (datagrams are unreliable). Datagrams never
+/// count toward [`MAX_QUEUED`], so a datagram flood cannot block the TCP
+/// stack's output.
+const MAX_DATAGRAMS: usize = 512;
 /// Packets the pacer holds in all before smoltcp is blocked instead.
 const MAX_QUEUED: usize = 4096;
 /// A connection with nothing queued and no packet for this long is
@@ -132,14 +151,23 @@ impl Connection {
         }
     }
 
+    /// Bytes emitted and not yet acknowledged.
+    fn flight(&self) -> u32 {
+        match (self.snd_emitted, self.snd_una) {
+            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
+            _ => 0,
+        }
+    }
+
+    /// Whether the connection is interactive now (see `INTERACTIVE_QUEUE`).
+    fn interactive(&self) -> bool {
+        self.queue.len() <= INTERACTIVE_QUEUE && self.flight() < MIN_FLIGHT
+    }
+
     /// Bytes per second, or `None` before the first RTT sample (unpaced).
     fn rate(&self) -> Option<f64> {
         let srtt = self.srtt?.as_secs_f64().max(1e-6);
-        let flight = match (self.snd_emitted, self.snd_una) {
-            (Some(max), Some(una)) if after(max, una) => max.wrapping_sub(una),
-            _ => 0,
-        };
-        Some(GAIN * f64::from(flight.max(MIN_FLIGHT)) / srtt)
+        Some(GAIN * f64::from(self.flight().max(MIN_FLIGHT)) / srtt)
     }
 
     /// Record a segment the stack emitted; true when it carries sequence
@@ -191,11 +219,30 @@ impl Connection {
     }
 }
 
+/// The scheduling class of a datagram (transport.md 12a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Priority {
+    /// Control and terminal bytes: before everything else.
+    Interactive,
+    /// Remote desktop media: after interactive traffic, dropped when stale.
+    Media,
+    /// Everything that can wait: after media.
+    Bulk,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct Pacer {
     connections: HashMap<Flow, Connection>,
-    /// Packets that are not TCP leave first, unpaced.
+    /// Packets from the TCP stack that are not TCP (rare): first, unpaced.
     other: VecDeque<Vec<u8>>,
+    /// Interactive datagrams: right after `other`, unpaced.
+    interactive: VecDeque<Vec<u8>>,
+    media: VecDeque<(Instant, Vec<u8>)>,
+    bulk: VecDeque<Vec<u8>>,
+    /// Earliest departure of the next bulk datagram: bulk datagrams are
+    /// paced at the floor rate of a connection with the largest smoothed RTT.
+    bulk_next_free: Option<Instant>,
+    /// Packets from the TCP stack (connection queues and `other`).
     queued: usize,
 }
 
@@ -211,16 +258,52 @@ impl Pacer {
 
     pub(crate) fn has_queued(&self) -> bool {
         self.queued > 0
+            || !self.interactive.is_empty()
+            || !self.media.is_empty()
+            || !self.bulk.is_empty()
     }
 
     /// Everything queued, unpaced and in order per connection (shutdown).
     pub(crate) fn drain(&mut self) -> Vec<Vec<u8>> {
         self.queued = 0;
         let mut packets: Vec<Vec<u8>> = self.other.drain(..).collect();
+        packets.extend(self.interactive.drain(..));
+        packets.extend(self.media.drain(..).map(|(_, packet)| packet));
+        packets.extend(self.bulk.drain(..));
         for connection in self.connections.values_mut() {
             packets.extend(connection.queue.drain(..));
         }
         packets
+    }
+
+    /// Queue one datagram of the datagram service in its class, within the
+    /// class bound (see [`MAX_DATAGRAMS`]).
+    pub(crate) fn push_datagram(&mut self, packet: Vec<u8>, priority: Priority, now: Instant) {
+        match priority {
+            Priority::Interactive if self.interactive.len() < MAX_DATAGRAMS => {
+                self.interactive.push_back(packet);
+            }
+            Priority::Bulk if self.bulk.len() < MAX_DATAGRAMS => self.bulk.push_back(packet),
+            Priority::Interactive | Priority::Bulk => {}
+            Priority::Media => {
+                self.expire_media(now);
+                if self.media.len() >= MAX_DATAGRAMS {
+                    self.media.pop_front();
+                }
+                self.media.push_back((now, packet));
+            }
+        }
+    }
+
+    /// Drop media datagrams older than [`MEDIA_MAX_AGE`], oldest first.
+    fn expire_media(&mut self, now: Instant) {
+        while self
+            .media
+            .front()
+            .is_some_and(|(queued_at, _)| now.saturating_duration_since(*queued_at) > MEDIA_MAX_AGE)
+        {
+            self.media.pop_front();
+        }
     }
 
     /// Queue one packet the stack wants sent. True when it is new traffic
@@ -266,39 +349,68 @@ impl Pacer {
         fresh
     }
 
-    /// The next packet allowed to leave at `now`: anything that is not TCP,
-    /// else the head of the shortest queue whose departure time has come.
-    /// `Err` holds the earliest time a queued packet may leave.
+    /// The next packet allowed to leave at `now`, by class (see the module
+    /// documentation). `Err` holds the earliest time a queued packet may
+    /// leave.
     pub(crate) fn pop(&mut self, now: Instant) -> Result<Option<Vec<u8>>, Instant> {
         if let Some(packet) = self.other.pop_front() {
             self.queued -= 1;
             return Ok(Some(packet));
         }
-        let mut earliest: Option<Instant> = None;
-        let mut chosen: Option<(&Flow, usize)> = None;
-        for (flow, connection) in &self.connections {
-            if connection.queue.is_empty() {
-                continue;
-            }
-            if connection.next_free > now {
-                earliest =
-                    Some(earliest.map_or(connection.next_free, |e| e.min(connection.next_free)));
-                continue;
-            }
-            if chosen.is_none_or(|(_, len)| connection.queue.len() < len) {
-                chosen = Some((flow, connection.queue.len()));
-            }
+        if let Some(packet) = self.interactive.pop_front() {
+            return Ok(Some(packet));
         }
-        let Some((flow, _)) = chosen else {
-            return earliest.map_or(Ok(None), Err);
-        };
-        let flow = *flow;
+        if let Some(packet) = self.pop_connection(now, true) {
+            return Ok(Some(packet));
+        }
+        self.expire_media(now);
+        if let Some((_, packet)) = self.media.pop_front() {
+            return Ok(Some(packet));
+        }
+        if let Some(packet) = self.pop_connection(now, false) {
+            return Ok(Some(packet));
+        }
+        let bulk_free = self.bulk_next_free.filter(|_| !self.bulk.is_empty());
+        if !self.bulk.is_empty() && bulk_free.is_none_or(|free| free <= now) {
+            let packet = self.bulk.pop_front().expect("non-empty");
+            if let Some(srtt) = self.srtt() {
+                let rate = GAIN * f64::from(MIN_FLIGHT) / srtt.as_secs_f64().max(1e-6);
+                let start = bulk_free
+                    .map_or(now, |free| free.max(now.checked_sub(MAX_CREDIT).unwrap_or(now)));
+                self.bulk_next_free =
+                    Some(start + Duration::from_secs_f64(packet.len() as f64 / rate));
+            }
+            return Ok(Some(packet));
+        }
+        let earliest = self
+            .connections
+            .values()
+            .filter(|connection| !connection.queue.is_empty())
+            .map(|connection| connection.next_free)
+            .chain(bulk_free)
+            .min();
+        earliest.map_or(Ok(None), Err)
+    }
+
+    /// The head of the shortest eligible queue among the interactive or the
+    /// bulk connections; both are paced.
+    fn pop_connection(&mut self, now: Instant, interactive: bool) -> Option<Vec<u8>> {
+        let flow = self
+            .connections
+            .iter()
+            .filter(|(_, connection)| {
+                !connection.queue.is_empty()
+                    && connection.interactive() == interactive
+                    && connection.next_free <= now
+            })
+            .min_by_key(|(_, connection)| connection.queue.len())
+            .map(|(flow, _)| *flow)?;
         let connection = self.connections.get_mut(&flow).expect("chosen above");
         let packet = connection.queue.pop_front().expect("non-empty queue");
         let segment = segment(&packet).expect("queued as TCP");
         connection.sent(&segment, packet.len(), now);
         self.queued -= 1;
-        Ok(Some(packet))
+        Some(packet)
     }
 }
 

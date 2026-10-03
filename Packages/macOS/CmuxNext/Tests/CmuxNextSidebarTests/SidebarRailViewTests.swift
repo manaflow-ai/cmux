@@ -20,7 +20,7 @@ import Testing
 
     @Test func eachItemIsAnIconButtonAtItsLaidOutFrame() throws {
         let view = rail(.defaults)
-        #expect(view.subviews.count == 4)
+        #expect(view.subviews.count == 5)
         for button in view.layoutResult.buttons {
             let item = try #require(view.itemView(button.item))
             #expect(item.frame == button.frame)
@@ -52,13 +52,13 @@ import Testing
         doc.sections[0].items.removeLast()
         view.update(.init(document: doc, room: nil, infos: [:], toolTips: [:], metrics: m))
         view.layoutSubtreeIfNeeded()
-        #expect(view.itemView(LayoutItemID("itm_app_store")) == nil)
-        #expect(view.subviews.count == 3)
+        #expect(view.itemView(LayoutItemID("itm_app_coderouter")) == nil)
+        #expect(view.subviews.count == 4)
 
         view.frame.size.height = 130
         view.layoutSubtreeIfNeeded()
         #expect(view.itemView(LayoutItemID("itm_home")) == nil)
-        #expect(view.layoutResult.overflow == [LayoutItemID("itm_home")])
+        #expect(view.layoutResult.overflow.first == LayoutItemID("itm_home"))
     }
 
     /// A short rail lists what does not fit under a More button, whose

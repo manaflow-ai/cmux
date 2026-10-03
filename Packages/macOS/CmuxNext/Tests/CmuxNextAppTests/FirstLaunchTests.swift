@@ -4,23 +4,29 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// The pinned hosted cmux-tui (`scripts/cmux-next/pin-cmux-tui.sh fetch`).
-nonisolated enum PinnedDaemonBinary {
+/// The hosted build of this checkout's cmux-tui tree
+/// (`scripts/cmux-next/pin-cmux-tui.sh fetch`; `path` names it).
+nonisolated enum SameTreeDaemonBinary {
     static let url: URL? = {
         var root = URL(fileURLWithPath: #filePath)
         for _ in 0..<6 { root.deleteLastPathComponent() }
-        guard let pin = try? String(contentsOf: root.appendingPathComponent("scripts/cmux-next/cmux-tui.pin"), encoding: .utf8),
-              let commit = pin.split(separator: "\n").first(where: { $0.hasPrefix("commit=") })?.dropFirst("commit=".count) else {
-            return nil
-        }
-        let binary = root.appendingPathComponent("cmux-tui/target/hosted/\(commit)/cmux-tui")
-        return FileManager.default.isExecutableFile(atPath: binary.path) ? binary : nil
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [root.appendingPathComponent("scripts/cmux-next/pin-cmux-tui.sh").path, "path"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return nil }
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let path = String(decoding: output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard process.terminationStatus == 0, FileManager.default.isExecutableFile(atPath: path) else { return nil }
+        return URL(fileURLWithPath: path)
     }()
 }
 
 /// A fresh session, end to end: the real daemon, the app's launch window,
 /// restore, and the empty-workspace guard.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: PinnedDaemonBinary.url != nil, "needs the pinned cmux-tui"))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct FirstLaunchTests {
     /// Returns once `store` has a tab or `limit` passes, whichever is first.
     /// A poll, not a task group over `Observations`: the Swift 6.2 region
@@ -42,7 +48,7 @@ struct FirstLaunchTests {
     /// the mirror) the new window's content saw an empty workspace and the
     /// empty-workspace guard sent a second create-terminal.
     @Test func freshSessionStartsWithExactlyOneTerminal() async throws {
-        let binary = try #require(PinnedDaemonBinary.url)
+        let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-first-\(UUID().uuidString.prefix(8))")
         let session = "cn-first-\(UUID().uuidString.prefix(8).lowercased())"
         let launcher = DaemonLauncher(

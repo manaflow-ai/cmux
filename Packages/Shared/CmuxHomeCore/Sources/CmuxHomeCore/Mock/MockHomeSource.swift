@@ -171,6 +171,7 @@ public actor MockHomeSource: HomeSource {
             guard seq <= summary.lastSeq else { throw HomeRejection.invalid("cursor_beyond_end") }
             guard seq > current else { return HomeOpResult(rev: summary.rev) }
             summary.readCursors[me.id] = seq
+            summary.readCursorTimes[me.id] = Date()
             summary.rev += 1
             conversations[conversation] = summary
             publish(.conversationChanged(summary, stream: .conversation(conversation), rev: summary.rev))
@@ -211,6 +212,11 @@ public actor MockHomeSource: HomeSource {
             // An invite changes no inbox entry, so the current revision settles it.
             let (_, receipt) = personFor(contact)
             return HomeOpResult(rev: inboxRev, invite: receipt ?? InviteReceipt(contact: contact, channel: contact.isEmail ? .email : .sms, alreadyMember: true))
+        case .setTyping(let conversation, let on):
+            // Ephemeral: broadcast, never stored, no revision.
+            guard let summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_conversation") }
+            publish(.typing(conversation, me.id, on: on))
+            return HomeOpResult(rev: summary.rev)
         case .addReaction(let messageID, let conversation, let kind, let partIndex):
             guard var list = stored[conversation], let index = list.firstIndex(where: { $0.id == messageID }),
                   var summary = conversations[conversation] else { throw HomeRejection.invalid("unknown_message") }

@@ -8,19 +8,19 @@ import Foundation
 /// (`jörg@bücher.de`, `"john doe"@example.com`, `user@[10.0.0.1]`). Such a
 /// run becomes `j…@b…`: at most one character on each side, and every `@`
 /// in the output follows `…`, so the output never matches an email.
-public enum EmailRedaction {
+enum EmailRedaction {
     /// `@`, full-width `＠`, small `﹫`, and the URL-encoded forms. Found
     /// by literal (scalar-level) search, so an `@` followed by a combining
     /// mark still counts.
     static let markers = ["@", "\u{FF20}", "\u{FE6B}", "%40", "%2540"]
 
-    public static func containsEmail(_ text: String) -> Bool {
+    static func containsEmail(_ text: String) -> Bool {
         markers.contains { text.range(of: $0, options: .literal) != nil }
     }
 
     /// A non-JSON body with HTML or JSON escapes of `@` decoded first, so
     /// `someone&#64;example.com` is redacted like `someone@example.com`.
-    public static func redactEmails(inBody text: String) -> String {
+    static func redactEmails(inBody text: String) -> String {
         var decoded = text
         for escape in ["\\u0040", "&#64;", "&#x40;", "&#X40;", "&commat;"] {
             decoded = decoded.replacingOccurrences(of: escape, with: "@", options: .caseInsensitive)
@@ -29,7 +29,7 @@ public enum EmailRedaction {
     }
 
     /// Every email-like run inside `text` shortened; the rest unchanged.
-    public static func redactEmails(in text: String) -> String {
+    static func redactEmails(in text: String) -> String {
         guard containsEmail(text) else { return text }
         var output = "", run = "", quoted = false
         func flush() {
@@ -53,7 +53,7 @@ public enum EmailRedaction {
     /// An identity as a display: an email becomes `s…@e…` (the whole
     /// value, spaces included, counts as one), anything else its first
     /// character and `…`. Never the full local part or domain.
-    public static func redact(identity: String) -> String {
+    static func redact(identity: String) -> String {
         let trimmed = identity.trimmingCharacters(in: .whitespacesAndNewlines)
         if containsEmail(trimmed) { return shorten(run: trimmed, keepingPunctuation: false) }
         return trimmed.first.map { "\($0)…" } ?? "…"
@@ -84,4 +84,14 @@ public enum EmailRedaction {
     private static func initial(_ part: Substring) -> String {
         part.first { $0.isLetter || $0.isNumber }.map(String.init) ?? ""
     }
+}
+
+extension String {
+    /// This text with every email-like run shortened (`someone@example.com`
+    /// -> `s…@e…`); see `EmailRedaction`. For callers outside this module
+    /// that pass account data on (for example app operations).
+    public func redactingEmails() -> String { EmailRedaction.redactEmails(in: self) }
+
+    /// Whether the text holds an email marker (`@`, `＠`, `﹫`, `%40`, `%2540`).
+    public var containsEmailMarker: Bool { EmailRedaction.containsEmail(self) }
 }

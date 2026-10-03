@@ -5,6 +5,10 @@ public import Foundation
 public nonisolated struct SettingRefused: Error, Sendable, CustomStringConvertible {
     public let key: String
     public let value: JSONValue
+    public init(key: String, value: JSONValue) {
+        self.key = key
+        self.value = value
+    }
     public var description: String { "\(key) does not accept \(value.compactText)" }
 }
 

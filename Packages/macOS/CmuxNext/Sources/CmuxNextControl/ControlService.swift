@@ -62,6 +62,7 @@ public final class ControlService {
         return try start(
             registry: registry,
             settingsStore: settings?.file,
+            settingsWriter: settings,
             configuration: ControlSocketServer.Configuration(path: launch.socketPath, accessMode: mode, passwordVerifier: verifier,
                                                              trustedExecutables: bundledExecutables(bundle, environment: environment)),
             identity: identity,
@@ -74,13 +75,15 @@ public final class ControlService {
     public static func start(
         registry: ActionRegistry,
         settingsStore: (any ControlSettingsStore)?,
+        settingsWriter: (any ControlSettingsWriter)? = nil,
         configuration: ControlSocketServer.Configuration,
         identity: ControlIdentity,
         frameSource: any ControlFrameSource = MainQueueFrameSource(),
         watchdog: MainThreadWatchdog? = nil
     ) throws -> ControlService {
         let bridge = RegistryControlBridge(registry: registry)
-        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, frameSource: frameSource)
+        let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
+                                   frameSource: frameSource)
         router.attach(watchdog: watchdog)
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)

@@ -96,6 +96,8 @@ nonisolated enum RefusalStrings {
     static var columnAlreadySticky: String { text("handlers.refusal.columnAlreadySticky", "the column is already sticky there") }
     static var columnNotSticky: String { text("handlers.refusal.columnNotSticky", "the column is not sticky") }
     static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
+    /// Top and bottom docks: the wire's sticky edge has only left and right.
+    static var edgeDocksUnsupported: String { text("handlers.refusal.edgeDocksUnsupported", "top and bottom docks are not supported yet") }
     static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
     static func moveColumnUnsupported(_ capability: String, _ count: Int) -> String { format("handlers.refusal.moveColumnUnsupported", "needs daemon capability %1$@ (the column has %2$lld panes; swap-pane moves one)", capability, count) }
     static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }

@@ -20,6 +20,7 @@ import type { SubmitResult } from "./owner-do.ts"
 
 const CODE = /^([dg])([0-9A-HJKMNP-TV-Z]{26})$/
 const SECRET = /^[0-9A-HJKMNP-TV-Z]{26}$/
+const CONVERSATION_ID = /^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$/
 const STASH_TTL_MS = 24 * 3_600_000
 
 export type HomeError = { readonly ok: false; readonly code: string; readonly message: string }
@@ -85,6 +86,26 @@ const createInvite = async (
   return conversationStub(env, conversation).submit(conversation, principal, { ...frame, op: "invite.create", params })
 }
 
+/**
+ * The caller's chiefs from UserDO, for ops that add agent participants: ConversationDO's reach
+ * policy admits an agent only when it is one of these (conversation-do.ts ownerRecordPolicy).
+ */
+const withOwnedAgents = async (env: Env, principal: Principal): Promise<Principal> => {
+  if (!principal.user || principal.agent) return principal
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { chiefs?: Array<{ id: string; display_name: string }> } }> }
+  const r = await stub.readOp(principal.user, principal, "chief.list", {})
+  const chiefs = r.ok ? (r.value?.chiefs ?? []) : []
+  return { ...principal, owned_agents: chiefs.map((c) => ({ id: c.id, display_name: c.display_name })) }
+}
+
+/** The main conversation of one of the caller's chiefs, or null. */
+const ownChiefMain = async (env: Env, principal: Principal, agent: string): Promise<string | null> => {
+  if (!principal.user || principal.agent) return null
+  const stub = env.USER_DO.get(env.USER_DO.idFromName(principal.user)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { chiefs?: Array<{ id: string; main_conversation: string | null }> } }> }
+  const r = await stub.readOp(principal.user, principal, "chief.list", {})
+  return (r.ok ? r.value?.chiefs ?? [] : []).find((c) => c.id === agent)?.main_conversation ?? null
+}
+
 /** A Home ConversationDO mutation from the public API; the principal is already resolved (grant classes). */
 export const conversationMutate = async (env: Env, principal: Principal, frame: OpFrame): Promise<SubmitResult> => {
   const params = (frame.params ?? {}) as Record<string, unknown>
@@ -92,12 +113,17 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
   switch (frame.op) {
     case "conversation.create": {
       const id = `conv_${digest26(`conv\u0000${actorOf(principal)}\u0000${key}`)}`
-      return conversationStub(env, id).submit(id, principal, { ...frame, params: { ...params, id, kind: "group" } })
+      return conversationStub(env, id).submit(id, await withOwnedAgents(env, principal), { ...frame, params: { ...params, id, kind: "group" } })
     }
     case "dm.open": {
       const me = actorOf(principal)
       const self = { id: me, kind: principal.agent ? "agent" : "human", display_name: principal.display_name ?? "Someone" }
       const peer = params.peer
+      // A DM with your own chief is that chief's main conversation (one place per chief).
+      if (typeof peer === "string" && peer.startsWith("agent_")) {
+        const main = await ownChiefMain(env, principal, peer)
+        if (main) return { frames: [{ t: "result", tx: "", idempotency_key: key, value: { conversation: { id: main, kind: "chief" }, redirected: "chief_main" }, revision: "0", replayed: false } as OwnerFrame] }
+      }
       if (typeof peer === "string") {
         const id = homeConversation.dmConversationId(me, peer)
         const participants = [self, { id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", display_name: peer }]
@@ -119,6 +145,23 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
       const { conversation, ...rest } = params as { conversation: string } & Parameters<typeof createInvite>[3]
       return createInvite(env, principal, conversation, rest, frame)
     }
+    case "conversation.import": {
+      // First call: the id is derived from the signed-in user and the source (never a client field).
+      const source = params.source as { host?: unknown; local_id?: unknown } | null | undefined
+      if (source !== undefined) {
+        if (!source || typeof source !== "object" || typeof source.host !== "string" || typeof source.local_id !== "string") return reject(key, "validation.invalid", "source needs host and local_id")
+        const id = homeConversation.importConversationId(actorOf(principal), source.host, source.local_id)
+        const res = await conversationStub(env, id).submit(id, await withOwnedAgents(env, principal), { ...frame, params: { ...params, id } })
+        // The caller learns the derived id here; continuations and the commit name it.
+        return { frames: res.frames.map((f) => (f.t === "result" ? { ...f, value: { ...(f.value as object), id } } : f)) }
+      }
+      if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "a continuation names its id")
+      return conversationStub(env, params.id).submit(params.id, principal, frame)
+    }
+    case "conversation.import.commit": {
+      if (typeof params.id !== "string" || !CONVERSATION_ID.test(params.id)) return reject(key, "validation.invalid", "commit names its id")
+      return conversationStub(env, params.id).submit(params.id, principal, frame)
+    }
     case "invite.accept": {
       const id = conversationForCode(String(params.code ?? ""))
       const secret = String(params.secret ?? "")
@@ -128,7 +171,8 @@ export const conversationMutate = async (env: Env, principal: Principal, frame: 
     default: {
       const { conversation, ...rest } = params as { conversation?: unknown }
       if (typeof conversation !== "string") return reject(key, "validation.invalid", `${frame.op} needs a conversation`)
-      return conversationStub(env, conversation).submit(conversation, principal, { ...frame, params: rest })
+      const who = frame.op === "participants.add" ? await withOwnedAgents(env, principal) : principal
+      return conversationStub(env, conversation).submit(conversation, who, { ...frame, params: rest })
     }
   }
 }

@@ -18,6 +18,7 @@ import { CoreHost } from "../test/support/harness.ts"
 import { cloudCases } from "./cloud-cases.ts"
 import { localCases } from "./local-cases.ts"
 import { searchCases } from "./search-cases.ts"
+import { importCases } from "./import-cases.ts"
 
 export type Expect = string | "commit"
 
@@ -101,3 +102,10 @@ writeFileSync(
   `${JSON.stringify({ format: "cmux-conversation-search/1", notes: ["Each case: {name, actor, input {query, limit 1-100}, sources [{head, messages}], expect {hits} | {reject}}. Run searchConversations(actor, input, sources) and compare JSON values exactly (order and snippets included)."], cases: search }, null, 1)}\n`
 )
 console.log(`conversation-search-cases.json: ${search.length} cases`)
+
+const imports = importCases()
+writeFileSync(
+  new URL("conversation-import-cases.json", import.meta.url),
+  `${JSON.stringify({ format: "cmux-conversation-import/1", notes: ["Cloud only. Replay the cases in order on one ConversationDO (MemoryRows) with origin user; compare ok, the reject code, or the head, value and number of row writes."], cases: imports }, null, 1)}\n`
+)
+console.log(`conversation-import-cases.json: ${imports.length} cases`)
