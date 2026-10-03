@@ -29,14 +29,14 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nextWorkspaceGroup",
                 title: String(localized: "action.nextWorkspaceGroup", defaultValue: "Next Workspace Group", bundle: .module),
-                keywords: ["group", "switch"], defaultShortcut: Shortcut("]", modifiers: [.command, .control, .shift]),
+                keywords: ["group", "switch"], defaultShortcut: Shortcut("]", modifiers: [.command, .control, .option, .shift]),
                 category: .workspace, symbol: "chevron.down.circle", surfaces: [.palette, .keyboard],
                 targets: [.workspace], cliName: "workspace-group next"
             ),
             ActionDescriptor(
                 id: "prevWorkspaceGroup",
                 title: String(localized: "action.prevWorkspaceGroup", defaultValue: "Previous Workspace Group", bundle: .module),
-                keywords: ["group", "switch"], defaultShortcut: Shortcut("[", modifiers: [.command, .control, .shift]),
+                keywords: ["group", "switch"], defaultShortcut: Shortcut("[", modifiers: [.command, .control, .option, .shift]),
                 category: .workspace, symbol: "chevron.up.circle", surfaces: [.palette, .keyboard],
                 targets: [.workspace], cliName: "workspace-group previous"
             ),
