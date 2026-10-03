@@ -9,7 +9,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let scrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
 
-    static func showWorkspaceTabsDescriptor(group: SettingsText) -> SettingDescriptor {
+    static func showWorkspaceTabsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showWorkspaceTabsPath, section: .appearance, group: group,
                           title: SettingsText.keyed("settings.sidebar.showWorkspaceTabs", "Show Workspace Tabs"),
                           help: SettingsText.keyed("settings.sidebar.showWorkspaceTabs.help", "Lists tabs beneath each workspace in the sidebar."),
