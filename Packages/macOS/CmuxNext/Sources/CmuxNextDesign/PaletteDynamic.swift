@@ -31,6 +31,8 @@ enum PaletteDynamic {
     static let attention = token(\.attention)
     static let danger = token(\.danger)
     static let success = token(\.success)
+    static let highlight = token(\.highlight)
+    static let highlightText = token(\.highlightText)
     static let textOnPrimary = token(\.contentBackground, opaque: true)
 
     private static func token(_ keyPath: any KeyPath<ThemeTokens, ThemeRGB> & Sendable, opaque: Bool = false) -> NSColor {

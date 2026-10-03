@@ -79,7 +79,6 @@ test("the sidebar groups sessions by folder, marks them, and selects on click", 
     ["home", "15"],
     ["agent.chat.list", "15"],
     ["history", "15"],
-    ["git.pullrequest", "15"],
     ["action.more", "15"],
   ]);
   // The state is part of the row's accessible name.
@@ -267,7 +266,6 @@ test("the rail switches the list; the sessions view adds New chat, project marks
     "New chat",
     "Sessions, needs input",
     "History",
-    "Pull requests",
     "Closed sessions",
   ]);
   expect(rail[1].getAttribute("aria-current")).toBe("page");
@@ -290,8 +288,6 @@ test("the rail switches the list; the sessions view adds New chat, project marks
   );
 
   await act(async () => rail[3].click());
-  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No pull requests yet");
-  await act(async () => rail[4].click());
   expect(container.querySelector(".acpmux-sidebar-title")?.textContent).toBe("Closed sessions");
   expect(titles()).toEqual(["Ship the redirect"]);
   await act(async () => root.unmount());
@@ -310,5 +306,27 @@ test("as a history layer, rows already open in a tab say so", async () => {
   const rows = [...container.querySelectorAll(".acpmux-session-row")];
   expect(rows.map((row) => row.classList.contains("is-open"))).toEqual([true, false]);
   expect(rows[0]!.getAttribute("aria-label")).toBe("Fix the checkout page, Already open in a tab");
+  await act(async () => root.unmount());
+});
+
+test("with preview features on, the rail offers Pull requests; turned off it falls back and stays on Sessions", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const render = (preview: boolean) =>
+    act(async () => root.render(createElement(SessionSidebar, { sessions, onSelect: () => undefined, preview })));
+  const pulls = () =>
+    [...container.querySelectorAll<HTMLButtonElement>(".acpmux-rail-button")].find(
+      (button) => button.getAttribute("aria-label") === "Pull requests",
+    );
+  await render(true);
+  await act(async () => pulls()!.click());
+  expect(container.querySelector(".acpmux-sidebar-empty")?.textContent).toBe("No pull requests yet");
+  await render(false);
+  expect(pulls()).toBeUndefined();
+  expect(container.querySelector(".acpmux-sidebar-title")).toBeNull();
+  // Turning it back on keeps the session list rather than reopening a view the user left.
+  await render(true);
+  expect(container.querySelector(".acpmux-sidebar-title")).toBeNull();
+  expect(pulls()!.getAttribute("aria-current")).not.toBe("page");
   await act(async () => root.unmount());
 });
