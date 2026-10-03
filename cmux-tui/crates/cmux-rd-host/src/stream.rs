@@ -37,6 +37,8 @@ pub struct SessionCfg {
     pub profile: String,
     /// `openh264` (default) or `x264` (feature).
     pub codec: String,
+    /// `screen` (default) or `camera` (openh264 usage).
+    pub content: String,
     pub threads: u16,
     pub stats_every_ms: u64,
     /// Quiet time after damage before a capture (0 disables).
@@ -120,6 +122,7 @@ impl MediaSession {
             kbps: cfg.start_kbps,
             threads: cfg.threads,
             codec: &cfg.codec,
+            screen_content: cfg.content != "camera",
             preset: &cfg.preset,
             profile: &cfg.profile,
         })?;

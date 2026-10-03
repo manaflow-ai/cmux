@@ -43,6 +43,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         // High for hardware decoders (VideoToolbox); the Linux bench decoder needs baseline.
         profile: opts.str_or("profile", "high"),
         codec: opts.str_or("codec", "openh264"),
+        content: opts.str_or("content", "screen"),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
         settle_us: opts.num_or("settle-us", 1000)?,

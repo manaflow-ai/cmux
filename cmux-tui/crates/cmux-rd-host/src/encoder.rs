@@ -27,6 +27,10 @@ pub struct EncCfg<'a> {
     pub threads: u16,
     /// `openh264` (default) or `x264` (needs the `x264` feature).
     pub codec: &'a str,
+    /// openh264 usage: screen content (default; codes scrolling text with motion search
+    /// at a small fraction of the camera mode's bitrate, but turns large changes into
+    /// IDRs) or camera.
+    pub screen_content: bool,
     /// x264 only.
     #[cfg_attr(not(feature = "x264"), allow(dead_code))]
     pub preset: &'a str,
@@ -81,8 +85,11 @@ impl OpenH264 {
         // SAFETY: plain version query.
         let v = unsafe { APILoader::WelsGetCodecVersion() };
         let name = format!(
-            "openh264 {}.{}.{} camera-realtime baseline rc=bitrate frameskip=on gop=inf",
-            v.uMajor, v.uMinor, v.uRevision
+            "openh264 {}.{}.{} {} baseline rc=bitrate frameskip=on gop=inf",
+            v.uMajor,
+            v.uMinor,
+            v.uRevision,
+            if cfg.screen_content { "screen-realtime" } else { "camera-realtime" }
         );
         let this = Self { enc, info: Box::default(), kbps: cfg.kbps.max(100), name };
         let vt = this.vtbl();
@@ -91,8 +98,9 @@ impl OpenH264 {
         unsafe { ok(vt.GetDefaultParams.ok_or("no GetDefaultParams")?(enc, &mut p), "defaults")? };
         let threads = cfg.threads.max(1);
         let bitrate = (this.kbps * 1000) as c_int;
-        // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes.
-        p.iUsageType = CAMERA_VIDEO_REAL_TIME;
+        // Camera usage honors "no scene-change IDR"; screen usage forces one on large changes
+        // but is the only mode that codes a text scroll cheaply (prototype: 73x less).
+        p.iUsageType = if cfg.screen_content { SCREEN_CONTENT_REAL_TIME } else { CAMERA_VIDEO_REAL_TIME };
         p.iPicWidth = cfg.width as c_int;
         p.iPicHeight = cfg.height as c_int;
         p.fMaxFrameRate = cfg.fps as f32;
