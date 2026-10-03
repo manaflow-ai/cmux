@@ -34,8 +34,9 @@ struct CloudWorkspaceSidebarPresentation {
 
     /// Returns the current device-workspace label for callers without a full presentation.
     @MainActor
-    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog = .shared) -> String? {
-        deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
+    static func deviceLabel(workspace: Workspace, catalog: SurfaceCatalog? = nil) -> String? {
+        let catalog = catalog ?? SurfaceCatalog.shared
+        return deviceLabel(workspace: workspace, machines: deviceMachines(for: workspace, catalog: catalog), catalog: catalog)
     }
 
     static var unavailableDirectory: String {
@@ -44,7 +45,8 @@ struct CloudWorkspaceSidebarPresentation {
 
     @MainActor
     /// Builds the immutable remote sidebar identity and directory presentation.
-    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog = .shared) {
+    init?(workspace: Workspace, orderedPanelIDs: [UUID], usesLastSegmentPath: Bool, catalog: SurfaceCatalog? = nil) {
+        let catalog = catalog ?? SurfaceCatalog.shared
         let state = workspace.cloudBindingState
 
         func machineMetadata(for id: String) -> String? {

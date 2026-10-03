@@ -21,7 +21,7 @@ extension CloudTreeOutlineView.Coordinator {
         outline.machineLift.begin(
             sequence: session.draggingSequenceNumber, source: node, siblings: scope.siblings, pressY: pressY
         ) { machines in
-            withProgrammaticUpdate {
+            self.withProgrammaticUpdate {
                 for machine in machines { outline.collapseItem(machine) }
             }
         }
@@ -67,7 +67,7 @@ extension CloudTreeOutlineView.Coordinator {
                         outline.expandItem(machine)
                     }
                 }
-                restoreSelection(in: outline)
+                self.restoreSelection(in: outline)
             }
         }, mutate: commit)
     }

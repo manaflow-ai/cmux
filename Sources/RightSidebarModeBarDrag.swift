@@ -11,7 +11,7 @@ import SwiftUI
 @MainActor
 @Observable
 final class RightSidebarModeBarDragController {
-    static let coordinateSpace = "RightSidebarModeBarTabs"
+    nonisolated static let coordinateSpace = "RightSidebarModeBarTabs"
     /// Gentle and nearly critically damped: the tabs part without bouncing.
     static let spring = Animation.spring(response: 0.28, dampingFraction: 0.86)
 
