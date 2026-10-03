@@ -19,6 +19,12 @@ use crate::store::{OpenError, Store};
 
 const RING: usize = 10_000;
 
+/// The largest op the owner logs, as serialized JSON. One log record (the op
+/// plus its small result) must fit one replica range (the TeamVmDO journal
+/// takes 1 MiB per append), so a large op is refused here as `invalid`
+/// instead of stopping the writer at the flush.
+pub const MAX_OP_BYTES: usize = 256 * 1024;
+
 pub struct Outcome {
     pub reply: Result<Value, ErrorBody>,
     pub settled: Settled,
@@ -262,6 +268,16 @@ impl Engine {
             grants,
             op,
         };
+        let size = serde_json::to_vec(&envelope).map_or(usize::MAX, |bytes| bytes.len());
+        if size > MAX_OP_BYTES {
+            return (
+                Err(ErrorBody::new(
+                    ErrorCode::Invalid,
+                    format!("{} is {size} bytes; the limit is {MAX_OP_BYTES}", request.op),
+                )),
+                Vec::new(),
+            );
+        }
         let now = (self.clock)();
         match self.store.stage(&envelope, now) {
             Ok(commit) => {

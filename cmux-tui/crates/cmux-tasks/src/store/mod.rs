@@ -33,7 +33,9 @@ use cmux_tasks_core::event::EventKind;
 use cmux_tasks_core::{Commit, Ctx, Envelope, Reject, State, reduce};
 use serde::{Deserialize, Serialize};
 
-pub use durability::{Durability, EpochClaim, NoopReplica, Replica};
+pub use durability::{
+    Durability, EpochClaim, Journal, JournalReplica, NoopReplica, RangeLimit, Replica,
+};
 pub use segment::Record;
 
 pub const FORMAT: u32 = 1;
@@ -243,12 +245,13 @@ impl Store {
                         high_water + 1
                     )));
                 }
-                replica.commit(
-                    epoch.unwrap_or(0),
-                    high_water + 1,
-                    state.seq,
-                    &segment::lines(&tail)?,
-                )?;
+                // Ranges of whole records under the replica's limit, in
+                // order (the TeamVmDO journal takes at most 1 MiB and
+                // 100,000 sequences per append).
+                let bytes = segment::lines(&tail)?;
+                let lines: Vec<&[u8]> = bytes.split_inclusive(|b| *b == b'\n').collect();
+                let seqs: Vec<u64> = tail.iter().map(|r| r.seq).collect();
+                durability::ship(replica.as_mut(), epoch.unwrap_or(0), &seqs, &lines)?;
             }
         }
         let writer =
@@ -304,17 +307,28 @@ impl Store {
         if let Some(fence) = &self.fence {
             fence.check()?;
         }
-        let bytes = self.writer.append(&records)?;
+        let bytes = segment::lines(&records)?;
+        let lines: Vec<&[u8]> = bytes.split_inclusive(|b| *b == b'\n').collect();
+        // A record that alone exceeds the replica's range limit can never
+        // ship: refuse it before the local append (the engine bounds op
+        // size, so this is a last guard). A group commit over the limit
+        // ships as several ranges.
+        if let Some(limit) = self.replica.range_limit()
+            && let Some((record, line)) =
+                records.iter().zip(&lines).find(|(_, line)| line.len() > limit.max_bytes)
+        {
+            return Err(durability::oversize(record.seq, line.len(), limit));
+        }
+        self.writer.append(&records, &bytes)?;
         // Check again after the fsync: a stale owner that paused between the
         // first check and the append must never acknowledge (recovery drops
         // its records by epoch, segment::drop_superseded).
         if let Some(fence) = &self.fence {
             fence.check()?;
         }
-        let first = records.first().map_or(0, |r| r.seq);
-        let last = records.last().map_or(0, |r| r.seq);
         let epoch = self.fence.as_ref().map_or(0, durability::EpochFence::epoch);
-        self.replica.commit(epoch, first, last, &bytes)?;
+        let seqs: Vec<u64> = records.iter().map(|r| r.seq).collect();
+        durability::ship(self.replica.as_mut(), epoch, &seqs, &lines)?;
         if self.state.seq - self.last_snapshot >= self.limits.snapshot_every {
             snapshot::write(&self.dir.join("snapshots"), &self.state)?;
             self.last_snapshot = self.state.seq;

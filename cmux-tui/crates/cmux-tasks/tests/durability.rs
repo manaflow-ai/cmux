@@ -8,7 +8,10 @@ use std::sync::{Arc, Mutex};
 use cmux_tasks::engine::{Clock, Engine};
 use cmux_tasks::identity::Caller;
 use cmux_tasks::protocol::{ErrorCode, Request};
-use cmux_tasks::store::{Durability, EpochClaim, Limits, OpenError, Replica};
+use cmux_tasks::store::{
+    Durability, EpochClaim, Journal, JournalReplica, Limits, NoopReplica, OpenError, RangeLimit,
+    Replica,
+};
 use cmux_tasks_core::ids::Principal;
 use serde_json::json;
 
@@ -307,4 +310,148 @@ fn a_torn_line_in_a_stale_owners_segment_does_not_block_recovery() {
     let engine = open(dir.path(), claim(2, "host_b"), &shipped).unwrap();
     assert_eq!(engine.state().seq, 2);
     assert!(fs::read_to_string(&files[0]).unwrap().ends_with('\n'), "the torn line is gone");
+}
+
+/// The TeamVmDO journal's rules (team VM plan, e4c59605b9e): one append per
+/// range, `first_seq = high_water + 1`, at most 1 MiB and 100,000 sequences,
+/// refused after a higher epoch.
+#[derive(Clone, Default)]
+struct TeamVmJournal {
+    appends: Shipped,
+}
+
+impl Journal for TeamVmJournal {
+    fn append(
+        &mut self,
+        stream: &str,
+        epoch: u64,
+        first: u64,
+        last: u64,
+        bytes: &[u8],
+    ) -> io::Result<()> {
+        assert_eq!(stream, "tasks");
+        let mut appends = self.appends.lock().unwrap();
+        let high_water = appends.last().map_or(0, |a| a.2);
+        let max_epoch = appends.iter().map(|a| a.0).max().unwrap_or(0);
+        let limit = RangeLimit::TEAM_VM_JOURNAL;
+        if first != high_water + 1 || last < first || epoch < max_epoch {
+            return Err(io::Error::other(format!("refused: {first}..={last} after {high_water}")));
+        }
+        if bytes.len() > limit.max_bytes || last - first + 1 > limit.max_seqs {
+            return Err(io::Error::other(format!("refused: {} bytes over the limit", bytes.len())));
+        }
+        let lines = bytes.split_inclusive(|b| *b == b'\n').count() as u64;
+        assert_eq!(lines, last - first + 1, "whole records, one per sequence");
+        appends.push((epoch, first, last, bytes.to_vec()));
+        Ok(())
+    }
+
+    fn high_water(&mut self, stream: &str) -> io::Result<u64> {
+        assert_eq!(stream, "tasks");
+        Ok(self.appends.lock().unwrap().last().map_or(0, |a| a.2))
+    }
+}
+
+fn open_journal(dir: &std::path::Path, journal: &TeamVmJournal) -> Result<Engine, OpenError> {
+    let replica = Box::new(JournalReplica::new("tasks", journal.clone()));
+    Engine::open_durable(
+        dir,
+        "t",
+        "CMX",
+        clock(),
+        Limits::default(),
+        Durability { epoch: claim(1, "host_a"), replica },
+    )
+}
+
+/// About 200 KiB per op, so 1 MiB holds four or five records.
+fn big(i: u64) -> Request {
+    let mut r = request(i, None);
+    r.params["description"] = json!("x".repeat(200 * 1024));
+    r
+}
+
+fn assert_journal_holds_the_log(journal: &TeamVmJournal, dir: &std::path::Path, seqs: u64) {
+    let appends = journal.appends.lock().unwrap();
+    let mut next = 1;
+    for (_, first, last, bytes) in appends.iter() {
+        assert_eq!(*first, next, "ranges are consecutive and in order");
+        assert!(bytes.len() <= RangeLimit::TEAM_VM_JOURNAL.max_bytes);
+        next = last + 1;
+    }
+    assert_eq!(next, seqs + 1);
+    let all: Vec<u8> = appends.iter().flat_map(|a| a.3.clone()).collect();
+    assert_eq!(all, log_bytes(dir), "the journal holds exactly the local log");
+}
+
+/// Coordinator item: the re-ship of a large unshipped tail at open splits
+/// into journal appends of at most 1 MiB of whole records, in order.
+#[test]
+fn a_large_unshipped_tail_ships_in_journal_sized_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    {
+        // The store ran with the local fsync as its only copy (no journal
+        // yet), then moves onto the journal: everything is an unshipped tail.
+        let mut engine = Engine::open_durable(
+            dir.path(),
+            "t",
+            "CMX",
+            clock(),
+            Limits::default(),
+            Durability { epoch: claim(1, "host_a"), replica: Box::new(NoopReplica) },
+        )
+        .unwrap();
+        for i in 1..=12 {
+            engine.handle(&me(), big(i)).unwrap().reply.unwrap();
+        }
+    }
+    assert!(log_bytes(dir.path()).len() > 2 * RangeLimit::TEAM_VM_JOURNAL.max_bytes);
+    let journal = TeamVmJournal::default();
+    let mut engine = open_journal(dir.path(), &journal).unwrap();
+    assert!(journal.appends.lock().unwrap().len() >= 3, "the tail ships as several appends");
+    assert_journal_holds_the_log(&journal, dir.path(), 12);
+    engine.handle(&me(), request(13, None)).unwrap().reply.unwrap();
+    assert_journal_holds_the_log(&journal, dir.path(), 13);
+}
+
+/// A group commit over 1 MiB ships as several ranges before any reply.
+#[test]
+fn a_group_commit_over_the_journal_limit_ships_in_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TeamVmJournal::default();
+    let mut engine = open_journal(dir.path(), &journal).unwrap();
+    let batch: Vec<_> = (1..=10).map(|i| (me(), big(i))).collect();
+    for outcome in engine.handle_batch(batch).unwrap() {
+        outcome.reply.unwrap();
+    }
+    assert!(journal.appends.lock().unwrap().len() >= 2);
+    assert_journal_holds_the_log(&journal, dir.path(), 10);
+}
+
+/// An op too large for one journal append is refused as `invalid`; nothing
+/// is logged or shipped and the writer keeps serving.
+#[test]
+fn an_op_over_the_size_bound_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let journal = TeamVmJournal::default();
+    let mut engine = open_journal(dir.path(), &journal).unwrap();
+    let mut huge = request(1, None);
+    huge.params["description"] = json!("x".repeat(cmux_tasks::engine::MAX_OP_BYTES + 1));
+    let err = engine.handle(&me(), huge).unwrap().reply.unwrap_err();
+    assert_eq!(err.code, ErrorCode::Invalid);
+    assert!(log_bytes(dir.path()).is_empty());
+    assert!(journal.appends.lock().unwrap().is_empty());
+    engine.handle(&me(), request(2, None)).unwrap().reply.unwrap();
+    assert_journal_holds_the_log(&journal, dir.path(), 1);
+}
+
+#[test]
+fn ranges_respect_both_limits_and_keep_whole_lines() {
+    use cmux_tasks::store::durability::split_ranges;
+    let limit = RangeLimit { max_bytes: 10, max_seqs: 3 };
+    assert_eq!(split_ranges(&[], limit), Ok(vec![]));
+    assert_eq!(split_ranges(&[4, 4, 4, 4], limit), Ok(vec![0..2, 2..4]), "bytes");
+    assert_eq!(split_ranges(&[1, 1, 1, 1, 1, 1, 1], limit), Ok(vec![0..3, 3..6, 6..7]), "seqs");
+    assert_eq!(split_ranges(&[10, 10], limit), Ok(vec![0..1, 1..2]), "exactly the limit fits");
+    assert_eq!(split_ranges(&[3, 11, 2], limit), Err(1), "one line over the limit");
 }

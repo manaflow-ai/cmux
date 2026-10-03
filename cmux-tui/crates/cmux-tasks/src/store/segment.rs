@@ -121,11 +121,10 @@ impl Writer {
         Ok(Self { dir: dir.to_owned(), file, size, max, next_seq, epoch })
     }
 
-    /// Append records and fsync once; returns the appended bytes. Rotates
+    /// Append records (`buffer` = `lines(records)`) and fsync once. Rotates
     /// afterwards when the segment is full.
-    pub fn append(&mut self, records: &[Record]) -> io::Result<Vec<u8>> {
-        let buffer = lines(records)?;
-        self.file.write_all(&buffer)?;
+    pub fn append(&mut self, records: &[Record], buffer: &[u8]) -> io::Result<()> {
+        self.file.write_all(buffer)?;
         self.file.sync_data()?;
         self.size += buffer.len() as u64;
         if let Some(last) = records.last() {
@@ -137,7 +136,7 @@ impl Writer {
             super::sync_dir(&self.dir)?;
             self.size = 0;
         }
-        Ok(buffer)
+        Ok(())
     }
 }
 
