@@ -62,6 +62,14 @@ test("notion: accounts, search and a page as Markdown (chunked load plus missing
   noSecrets(s.repl.scope);
 });
 
+test("notion: { origin } accepts only Notion's own origins", async () => {
+  const before = env.state.requests.length;
+  assert.match(await s.error('sites.notion.accounts({ origin: "https://github.com" })'), /origin: expected one of https:\/\/app\.notion\.com, https:\/\/www\.notion\.so/);
+  assert.match(await s.error('sites.notion.append("1a2b3c4d00004000800000000000abcd", "x", { origin: "https://github.com" })'), /origin: expected one of/);
+  assert.ok(!env.state.requests.slice(before).some((r) => r.url.startsWith("https://github.com/")), "no request left Notion");
+  assert.equal((await s.value('sites.notion.accounts({ origin: "https://app.notion.com" })'))[0].email, "ada@example.com");
+});
+
 test("notion.append: draft converts Markdown; the confirmed draft writes set + listAfter operations after the last block", async () => {
   const d = await s.value('sites.notion.append("1a2b3c4d00004000800000000000abcd", "## Update\\n- [ ] follow up\\nPlain **bold** line")');
   assert.equal(d.preview.blocks, 3);
