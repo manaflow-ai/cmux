@@ -414,7 +414,7 @@ export class MuxHost {
       else this.onAcpmuxNotification(n);
     });
     try {
-      const sessionId = await this.ensureMuxSession(acpmux);
+      const { sessionId, created } = await this.ensureMuxSession(acpmux);
       // The session list from the watch call itself has no gap to the change
       // notifications; an acpmux that does not return one is listed after watch.
       const watched = (await acpmux.watch(true)) as { sessions?: unknown } | undefined;
@@ -437,6 +437,7 @@ export class MuxHost {
         events,
         ...(cursorReset ? { cursor_reset: true } : {}),
         ...(logId === undefined ? {} : { log_id: logId }),
+        ...(created ? { created: true } : {}),
       });
       const queued = held;
       held = undefined;
@@ -467,9 +468,10 @@ export class MuxHost {
   }
 
   /** The `mux` acpmux session, created with the mux's cwd, harness and policy when missing. */
-  private async ensureMuxSession(acpmux: AcpmuxClient): Promise<string> {
+  /** The `mux` session id, and whether this call created it (a new log). */
+  private async ensureMuxSession(acpmux: AcpmuxClient): Promise<{ sessionId: string; created: boolean }> {
     const existing = (await acpmux.sessions()).find((s) => s.name === MUX_SESSION_NAME);
-    if (existing) return existing.sessionId;
+    if (existing) return { sessionId: existing.sessionId, created: false };
     const { sessionId } = await acpmux.newSession({
       cwd: this.options.paths.session,
       name: MUX_SESSION_NAME,
@@ -478,7 +480,7 @@ export class MuxHost {
       mcpServers: this.options.mcpServers,
     });
     this.log(`created acpmux session ${MUX_SESSION_NAME} (${this.options.harness})`);
-    return sessionId;
+    return { sessionId, created: true };
   }
 
   private onAcpmuxNotification(n: Notification): void {

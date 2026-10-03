@@ -73,6 +73,8 @@ export type Input =
       cursor_reset?: boolean;
       /** The log's identity: the `at` of its seq 1 event (absent for an empty log). */
       log_id?: number;
+      /** The shell created the session on this connect: its log is new, nothing can reuse its keys. */
+      created?: boolean;
     }
   | { kind: "acpmux_event"; event: AcpmuxEvent }
   | { kind: "session_changed"; session: SessionSummary }
@@ -197,7 +199,14 @@ export class Core {
         this.opResult(input.idempotency_key, input.reason, input.change);
         break;
       case "acpmux_connected":
-        this.acpmuxConnected(input.session_id, input.sessions, input.events, input.cursor_reset === true, input.log_id);
+        this.acpmuxConnected(
+          input.session_id,
+          input.sessions,
+          input.events,
+          input.cursor_reset === true,
+          input.log_id,
+          input.created === true,
+        );
         break;
       case "acpmux_event":
         if (input.event.sessionId !== undefined && input.event.sessionId === this.muxSession)
@@ -517,7 +526,9 @@ export class Core {
    *   max(identity, else now; previous epoch + 1), so a repeated import of the
    *   same bundle still gets a new epoch;
    * - a session host.json does not know (a lost or replaced host.json) with a
-   *   non-empty log: earlier epochs are unknown, so the epoch is now.
+   *   non-empty log, unless the shell created it on this connect (`created`:
+   *   a new log, whose only event is acpmux's created event): earlier epochs
+   *   are unknown, so the epoch is now.
    * Keys are `turn:<session>:<seq>` while no reset happened (the identity
    * equals host.json's), else `turn:<session>:<epoch>:<seq>`. The replay of a
    * reset posts no promptless turn; turns of prompts the core no longer holds
@@ -529,6 +540,7 @@ export class Core {
     events: AcpmuxEvent[],
     cursorReset: boolean,
     logId: number | undefined,
+    created: boolean,
   ): void {
     if (this.acpmuxUp) this.disconnected("acpmux");
     const first = events[0];
@@ -539,7 +551,7 @@ export class Core {
       this.state.acpmuxSeq = 0;
       delete this.state.acpmuxEpoch;
       delete this.state.acpmuxLog;
-      if (identity !== undefined) {
+      if (identity !== undefined && !created) {
         reset = true;
         this.state.acpmuxEpoch = this.now;
       }
