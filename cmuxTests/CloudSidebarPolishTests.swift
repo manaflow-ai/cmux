@@ -18,9 +18,9 @@ struct CloudSidebarPolishTests {
             id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
         )
         #expect(!operation.hitMachineLimit)
-        operation.phase = .failed("Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)")
+        operation.phase = .failed(output: "Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)")
         #expect(operation.hitMachineLimit)
-        operation.phase = .failed("Error: The Cloud VM service is temporarily unavailable.")
+        operation.phase = .failed(output: "Error: The Cloud VM service is temporarily unavailable.")
         #expect(!operation.hitMachineLimit)
         for plan in ["free", "go", "pro", "unknown"] {
             #expect(MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
