@@ -3,7 +3,12 @@ import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type DiffLine = { type: "context" | "add" | "del"; text: string; oldLine?: number; newLine?: number };
-export type DiffHunk = { lines: DiffLine[] };
+export type DiffHunk = {
+  lines: DiffLine[];
+  /// Checkpoint hunks can point back to the tool hunks that produced them. The tool view leaves
+  /// this unset and uses its own hunkKey as the review identity.
+  reviewKeys?: string[];
+};
 /// One tool call's change to a file. Line numbers are known for a new file, a file the agent
 /// sent whole, or an edit whose tool call located its first line; a bare fragment has none.
 export type DiffEdit = { toolId: string; hunks: DiffHunk[]; numbered: boolean };
@@ -19,6 +24,8 @@ export type TurnFile = {
   binary?: boolean;
   /// A turn checkpoint's file that none of the turn's tool calls changed: read-only.
   outside?: boolean;
+  /// The host returned only part of this file's patch, so hunk review is unsafe.
+  patchTruncated?: boolean;
 };
 
 /// Lines unchanged around a change that a hunk keeps, as `git diff` does.
