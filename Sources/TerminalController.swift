@@ -4282,6 +4282,12 @@ class TerminalController {
         // re-enter this on the main actor mid-restore, so degrade gracefully.
         guard app.didCompleteInitialSessionRestore else { return }
 
+        // #5757: Skip the expensive full-tree scan if topology has not changed.
+        // Commands calling `controlResolveOnMain` or reading surfaces otherwise force
+        // O(windows * tabs * panes) handle sweeps on every RPC hop, freezing the MainActor
+        // during heavy multi-agent activity.
+        guard controlCommandCoordinator.needsHandleTopologyRefresh else { return }
+
         let windows = app.listMainWindowSummaries()
         for item in windows {
             _ = v2EnsureHandleRef(kind: .window, uuid: item.windowId)
