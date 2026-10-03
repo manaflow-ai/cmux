@@ -76,6 +76,34 @@ struct BrowserReplSecretRedactionTests {
         #expect(output.contains("masked true 255 128"), "\(output)")
     }
 
+    @Test("fs.readFile returns a loaded secret's value masked, from text and from bytes")
+    func readFileIsRedacted() async throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-repl-redaction-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Data(#"{"example.com":{"pw":"\#(Self.value)"}}"#.utf8).write(to: work.appendingPathComponent("secrets.json"))
+        var blob = Data([0xff, 0x00])
+        blob.append(Data(Self.value.utf8))
+        blob.append(Data([0x80]))
+        try blob.write(to: work.appendingPathComponent("blob.bin"))
+        let session = try #require(makeSession(ScriptedPageDriver(), cwd: work.path))
+        defer { session.close() }
+        let result = await run(session, """
+        const fs = await import("node:fs");
+        secrets.load("./secrets.json");
+        const text = fs.readFileSync("./secrets.json", "utf8");
+        console.log(text.split("").join(" "));
+        const bytes = fs.readFileSync("./blob.bin");
+        const latin = Array.from(bytes, (b) => String.fromCharCode(b)).join("");
+        console.log(latin.split("").join(" "));
+        console.log("masked", text.includes("<secret:pw>"), latin.includes("<secret:pw>"), bytes[0], bytes[bytes.length - 1]);
+        """)
+        let output = result?.lines.map(\.text).joined(separator: "\n") ?? ""
+        #expect(result?.error == nil, "\(result?.error ?? "")")
+        #expect(!output.contains(spelled(Self.value)), "\(output)")
+        #expect(output.contains("masked true true 255 128"), "\(output)")
+    }
+
     private func currentCode() -> String {
         BrowserReplSecretStore.totp(key: BrowserReplSecretStore.base32Decode(Self.totpSeed) ?? Data(), time: Date().timeIntervalSince1970)
     }
