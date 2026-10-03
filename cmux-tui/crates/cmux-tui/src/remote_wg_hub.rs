@@ -169,7 +169,6 @@ fn start_wireguard_hub_tunnel(
     Ok((Arc::new(net), paths))
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
