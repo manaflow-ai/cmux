@@ -53,6 +53,8 @@ import PackageDescription
 //   CmuxNextServer -> Design (server menubar panel, pairing, approver sheet and health prototypes
 //     over a projection of `server.status`; no daemon; the App supplies the source;
 //     plans/cmux-next/server.md)
+//   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
+//     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -398,6 +400,23 @@ let package = Package(
         .testTarget(
             name: "CmuxNextFeedTests",
             dependencies: ["CmuxNextFeed"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Remote desktop pane (plans/cmux-next/remote-desktop.md section 7):
+        // VideoToolbox decode, presenter variants, chrome A, input capture and
+        // a VideoToolbox mock host. Transport neutral; not wired into the app yet.
+        .target(
+            name: "CmuxNextRemoteView",
+            dependencies: ["CmuxNextDesign"],
+            exclude: ["README.md"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextRemoteViewTests",
+            dependencies: ["CmuxNextRemoteView", "CmuxNextDesign"],
             swiftSettings: uiSwiftSettings
         ),
         // cmux server (plans/cmux-next/server.md sections 6, 9, 13, 14): the
