@@ -227,6 +227,10 @@ risk class. Token ops are `mcp.expose: never`.
    the journal field. Then the `frontend` actor (launcher fd, `client.hello`
    proof, `forwarded`) and `secret.register|release` with its own store and
    audit record (daemon owner review with this slice).
+   - feed-local-handoff-begin and feed-local-handoff-done (lane 9's new
+     local-admin, Unix-only commands) are restricted to the frontend/user
+     actor; until then any local agent can call them (coordinator decision
+     2026-10-03).
 4. `terminal.for_pid` and pid-ancestry stamping; acpmux mints per ACP session.
 5. App side: `action.run` verifies the credential and records the actor.
 6. Tailnet mode. 7. HTTP MCP with scoped revocable tokens.
