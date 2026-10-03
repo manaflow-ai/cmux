@@ -123,7 +123,7 @@ actor RecordBox { var value: InstallRecord?; func set(_ v: InstallRecord?) { val
 func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRecord? = nil, session: Bool = true,
                 box: RecordBox = RecordBox(), clock: TestClock = TestClock()) -> InstallAuthClient {
     InstallAuthClient(transport: owner, signer: signer, sessionToken: session ? { @Sendable in "session-token" } : nil,
-                      stackUser: "stack_1", environment: "staging", deviceName: "Aziz", record: record,
+                      stackUser: "stack_1", deviceName: "Aziz", record: record,
                       onRecord: { await box.set($0) }, now: { clock.now })
 }
 
@@ -192,6 +192,23 @@ func makeClient(_ owner: FakeOwner, _ signer: SoftwareSigner, record: InstallRec
         await owner.setEnvironment(environment)
         let client = makeClient(owner, SoftwareSigner())
         #expect(try await client.installToken() == FakeOwner.expectedToken(1, environment: environment))
+        #expect(await client.environment == environment)
+    }
+
+    @Test func aTokenFromAnotherEnvironmentIsRefused() async throws {
+        let owner = FakeOwner()
+        await owner.setIssuerOverride("production")
+        let client = makeClient(owner, SoftwareSigner())
+        await #expect(throws: InstallAuthError.unexpectedChallenge) { try await client.installToken() }
+        #expect(await client.environment == nil)
+    }
+
+    @Test func malformedEnvironmentNamesAreNeverSigned() {
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nstaging\ninst_1\n", install: "inst_1") == "staging")
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\n\ninst_1\n", install: "inst_1") == nil)
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nst\naging\ninst_1\n", install: "inst_1") == nil)
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nStaging\ninst_1\n", install: "inst_1") == nil)
+        #expect(InstallAuthClient.environment(inPrefix: "cmux-auth-v1\nstaging\ninst_2\n", install: "inst_1") == nil)
     }
 
     @Test func thePhoneAsksForNoExecuteAndSignOutRevokes() async throws {
