@@ -26,15 +26,18 @@ extension HomeService {
     /// Asks the store for its home workspace, then gives it the chief tab.
     func ensureHomeWorkspace(_ connection: DaemonConnection) {
         homeWorkspaceTask?.cancel()
+        homeWorkspaceStep = "ensure_home"
         // task-owner: one ensure_home, then at most one conversation create and one tab create
         homeWorkspaceTask = Task { [weak self] in
             do {
                 let home = try await HomeWorkspaceClient(connection).ensureHome()
                 guard let self, !Task.isCancelled else { return }
                 homeWorkspaceID = home
+                homeWorkspaceStep = "ensured \(home)"
                 try await ensureChiefTab(connection, home: home)
             } catch is CancellationError {
             } catch {
+                self?.homeWorkspaceStep = "failed: \(String(describing: error))"
                 self?.logger.error("home workspace: \(String(describing: error), privacy: .public)")
             }
         }
@@ -57,8 +60,12 @@ extension HomeService {
     private func ensureChiefTab(_ connection: DaemonConnection, home: ResourceID) async throws {
         let local = services.machines.local
         guard local.supports(DaemonCapabilities.shared.conversationTabs),
-              local.supports(DaemonCapabilities.shared.localConversations) else { return }
+              local.supports(DaemonCapabilities.shared.localConversations) else {
+            homeWorkspaceStep = "no chief tab: the daemon lacks conversation tabs or local conversations"
+            return
+        }
         let chief = try await chiefConversation(connection)
+        homeWorkspaceStep = "waiting for the home workspace in the tree"
         // The tree reports a just-created home after its event; wait for it
         // (this task is cancelled by the next connection).
         var found: WorkspaceModel?
@@ -67,15 +74,22 @@ extension HomeService {
         }
         guard !Task.isCancelled, let workspace = found else { return }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-        if tabs.contains(where: { $0.kind == .conversation && $0.snapshot.conversation?.conversation == chief }) { return }
+        if tabs.contains(where: { $0.kind == .conversation && $0.snapshot.conversation?.conversation == chief }) {
+            homeWorkspaceStep = "chief tab present"
+            return
+        }
         // A pane when the home has one. An empty home needs `workspace`, which
         // daemons with the raw `Workspace.kind` field accept; an older one
         // would put the tab in the focused pane, so it waits for that pin.
         let pane = workspace.screens.first?.panes.first?.handle
-        guard pane != nil || workspace.kind != nil else { return }
+        guard pane != nil || workspace.kind != nil else {
+            homeWorkspaceStep = "no chief tab: an empty home on a daemon without Workspace.kind"
+            return
+        }
         let request = NewConversationTabRequest(conversation: chief, pane: pane, workspace: pane == nil ? workspace.handle : nil,
                                                 origin: Self.tabOrigin, mutationID: Self.chiefTabKey)
         _ = try await connection.request(request)
+        homeWorkspaceStep = "chief tab requested"
     }
 
     // MARK: Tab content

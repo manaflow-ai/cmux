@@ -26,6 +26,19 @@ enum DebugHome {
             }
             return .object(row)
         }
-        return .object(["available": .bool(home.isAvailable), "conversations": .array(conversations)])
+        let local = services.machines.local
+        let caps = DaemonCapabilities.shared
+        let workspace = home.homeWorkspace
+        let tabs = workspace?.screens.flatMap(\.panes).flatMap(\.tabs) ?? []
+        let setup: CmuxNextSettings.JSONValue = .object([
+            "step": .string(home.homeWorkspaceStep),
+            "workspace": workspace.map { .string($0.id) } ?? .null,
+            "kind": workspace?.kind.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "tab_kinds": .array(tabs.map { .string(String(describing: $0.kind)) }),
+            "workspace_kind": .bool(local.supports(caps.workspaceKind)),
+            "conversation_tabs": .bool(local.supports(caps.conversationTabs)),
+            "local_conversations": .bool(local.supports(caps.localConversations)),
+        ])
+        return .object(["available": .bool(home.isAvailable), "home_workspace": setup, "conversations": .array(conversations)])
     }
 }
