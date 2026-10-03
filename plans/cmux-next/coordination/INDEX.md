@@ -25,4 +25,5 @@ Read the lane file before changing a shared surface. Newest entries remain first
 - [server](server.md)
 - [settings](settings.md)
 - [sidebar](sidebar.md)
+- [tasks](tasks.md)
 - [team-vm](team-vm.md)
