@@ -41,6 +41,7 @@ enum AgentHandlers {
             if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
             pane.newAgentTab()
         }
+        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -158,6 +159,34 @@ enum AgentHandlers {
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Open File: the agent pane's changed files, the palette and `cmux file open`.
+    /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
+    /// invocation's pane, else the focused one.
+    private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        let path = invocation["path"]?.stringValue ?? ""
+        // The palette and the control socket accept only the catalog's choices;
+        // an in-app caller that passes another place is refused, not ignored.
+        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
+        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        let opening: AgentPaneFileOpening
+        do {
+            opening = try AgentPaneFileOpening.plan(path: path, target: target)
+        } catch AgentPaneFileRefusal.relativePath {
+            throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+        } catch AgentPaneFileRefusal.notInTab {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
+        } catch AgentPaneFileRefusal.noEditor {
+            throw ActionFailure(message: MiscHandlerStrings.noEditor)
+        } catch {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
+        }
+        if let editor = opening.editor {
+            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+        } else if let pane = context.paneController(invocation) {
+            pane.newBrowserTab(url: opening.url)
         }
     }
 

@@ -55,7 +55,7 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.export", "agentActivity.open",
         ],
         .noTargetSurface: [
-            "browserProfile.openLink",
+            "browserProfile.openLink", "file.open",
             "openLinkInDefaultBrowser",
             "openLinkInNewTab",
             "tabGroup.deleteSaved",

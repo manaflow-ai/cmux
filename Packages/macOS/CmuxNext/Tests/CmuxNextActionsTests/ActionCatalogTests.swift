@@ -71,7 +71,7 @@ import Testing
     static let expectedCounts: [ActionCategory: Int] = [
         .window: 32, // + Quit and Keep Sessions, Quit and End Sessions (Keep Layout), Quit and End Everything; + 5 history (history.md)
         .workspace: 139, // 80 + 29 room actions (plans/cmux-next/data-model.md 7) + showResources + 25 workspace verbs + 4 room/workspace theme actions
-        .pane: 71, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md)
+        .pane: 72, // + Move Pane to New Workspace, Undo Layout Change; + 4 sticky column actions (sticky-column.md); + Open File (file.open)
         .screen: 62,
         .tab: 77, // + Search Tabs (tab-search.md), New Tab Page, Focus Location Bar, - Go to Tab (an alias of Search Tabs now)
         .terminal: 35, // + Set / Reset Terminal Theme

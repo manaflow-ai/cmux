@@ -36,6 +36,19 @@ enum MiscHandlerStrings {
     static func invalidURL(_ text: String) -> String {
         String(format: String(localized: "handlers.misc.failed.invalidURL", defaultValue: "%@ is not a URL cmux can open.", table: "MiscHandlers", bundle: .module), text)
     }
+    static func fileNotFound(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.fileNotFound", defaultValue: "%@ is not a file cmux can open.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func fileNotInTab(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.fileNotInTab", defaultValue: "%@ opens in the editor, not in a tab.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func pathNotAbsolute(_ path: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.pathNotAbsolute", defaultValue: "%@ is a relative path. Give the file's absolute path.", table: "MiscHandlers", bundle: .module), path)
+    }
+    static func invalidPlace(_ place: String) -> String {
+        String(format: String(localized: "handlers.misc.failed.invalidPlace", defaultValue: "%@ is not a place to open a file. Use tab or editor.", table: "MiscHandlers", bundle: .module), place)
+    }
+    static var noEditor: String { String(localized: "handlers.misc.failed.noEditor", defaultValue: "No app on this Mac edits text.", table: "MiscHandlers", bundle: .module) }
     static func appNotFound(_ app: String) -> String {
         String(format: String(localized: "handlers.misc.failed.appNotFound", defaultValue: "No app named %@ was found.", table: "MiscHandlers", bundle: .module), app)
     }
