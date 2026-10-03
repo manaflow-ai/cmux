@@ -84,6 +84,7 @@ import type { PermissionDecision } from "./permissions/protocol";
 import { checkpointStrings, localizedCheckpointStrings } from "./checkpoints/strings";
 import { QUICK_MESSAGES, readSurface, useEscapeToDismiss, type PaneSurface } from "./paneSurface";
 import { QuickSurface } from "./QuickSurface";
+import { PaneSidePanel, PaneToolToggles, type AgentPaneTool } from "./PaneTools";
 
 type MeasurableRenderer = React.ComponentType<RowProps> & { measure?: (row: AcpmuxRow, width: number) => number };
 type NativeRegistry = Record<string, MeasurableRenderer>;
@@ -853,19 +854,19 @@ function AcpmuxPane() {
     path?: string;
     opener?: HTMLElement;
   }>();
+  const [activePanel, setActivePanel] = useState<AgentPaneTool>();
   const sessionIdRef = useRef(snapshot.sessionId);
   sessionIdRef.current = snapshot.sessionId;
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
-  const openDiff = useCallback<OpenDiff>(
-    (rowId, path, opener) =>
-      setDiffView({
-        sessionId: sessionIdRef.current,
-        rowId,
-        path,
-        opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
-      }),
-    [],
-  );
+  const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
+    setActivePanel("diff");
+    setDiffView({
+      sessionId: sessionIdRef.current,
+      rowId,
+      path,
+      opener: opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined),
+    });
+  }, []);
   // An output in the summary opens the changes of the last turn that wrote it, at that file.
   const openOutput = useCallback(
     (path: string) => {
@@ -884,9 +885,10 @@ function AcpmuxPane() {
   const closeDiff = useCallback(() => {
     closedByUser.current = true;
     setDiffView(undefined);
+    setActivePanel((current) => (current === "diff" ? undefined : current));
   }, []);
-  // Focus returns to the opener once the view is gone: until then the transcript is hidden,
-  // and a hidden control can't take focus.
+  // Focus returns to the opener once the changes view is gone. Side panels leave the transcript
+  // visible, so a top-right tool toggle does not need an opener focus handoff.
   const diffOpener = useRef<HTMLElement | undefined>(undefined);
   if (diffView?.opener) diffOpener.current = diffView.opener;
   useLayoutEffect(() => {
@@ -905,6 +907,32 @@ function AcpmuxPane() {
   useEffect(() => {
     if (diffView && !diffOpen) setDiffView(undefined);
   }, [diffView, diffOpen]);
+  const latestDiffRow = useMemo(
+    () =>
+      [...snapshot.rows]
+        .reverse()
+        .find((row) => row.kind === "activity" && row.items?.some((item) => item.tool?.diffs?.length)),
+    [snapshot.rows],
+  );
+  const togglePanel = useCallback(
+    (panel: AgentPaneTool) => {
+      if (activePanel === panel) {
+        if (panel === "diff") {
+          closedByUser.current = true;
+          setDiffView(undefined);
+        }
+        setActivePanel(undefined);
+        return;
+      }
+      if (panel === "diff" && latestDiffRow) {
+        setDiffView({ sessionId: sessionIdRef.current, rowId: latestDiffRow.id });
+      } else {
+        setDiffView(undefined);
+      }
+      setActivePanel(panel);
+    },
+    [activePanel, latestDiffRow],
+  );
   // Hunk decisions outlive the view, so reopening a turn shows what was already decided.
   const [hunkDecisions, setHunkDecisions] = useState<ReadonlyMap<string, HunkDecision>>(() => new Map());
   const hunkReview = useMemo<HunkReview>(() => {
@@ -1630,7 +1658,7 @@ function AcpmuxPane() {
             />
           ) : (
             <>
-              <div className={`acpmux-stage${diffFiles ? " acpmux-reviewing" : ""}`}>
+              <div className="acpmux-stage">
                 <header className="acpmux-header">
                   <div>
                     <button
@@ -1647,6 +1675,7 @@ function AcpmuxPane() {
                     {header.status && <span className="acpmux-status">{header.status}</span>}
                   </div>
                   <div className="acpmux-handoff-header-tools">
+                    <PaneToolToggles active={activePanel} onToggle={togglePanel} />
                     <SummaryButton rows={snapshot.rows} onOpenOutput={quick ? undefined : openOutput} />
                     <CopyChatLink sessionId={snapshot.sessionId} />
                     {checkpoints.supported && (
@@ -1704,7 +1733,7 @@ function AcpmuxPane() {
                 ) : (
                   transcript
                 )}
-                {diffView && diffFiles && (
+                {activePanel === "diff" && diffView && diffFiles ? (
                   <DiffPanel
                     files={diffDisplay?.files ?? diffFiles}
                     turn={diffDisplay}
@@ -1721,8 +1750,14 @@ function AcpmuxPane() {
                     }
                     checkpointReview={checkpoints.review}
                     review={hunkReview}
+                    className="acpmux-side-panel acpmux-side-panel-diff"
                   />
-                )}
+                ) : activePanel ? (
+                  <PaneSidePanel
+                    kind={activePanel}
+                    onClose={() => (activePanel === "diff" ? closeDiff() : setActivePanel(undefined))}
+                  />
+                ) : null}
               </div>
               {asks}
               {/* Between the hero and the docked composer. */}

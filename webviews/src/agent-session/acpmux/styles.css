@@ -312,3 +312,37 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 /* The host's error while it cannot hand the pane acpmux (HostError.tsx), laid out like the permission card. */
 .acpmux-host-error{padding:0 max(18px,calc((100% - 760px)/2)) 8px}.acpmux-host-error-card{padding:11px 12px;border:1px solid color-mix(in srgb,var(--agent-danger) 46%,transparent);border-radius:12px;background:color-mix(in srgb,var(--agent-danger) 8%,var(--agent-page-bg))}.acpmux-host-error-card p{margin:0;line-height:18px;overflow-wrap:anywhere;user-select:text;-webkit-user-select:text}.acpmux-host-error-message{color:var(--agent-text)}.acpmux-host-error-hint{margin-top:4px!important;color:var(--agent-muted);font-size:12px}.acpmux-host-error-card button{margin-top:9px;border:0;border-radius:999px;padding:6px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:default}.acpmux-host-error-card button:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
 .acpmux-host-error-card button:disabled{opacity:.6}
+
+/* Agent pane tools (PaneTools.tsx): the Claude-style controls stay compact in the header and
+   swap an opaque right-hand panel immediately. There is deliberately no transform or transition. */
+.acpmux-pane-tools{display:flex;align-items:center;gap:2px;margin-right:2px}
+.acpmux-pane-tool{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);cursor:pointer}
+.acpmux-pane-tool:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-pane-tool[aria-pressed=true]{background:color-mix(in srgb,var(--agent-text) 12%,transparent);color:var(--agent-text);box-shadow:inset 0 0 0 .5px color-mix(in srgb,var(--agent-text) 18%,transparent)}
+.acpmux-pane-tool:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-side-panel{position:absolute;z-index:5;inset:44px 0 0 auto;width:min(54%,620px);min-width:min(360px,100%);display:flex;flex-direction:column;box-sizing:border-box;overflow:hidden;border-left:1px solid var(--agent-border);background:var(--agent-page-bg);color:var(--agent-text);box-shadow:-10px 0 28px rgb(0 0 0 / 12%);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif;-webkit-font-smoothing:antialiased}
+.acpmux-side-panel-header{display:flex;align-items:center;justify-content:space-between;flex:none;height:44px;box-sizing:border-box;padding:0 10px 0 16px;border-bottom:1px solid var(--agent-border)}
+.acpmux-side-panel-header strong{font-weight:500}
+.acpmux-side-panel-close{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--agent-muted);cursor:pointer}
+.acpmux-side-panel-close:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
+.acpmux-side-panel-close:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-side-panel-empty{padding:22px 16px;color:var(--agent-muted)}
+.acpmux-side-panel-diff.acpmux-diff-panel{inset:44px 0 0 auto;width:min(54%,620px);min-width:min(360px,100%);border-left:1px solid var(--agent-border);box-shadow:-10px 0 28px rgb(0 0 0 / 12%)}
+.acpmux-side-panel-diff .acpmux-diff-header{flex:none}
+.acpmux-terminal-panel-body{display:flex;flex:1;flex-direction:column;align-items:flex-start;justify-content:flex-end;gap:12px;box-sizing:border-box;padding:16px;color:var(--agent-muted);font:12px var(--font-mono)}
+.acpmux-terminal-panel-body p{margin:0;color:var(--agent-muted);font:13px/20px system-ui,-apple-system,"Helvetica Neue",sans-serif}
+.acpmux-terminal-prompt{display:flex;align-items:center;gap:8px;width:100%;color:var(--agent-text)}
+.acpmux-terminal-prompt>span:first-child{color:var(--agent-accent);font-size:16px}
+.acpmux-terminal-caret{width:7px;height:16px;background:var(--agent-text);opacity:.7}
+.acpmux-browser-toolbar{display:flex;align-items:center;gap:2px;flex:none;height:44px;box-sizing:border-box;padding:0 10px;border-bottom:1px solid var(--agent-border)}
+.acpmux-browser-nav{display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--agent-muted)}
+.acpmux-browser-nav:disabled{opacity:.45}
+.acpmux-browser-toolbar input{flex:1;min-width:0;height:28px;box-sizing:border-box;padding:0 10px;border:1px solid var(--agent-border);border-radius:7px;background:var(--agent-input-bg,transparent);color:var(--agent-text);font:12px system-ui,-apple-system,"Helvetica Neue",sans-serif;outline:none}
+.acpmux-browser-toolbar input:focus{border-color:color-mix(in srgb,var(--agent-accent) 55%,var(--agent-border))}
+.acpmux-browser-empty{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;color:var(--agent-muted)}
+.acpmux-browser-empty svg{margin-bottom:4px;color:var(--agent-muted)}
+.acpmux-browser-empty strong{font-size:14px;font-weight:500;color:var(--agent-text)}
+.acpmux-browser-empty p{max-width:290px;margin:0;font-size:12px;line-height:18px}
+.acpmux-browser-detect{margin-top:4px;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;font-size:12px;cursor:pointer}
+.acpmux-browser-detect:hover{text-decoration:underline}
+@media (max-width:620px){.acpmux-side-panel,.acpmux-side-panel-diff.acpmux-diff-panel{width:100%;min-width:100%}}

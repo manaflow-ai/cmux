@@ -182,6 +182,20 @@ const en = {
   "turn.failed": "The turn failed",
   "preview.open": "Open in tab",
   "preview.openLabel": "Open {address} in a browser tab",
+  "pane.tools": "Agent pane tools",
+  "pane.tool.terminal": "Terminal",
+  "pane.tool.diff": "Diff",
+  "pane.tool.browser": "Browser",
+  "pane.panel.close": "Close {name}",
+  "pane.terminal.empty": "Run commands alongside your chat.",
+  "pane.diff.empty": "No file changes in this turn.",
+  "pane.browser.back": "Back",
+  "pane.browser.forward": "Forward",
+  "pane.browser.url": "Address",
+  "pane.browser.urlPlaceholder": "Type a URL",
+  "pane.browser.empty": "Browse with Claude",
+  "pane.browser.description": "Type a URL or ask Claude to open a site. Claude can read, click, and type.",
+  "pane.browser.detect": "Detect dev server",
 } as const;
 
 export type StringKey = keyof typeof en;
@@ -368,6 +382,21 @@ const ja: Record<StringKey, string> = {
   "turn.failed": "ターンが失敗しました",
   "preview.open": "タブで開く",
   "preview.openLabel": "{address} をブラウザタブで開く",
+  "pane.tools": "エージェントペインのツール",
+  "pane.tool.terminal": "ターミナル",
+  "pane.tool.diff": "差分",
+  "pane.tool.browser": "ブラウザ",
+  "pane.panel.close": "{name} を閉じる",
+  "pane.terminal.empty": "チャットと並べてコマンドを実行します。",
+  "pane.diff.empty": "このターンにファイル変更はありません。",
+  "pane.browser.back": "戻る",
+  "pane.browser.forward": "進む",
+  "pane.browser.url": "アドレス",
+  "pane.browser.urlPlaceholder": "URL を入力",
+  "pane.browser.empty": "Claude でブラウズ",
+  "pane.browser.description":
+    "URL を入力するか、Claude にサイトを開くよう頼んでください。Claude は読み取り、クリック、入力ができます。",
+  "pane.browser.detect": "開発サーバーを検出",
 };
 
 const tables: Record<string, Record<StringKey, string>> = { en, ja };
