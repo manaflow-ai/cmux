@@ -52,6 +52,7 @@ public nonisolated enum SettingsSchema {
         let columns = SettingsText.text("settings.group.columns", "Columns")
         let quitting = SettingsText.text("settings.group.quit", "Quitting")
         let history = SettingsText.text("settings.group.history", "History")
+        let tabs = SettingsText.text("settings.group.tabs", "Tabs")
         return [
             SettingDescriptor(
                 TerminalCommandHistorySetting.configPath, section: .general, group: history,
@@ -84,6 +85,7 @@ public nonisolated enum SettingsSchema {
                 ]),
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
+            newTabKind(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.text("settings.app.quitBehavior", "When Quitting"),

@@ -89,7 +89,6 @@ nonisolated enum RefusalStrings {
     static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
-    static var deepLinksUnported: String { text("handlers.refusal.deepLinksUnported", "needs cmux-next deep link navigation (cmux:// handler)") }
     static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
     static var notColumnLayout: String { text("handlers.refusal.notColumnLayout", "the screen is not in column layout") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }

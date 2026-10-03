@@ -225,6 +225,16 @@ public final class AgentPaneView: NSView {
         evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"createCheckpoint\");")
     }
 
+    /// Runs a grouped-permission action from the app shortcut registry. The
+    /// page keeps the decision scoped to its selected session and refuses
+    /// stale, collecting, or unavailable groups before sending anything.
+    public func runPermissionAction(_ command: String) {
+        let allowed = ["permissionAllowOnce", "permissionAllowChat", "permissionDeny", "permissionExpand",
+                       "permissionRetry", "permissionRevoke", "permissionRefresh"]
+        guard allowed.contains(command) else { return }
+        evaluateScript("window.cmuxAcpmuxBridge?.command?.(\"\(command)\");")
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.
@@ -322,6 +332,12 @@ public final class AgentPaneView: NSView {
     /// Runs a script in the page (tests record them).
     lazy var evaluateScript: (String) -> Void = { [weak self] script in
         self?.webView.evaluateJavaScript(script, completionHandler: nil)
+    }
+
+    /// Focus Location Bar on a new tab page: the field takes the keyboard and
+    /// selects its text, wherever focus was on the page.
+    public func focusLocation() {
+        evaluateScript("window.dispatchEvent(new Event('acpmux-focus-location'))")
     }
 
     /// Pushes ``customization`` to the page, even an empty one (it clears

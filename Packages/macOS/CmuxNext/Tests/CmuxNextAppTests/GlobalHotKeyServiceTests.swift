@@ -108,6 +108,21 @@ struct GlobalHotKeyServiceTests {
         #expect(service.conflicts == ["second"])
     }
 
+    @Test func quickAgentChatRegistersControlOptionCommandSpace() {
+        let registry = ActionRegistry.standard()
+        var runs = 0
+        registry.bind("palette.quickAgentChat") { runs += 1 }
+        let registrar = FakeRegistrar()
+        let service = GlobalHotKeyService(registry: registry, registrar: registrar, layout: { KeyCodeLayout.ansi })
+        service.start()
+        defer { service.stop() }
+
+        let hotKey = CarbonHotKey(keyCode: UInt32(kVK_Space), modifiers: controlOptionCommand)
+        #expect(Array(registrar.held.values) == [hotKey])
+        registrar.press(hotKey)
+        #expect(runs == 1)
+    }
+
     @Test func aKeyRefusedToTheFirstActionIsStillTriedForALaterOne() {
         func global(_ id: ActionID) -> ActionDescriptor {
             var descriptor = ActionDescriptor(id: id, title: id.rawValue, defaultShortcut: Shortcut("k", modifiers: [.control, .option]), category: .window)

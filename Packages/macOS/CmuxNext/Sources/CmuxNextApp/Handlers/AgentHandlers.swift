@@ -8,6 +8,7 @@ import CmuxNextDaemon
 /// `claude --resume <session> --fork-session` in a new terminal placed by
 /// daemon commands. New Agent Chat opens the React acpmux pane in a tab
 /// (CmuxNextAgentPane), and Toggle Dictation drives its composer's mic.
+/// Quick Agent Chat toggles the floating `QuickComposerController` panel.
 /// Terminal-as-chat, Teams, and Computer Use are
 /// typed-unavailable.
 enum AgentHandlers {
@@ -25,12 +26,22 @@ enum AgentHandlers {
             registry.bind(id, run: { try fork(placement, invocation: $0, context: context) })
         }
         registry.bind("agentActivity.open", run: { _ in context.services.agentActivityPage.open() })
+        // Quick Agent Chat: the global hot key, palette, menu and CLI toggle one floating panel.
+        // The panel takes the keyboard from the frontmost app, so automation
+        // cannot open it unless it asks for focus.
+        registry.bind("palette.quickAgentChat", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.quickChatNeedsFocus) }
+            guard context.services.agentTabs.canHostChat else { return context.refuse(MiscHandlerStrings.quickChatUnavailable) }
+            context.services.quickComposer.toggle()
+        })
         registry.bind("palette.computerUse.accessibility", run: { _ in try openPrivacyPane("Privacy_Accessibility", context) })
         registry.bind("palette.computerUse.screenRecording", run: { _ in try openPrivacyPane("Privacy_ScreenCapture", context) })
         registry.bindAgentPane { invocation in
             guard let pane = context.scope(invocation).pane else { return context.refuse(MiscHandlerStrings.noPane) }
+            if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
             pane.newAgentTab()
         }
+        registry.bind(.fileOpen, run: { try openFile($0, context: context) })
         // The composer's mic (CmuxNextAgentPane). Held from the keyboard, it
         // is push-to-talk. Outside an agent chat it stops a session still
         // running in one.
@@ -50,6 +61,24 @@ enum AgentHandlers {
             }
             view.showSearchChats()
         })
+        let permissionCommands: [(ActionID, String)] = [
+            ("agentPane.permission.allowOnce", "permissionAllowOnce"),
+            ("agentPane.permission.allowChat", "permissionAllowChat"),
+            ("agentPane.permission.deny", "permissionDeny"),
+            ("agentPane.permission.expand", "permissionExpand"),
+            ("agentPane.permission.retry", "permissionRetry"),
+            ("agentPane.permission.revoke", "permissionRevoke"),
+            ("agentPane.permission.refresh", "permissionRefresh"),
+        ]
+        for (id, command) in permissionCommands {
+            registry.bind(id, run: { invocation in
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                }
+                view.runPermissionAction(command)
+            })
+        }
         // Continue in… is a user-facing chooser. Headless callers use the
         // acpmux-owned CLI operation, so automation cannot open this UI unless
         // it explicitly requests focus.
@@ -130,6 +159,34 @@ enum AgentHandlers {
             } catch {
                 logger.error("fork-agent-conversation failed: \(String(describing: error), privacy: .public)")
             }
+        }
+    }
+
+    /// Open File: the agent pane's changed files, the palette and `cmux file open`.
+    /// The file is checked first (`AgentPaneFileOpening`); a tab opens in the
+    /// invocation's pane, else the focused one.
+    private static func openFile(_ invocation: ActionInvocation, context: AppActionContext) throws {
+        let path = invocation["path"]?.stringValue ?? ""
+        // The palette and the control socket accept only the catalog's choices;
+        // an in-app caller that passes another place is refused, not ignored.
+        let place = invocation["where"]?.stringValue ?? AgentPaneFileTarget.tab.rawValue
+        guard let target = AgentPaneFileTarget(rawValue: place) else { throw ActionFailure(message: MiscHandlerStrings.invalidPlace(place)) }
+        let opening: AgentPaneFileOpening
+        do {
+            opening = try AgentPaneFileOpening.plan(path: path, target: target)
+        } catch AgentPaneFileRefusal.relativePath {
+            throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
+        } catch AgentPaneFileRefusal.notInTab {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
+        } catch AgentPaneFileRefusal.noEditor {
+            throw ActionFailure(message: MiscHandlerStrings.noEditor)
+        } catch {
+            throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
+        }
+        if let editor = opening.editor {
+            NSWorkspace.shared.open([opening.url], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+        } else if let pane = context.paneController(invocation) {
+            pane.newBrowserTab(url: opening.url)
         }
     }
 
