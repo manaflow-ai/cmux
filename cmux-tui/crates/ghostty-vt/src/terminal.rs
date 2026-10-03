@@ -1218,6 +1218,8 @@ impl ColorOverrideTracker {
                                 self.finish_osc(&payload, overflowed);
                                 ColorTrackState::Ground
                             }
+                            // CAN and SUB cancel the OSC, as in Ghostty.
+                            0x18 | 0x1a => ColorTrackState::Ground,
                             0x1b => ColorTrackState::OscEscape { payload, overflowed },
                             _ => {
                                 self.note_utf8_lead(byte);
@@ -1670,10 +1672,13 @@ impl PaletteOverrideTracker {
                     },
                 },
                 PaletteTrackState::Osc(mut osc) => match byte {
-                    0x07 | 0x18 | 0x1a => {
+                    0x07 => {
                         self.commit_osc(osc);
                         PaletteTrackState::Ground
                     }
+                    // CAN and SUB cancel the OSC (ghostty-next osc.Parser.end
+                    // dispatches nothing for them).
+                    0x18 | 0x1a => PaletteTrackState::Ground,
                     0..=0x06 | 0x08..=0x17 | 0x19 | 0x1c..=0x1f => PaletteTrackState::Osc(osc),
                     0x1b => {
                         // Ghostty dispatches OSC on the ESC byte that begins
