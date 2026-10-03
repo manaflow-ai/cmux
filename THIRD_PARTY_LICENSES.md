@@ -379,6 +379,54 @@ has no runtime CDN dependency.
 
 ---
 
+## x264 (remote desktop host encoder)
+
+- **License:** GNU General Public License v2.0 or later (GPL-2.0-or-later)
+- **Copyright:** Copyright (C) 2003-2023 x264 project (Laurent Aimar, Loren Merritt, Fiona Glaser and others)
+- **Source:** https://code.videolan.org/videolan/x264 at commit 31e19f9 (r3108, X264_BUILD 164), as packaged by Ubuntu 24.04 `libx264-dev` 2:0.164.3108+git31e19f9-1
+
+`cmux-rd` (crate `cmux-tui/crates/cmux-rd-host`) links libx264 statically when it is
+built with its default `x264` feature. cmux-tui is GPL-3.0-or-later, and GPL-2.0-or-later
+code may be combined with it. The complete GPL-2.0 text is at
+https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt. The corresponding x264 source is
+the commit named above. H.264 encoding may need a separate patent license; see
+`plans/cmux-next/remote-desktop.md` (D-RD1).
+
+---
+
+## OpenH264 (remote desktop alternative encoder and bench decoder)
+
+- **License:** BSD 2-Clause License
+- **Copyright:** Copyright (c) 2013, Cisco Systems
+- **Source:** https://github.com/cisco/openh264 version 2.6.0, built from source through the
+  `openh264` and `openh264-sys2` 0.9.8 Rust crates (also BSD-2-Clause)
+
+Used by `cmux-rd` with `--codec openh264` and by its bench client. Because it is built
+from source, Cisco's royalty-free H.264 patent license for its prebuilt binary does not
+apply.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+---
+
 ## Shared License Texts
 
 MIT-licensed components above are distributed under the MIT License text
