@@ -22,6 +22,7 @@ import { paneContext } from "./paneContext";
 import { createPaneQueryClient, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { cardPermission } from "./debugActions";
 import { acpWire } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { ScrollPacing } from "./pacing";
@@ -755,10 +756,7 @@ function AcpmuxPane() {
     started: !freshChat && snapshot.rows.length > 0,
     prompts: snapshot.rows.filter((row) => row.kind === "user").length,
   });
-  const individualPermission =
-    snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
-      ? snapshot.permission
-      : undefined;
+  const individualPermission = cardPermission(snapshot);
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
@@ -821,6 +819,9 @@ function AcpmuxPane() {
     diffView !== undefined &&
     diffView.sessionId === snapshot.sessionId &&
     snapshot.rows.some((row) => row.id === diffView.rowId);
+  /// The turn whose changes show, for the debug action that opens them.
+  const changesRowRef = useRef<string | undefined>(undefined);
+  changesRowRef.current = diffOpen ? diffView?.rowId : undefined;
   useEffect(() => {
     if (diffView && !diffOpen) setDiffView(undefined);
   }, [diffView, diffOpen]);
@@ -887,9 +888,10 @@ function AcpmuxPane() {
     return () => query.removeEventListener("change", onChange);
   }, []);
   // Picking a session closes the narrow-pane overlay. Stable so unchanged sidebar rows skip rendering.
+  // Settles once the session is attached and its transcript read (the debug action waits on it).
   const selectSession = useCallback((sessionId: string) => {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
-    void callNative("chat.select", { sessionId });
+    return callNative("chat.select", { sessionId });
   }, []);
   const newChat = useCallback(() => {
     setSidebar((current) => (current === "open" && !wideSidebar() ? "auto" : current));
@@ -1065,16 +1067,18 @@ function AcpmuxPane() {
       // edited-files card.
       chat: {
         snapshot: () => snapshotRef.current,
-        send: async (text) => {
-          if (!window.cmuxAcpmuxActions?.["chat.send"]) throw new Error("acpmux is not connected");
-          await callNative("chat.send", { text });
-          promptLanded.current();
+        // The composer's call; it settles when the turn ends, so the debug action waits for the
+        // prompt's own row instead.
+        send: (text) => {
+          if (!window.cmuxAcpmuxActions?.["chat.send"]) return Promise.reject(new Error("acpmux is not connected"));
+          return callNative("chat.send", { text }).then(() => promptLanded.current());
         },
         select: selectSession,
         answer: (permissionId, optionId) => callNative("chat.permission", { permissionId, optionId }),
         respondGroup: (groupId, revision, decision) =>
           callNative("chat.permission_group.respond", { groupId, revision, decision }),
         openChanges: (rowId, path) => openDiff(rowId, path),
+        changesRow: () => changesRowRef.current,
       },
     });
     let cancelled = false;
@@ -1454,7 +1458,7 @@ function AcpmuxPane() {
               onJump={(target, id) => void callNative("tab.jump", { target, id })}
               onOpenSession={(sessionId) => {
                 setNewTab(undefined);
-                selectSession(sessionId);
+                void selectSession(sessionId);
               }}
               onShowAll={() => setSidebar("open")}
               onEditShortcut={(kind) => void callNative("shortcut.edit", { kind })}
@@ -1569,7 +1573,7 @@ function AcpmuxPane() {
             onClose={() => setSearching(false)}
             onSelect={(sessionId) => {
               setSearching(false);
-              selectSession(sessionId);
+              void selectSession(sessionId);
             }}
             onNewChat={() => {
               setSearching(false);

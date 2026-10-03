@@ -50,20 +50,25 @@ export type DebugAnswerOptions = {
 /// The pane's own paths that the chat actions call.
 export type DebugChatHost = {
   snapshot(): AcpmuxSnapshot | undefined;
-  /// Resolves once the prompt is written; rejects while acpmux is not connected.
+  /// The composer's send: settles when the turn ends, and rejects when it fails or acpmux is
+  /// not connected.
   send(text: string): Promise<unknown>;
-  select(sessionId: string): void;
+  /// The session list's select: settles once the session is attached and its transcript read.
+  select(sessionId: string): Promise<unknown>;
   answer(permissionId: string, optionId: string): Promise<unknown>;
   respondGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<unknown>;
   openChanges(rowId: string, path?: string): void;
+  /// The turn whose Changes view shows, if any.
+  changesRow(): string | undefined;
 };
 
-/// Resolves true once `done()` holds, checking each frame, or false after `ms`.
+/// Resolves true once `done()` holds, checking every 16 ms (a timer, so it also runs while
+/// WebKit throttles frames in a covered window), or false after `ms`.
 async function until(done: () => boolean, ms: number): Promise<boolean> {
-  const start = performance.now();
+  const start = Date.now();
   while (!done()) {
-    if (performance.now() - start > ms) return false;
-    await nextFrame();
+    if (Date.now() - start > ms) return false;
+    await new Promise((resolve) => setTimeout(resolve, 16));
   }
   return true;
 }
@@ -199,16 +204,24 @@ export function createAcpmuxDebug(
       return wire.exportJsonl({ sessionId: host.sessionId?.() });
     },
 
+    // Returns once the prompt shows as the chat's newest user row, not when the turn ends: a
+    // turn can run for minutes, or wait on a permission the caller answers next.
     async sendPrompt(text) {
       const chat = host.chat;
       if (!chat) return { error: "this page has no chat" };
       if (!text.trim()) return { error: "empty prompt" };
-      try {
-        await chat.send(text);
-      } catch (error) {
-        return { error: String(error instanceof Error ? error.message : error) };
-      }
-      return { sent: true, session: chat.snapshot()?.sessionId ?? null };
+      const before = chat.snapshot()?.rows.filter((row) => row.kind === "user").length ?? 0;
+      let failure: string | undefined;
+      chat.send(text).catch((error: unknown) => {
+        failure = String(error instanceof Error ? error.message : error);
+      });
+      const shown = await until(() => {
+        if (failure) return true;
+        const users = chat.snapshot()?.rows.filter((row) => row.kind === "user") ?? [];
+        return users.length > before && users.at(-1)?.text?.trim() === text.trim();
+      }, 10_000);
+      if (failure) return { error: failure };
+      return { sent: shown, session: chat.snapshot()?.sessionId ?? null };
     },
 
     async selectSession(sessionId) {
@@ -216,9 +229,18 @@ export function createAcpmuxDebug(
       if (!chat) return { error: "this page has no chat" };
       // The list may not hold every session (it pages), so an unlisted id is still tried.
       const listed = chat.snapshot()?.sessions.some((session) => session.sessionId === sessionId) ?? false;
-      chat.select(sessionId);
-      const shown = await until(() => chat.snapshot()?.sessionId === sessionId, 5000);
-      return { selected: sessionId, listed, shown };
+      try {
+        await chat.select(sessionId);
+      } catch (error) {
+        return { error: String(error instanceof Error ? error.message : error), listed };
+      }
+      const snapshot = chat.snapshot();
+      return {
+        selected: sessionId,
+        listed,
+        shown: snapshot?.sessionId === sessionId,
+        rows: snapshot?.rows.length ?? 0,
+      };
     },
 
     async answerPermission(options = {}) {
@@ -243,7 +265,10 @@ export function createAcpmuxDebug(
       const row = debugChangesRow(snapshot.rows, options.row_id);
       if (!row) return { error: options.row_id ? `no row ${options.row_id}` : "no turn in this chat changed files" };
       chat.openChanges(row.id, options.path);
-      const open = await until(() => document.querySelector(".acpmux-diff-panel") !== null, 2000);
+      const open = await until(
+        () => chat.changesRow() === row.id && globalThis.document?.querySelector(".acpmux-diff-panel") != null,
+        2000,
+      );
       return { row: row.id, open };
     },
   };
