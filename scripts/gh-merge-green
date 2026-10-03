@@ -21,14 +21,22 @@ if [ "$base" = main ]; then
     must+=("macos / macOS compile admission")
   fi
 fi
-runs=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate -q '.check_runs[]|[.name,.status,(.conclusion//"")]|@tsv')
+check_runs_json=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" --paginate --slurp)
+runs=$(jq -r '
+  (map(.check_runs) | add)
+  | sort_by(.name, (.completed_at // .started_at // .created_at // ""), (.id // 0))
+  | group_by(.name)[]
+  | last
+  | [.name,.status,(.conclusion // "")]
+  | @tsv
+' <<<"$check_runs_json")
 if [ "$base" = main ] && printf '%s\n' "$runs" | grep -q '^macos / macOS compile admission'$'\t' && ! printf '%s\n' "${must[@]}" | grep -qx 'macos / macOS compile admission'; then
   must+=("macos / macOS compile admission")
 fi
 bad=0
 [ "$fix" -eq 1 ] && must=("merge-gate")
 for name in "${must[@]+"${must[@]}"}"; do
-  line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n' | tail -1)
+  line=$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1==n')
   if [ -z "$line" ]; then
     echo "not green: '$name' has not run on $sha" >&2
     if [ "$name" = merge-gate ]; then
@@ -49,8 +57,15 @@ for name in "${must[@]+"${must[@]}"}"; do
     if [ "$name" = merge-gate ]; then
       # The gate check carries the actionable missing-requirements text in its
       # output. Keep it on one line so this command remains easy to scan.
-      reason=$(gh api "repos/$repo/commits/$sha/check-runs?per_page=100" \
-        -q '.check_runs | map(select(.name == "merge-gate")) | sort_by(.completed_at // .started_at // "") | last | [(.output.title // ""), (.output.summary // "")] | join(": ") | gsub("[\\r\\n\\t]+"; " ")' 2>/dev/null || true)
+      reason=$(jq -r '
+        (map(.check_runs) | add)
+        | map(select(.name == "merge-gate"))
+        | sort_by((.completed_at // .started_at // .created_at // ""), (.id // 0))
+        | last
+        | [(.output.title // ""), (.output.summary // "")]
+        | join(": ")
+        | gsub("[\\r\\n\\t]+"; " ")
+      ' <<<"$check_runs_json" 2>/dev/null || true)
       [ -n "$reason" ] && echo "reason: $reason" >&2
     fi
     bad=1

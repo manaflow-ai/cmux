@@ -157,7 +157,9 @@ def _has_real_sentence(rationale: str) -> bool:
     return normal not in _BOILERPLATE and not any(normal == phrase for phrase in _BOILERPLATE)
 
 
-def _main_failure(run: Mapping[str, Any], check: str, repository: str) -> bool:
+def _main_failure(
+    run: Mapping[str, Any], check: str, repository: str, expected_state: str | None
+) -> bool:
     if run.get("head_branch") != "main" and run.get("ref") != "refs/heads/main":
         return False
     repo = run.get("head_repository")
@@ -173,17 +175,28 @@ def _main_failure(run: Mapping[str, Any], check: str, repository: str) -> bool:
             continue
         name = item.get("name") or item.get("context")
         conclusion = item.get("conclusion") or item.get("state")
-        if name == check and isinstance(conclusion, str) and conclusion.lower() == "failure":
+        if (
+            name == check
+            and isinstance(conclusion, str)
+            and expected_state is not None
+            and conclusion.lower() == expected_state
+        ):
             return True
     return False
 
 
-def _linked_main_failure(rationale: str, check: str, main_runs: Sequence[Any], repository: str) -> bool:
+def _linked_main_failure(
+    rationale: str,
+    check: str,
+    main_runs: Sequence[Any],
+    repository: str,
+    expected_state: str | None,
+) -> bool:
     for raw_id in _RUN_LINK.findall(rationale):
         for run in main_runs:
             if not isinstance(run, Mapping) or str(run.get("id")) != raw_id:
                 continue
-            if _main_failure(run, check, repository):
+            if _main_failure(run, check, repository, expected_state):
                 return True
     return False
 
@@ -201,7 +214,8 @@ def evaluate_gate(data: Mapping[str, Any]) -> Decision:
         return Decision(True, "ci-status passed on the current pull-request head")
 
     required = _required_checks(data)
-    failing = tuple(name for name in required if _check_state(name, runs, statuses, head_sha) != "success")
+    states = {name: _check_state(name, runs, statuses, head_sha) for name in required}
+    failing = tuple(name for name, state in states.items() if state != "success")
     if not failing:
         failing = ("ci-status",)
 
@@ -231,8 +245,17 @@ def evaluate_gate(data: Mapping[str, Any]) -> Decision:
         if not _author_can_override(comment, trusted) or not _has_real_sentence(rationale):
             continue
         if not all(
-            (re.search(rf"(?im)(?<![A-Za-z0-9_-]){re.escape(check)}(?![A-Za-z0-9_-])", rationale) is not None)
-            and (_NOT_ON_MAIN.search(rationale) or _linked_main_failure(rationale, check, main_runs, _text(data.get("repository"))))
+            re.search(rf"(?im)(?<![A-Za-z0-9_-]){re.escape(check)}(?![A-Za-z0-9_-])", rationale)
+            and (
+                _NOT_ON_MAIN.search(rationale)
+                or _linked_main_failure(
+                    rationale,
+                    check,
+                    main_runs,
+                    _text(data.get("repository")),
+                    states.get(check),
+                )
+            )
             for check in failing
         ):
             continue
