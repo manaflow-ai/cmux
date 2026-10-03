@@ -56,7 +56,9 @@ import PackageDescription
 //   CmuxNextRemoteView -> Design (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
 //   CmuxNextServerHelper -> system frameworks only (privileged helper XPC protocol, fix allowlist,
-//     same-team listener; plans/cmux-next/server.md 9.4)
+//     same-team listener; plans/cmux-next/server.md 9.4); the App links it for the client side
+//   CmuxNextServerHelperDaemon -> ServerHelper (the root helper executable; bundled by
+//     scripts/cmux-next/bundle-server-helper.sh, not linked into the App)
 //   CmuxNextDictation -> Wakeups (on-device speech: SpeechAnalyzer, SFSpeechRecognizer fallback,
 //     the session state machine; no UI)
 
@@ -146,6 +148,7 @@ let package = Package(
                 "CmuxNextApps",
                 "CmuxNextTasks",
                 "CmuxNextServer",
+                "CmuxNextServerHelper",
                 "CmuxNextFeed",
             ],
             resources: [
@@ -445,6 +448,14 @@ let package = Package(
         // protocol, the fixed allowlist of fixes and the same-team listener. No UI.
         .target(
             name: "CmuxNextServerHelper",
+            swiftSettings: daemonSwiftSettings
+        ),
+        // The helper executable. The app bundle does not link it: the Xcode phase
+        // "Bundle server helper" (scripts/cmux-next/bundle-server-helper.sh) compiles
+        // these sources with swiftc into Contents/Resources/libexec/cmux-server-helper.
+        .executableTarget(
+            name: "CmuxNextServerHelperDaemon",
+            dependencies: ["CmuxNextServerHelper"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
