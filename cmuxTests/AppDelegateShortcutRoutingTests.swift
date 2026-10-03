@@ -7881,7 +7881,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(bareDollarQuery?.trigger, "$")
         XCTAssertEqual(bareDollarQuery?.query, "")
 
-        let emailPrompt = "mail lawrence@example.com"
+        let emailPrompt = "mail user@example.com"
         XCTAssertNil(TextBoxMentionCompletionDetector.query(
             in: emailPrompt,
             selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)

@@ -43,6 +43,44 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
+    @Test func notificationCommandsRejectMalformedArgumentsBeforeDispatch() throws {
+        let cases: [[String]] = [
+            ["notify", "--clear", "--typo"],
+            ["notify", "--title"],
+            ["list-notifications", "--typo"],
+            ["dismiss-notification", "--all-read", "--typo"],
+            ["mark-notification-read", "--all", "--typo"],
+            ["open-notification", "--id", "n", "--typo"],
+            ["clear-notifications", "--workspace", "Work", "--typo"],
+        ]
+        // Validation runs before the CLI opens the socket, so no server listens here:
+        // a mock server would wait for a connection that never comes.
+        for (index, arguments) in cases.enumerated() {
+            let result = Self.runProcess(
+                executablePath: try Self.bundledCLIPath(),
+                arguments: arguments,
+                environment: cliEnvironment(socketPath: Self.makeSocketPath("notify-invalid-\(index)")),
+                timeout: Self.processTimeout
+            )
+            #expect(!result.timedOut, Comment(rawValue: result.stderr))
+            #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+            #expect(result.stderr.contains("unexpected arguments"), Comment(rawValue: result.stderr))
+        }
+    }
+
+    @Test func notifyAcceptsDesktopValueOption() throws {
+        // `--desktop true|false` (#14688) must pass argument validation and reach the socket.
+        let execution = try runMockCommand(
+            arguments: ["notify", "--title", "Build", "--desktop", "false"],
+            socketName: "notify-desktop-valid"
+        ) { line in
+            Self.malformedRequestResponse(raw: line)
+        }
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(!execution.result.stderr.contains("unexpected"), Comment(rawValue: execution.result.stderr))
+        #expect(try !execution.state.requestObjects().isEmpty)
+    }
+
     @Test func vmTreeUsesCloudLinkErrorMessageInHumanOutput() throws {
         let temporaryHome = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-cli-vm-tree-\(UUID().uuidString)", isDirectory: true)
@@ -91,26 +129,15 @@ struct CLIExplicitSurfaceRoutingTests {
             ["send-key", "--surface", Self.targetSurfaceRef, "ctrl+c", "enter"],
             ["send-key-panel", "--panel", Self.targetSurfaceRef, "ctrl+c", "enter"],
         ]
-
         for (index, arguments) in cases.enumerated() {
-            let execution = try runMockCommand(
-                arguments: arguments,
-                socketName: "key-arity-\(index)"
-            ) { line in
+            let execution = try runMockCommand(arguments: arguments, socketName: "key-arity-\(index)") { line in
                 Self.malformedRequestResponse(raw: line)
             }
-
             let requests = try execution.state.requestObjects()
             #expect(requests.isEmpty, Comment(rawValue: String(describing: requests)))
             #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
-            #expect(
-                execution.result.status != 0,
-                Comment(rawValue: execution.result.stderr + execution.result.stdout)
-            )
-            #expect(
-                execution.result.stderr.contains("unexpected arguments"),
-                Comment(rawValue: execution.result.stderr)
-            )
+            #expect(execution.result.status != 0, Comment(rawValue: execution.result.stderr + execution.result.stdout))
+            #expect(execution.result.stderr.contains("unexpected arguments"), Comment(rawValue: execution.result.stderr))
         }
     }
 

@@ -85,7 +85,7 @@ struct NewMachineModelTests {
         #expect(NewMachineModel.machineKind == .desktop)
         model.create()
         #expect(recorder.value.first?.kind == .desktop)
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--agent-updates", "latest", "--focus", "false"])
         let workspaceID = UUID()
         let (base, baseRecorder) = makeModel(mode: .base(workspaceID: workspaceID))
         base.create()
@@ -110,7 +110,7 @@ struct NewMachineModelTests {
         #expect(model.memoryUpgradePlanName == "Max")
         #expect(model.lockedSizesNoteText == "16 GB, 24 GB, and 32 GB machines need cmux Max.")
         #expect(model.memoryUpgradeButtonTitle == "Upgrade to Max")
-        #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 32768)!) == "32 GB RAM · 128 GB disk · Requires Max")
+        #expect(model.lockedSizeMenuTitle(MachineSizeOption(memoryMb: 32768)!) == "16 vCPU · 32 GB RAM · 128 GB disk · Requires Max")
         #expect(NewMachineModel.maxMemoryMb(planId: "pro") == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: "free") == 8192)
         #expect(NewMachineModel.maxMemoryMb(planId: nil) == 8192)
@@ -166,7 +166,7 @@ struct NewMachineModelTests {
         #expect(model.memoryMb == 4096)
         model.memoryMb = 32768
         model.create()
-        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--focus", "false"])
+        #expect(recorder.value.first?.arguments == ["vm", "new", "--desktop", "--size", "8192", "--agent-updates", "latest", "--focus", "false"])
 
         let (smallest, _) = makeModel(plan: Self.proPlan, memoryOptionsMb: [8192, 16384], lockedMemoryOptionsMb: [4096, 32768])
         smallest.memoryMb = 4096
@@ -183,7 +183,9 @@ struct NewMachineModelTests {
         #expect(MachineSizeOption(memoryMb: 4096)?.diskTitle == "16 GB")
         #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
         #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
-        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "8 GB RAM · 32 GB disk")
+        #expect(MachineSizeOption(memoryMb: 8192)?.menuTitle == "4 vCPU · 8 GB RAM · 32 GB disk")
+        #expect(MachineSizeOption(memoryMb: 24576)?.menuTitle == "12 vCPU · 24 GB RAM · 96 GB disk")
+        #expect(MachineSizeOption(memoryMb: 65536)?.menuTitle == "32 vCPU · 64 GB RAM · 128 GB disk")
         #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
         #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
         #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
@@ -192,6 +194,21 @@ struct NewMachineModelTests {
         #expect(MachineSizeOption(memoryMb: 32768)?.detail == "128 GB disk included")
         #expect(MachineSizeOption(memoryMb: 65536)?.title == "64 GB RAM")
         #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
+    }
+
+    @Test func sizeLabelsUseTheServersVcpusWhenSent() {
+        let served = NewMachineModel(
+            mode: .newMachine,
+            plan: Self.proPlan,
+            memoryOptionsMb: [8192, 16384],
+            vcpusByMemoryMb: ["8192": 6],
+            submit: { _ in true }
+        )
+        #expect(served.sizeOption(memoryMb: 8192)?.menuTitle == "6 vCPU · 8 GB RAM · 32 GB disk")
+        // A size the server left out, and an older server, fall back to the ladder table.
+        #expect(served.sizeOption(memoryMb: 16384)?.vcpus == 8)
+        let legacy = NewMachineModel(mode: .newMachine, plan: Self.proPlan, memoryOptionsMb: [8192], submit: { _ in true })
+        #expect(legacy.selectedSize?.vcpus == 4)
     }
 
     @Test func serverOptionsAreSortedAndDeduplicated() {
@@ -206,7 +223,7 @@ struct NewMachineModelTests {
         #expect(model.memoryOptions == [])
         #expect(model.memoryMb == 20480)
         #expect(!model.supportsSize)
-        #expect(model.cliArguments == ["vm", "new", "--desktop", "--focus", "false"])
+        #expect(model.cliArguments == ["vm", "new", "--desktop", "--agent-updates", "latest", "--focus", "false"])
     }
 
     /// #12239: the sheet's defaults create a machine with a VNC screen; only
@@ -218,7 +235,7 @@ struct NewMachineModelTests {
         let request = recorder.value.first
         #expect(request?.kind == .desktop)
         #expect(request?.name == nil)
-        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "32768", "--focus", "false"])
+        #expect(request?.arguments == ["vm", "new", "--desktop", "--size", "32768", "--agent-updates", "latest", "--focus", "false"])
     }
 
     @Test func baseSetupHasNoSizeFlagAndDefaultsToADesktop() {

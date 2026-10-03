@@ -236,7 +236,8 @@ struct CloudTreeHeaderActionsTests {
 
         NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: menu)
         tree.move(to: tree.devicesSection)
-        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == 0)
+        // Machine rows keep their buttons at rest, dimmed until hovered.
+        #expect(try Self.controls(in: tree.cell(for: machineNode)).alphaValue == CloudTreeCellView.restingButtonsAlpha)
         #expect(try Self.controls(in: tree.cell(for: tree.devicesSection)).alphaValue == 1)
     }
 
