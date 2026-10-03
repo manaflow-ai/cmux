@@ -164,7 +164,7 @@ export class WrappedStep extends RpcTarget {
   async #meter(occurrence: string, name: string, inStep: boolean): Promise<void> {
     const [kind, , n] = [occurrence.slice(0, occurrence.indexOf(":")), "", occurrence.slice(occurrence.lastIndexOf("#") + 1)]
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(name)))
-    const hash = Array.from(digest.slice(0, 8), (b) => b.toString(16).padStart(2, "0")).join("")
+    const hash = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")
     let r: RecordResult
     try {
       r = await record(this.#env, this.#run.team, [
