@@ -20,7 +20,8 @@ public import AppKit
 ///
 /// A user can still turn a substitution back on for one view from
 /// Edit › Substitutions.
-public enum CmuxPlainTextInput {
+public struct CmuxPlainTextInput {
+    private init() {}
     /// The `UserDefaults` keys AppKit reads when it creates a text view. The
     /// app's own domain takes precedence over the system-wide settings.
     public static let substitutionDefaultsKeys = [
