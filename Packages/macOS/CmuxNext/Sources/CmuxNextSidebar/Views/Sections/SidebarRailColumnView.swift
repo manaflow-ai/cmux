@@ -39,7 +39,9 @@ public final class SidebarRailColumnView: NSView {
         self.model = model
         super.init(frame: .zero)
         rail.autoresizingMask = [.width, .height]
-        rail.onActivate = { [weak model] id in model?.send(.activateItem(id)) }
+        rail.onActivateWithModifiers = { [weak model] id, flags in
+            model?.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
+        }
         addSubview(rail)
         // task-owner: this view (cancelled in deinit); event-driven (Observation)
         observation = Task { [weak self, model] in

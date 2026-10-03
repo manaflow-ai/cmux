@@ -163,7 +163,7 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "space.selectByNumber",
                 title: String(localized: "action.space.selectByNumber", defaultValue: "Select Space 1…9", table: "ProfileActions", bundle: .module),
-                keywords: ["room", "profile", "space", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control, .option]),
+                keywords: ["room", "profile", "space", "switch", "index"], defaultShortcut: Shortcut("1", modifiers: [.control]),
                 shortcutFamily: .digits, category: .workspace, symbol: "number.circle", surfaces: [.keyboard, .menu],
                 arguments: [CatalogArgument.indexNumber], cliName: "space select-1-9", mainMenu: .window
             ),

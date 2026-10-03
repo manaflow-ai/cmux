@@ -86,6 +86,7 @@ public nonisolated enum SettingsSchema {
                 default: .string(WindowRailSetting.fallback.rawValue), keywords: ["rail", "toolbar", "buttons", "inbox", "accounts"]
             ),
             newTabKind(group: tabs),
+            newTerminalOpensWorkspace(group: tabs),
             SettingDescriptor(
                 QuitBehaviorSetting.configPath, section: .general, group: quitting,
                 title: SettingsText.keyed("settings.app.quitBehavior", "When Quitting"),
