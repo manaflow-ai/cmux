@@ -485,7 +485,7 @@ mod tests {
         std::fs::write(&stale, "1000").unwrap();
         let unrelated = root.join("other-registry.owner-shutdown.4242.tmp");
         std::fs::write(&unrelated, "1000").unwrap();
-        let clock = SessionShutdownClock::open(Some(marker.clone()), 10);
+        let clock = SessionShutdownClock::open(Some(marker), 10);
         assert_eq!(clock.previous, None);
         assert!(!stale.exists(), "the stale temporary file stayed");
         assert!(unrelated.exists(), "another registry's file was removed");
