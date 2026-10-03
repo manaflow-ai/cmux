@@ -200,10 +200,20 @@ fn access_policy_macos_user_shares_the_root_and_closes_the_state() {
         Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o700 }
     );
     assert!(l.store.as_str().starts_with(policy[0].path.as_str()));
-    // Linux user mode keeps its private data root.
+    // Linux user mode the same (decision D2): the shared data root at 0755,
+    // the server's own state folder 0700.
     let linux = layout(InstallMode::User, Platform::Linux, &unix_env("/home/ana")).unwrap();
-    let Access::Posix { mode, .. } = access_policy(&linux)[0].access else { panic!() };
-    assert_eq!(mode, 0o700);
+    let policy = access_policy(&linux);
+    assert_eq!(policy[0].path.as_str(), "/home/ana/.local/share/cmux");
+    assert_eq!(
+        policy[0].access,
+        Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o755 }
+    );
+    assert_eq!(policy[1].path.as_str(), "/home/ana/.local/state/cmux/server");
+    assert_eq!(
+        policy[1].access,
+        Access::Posix { owner: PosixOwner::Uid(501), group: None, mode: 0o700 }
+    );
 }
 
 #[test]

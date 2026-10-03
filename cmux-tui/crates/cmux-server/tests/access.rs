@@ -27,32 +27,39 @@ fn make_dir(path: &Path, mode: u32) {
 }
 
 #[test]
-fn macos_user_accepts_a_shared_0755_root_and_creates_the_state_0700() {
-    let tmp = tempfile::tempdir().unwrap();
-    let layout = layout_at(tmp.path(), Platform::MacOs);
-    let root = fsx::local(&layout.root);
-    let state = fsx::local(&layout.state);
-    assert!(root.ends_with("Library/Application Support/cmux"));
-    assert_eq!(state, root.join("server"));
-    // The app created the shared folder first, with its default mode.
-    make_dir(&root, 0o755);
-    let runner = RecordingRunner::new();
-    access::ensure(&access_policy(&layout), &runner).unwrap();
-    assert_eq!(mode(&root), 0o755, "the shared root is accepted and left unchanged");
-    assert_eq!(mode(&state), 0o700, "the state subfolder is created 0700");
-    assert!(runner.commands().is_empty(), "no chown or chgrp in user mode");
-    // A second run is a no-op.
-    access::ensure(&access_policy(&layout), &runner).unwrap();
-    assert_eq!((mode(&root), mode(&state)), (0o755, 0o700));
+fn user_mode_accepts_a_shared_0755_root_and_creates_the_state_0700() {
+    // macOS (SV-R4) and Linux (decision D2).
+    for (platform, root_ends) in [
+        (Platform::MacOs, "Library/Application Support/cmux"),
+        (Platform::Linux, ".local/share/cmux"),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        let root = fsx::local(&layout.root);
+        let state = fsx::local(&layout.state);
+        assert!(root.ends_with(root_ends), "{platform:?}");
+        // The app or cmux-tui created the shared folder first.
+        make_dir(&root, 0o755);
+        let runner = RecordingRunner::new();
+        access::ensure(&access_policy(&layout), &runner).unwrap();
+        assert_eq!(mode(&root), 0o755, "{platform:?}: the shared root is left unchanged");
+        assert_eq!(mode(&state), 0o700, "{platform:?}: the state folder is created 0700");
+        assert!(runner.commands().is_empty(), "no chown or chgrp in user mode");
+        // A second run is a no-op.
+        access::ensure(&access_policy(&layout), &runner).unwrap();
+        assert_eq!((mode(&root), mode(&state)), (0o755, 0o700));
+    }
 }
 
 #[test]
-fn macos_user_creates_a_missing_root_0755() {
-    let tmp = tempfile::tempdir().unwrap();
-    let layout = layout_at(tmp.path(), Platform::MacOs);
-    access::ensure(&access_policy(&layout), &RecordingRunner::new()).unwrap();
-    assert_eq!(mode(&fsx::local(&layout.root)), 0o755);
-    assert_eq!(mode(&fsx::local(&layout.state)), 0o700);
+fn user_mode_creates_a_missing_root_0755() {
+    for platform in [Platform::MacOs, Platform::Linux] {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = layout_at(tmp.path(), platform);
+        access::ensure(&access_policy(&layout), &RecordingRunner::new()).unwrap();
+        assert_eq!(mode(&fsx::local(&layout.root)), 0o755, "{platform:?}");
+        assert_eq!(mode(&fsx::local(&layout.state)), 0o700, "{platform:?}");
+    }
 }
 
 #[test]
@@ -62,7 +69,7 @@ fn a_wider_state_folder_is_refused_and_left_unchanged() {
         let layout = layout_at(tmp.path(), platform);
         let root = fsx::local(&layout.root);
         let state = fsx::local(&layout.state);
-        make_dir(&root, if platform == Platform::MacOs { 0o755 } else { 0o700 });
+        make_dir(&root, 0o755);
         make_dir(&state, 0o755);
         let err = access::ensure(&access_policy(&layout), &RecordingRunner::new()).unwrap_err();
         assert_eq!(err.kind, ExitKind::Rejected, "{platform:?}: {err}");
@@ -107,7 +114,7 @@ fn install_refuses_a_wider_state_folder_before_it_writes_anything() {
     let tmp = tempfile::tempdir().unwrap();
     let layout = layout_at(tmp.path(), cmux_server::host::platform());
     let state = fsx::local(&layout.state);
-    make_dir(&fsx::local(&layout.root), 0o700);
+    make_dir(&fsx::local(&layout.root), 0o755);
     make_dir(&state, 0o755);
     let runner = RecordingRunner::new();
     let fetcher = MapFetcher::default();
