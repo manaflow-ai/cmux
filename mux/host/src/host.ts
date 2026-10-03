@@ -118,10 +118,18 @@ export class MuxHost {
     const release = takeLock(this.options.paths.hostLock);
     if (!release) throw new HostAlreadyRunningError(`another mux host holds ${this.options.paths.hostLock}`);
     this.releaseLock = release;
-    this.core = new Core(this.stateFile.load());
-    writeSessionDir(this.options.paths, this.options.self, this.options.sessionEnv, {
-      mcp: this.options.mcpServers.length > 0,
-    });
+    try {
+      // Read after the lock: the state's only writer is the lock holder.
+      this.core = new Core(this.stateFile.load());
+      writeSessionDir(this.options.paths, this.options.self, this.options.sessionEnv, {
+        mcp: this.options.mcpServers.length > 0,
+      });
+    } catch (error) {
+      // A host that does not start must not keep the lock.
+      this.releaseLock = undefined;
+      release();
+      throw error;
+    }
     void this.loop("daemon", () => this.runDaemon());
     void this.loop("acpmux", () => this.runAcpmux());
   }
