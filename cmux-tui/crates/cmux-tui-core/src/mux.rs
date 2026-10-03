@@ -6057,6 +6057,14 @@ impl Mux {
         )
     }
 
+    /// Test seam: the session shutdown clock reads `now_ms` from now on.
+    #[cfg(test)]
+    pub(crate) fn set_session_clock_now_for_test(&self, _now_ms: u64) {}
+
+    /// Test seam: run the deferred exit detaches whose shutdown lead passed.
+    #[cfg(test)]
+    pub(crate) fn run_due_exit_settles_for_test(&self) {}
+
     pub(crate) fn publish_resource_event(&self) {
         self.publish_journal_event();
     }
