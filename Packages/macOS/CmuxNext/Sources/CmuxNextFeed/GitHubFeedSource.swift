@@ -1,5 +1,5 @@
 import CryptoKit
-import Foundation
+public import Foundation
 
 /// Polls GitHub and posts integration items into the existing local feed owner.
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and

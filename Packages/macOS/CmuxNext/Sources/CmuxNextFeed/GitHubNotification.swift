@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The small subset of a notification used by the feed source.
 public nonisolated struct GitHubNotification: Codable, Sendable, Equatable {

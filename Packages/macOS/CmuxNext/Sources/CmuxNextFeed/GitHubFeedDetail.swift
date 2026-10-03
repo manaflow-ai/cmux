@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Live GitHub content for one feed id. It is never sent to or persisted by the feed owner.
 public nonisolated struct GitHubFeedDetail: Sendable, Equatable {

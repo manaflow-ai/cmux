@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A review request returned by GitHub's issue search endpoint.
 public nonisolated struct GitHubReviewRequest: Decodable, Sendable, Equatable {

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A GitHub API implementation that uses the user's existing `gh` login.
 /// No token is read, copied, or persisted by cmux.

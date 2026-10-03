@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The result of a conditional GitHub request.
 public nonisolated struct GitHubAPIResponse<Value: Sendable>: Sendable {

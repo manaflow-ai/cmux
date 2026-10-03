@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// Provides live, client-only GitHub detail for inbox rendering.
 @MainActor

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A check that caused a GitHub notice. Content is retained by the client only.
 public nonisolated struct GitHubCheck: Sendable, Equatable, Hashable {

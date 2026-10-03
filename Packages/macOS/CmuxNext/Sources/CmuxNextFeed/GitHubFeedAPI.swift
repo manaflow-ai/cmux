@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// The API calls needed by the local GitHub poster.
 public nonisolated protocol GitHubFeedAPI: Sendable {
