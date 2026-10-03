@@ -151,7 +151,11 @@ mod tests {
 
     #[test]
     fn openh264_passes_the_structure_check() {
-        let opts = Opts::parse(&["--codec", "openh264", "--width", "320", "--height", "192", "--frames", "10"].map(String::from)).expect("opts");
+        let opts = Opts::parse(
+            &["--codec", "openh264", "--width", "320", "--height", "192", "--frames", "10"]
+                .map(String::from),
+        )
+        .expect("opts");
         run(&opts).expect("selftest");
     }
 }

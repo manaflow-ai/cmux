@@ -55,7 +55,13 @@ pub fn open(cfg: &EncCfg<'_>) -> Res<Box<dyn H264Encoder>> {
             cfg.profile,
         )?)),
         #[cfg(target_os = "macos")]
-        "videotoolbox" => Ok(Box::new(crate::vt::VideoToolbox::new(cfg.width, cfg.height, cfg.fps, cfg.kbps, cfg.profile == "baseline")?)),
+        "videotoolbox" => Ok(Box::new(crate::vt::VideoToolbox::new(
+            cfg.width,
+            cfg.height,
+            cfg.fps,
+            cfg.kbps,
+            cfg.profile == "baseline",
+        )?)),
         other => Err(format!("codec {other} not available in this build").into()),
     }
 }

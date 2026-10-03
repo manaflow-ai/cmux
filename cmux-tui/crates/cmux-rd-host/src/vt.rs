@@ -97,7 +97,12 @@ unsafe extern "C" {
     fn CMSampleBufferGetFormatDescription(sb: CMSampleBufferRef) -> CMFormatDescriptionRef;
     fn CMSampleBufferGetSampleAttachmentsArray(sb: CMSampleBufferRef, create: u8) -> CFArrayRef;
     fn CMBlockBufferGetDataLength(b: CMBlockBufferRef) -> usize;
-    fn CMBlockBufferCopyDataBytes(b: CMBlockBufferRef, off: usize, len: usize, dst: *mut c_void) -> OSStatus;
+    fn CMBlockBufferCopyDataBytes(
+        b: CMBlockBufferRef,
+        off: usize,
+        len: usize,
+        dst: *mut c_void,
+    ) -> OSStatus;
     fn CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
         d: CMFormatDescriptionRef,
         i: usize,
@@ -194,7 +199,13 @@ fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
     }
 }
 
-extern "C" fn on_output(refcon: *mut c_void, _frame: *mut c_void, status: OSStatus, _flags: u32, sb: CMSampleBufferRef) {
+extern "C" fn on_output(
+    refcon: *mut c_void,
+    _frame: *mut c_void,
+    status: OSStatus,
+    _flags: u32,
+    sb: CMSampleBufferRef,
+) {
     // SAFETY: refcon is the Box<Mutex<Output>> owned by the encoder, alive for the session.
     let out = unsafe { &*(refcon as *const Mutex<Output>) };
     let Ok(mut out) = out.lock() else { return };
@@ -208,7 +219,10 @@ extern "C" fn on_output(refcon: *mut c_void, _frame: *mut c_void, status: OSStat
         let attachments = CMSampleBufferGetSampleAttachmentsArray(sb, 0);
         let not_sync = !attachments.is_null()
             && CFArrayGetCount(attachments) > 0
-            && CFDictionaryContainsKey(CFArrayGetValueAtIndex(attachments, 0), kCMSampleAttachmentKey_NotSync) != 0;
+            && CFDictionaryContainsKey(
+                CFArrayGetValueAtIndex(attachments, 0),
+                kCMSampleAttachmentKey_NotSync,
+            ) != 0;
         out.keyframe = !not_sync;
         if out.keyframe {
             let desc = CMSampleBufferGetFormatDescription(sb);
@@ -218,7 +232,15 @@ extern "C" fn on_output(refcon: *mut c_void, _frame: *mut c_void, status: OSStat
             loop {
                 let mut ptr: *const u8 = null();
                 let mut size = 0usize;
-                if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(desc, i, &mut ptr, &mut size, &mut count, &mut header) != 0 {
+                if CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                    desc,
+                    i,
+                    &mut ptr,
+                    &mut size,
+                    &mut count,
+                    &mut header,
+                ) != 0
+                {
                     break;
                 }
                 out.annexb.extend_from_slice(&[0, 0, 0, 1]);
@@ -239,7 +261,8 @@ extern "C" fn on_output(refcon: *mut c_void, _frame: *mut c_void, status: OSStat
         // Length-prefixed (4 bytes, big-endian) NAL units to Annex-B start codes.
         let mut at = 0usize;
         while at + 4 <= avcc.len() {
-            let n = u32::from_be_bytes([avcc[at], avcc[at + 1], avcc[at + 2], avcc[at + 3]]) as usize;
+            let n =
+                u32::from_be_bytes([avcc[at], avcc[at + 1], avcc[at + 2], avcc[at + 3]]) as usize;
             at += 4;
             if at + n > avcc.len() {
                 break;
@@ -260,7 +283,10 @@ impl VideoToolbox {
         let status = unsafe {
             let spec = dict(&[
                 (kVTVideoEncoderSpecification_EnableLowLatencyRateControl, kCFBooleanTrue),
-                (kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder, kCFBooleanTrue),
+                (
+                    kVTVideoEncoderSpecification_RequireHardwareAcceleratedVideoEncoder,
+                    kCFBooleanTrue,
+                ),
             ]);
             let s = VTCompressionSessionCreate(
                 null(),
@@ -285,7 +311,14 @@ impl VideoToolbox {
         let pb_status = unsafe {
             let empty = dict(&[]);
             let attrs = dict(&[(kCVPixelBufferIOSurfacePropertiesKey, empty)]);
-            let r = CVPixelBufferCreate(null(), width as usize, height as usize, PIXEL_420V, attrs, &mut pixel_buffer);
+            let r = CVPixelBufferCreate(
+                null(),
+                width as usize,
+                height as usize,
+                PIXEL_420V,
+                attrs,
+                &mut pixel_buffer,
+            );
             CFRelease(attrs);
             CFRelease(empty);
             r
@@ -353,7 +386,11 @@ impl VideoToolbox {
             let y = CVPixelBufferGetBaseAddressOfPlane(self.pixel_buffer, 0);
             let ys = CVPixelBufferGetBytesPerRowOfPlane(self.pixel_buffer, 0);
             for row in 0..h.min(pic.y.len() / pic.width.max(1)) {
-                std::ptr::copy_nonoverlapping(pic.y.as_ptr().add(row * pic.width), y.add(row * ys), w);
+                std::ptr::copy_nonoverlapping(
+                    pic.y.as_ptr().add(row * pic.width),
+                    y.add(row * ys),
+                    w,
+                );
             }
             let uv = CVPixelBufferGetBaseAddressOfPlane(self.pixel_buffer, 1);
             let uvs = CVPixelBufferGetBytesPerRowOfPlane(self.pixel_buffer, 1);
@@ -377,13 +414,29 @@ impl H264Encoder for VideoToolbox {
         // SAFETY: encoding our pixel buffer on our session; CompleteFrames runs the output
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
-            let props = if force_idr { dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame, kCFBooleanTrue)]) } else { null() };
+            let props = if force_idr {
+                dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame, kCFBooleanTrue)])
+            } else {
+                null()
+            };
             let mut info = 0u32;
-            let s = VTCompressionSessionEncodeFrame(self.session, self.pixel_buffer, time, INVALID_TIME, props, null_mut(), &mut info);
+            let s = VTCompressionSessionEncodeFrame(
+                self.session,
+                self.pixel_buffer,
+                time,
+                INVALID_TIME,
+                props,
+                null_mut(),
+                &mut info,
+            );
             if !props.is_null() {
                 CFRelease(props);
             }
-            if s == 0 { VTCompressionSessionCompleteFrames(self.session, INVALID_TIME) } else { s }
+            if s == 0 {
+                VTCompressionSessionCompleteFrames(self.session, INVALID_TIME)
+            } else {
+                s
+            }
         };
         if status != 0 {
             return Err(format!("VideoToolbox encode failed: {status}").into());

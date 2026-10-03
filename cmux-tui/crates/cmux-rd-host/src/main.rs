@@ -32,11 +32,11 @@ mod stream;
 #[cfg(target_os = "linux")]
 mod testapp;
 mod token;
+#[cfg(target_os = "macos")]
+mod vt;
 mod wire;
 #[cfg(target_os = "linux")]
 mod workload;
-#[cfg(target_os = "macos")]
-mod vt;
 #[cfg(feature = "x264")]
 mod x264;
 
