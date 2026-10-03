@@ -294,14 +294,15 @@ fn sticky_column_tab_drags_keep_flags_consistent() {
     assert_eq!(wire.sticky(), vec![None, None, None]);
 }
 
+/// An unknown pane is not found; a pane on a screen without `columns` is in
+/// that screen's implicit column (see
+/// `sticky_column_on_a_split_screen_uses_the_implicit_single_column`).
 #[test]
-fn sticky_column_unknown_pane_or_screen_without_columns_is_not_found() {
-    let (mut wire, panes) = Wire::with_columns(1);
-    for pane in [panes[0], 999_999] {
-        let response = wire.send(json!({"cmd": "set-column-sticky", "pane": pane, "sticky": true}));
-        assert_eq!(response["ok"], false, "{response}");
-        assert_eq!(response["error_code"], "viewport-column-not-found");
-    }
+fn sticky_column_unknown_pane_is_not_found() {
+    let (mut wire, _) = Wire::with_columns(1);
+    let response = wire.send(json!({"cmd": "set-column-sticky", "pane": 999_999, "sticky": true}));
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error_code"], "viewport-column-not-found");
 }
 
 #[test]
