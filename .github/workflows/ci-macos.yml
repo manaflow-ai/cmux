@@ -887,12 +887,26 @@ jobs:
         run: |
           set -uo pipefail
           started="$(python3 -c 'import time; print(time.monotonic())')"
-          scripts/ci/compile-app-host-test-product.sh canonical-build \
-            "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
-            "$PWD/.ci-source-packages" \
-            "$CMUX_COMPILE_ADMISSION_CAS" \
-            "$RUNNER_TEMP/cmux-compile-admission.txt"
-          status=$?
+          status=1
+          for attempt in 1 2; do
+            scripts/ci/compile-app-host-test-product.sh canonical-build \
+              "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              "$PWD/.ci-source-packages" \
+              "$CMUX_COMPILE_ADMISSION_CAS" \
+              "$RUNNER_TEMP/cmux-compile-admission.txt"
+            status=$?
+            [ "$status" -eq 0 ] && break
+            [ "$attempt" -lt 2 ] || break
+            if ! grep -Eq 'No such file or directory|internal inconsistency|build system has crashed' \
+              "$RUNNER_TEMP/cmux-compile-admission.txt"; then
+              break
+            fi
+            echo "Transient Xcode/DerivedData failure detected; recreating the admission tree and retrying" >&2
+            scripts/ci/clear-dirs.sh \
+              "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" \
+              "$CMUX_COMPILE_ADMISSION_CAS"
+            mkdir -p "$CMUX_COMPILE_ADMISSION_DERIVED_DATA" "$CMUX_COMPILE_ADMISSION_CAS"
+          done
           finished="$(python3 -c 'import time; print(time.monotonic())')"
           seconds="$(python3 -c 'import sys; print(round(float(sys.argv[2])-float(sys.argv[1]), 6))' "$started" "$finished")"
           echo "seconds=$seconds" >> "$GITHUB_OUTPUT"
