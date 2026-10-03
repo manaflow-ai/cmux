@@ -26,15 +26,21 @@ import Testing
         try FileManager.default.setAttributes([.modificationDate: now - age * day], ofItemAtPath: file.path)
     }
 
-    func claudeUser(_ content: Any, meta: Bool = false) -> [String: Any] {
-        ["type": "user", "cwd": app, "isMeta": meta, "message": ["role": "user", "content": content]]
+    func claudeUser(_ content: Any, meta: Bool = false, flag: String? = nil) -> [String: Any] {
+        var record: [String: Any] = ["type": "user", "cwd": app, "isMeta": meta, "message": ["role": "user", "content": content]]
+        if let flag { record[flag] = true }
+        return record
     }
+
+    /// A session file name: Claude Code names each session's file by its UUID.
+    func uuid(_ index: Int) -> String { String(format: "00000000-0000-4000-8000-%012d", index) }
 
     func scan() -> [AgentChat] { AgentChatScan(projects: AgentProjectScan(home: home)).run() }
 
-    /// Only typed prompts count: not meta records, tool results or injected
-    /// `<...>` context. A summary names the chat over the first prompt.
-    @Test func claudeChatsCountTypedPromptsAndPreferTheSummary() throws {
+    /// Only typed prompts count: not meta, sidechain or compact-summary
+    /// records, tool results or injected `<...>` context. The first prompt
+    /// names the chat; a summary record (it may describe another session) doesn't.
+    @Test func claudeChatsCountTypedPromptsAndAreNamedByTheFirst() throws {
         defer { try? FileManager.default.removeItem(at: home) }
         try write(".claude/projects/-app/\(claudeID).jsonl", [
             claudeUser("<command-name>/clear</command-name>"),
@@ -43,6 +49,8 @@ import Testing
             ["type": "assistant", "cwd": app, "message": ["role": "assistant", "content": "On it"]],
             claudeUser([["type": "tool_result", "content": "ok"]]),
             claudeUser([["type": "text", "text": "Now add a regression test"]]),
+            claudeUser("A subagent's task", flag: "isSidechain"),
+            claudeUser("This session is being continued from a previous conversation", flag: "isCompactSummary"),
         ], age: 0)
         let chats = scan()
         #expect(chats.count == 1)
@@ -50,8 +58,11 @@ import Testing
         #expect(chats.first?.title == "Fix the flaky login test" && chats.first?.prompts == 2)
         #expect(chats.first?.folder.path == app && chats.first?.adoptHarness == "claude")
 
-        try write(".claude/projects/-app/\(claudeID).jsonl", [["type": "summary", "summary": "Login test fix"], claudeUser("Fix it")], age: 0)
-        #expect(scan().first?.title == "Login test fix")
+        try write(".claude/projects/-app/\(claudeID).jsonl", [["type": "summary", "summary": "Another chat"], claudeUser("Fix it")], age: 0)
+        #expect(scan().first?.title == "Fix it")
+        // A subagent transcript sits beside the sessions; adopt can't resume it.
+        try write(".claude/projects/-app/agent-1a2b3c4d.jsonl", [claudeUser("Search the repo", flag: "isSidechain")], age: 0)
+        #expect(scan().map(\.sessionID) == [claudeID])
     }
 
     /// Codex writes each prompt as an event and again as a response item;
@@ -83,16 +94,16 @@ import Testing
     @Test func newestFirstCappedAndOnlyUnderKeptFolders() throws {
         defer { try? FileManager.default.removeItem(at: home) }
         for age in 0..<3 {
-            try write(".claude/projects/-app/c\(age).jsonl", [claudeUser("Prompt \(age)")], age: Double(age))
+            try write(".claude/projects/-app/\(uuid(age)).jsonl", [claudeUser("Prompt \(age)")], age: Double(age))
         }
-        try write(".claude/projects/-app/empty.jsonl", [claudeUser("<only context>")], age: 0)
-        try write(".claude/projects/-gone/gone.jsonl",
+        try write(".claude/projects/-app/\(uuid(7)).jsonl", [claudeUser("<only context>")], age: 0)
+        try write(".claude/projects/-gone/\(uuid(8)).jsonl",
                   [["type": "user", "cwd": home.appending(path: "code/gone").path, "message": ["content": "Hi"]]], age: 0)
-        try write(".claude/projects/-home/home.jsonl",
+        try write(".claude/projects/-home/\(uuid(9)).jsonl",
                   [["type": "user", "cwd": home.path, "message": ["content": "Hi"]]], age: 0)
-        #expect(scan().map(\.sessionID) == ["c0", "c1", "c2"])
+        #expect(scan().map(\.sessionID) == [uuid(0), uuid(1), uuid(2)])
         var capped = AgentChatScan(projects: AgentProjectScan(home: home))
         capped.limit = 2
-        #expect(capped.run().map(\.sessionID) == ["c0", "c1"])
+        #expect(capped.run().map(\.sessionID) == [uuid(0), uuid(1)])
     }
 }

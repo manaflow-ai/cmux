@@ -82,8 +82,25 @@ import Testing
         model.finish(completed: false)
     }
 
-    /// A click checks a row and puts the cursor there, so the keys carry on from it.
-    @Test func aClickMovesTheCursorToTheRow() async {
+    /// A click on a row (press and release inside it) toggles that row, as a button does.
+    @Test func aClickOnARowTogglesIt() throws {
+        var toggled = 0
+        let row = ChatRow(chat: chat("a"), now: Date()) { toggled += 1 }
+        row.frame = NSRect(x: 0, y: 0, width: 400, height: ChatRow.height)
+        func mouse(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                            context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        }
+        row.mouseDown(with: try mouse(.leftMouseDown, at: NSPoint(x: 40, y: 10)))
+        row.mouseUp(with: try mouse(.leftMouseUp, at: NSPoint(x: 40, y: 10)))
+        #expect(toggled == 1)
+        row.mouseDown(with: try mouse(.leftMouseDown, at: NSPoint(x: 40, y: 10)))
+        row.mouseUp(with: try mouse(.leftMouseUp, at: NSPoint(x: 900, y: 10)))
+        #expect(toggled == 1, "a release outside the row does nothing")
+    }
+
+    /// Toggling a row puts the cursor there, so the keys carry on from it.
+    @Test func togglingARowMovesTheCursorThere() async {
         let model = OnboardingModel(services: services([chat("a"), chat("b"), chat("c")]), start: .chats)
         model.stepDidAppear()
         await settle { model.chats.scanned }

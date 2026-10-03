@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// One chat on one line: a checkbox, the chat's title, then its project,
 /// agent, prompt count and age. Clicking anywhere on the row toggles it,
 /// over the shared hover and pressed fill (`ChromeHover`); the keyboard
-/// cursor shows as the focused fill.
+/// cursor shows as its focus ring.
 final class ChatRow: NSView {
     static let height: CGFloat = 26
     private let toggle: () -> Void

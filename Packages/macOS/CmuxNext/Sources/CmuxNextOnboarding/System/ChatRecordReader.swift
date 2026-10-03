@@ -6,7 +6,6 @@ nonisolated struct ChatRecordReader {
     let app: AgentApp
     var sessionID: String?
     var cwd: String?
-    var summary: String?
     /// Claude prompts, and Codex `user_message` events.
     private var typed = Tally()
     /// Codex user `response_item`s, which repeat each event; used only by
@@ -38,16 +37,12 @@ nonisolated struct ChatRecordReader {
 
     private mutating func addClaude(_ record: [String: Any]) {
         if cwd == nil, let value = record["cwd"] as? String, !value.isEmpty { cwd = value }
-        switch record["type"] as? String {
-        case "summary":
-            if summary == nil { summary = Self.titleLine(record["summary"]) }
-        case "user":
-            guard record["isMeta"] as? Bool != true,
-                  let message = record["message"] as? [String: Any],
-                  let text = Self.promptText(message["content"]) else { return }
-            typed.add(text)
-        default: break
-        }
+        guard record["type"] as? String == "user",
+              record["isMeta"] as? Bool != true, record["isSidechain"] as? Bool != true,
+              record["isCompactSummary"] as? Bool != true,
+              let message = record["message"] as? [String: Any],
+              let text = Self.promptText(message["content"]) else { return }
+        typed.add(text)
     }
 
     private mutating func addCodex(_ record: [String: Any]) {

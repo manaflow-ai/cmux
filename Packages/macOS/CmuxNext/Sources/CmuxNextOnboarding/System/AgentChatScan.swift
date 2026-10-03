@@ -4,9 +4,12 @@ public import Foundation
 /// harnesses acpmux adopts. Uses the project scan's locations and folder
 /// rules, so a chat shows only under a project the projects step would list.
 ///
-/// - Claude Code: the file name is the session id; a `summary` record names
-///   the chat, else the first prompt does. Prompts are `user` records with
-///   text that isn't a tool result, a meta record or injected `<...>` context.
+/// - Claude Code: a file named by a UUID is a session, and the name is its id
+///   (`agent-*.jsonl` files are subagent transcripts, which can't be resumed).
+///   Prompts are `user` records with text that isn't a tool result, a meta,
+///   sidechain or compact-summary record, or injected `<...>` context. The
+///   first prompt names the chat: a `summary` record may describe another
+///   session, so it is not used.
 /// - Codex: `session_meta.payload.id` is the session id; prompts are
 ///   `event_msg` `user_message` records, else `response_item` user messages.
 public nonisolated struct AgentChatScan: Sendable {
@@ -23,6 +26,7 @@ public nonisolated struct AgentChatScan: Sendable {
     /// The chats, newest first.
     public func run() -> [AgentChat] {
         let claude = AgentProjectScan.files(in: projects.claude.appending(path: "projects"), depth: 1, ext: "jsonl")
+            .filter { UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
             .map { (AgentApp.claudeCode, $0) }
         let codex = AgentProjectScan.files(in: projects.codex.appending(path: "sessions"), depth: 3, ext: "jsonl")
             .filter { $0.lastPathComponent.hasPrefix("rollout-") }
@@ -52,13 +56,13 @@ public nonisolated struct AgentChatScan: Sendable {
         }
         guard let id = reader.sessionID, let cwd = reader.cwd, reader.prompts > 0 else { return nil }
         return AgentChat(sessionID: id, app: app, folder: URL(fileURLWithPath: cwd, isDirectory: true).standardizedFileURL,
-                         title: reader.summary ?? reader.firstPrompt ?? "", prompts: reader.prompts, lastActive: modified)
+                         title: reader.firstPrompt ?? "", prompts: reader.prompts, lastActive: modified)
     }
 
     /// Byte strings at least one of which every record `ChatRecordReader` uses contains.
     static func needles(_ app: AgentApp) -> [Data] {
         let strings = app == .codex ? [#""session_meta""#, #""user_message""#, #""role":"user""#]
-            : [#""type":"user""#, #""type":"summary""#]
+            : [#""type":"user""#]
         return strings.map { Data($0.utf8) }
     }
 }

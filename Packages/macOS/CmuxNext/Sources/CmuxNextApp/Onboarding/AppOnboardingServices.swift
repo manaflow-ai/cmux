@@ -105,13 +105,14 @@ final class AppOnboardingServices: OnboardingServices {
     func openProjects(_ folders: [URL]) {
         guard let windows = services.windows else { return }
         let target = windows.targetWindow(preferring: windows.active?.state.id)
-        let logger = services.daemon.logger
+        // Every folder counts as opening now, so chats picked meanwhile wait for it.
+        let spawns = folders.map { ($0, folderSpawn($0)) }
         Task {
-            for folder in folders {
+            for (folder, spawn) in spawns {
                 do {
-                    _ = try await windows.createWorkspace(folderSpawn(folder), into: target)
+                    _ = try await windows.createWorkspace(spawn, into: target)
                 } catch {
-                    logger.error("onboarding project workspace failed: \(String(describing: error), privacy: .public)")
+                    folderFailed(folder, error)
                 }
             }
         }
