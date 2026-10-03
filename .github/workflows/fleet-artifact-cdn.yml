@@ -1,0 +1,80 @@
+name: Fleet artifact CDN
+
+on:
+  pull_request:
+    paths:
+      - workers/fleet-artifacts/**
+      - .github/workflows/fleet-artifact-cdn.yml
+  push:
+    branches: [main]
+    paths:
+      - workers/fleet-artifacts/**
+      - .github/workflows/fleet-artifact-cdn.yml
+  workflow_dispatch:
+    inputs:
+      public_key:
+        description: Controller Ed25519 public key (64 lowercase hex, never the signing key)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-artifact-cdn-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: Test edge authentication and read-only deployment checks
+        working-directory: workers/fleet-artifacts
+        run: npm test
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    needs: test
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    env:
+      WRANGLER_SEND_METRICS: 'false'
+      ARTIFACT_PUBLIC_KEY: ${{ inputs.public_key }}
+    defaults:
+      run:
+        working-directory: workers/fleet-artifacts
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+      - name: Confirm existing private bucket and account
+        id: preflight
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node deploy.mjs preflight
+      - name: Deploy fixed fleet artifact edge with only the public key
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.135.0 deploy --config wrangler.jsonc --var "ARTIFACT_PUBLIC_KEY:$ARTIFACT_PUBLIC_KEY"
+      - name: Verify unsigned artifact requests are denied
+        env:
+          ARTIFACT_CDN_ORIGIN: ${{ steps.preflight.outputs.origin }}
+        run: node deploy.mjs verify
+      - name: Report edge origin
+        env:
+          ARTIFACT_CDN_ORIGIN: ${{ steps.preflight.outputs.origin }}
+        run: |
+          printf 'Fleet artifact edge: %s\nUnsigned requests: rejected (403)\n' "$ARTIFACT_CDN_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
