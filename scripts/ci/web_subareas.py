@@ -172,6 +172,7 @@ UNIT_TESTS_EXCLUDED_PREFIXES = (
 
 REACT_EXACT = {
     "scripts/build-webviews-app.sh",
+    "scripts/check-webviews-bun-version.sh",
     "scripts/check-webviews-react-compiler.mjs",
     # The generated agent pane page, its build and regenerate scripts, and
     # the merge driver that keeps it mergeable: react-apps-check verifies
