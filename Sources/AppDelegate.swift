@@ -19605,7 +19605,12 @@ private extension NSWindow {
     }
 
     @objc func cmux_sendEvent(_ event: NSEvent) {
-        if AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true {
+        let cloudMountKeyEventForwarded =
+            AppDelegate.shared?.forwardCloudMountKeyEvent(window: self, event: event) == true
+        if cloudMountKeyEventForwarded {
+            if event.type == .keyDown {
+                AppDelegate.shared?.recordTypingActivity()
+            }
             return
         }
 #if DEBUG
@@ -19638,7 +19643,7 @@ private extension NSWindow {
                 return false
             }
             guard let firstResponder = self.firstResponder else { return true }
-            return !app.shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
+            return !shouldRespectForeignFirstResponder(firstResponder, in: self, isRightSidebarOwner: {
                 app.isRightSidebarFocusResponder($0, in: self)
             })
         }()
