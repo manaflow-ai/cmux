@@ -23,6 +23,16 @@ final class SSHTuiWorkspaceCoordinator {
         agentStatus = SSHTuiAgentStatusProjector(catalog: catalog)
     }
 
+    static func configurationForAttach(_ input: WorkspaceRemoteConfiguration) -> WorkspaceRemoteConfiguration {
+        var configuration = input
+        if let saved = configuration.restoredSSHSession,
+           saved.sshSessionOwner != "cmux-tui",
+           saved.legacyTmuxSSHConfiguration(agentSocketPath: configuration.agentSocketPath) == nil {
+            configuration.restoredSSHSession = nil
+        }
+        return configuration
+    }
+
     func connect(workspace: Workspace, configuration: WorkspaceRemoteConfiguration) {
         for projection in catalog.projections where projection.workspaceID == workspace.id && projection.resource.machine.isSSH {
             let provider = catalog.provider(for: projection.resource.machine) as? CmuxTuiSurfaceProvider
@@ -69,6 +79,16 @@ final class SSHTuiWorkspaceCoordinator {
     }
 
     private func attach(workspace: Workspace, configuration: WorkspaceRemoteConfiguration, attemptID: UUID, initialCommand: [String]? = nil, restoring: Bool = false) async throws {
+        let preparedConfiguration = Self.configurationForAttach(configuration)
+        if preparedConfiguration.restoredSSHSession == nil, configuration.restoredSSHSession != nil {
+            // A workspace saved by the retired cmuxd-remote path can still be
+            // opened as a normal cmux-tui SSH workspace. Do not turn that stale
+            // descriptor into an "unsupported" Cloud error; it describes a
+            // PTY that no longer has a supported owner, so start a fresh
+            // daemon-owned workspace and keep the SSH destination/configuration.
+            workspace.remoteConfiguration = preparedConfiguration
+        }
+        let configuration = preparedConfiguration
         let connection = SSHTuiConnection(configuration: configuration)
         let provider = try provider(connection: connection)
         let machine = provider.machine
