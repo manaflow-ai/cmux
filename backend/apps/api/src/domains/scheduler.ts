@@ -14,6 +14,7 @@ import {
 } from "@cmux/protocol"
 import { checkCron, nextFire } from "../cron.ts"
 import { admit, decodeParams, reject, requirePersonalTeamAdmin } from "./common.ts"
+import { automationOutbox, countDeploy, reduceDeploy } from "./scheduler-code.ts"
 import { personalTeamIdFor } from "./user.ts"
 
 /**
@@ -51,7 +52,8 @@ export const AGENT_RUN_DEFAULT_MS = 24 * 3600_000
 /** Longest a run may take (ms): the budget when set, else the body's sleeps plus grace (agent runs: 24 h). */
 export const runLimitMs = (body: Body, wallClockSeconds: number | undefined): number => {
   if (wallClockSeconds !== undefined) return wallClockSeconds * 1000
-  if (body.type === "agent_prompt") return AGENT_RUN_DEFAULT_MS
+  // Agent and code runs may sleep and wait for hours; the 24 h default is the abuse limit (A18).
+  if (body.type === "agent_prompt" || body.type === "code") return AGENT_RUN_DEFAULT_MS
   return body.steps.reduce((n, s) => n + (s.type === "sleep" ? s.seconds * 1000 : 0), 0) + RUN_GRACE_MS
 }
 
@@ -63,7 +65,10 @@ export interface SchedulerState {
   readonly chains: Readonly<Record<string, number>>
   /** Team automation settings; absent in objects created before settings. */
   readonly settings?: { readonly agent_run_default_seconds: number | null }
+  /** Code changes (create, update or deploy of a code body) in the current UTC day (abuse limit, A18). */
+  readonly deploys?: { readonly day: string; readonly count: number }
 }
+
 
 export const MAX_AUTOMATIONS = 100
 export const MAX_FINISHED_RUNS = 200
@@ -204,7 +209,6 @@ const prune = (runs: Record<string, RunRecord>): Record<string, RunRecord> => {
   return out
 }
 
-const automationOutbox = (a: Automation): OutboxItem => ({ kind: "automation.upsert", entity: a.id, payload: a })
 const runOutbox = (r: RunRecord): OutboxItem => ({ kind: "automation_run.upsert", entity: r.id, payload: publicRun(r) })
 
 /** A new run for `a`; `skipped` when the concurrency limit says so (a visible row, never a silent drop). */
@@ -300,6 +304,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const bad = validateTriggers(d.value.triggers)
         if (bad) return bad
         const v = d.value
+        const counted = countDeploy(state, undefined, v.body, ctx.now)
+        if (!counted.ok) return counted.result
         const a = withNextRun({
           id: ctx.newId("auto"),
           owner,
@@ -317,7 +323,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
           updated_at: ctx.now,
           next_run_at: null
         })
-        return { ok: true, state: { ...state, owner, automations: { ...state.automations, [a.id]: a } }, value: a, outbox: [automationOutbox(a)] }
+        return { ok: true, state: { ...state, owner, automations: { ...state.automations, [a.id]: a }, ...(counted.deploys ? { deploys: counted.deploys } : {}) }, value: a, outbox: [automationOutbox(a)] }
       }
 
       case "automation.update": {
@@ -355,11 +361,13 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const { version: _v, updated_at: _u, ...cmpDraft } = draft
         const { version: _v2, updated_at: _u2, ...cmpOld } = a
         if (canonicalJson(cmpDraft) === canonicalJson(cmpOld)) return { ok: true, state, value: a, changed: false }
+        const counted = countDeploy(state, a.body, draft.body, ctx.now)
+        if (!counted.ok) return counted.result
         const next = { ...draft, version: a.version + 1, updated_at: ctx.now }
         const stopped = !enabled && a.enabled ? cancelQueued(state.runs, a.id, ctx.now, "the automation was disabled") : { runs: state.runs, outbox: [] }
         return {
           ok: true,
-          state: { ...state, automations: { ...state.automations, [a.id]: next }, runs: stopped.runs },
+          state: { ...state, automations: { ...state.automations, [a.id]: next }, runs: stopped.runs, ...(counted.deploys ? { deploys: counted.deploys } : {}) },
           value: next,
           outbox: [automationOutbox(next), ...stopped.outbox]
         }
@@ -381,6 +389,9 @@ export const schedulerDomain: Domain<SchedulerState> = {
           outbox: [{ kind: "automation.delete", entity: a.id, payload: { id: a.id } }, ...stopped.outbox]
         }
       }
+
+      case "automation.deploy":
+        return reduceDeploy(state, params, ctx)
 
       case "automation.run": {
         const d = decodeParams<typeof AutomationRunNow.params.Type>(AutomationRunNow, params)

@@ -13,7 +13,8 @@ export type ParticipantKind = "human" | "agent" | "address"
 export type AgentClass = "mux" | "agent"
 export type ParticipantRole = "owner" | "member"
 export type ConversationKind = "chief" | "dm" | "group"
-export type ConversationState = "active" | "archived"
+/** `importing`: a promoted local conversation receiving its history; only import ops run. */
+export type ConversationState = "active" | "archived" | "importing"
 
 export interface Participant {
   /** `user_<id>`, `agent_<name>` or `addr_<26 base32>` (cloud). */
@@ -179,6 +180,15 @@ export interface ConversationHead {
    */
   readonly agent_text_streak?: number
   readonly last_agent_text_at?: string
+  /** Provenance of a conversation promoted from a Mac (`conversation.import`). */
+  readonly import?: ImportSource & { readonly by: string }
+}
+
+/** Where an imported conversation came from: the Mac install and its local conversation id. */
+export interface ImportSource {
+  readonly kind: "mac"
+  readonly host: string
+  readonly local_id: string
 }
 
 export interface Summary {

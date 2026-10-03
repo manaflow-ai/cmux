@@ -2889,127 +2889,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux checks this Mac for sign-ins and keys. It shows names and emails only, never secret values."
+            "value": "cmux checks this Mac for sign-ins and keys. It shows plan names and shortened account labels, never full emails or secret values."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux はこの Mac のサインインとキーを確認します。表示するのは名前とメールだけで、秘密の値は表示しません。"
+            "value": "cmux はこの Mac のサインインとキーを確認します。表示するのはプラン名と短縮したアカウントラベルだけで、完全なメールアドレスや秘密の値は表示しません。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يفحص cmux عمليات تسجيل الدخول والمفاتيح على جهاز Mac هذا. يعرض الأسماء والبريد الإلكتروني فقط، ولا يعرض القيم السرية أبدًا."
+            "value": "يفحص cmux عمليات تسجيل الدخول والمفاتيح على جهاز Mac هذا. يعرض أسماء الخطط وتسميات الحسابات المختصرة فقط، ولا يعرض أبدًا عناوين البريد الإلكتروني الكاملة أو القيم السرية."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux provjerava prijave i ključeve na ovom Macu. Prikazuje samo imena i e-mail adrese, nikad tajne vrijednosti."
+            "value": "cmux provjerava prijave i ključeve na ovom Macu. Prikazuje nazive planova i skraćene oznake računa, nikad pune e-mail adrese ni tajne vrijednosti."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux tjekker denne Mac for logins og nøgler. Den viser kun navne og e-mails, aldrig hemmelige værdier."
+            "value": "cmux tjekker denne Mac for logins og nøgler. Den viser plannavne og forkortede kontoetiketter, aldrig fulde e-mailadresser eller hemmelige værdier."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux sucht auf diesem Mac nach Anmeldungen und Schlüsseln. Es zeigt nur Namen und E-Mail-Adressen, nie geheime Werte."
+            "value": "cmux sucht auf diesem Mac nach Anmeldungen und Schlüsseln. Es zeigt Tarifnamen und gekürzte Kontobezeichnungen, nie vollständige E-Mail-Adressen oder geheime Werte."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux busca inicios de sesión y claves en este Mac. Solo muestra nombres y correos, nunca valores secretos."
+            "value": "cmux busca inicios de sesión y claves en este Mac. Muestra nombres de planes y etiquetas de cuenta abreviadas, nunca correos completos ni valores secretos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux recherche les connexions et les clés sur ce Mac. Il n’affiche que des noms et des e-mails, jamais de valeurs secrètes."
+            "value": "cmux recherche les connexions et les clés sur ce Mac. Il affiche des noms d’offres et des libellés de compte raccourcis, jamais d’adresses e-mail complètes ni de valeurs secrètes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux cerca accessi e chiavi su questo Mac. Mostra solo nomi ed e-mail, mai valori segreti."
+            "value": "cmux cerca accessi e chiavi su questo Mac. Mostra nomi dei piani ed etichette degli account abbreviate, mai indirizzi e-mail completi o valori segreti."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ពិនិត្យការចូល និងកូនសោនៅលើ Mac នេះ។ វាបង្ហាញតែឈ្មោះ និងអ៊ីមែលប៉ុណ្ណោះ មិនដែលបង្ហាញតម្លៃសម្ងាត់ទេ។"
+            "value": "cmux ពិនិត្យការចូល និងកូនសោនៅលើ Mac នេះ។ វាបង្ហាញតែឈ្មោះគម្រោង និងស្លាកគណនីដែលបានបង្រួម មិនដែលបង្ហាញអ៊ីមែលពេញ ឬតម្លៃសម្ងាត់ទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux는 이 Mac에서 로그인과 키를 확인합니다. 이름과 이메일만 표시하며 비밀 값은 표시하지 않습니다."
+            "value": "cmux는 이 Mac에서 로그인과 키를 확인합니다. 요금제 이름과 줄인 계정 레이블만 표시하며 전체 이메일이나 비밀 값은 표시하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ser etter pålogginger og nøkler på denne Macen. Den viser bare navn og e-post, aldri hemmelige verdier."
+            "value": "cmux ser etter pålogginger og nøkler på denne Macen. Den viser plannavn og forkortede kontoetiketter, aldri hele e-postadresser eller hemmelige verdier."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux sprawdza logowania i klucze na tym Macu. Pokazuje tylko nazwy i adresy e-mail, nigdy tajnych wartości."
+            "value": "cmux sprawdza logowania i klucze na tym Macu. Pokazuje nazwy planów i skrócone etykiety kont, nigdy pełnych adresów e-mail ani tajnych wartości."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cmux verifica logins e chaves neste Mac. Mostra apenas nomes e e-mails, nunca valores secretos."
+            "value": "O cmux verifica logins e chaves neste Mac. Mostra nomes de planos e rótulos de conta abreviados, nunca e-mails completos nem valores secretos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux проверяет входы и ключи на этом Mac. Показываются только имена и адреса почты, но не секретные значения."
+            "value": "cmux проверяет входы и ключи на этом Mac. Показываются названия тарифов и сокращённые метки аккаунтов, но не полные адреса почты и не секретные значения."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux ตรวจหาการลงชื่อเข้าใช้และคีย์บน Mac เครื่องนี้ โดยแสดงเฉพาะชื่อและอีเมล ไม่แสดงค่าลับ"
+            "value": "cmux ตรวจหาการลงชื่อเข้าใช้และคีย์บน Mac เครื่องนี้ โดยแสดงชื่อแผนและป้ายบัญชีแบบย่อ ไม่แสดงอีเมลเต็มหรือค่าลับ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux bu Mac'te oturumları ve anahtarları denetler. Yalnızca adları ve e-postaları gösterir, gizli değerleri asla göstermez."
+            "value": "cmux bu Mac'teki oturum açmaları ve anahtarları denetler. Yalnızca plan adlarını ve kısaltılmış hesap etiketlerini gösterir, hiçbir zaman tam e-posta adreslerini veya gizli değerleri göstermez."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux перевіряє входи та ключі на цьому Mac. Показує лише імена й адреси пошти, ніколи секретні значення."
+            "value": "cmux перевіряє входи та ключі на цьому Mac. Показує назви планів і скорочені мітки облікових записів, але ніколи не повні адреси пошти чи секретні значення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux kiểm tra các đăng nhập và khóa trên máy Mac này. Chỉ hiển thị tên và email, không bao giờ hiển thị giá trị bí mật."
+            "value": "cmux kiểm tra các đăng nhập và khóa trên máy Mac này. Chỉ hiển thị tên gói và nhãn tài khoản rút gọn, không bao giờ hiển thị email đầy đủ hay giá trị bí mật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 会检查此 Mac 上的登录和密钥。只显示名称和邮箱，从不显示密钥内容。"
+            "value": "cmux 会检查这台 Mac 上的登录和密钥。它只显示套餐名称和缩短的账户标签，从不显示完整邮箱或机密值。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "cmux 會檢查這台 Mac 上的登入與金鑰。只顯示名稱與電子郵件，絕不顯示機密值。"
+            "value": "cmux 會檢查這台 Mac 上的登入和金鑰。它只顯示方案名稱和縮短的帳號標籤，絕不顯示完整電子郵件或機密值。"
           }
         }
       }

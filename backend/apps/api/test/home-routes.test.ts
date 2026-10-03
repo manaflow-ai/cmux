@@ -123,4 +123,13 @@ describe("Home HTTP routes (stage B)", { timeout: 60_000 }, () => {
     const locked = await op(mallory.token, "invite.accept", { code, secret: invites.crockford(crypto.getRandomValues(new Uint8Array(17)), 26) })
     expect(locked.json.error.code).toBe("accept_locked")
   })
+
+  it("MuxDO ops and the mux socket are routed by agent and refuse anyone but the chief or its owner", async () => {
+    const eve = await signIn("home-http-mux-eve", "eve2@example.com", "Eve")
+    const r = await op(eve.token, "mux.configure", { agent: "agent_someone_elses_chief", brain: "cloud" })
+    expect(r.status).toBe(200)
+    expect(r.json.ok).toBe(false)
+    const ws = await worker.fetch("https://api.test/v1/wire/mux/agent_someone_elses_chief", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${eve.token}` } })
+    expect(ws.status).toBe(403)
+  })
 })

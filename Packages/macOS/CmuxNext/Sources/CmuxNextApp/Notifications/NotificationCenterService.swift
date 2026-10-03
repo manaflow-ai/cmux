@@ -26,6 +26,8 @@ final class NotificationCenterService {
     @ObservationIgnored private var lastSeen: UInt64 = 0
     /// The Dock badge this service set last (nil: none).
     @ObservationIgnored var dockBadgeLabel: String?
+    /// Mirrors arrivals into the feed (feed.md section 9, step 1); nil without a feed.
+    @ObservationIgnored var feedBridge: FeedNotificationBridge?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     /// Recent arrivals and what was decided (for `debug.notifications`).
     @ObservationIgnored private(set) var log: [String] = []
@@ -41,6 +43,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        feedBridge = Self.makeFeedBridge(services.feed)
         desktop.onOpen = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -55,6 +58,14 @@ final class NotificationCenterService {
         tasks.append(Task { [weak self] in
             for await count in Observations({ Self.unreadCount(store) }) {
                 self?.updateDockBadge(count)
+            }
+        })
+        // A tab read by any client (this app, the iPhone, `cmux` clear) reads its feed notices.
+        tasks.append(Task { [weak self] in
+            var previous: Set<String> = []
+            for await unread in Observations({ Self.unreadTabs(store) }) {
+                for tab in previous.subtracting(unread) { self?.feedBridge?.read(tab: tab) }
+                previous = unread
             }
         })
     }
@@ -141,6 +152,7 @@ final class NotificationCenterService {
     func acknowledge(_ tab: TabModel) {
         timeouts.removeValue(forKey: tab.id)?.cancel()
         desktop.withdraw(banners.removeValue(forKey: tab.id) ?? [])
+        feedBridge?.read(tab: tab.id)
         let surface = tab.surface
         services?.daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
     }
@@ -161,6 +173,10 @@ final class NotificationCenterService {
         arrival.appActive = NSApp.isActive
         if let located {
             arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
+        }
+        // Before the decision: an arrival the policy reads at once is posted, then read.
+        if !arrival.workspaceMuted { mirrorToFeed(notification, located: located) }
+        if let located {
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }

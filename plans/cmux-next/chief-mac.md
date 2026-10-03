@@ -80,6 +80,19 @@ Effects (tagged `kind`, in order): `conversation_op {conversation, idempotency_k
 Durable state keeps the `host.json` shape of `mux/host/src/state.ts` (field names unchanged), so
 the Rust host takes over a TypeScript host's state and memory with no migration step.
 
+Conditions (Home lead, 2026-10-03, binding for P1):
+
+1. The TypeScript step core is the single behavior source. The corpus is generated from it; the
+   Rust core follows it, never the other way.
+2. `mux/host` keeps working until `cmux-chief` passes the corpus; then the Rust Chief replaces it in
+   one switch. The Mac never has two live brains (the shared pid lock also enforces this).
+3. The Rust Chief acts as `agent_mux` with the agent principal, never `user_local` or the install
+   principal. In-process (section 2) the owner stamps the agent principal directly; any socket
+   client path binds with the minted agent token.
+4. Approval cards show the real op and params; the action key is derived from the confirm id,
+   inside the core (a later core feature, built in TypeScript first).
+5. No new raw daemon command lands without a coordination line in the lane file.
+
 ## 4. Shared behavior corpus
 
 Format `cmux-chief-corpus/1`, file `mux/packages/brain/conformance/chief-cases.json`, written by
@@ -131,24 +144,29 @@ profile (group names and one line each), so the prompt and the tool list cannot 
 
 ## 6. `conversation.promote` (D10)
 
-A local conversation becomes a cloud `ConversationDO`. The local owner stays the single writer of
-the local copy; the cloud owner is the single writer of the new one.
+A local conversation becomes a cloud `ConversationDO` through lane 15's `conversation.import`
+(home-messaging.md section 22). The local owner stays the single writer of the local copy; the
+cloud owner is the single writer of the new one. The promoting user drives it from the app (it
+holds the account session); an agent never promotes.
 
-1. Local op `conversation.promote.begin {conversation, idempotency_key}` (actor `user_local`):
-   the owner freezes the conversation (writes refused with `promoted`) and returns the export
-   (summary, all messages, reactions, read cursors) and a deterministic target id
-   `conv_<base32(sha256("promote:" + local id + ":" + user id))[0..26]>`.
-2. The app (it holds the account session) calls the cloud op `conversation.import {id, source:
-   {owner: "local", conversation, rev}, participants, messages}` through Home ops routing. The import
-   maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's Chief agent id
-   (home-messaging.md section 20 item 9). Import is idempotent by `id`.
-3. Local op `conversation.promote.commit {conversation, cloud_id}`: the local copy becomes read-only
-   with a pointer (`promoted_to`). A crash between 1 and 3 replays 2 (same id) and then 3.
-   `conversation.promote.abort` unfreezes when the import is refused.
+1. Local `conversation-promote-begin {conversation}` (actor `user_local`): the owner refuses a
+   conversation whose participants are not `user_local` plus agents of this Mac (`not_promotable`),
+   then freezes it (state `promoting`; every write refused with `promoting`) and returns the summary
+   and this daemon's host id. The app pages the frozen messages with `conversation-history`.
+2. The app maps `user_local` to the account's `user_<id>` and `agent_mux` to the user's default
+   chief id (section 9) before the call, and sends `conversation.import` with `source {kind: mac,
+   host, local_id}` and `kind: chief` (the owner and one owned mux agent) or `group`. The Worker
+   derives the cloud id from the signed-in user, host and local id; the app never chooses it.
+   Batches hold at most 500 messages and 1 MiB, in seq order (`after_seq` continues). Resume after a
+   crash: the same first call returns `{last_seq, state}` and the app continues after `last_seq`.
+   Then `conversation.import.commit {id, last_seq}`.
+3. Local `conversation-promote-commit {conversation, cloud_id}`: the local copy becomes read-only
+   with `promoted_to`. `conversation-promote-abort {conversation}` unfreezes it when the import is
+   refused (for example while chief imports fail closed, before the backend lead adds the
+   owner-record participant policy).
 
 The Chief follows the pointer: it stops waking on the local copy; the cloud brain owns the cloud
-copy. Dependencies: `conversation.import` in home-core (lane 15) and its Worker route (backend lead,
-urgent finding 2).
+copy. The local ops are daemon protocol changes (review subagent, cmux-tui window).
 
 ## 7. Migration and landing order
 
@@ -173,3 +191,47 @@ Done when: a tagged build answers in Home with no `CMUX_NEXT_MUX_HOST`; the corp
 - Compaction keeps the acpmux summarizer session (`MUX_COMPACT_HARNESS`, model `haiku`). Model
   calls in tests go through the subrouter only.
 - PATH for the Chief's tools stays the phase A stand-in until D26 (daemon login environment).
+
+## 9. Chief records in UserDO (for the backend lead)
+
+Record `chief` in `UserDO`, keyed by chief id. All fields are per user; P1 needs no per-install
+field (the Mac's local Chief is the participant `agent_mux` of that install's local owner, mapped at
+promote time to the user's default chief).
+
+| field | type | null | writer | note |
+| --- | --- | --- | --- | --- |
+| `id` | `agent_<26 base32>` | no | UserDO at create | never reused |
+| `owner_user` | `user_<id>` | no | UserDO at create | immutable |
+| `display_name` | string, 1...100 chars | no | user (`chief.create`, `chief.update`) | default "Chief" |
+| `is_default` | bool | no | user; UserDO keeps exactly one true | texts (H9) and promote use the default |
+| `brain` | `"cloud"` | no | UserDO at create | the brain that answers this chief's cloud conversations; only `"cloud"` in P1 (the Mac brain answers local conversations only) |
+| `main_conversation` | `conv_<26>` | yes | UserDO when it creates the chief's main conversation | |
+| `harness` | string | yes | user | null = deployment default |
+| `rev` | u64 | no | UserDO | +1 per committed op |
+| `created_at`, `updated_at` | RFC 3339 ms | no | UserDO | |
+| `archived_at` | RFC 3339 ms | yes | UserDO on `chief.archive` | |
+
+Ops (actor: the user's principal, from any install; the Mac Chief actor and the cloud MuxDO write
+none of these fields in P1, they only read `id`, `is_default` and `main_conversation`):
+
+| op | params | idempotency key | risk class | rules |
+| --- | --- | --- | --- | --- |
+| `chief.create` | `display_name?`, `is_default?` | required; the first default chief uses the fixed key `chief-default` | normal | the first chief of a user is the default |
+| `chief.update` | `chief`, `expected_rev`, `display_name?`, `is_default?`, `harness?`, `archived?` (false only: restore) | required | normal | setting `is_default` clears it on the old default in the same commit |
+| `chief.archive` | `chief`, `expected_rev` | required | destructive (text confirmation per H10, H11) | refused for the default chief (`chief_is_default`) |
+
+Retention: an archived chief stays readable and restorable (`chief.update` with `archived: false`)
+for 30 days, then becomes a tombstone `{id, owner_user, archived_at}` kept forever so the id is never
+reused; its conversations keep the participant (marked left). Memory deletion follows P2's memory
+owner, not this record.
+
+Presence: the Mac Chief does not need presence or the presence key.
+
+## 10. Memory scope in the UI
+
+One Chief identity spans the Mac and the cloud, but each brain keeps its own memory until P2 (Chief
+memory in the team VM); accepted by the coordinator, 2026-10-03. Every view that shows the Chief
+says so plainly. String for the Home lead's views (Mac and iOS), key
+`home.chief.memoryScope.deviceOnly`: en "This Chief remembers on this device only.", ja
+"この Chief はこのデバイスでのみ記憶します。" (other languages per check-l10n.sh, by the view owner).
+The note is removed when P2 lands shared memory.

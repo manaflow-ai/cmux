@@ -65,8 +65,18 @@ describe("agent pane automation", () => {
   test("sendPrompt runs the composer's chat.send action and refuses an empty prompt", async () => {
     const { fake, calls } = host(snapshot());
     expect(await sendPrompt(fake, "  ")).toEqual({ error: "empty prompt" });
-    expect(await sendPrompt(fake, "hello")).toEqual({ sent: true, sessionId: "s1" });
+    expect(await sendPrompt(fake, "hello")).toEqual({ sent: true, turnEnded: true, sessionId: "s1" });
     expect(calls).toEqual([["chat.send", { text: "hello" }]]);
+  });
+
+  test("sendPrompt returns while the turn runs, and reports a send that fails at once", async () => {
+    const running: AutomationHost = { ...host(snapshot()).fake, call: () => new Promise(() => {}) };
+    expect(await sendPrompt(running, "long", 10)).toEqual({ sent: true, turnEnded: false, sessionId: "s1" });
+    const failing: AutomationHost = {
+      ...host(snapshot()).fake,
+      call: () => Promise.reject(new Error("harness unavailable")),
+    };
+    expect(await sendPrompt(failing, "x", 10)).toEqual({ error: "harness unavailable" });
   });
 
   test("a single ask is answered with its first allowing option, or the named one", async () => {

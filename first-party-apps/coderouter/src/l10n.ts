@@ -131,7 +131,7 @@ export const JA: Record<string, string> = {
   "step.connect.empty": "接続できるものはまだありません。キーを追加するか、プロバイダーの CLI にサインインしてもう一度確認してください。",
   "step.connect.none": "未接続",
   "step.detect": "手元にあるものを確認",
-  "step.detect.body": "cmux はこの Mac のサインインとキーを確認します。読むのは名前とメールだけで、キーは読みません。",
+  "step.detect.body": "cmux はこの Mac のサインインとキーを確認します。表示するのはプラン名と短縮したアカウントラベルだけで、完全なメールアドレスやキーは表示しません。",
   "step.detect.empty": "この Mac にサインインやキーはありません。次のステップでキーを貼り付けられます。",
   "step.detect.found": "この Mac で {n} 件見つかりました",
   "step.detect.none": "まだ何も見つかっていません",

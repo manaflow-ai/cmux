@@ -84,7 +84,7 @@ export function accountsSection(d: Core) {
       return VStack({ spacing: 2 }, [
         ...accounts.map(accountRow),
         found.length ? caption(t("accounts.found", "Found on this Mac")) : null,
-        ...found.map((x) => line(() => x.name, () => x.identity ?? null, () => (isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => act.connect(x.provider, x.name)))))
+        ...found.map((x) => line(() => x.name, () => x.label ?? null, () => (isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => act.connect(x.provider, x.name)))))
       ])
     })
   ])

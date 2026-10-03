@@ -90,6 +90,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        .package(path: "../../Shared/CmuxHomeCore"),
+        .package(path: "../../Shared/CmuxHomeRender"),
         .package(path: "../../Shared/CmuxIrxTransport"),
         // Sparkle driver shared with the legacy app (no bonsplit, no legacy deps).
         .package(path: "../CmuxUpdater"),
@@ -256,7 +258,11 @@ let package = Package(
         // render-server send motion), the conversation list and composer.
         .target(
             name: "CmuxNextHome",
-            dependencies: ["CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: [
+                "CmuxNextDesign", "CmuxNextWakeups",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             resources: [
                 .process("Resources"),
             ],
@@ -265,7 +271,11 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextHomeTests",
-            dependencies: ["CmuxNextHome", "CmuxNextDesign"],
+            dependencies: [
+                "CmuxNextHome", "CmuxNextDesign",
+                .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per

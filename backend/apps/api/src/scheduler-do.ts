@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto"
-import type { Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
+import type { OpFrame, Principal, RejectFrame, ResultFrame } from "@cmux/ownership"
 import type { Body, Run } from "@cmux/protocol"
 import { deadlineOf, dispatchable, dueFires, matchingEventTriggers, publicRun, schedulerDomain, TERMINAL, type SchedulerState } from "./domains/scheduler.ts"
+import { codeRefOf, precheckCodeOp } from "./code-check.ts"
+import type { CodeStorageError } from "./code-storage.ts"
 import type { Env } from "./env.ts"
 import type { DeliverResult } from "./ingress/automation-hook.ts"
 import { OwnerDO, type ReadResult, type SubmitResult } from "./owner-do.ts"
@@ -304,6 +306,30 @@ export class SchedulerDO extends OwnerDO<SchedulerState> {
       this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO run_inputs (run, json, created_at) VALUES (?, ?, ?)`, value.id, input, Date.now())
     }
     return { runs }
+  }
+
+  /**
+   * Ops that pin automation code (create, update, deploy with a code body): the commit and its
+   * bundle must exist in this team's repository before the reducer sees the op. Replays and
+   * denied ops skip the check (OwnerEngine.gate), so a decided key always gets its original
+   * answer. The check awaits code.storage; if the automation's path changed meanwhile, the op is
+   * refused as retryable instead of pinning a path that was never checked.
+   */
+  async submitCode(entity: string, principal: Principal, frame: OpFrame): Promise<SubmitResult | { readonly refusal: CodeStorageError }> {
+    const engine = this.bind(entity)
+    if (codeRefOf(frame.op, frame.params) && engine.gate(principal, frame) === undefined) {
+      const pathOf = (id: string) => {
+        const b = engine.currentState.automations[id]?.body
+        return b?.type === "code" ? b.ref.path : undefined
+      }
+      const id = (frame.params as { automation?: unknown } | null)?.automation
+      const before = typeof id === "string" ? pathOf(id) : undefined
+      const refusal = await precheckCodeOp(this.env, entity, frame.op, frame.params, async (a) => engine.currentState.automations[a])
+      // The await lets other requests in: a same-key twin may have committed meanwhile; then replay it.
+      if (refusal && engine.gate(principal, frame) !== "replay") return { refusal }
+      if (typeof id === "string" && pathOf(id) !== before) return { refusal: { code: "code.unavailable", message: "the automation changed during the code check; retry", retryable: true } }
+    }
+    return this.submit(entity, principal, frame)
   }
 
   /** RPC from a run's Workflow. One key per (run, state, step): a retried step replays. */

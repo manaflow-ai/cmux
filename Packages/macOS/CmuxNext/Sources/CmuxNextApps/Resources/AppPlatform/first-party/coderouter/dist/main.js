@@ -151,7 +151,7 @@
     "step.connect.empty": "接続できるものはまだありません。キーを追加するか、プロバイダーの CLI にサインインしてもう一度確認してください。",
     "step.connect.none": "未接続",
     "step.detect": "手元にあるものを確認",
-    "step.detect.body": "cmux はこの Mac のサインインとキーを確認します。読むのは名前とメールだけで、キーは読みません。",
+    "step.detect.body": "cmux はこの Mac のサインインとキーを確認します。表示するのはプラン名と短縮したアカウントラベルだけで、完全なメールアドレスやキーは表示しません。",
     "step.detect.empty": "この Mac にサインインやキーはありません。次のステップでキーを貼り付けられます。",
     "step.detect.found": "この Mac で {n} 件見つかりました",
     "step.detect.none": "まだ何も見つかっていません",
@@ -819,7 +819,7 @@
       case "detect":
         return {
           title: t("step.detect", "See what you have"),
-          sentence: t("step.detect.body", "cmux checks this Mac for sign-ins and keys. It reads only names and emails, never a key."),
+          sentence: t("step.detect.body", "cmux checks this Mac for sign-ins and keys. It shows plan names and shortened account labels, never a full email or a key."),
           summary: () => {
             const found = (d.detected() ?? []).filter((x) => x.status !== "missing").length;
             return found ? t("step.detect.found", "{n} found on this Mac", { n: found }) : t("step.detect.none", "Nothing found yet");
@@ -884,7 +884,7 @@
         const found = all.filter((x) => x.status !== "missing");
         if (!found.length)
           return caption(t("step.detect.empty", "No sign-ins or keys on this Mac. You can paste a key in the next step."));
-        return VStack({ spacing: 2 }, found.map((x) => line(() => x.name, () => [x.identity, x.plan].filter(Boolean).join(" · ") || x.source || null, () => Text(localStatusWord(x)).font("caption").color(x.status === "signed_in" ? "success" : x.status === "expired" ? "warning" : "secondary"))));
+        return VStack({ spacing: 2 }, found.map((x) => line(() => x.name, () => [x.label, x.plan === x.label ? null : x.plan].filter(Boolean).join(" · ") || x.source || null, () => Text(localStatusWord(x)).font("caption").color(x.status === "signed_in" ? "success" : x.status === "expired" ? "warning" : "secondary"))));
       }, t("step.detect.scanning", "Checking this Mac…")),
       HStack([Spacer(), small(t("action.rescan", "Check Again"), () => d.detected.refresh())])
     ]);
@@ -893,7 +893,7 @@
     return Menu(t("action.addKey", "Add with a Key…"), PASTE_PROVIDERS.filter(([p]) => !exclude.includes(p) && !isConnected(p, accounts())).map(([p, name]) => Button(name, () => connect(p, name)))).font("caption");
   }
   function connectRow(x) {
-    return line(() => x.name, () => x.identity ?? null, busyOr(`connect:${x.provider}`, () => small(t("action.connect", "Connect"), () => connect(x.provider, x.name))));
+    return line(() => x.name, () => x.label ?? null, busyOr(`connect:${x.provider}`, () => small(t("action.connect", "Connect"), () => connect(x.provider, x.name))));
   }
   function connectBody(d) {
     return loaded(d.accounts, OP.accounts, (accounts) => {
@@ -1143,7 +1143,7 @@
         return VStack({ spacing: 2 }, [
           ...accounts.map(accountRow),
           found.length ? caption(t("accounts.found", "Found on this Mac")) : null,
-          ...found.map((x) => line(() => x.name, () => x.identity ?? null, () => isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => connect(x.provider, x.name))))
+          ...found.map((x) => line(() => x.name, () => x.label ?? null, () => isBusy(`connect:${x.provider}`) ? ProgressView().frame({ width: 16, height: 16 }) : small(t("action.connect", "Connect"), () => connect(x.provider, x.name))))
         ]);
       })
     ]);

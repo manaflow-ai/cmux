@@ -2,7 +2,7 @@ import CmuxNextCodeRouter
 import CmuxNextDesign
 import SwiftUI
 
-/// One provider: name, status, non-secret identity and source, the
+/// One provider: name, status, redacted account label and source, the
 /// buttons its state allows, CodeRouter's linked accounts, and the inline
 /// paste field when it is the paste target.
 struct AccountRowView: View {
@@ -53,10 +53,13 @@ struct AccountRowView: View {
         .accessibilityIdentifier("cmux.accounts.row.\(row.provider.rawValue)")
     }
 
-    /// `email · plan · From ~/.codex/auth.json`: all non-secret.
+    /// `pro · From ~/.codex/auth.json` or `s…@e… · From …`: a redacted
+    /// account label, never an email or a secret.
     private var detail: String? {
         guard let detection = row.detection else { return nil }
-        let parts = [detection.identity, detection.plan, detection.sources.first.map { AccountsStrings.source($0.label) }]
+        let display = detection.account?.display
+        let parts = [display, detection.plan == display ? nil : detection.plan, detection.detail,
+                     detection.sources.first.map { AccountsStrings.source($0.label) }]
         let text = parts.compactMap { $0 }.joined(separator: " · ")
         return text.isEmpty ? nil : text
     }
