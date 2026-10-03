@@ -37,6 +37,8 @@ pub struct SessionCfg {
     pub profile: String,
     pub threads: u16,
     pub stats_every_ms: u64,
+    /// Quiet time after damage before a capture (0 disables).
+    pub settle_us: u64,
 }
 
 pub struct MediaSession {
@@ -62,6 +64,7 @@ pub struct MediaSession {
     next_stats_ns: u64,
     stats_every_ns: u64,
     cpu_last: (f64, u64),
+    settle_ns: u64,
 }
 
 fn now_us() -> u64 {
@@ -124,6 +127,7 @@ impl MediaSession {
             next_stats_ns: now_ns(),
             stats_every_ns: cfg.stats_every_ms * 1_000_000,
             cpu_last: (process_cpu_s(), now_ns()),
+            settle_ns: cfg.settle_us * 1000,
             cap,
             enc,
         })
@@ -208,11 +212,12 @@ impl MediaSession {
             }
             // Damage from the X server.
             damage.clear();
-            if let Err(e) = self.cap.drain(&mut damage) {
+            if let Err(e) = self.drain_settled(&mut damage) {
                 return format!("capture failed: {e}");
             }
-            for ev in &damage {
-                let r = Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h };
+            // One gate decision for everything that settled together.
+            let merged = damage.iter().map(|ev| Rect { x: ev.rect.x, y: ev.rect.y, width: ev.rect.w, height: ev.rect.h }).reduce(Rect::union);
+            if let Some(r) = merged {
                 let action = self.gate.damage(r, now_us());
                 trace(&format!("damage {r:?} -> {action:?} in_flight {}", self.gate.in_flight()));
                 if let FlowAction::Encode { damage: d, frame } = action {
@@ -228,6 +233,25 @@ impl MediaSession {
                 self.send_stats(stream);
             }
         }
+    }
+
+    /// Drains damage, then keeps draining while more arrives within `settle_ns` (at most
+    /// four times), so an app that draws one change with several requests is captured
+    /// whole instead of torn (measured: a torn first frame cost one frame interval).
+    fn drain_settled(&mut self, out: &mut Vec<crate::capture::DamageEvent>) -> Res<()> {
+        self.cap.drain(out)?;
+        if out.is_empty() || self.settle_ns == 0 {
+            return Ok(());
+        }
+        for _ in 0..4 {
+            let before = out.len();
+            wait_readable(&[self.cap.fd()], Some(self.settle_ns))?;
+            self.cap.drain(out)?;
+            if out.len() == before {
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn encode(&mut self, stream: &mut TcpStream, d: Rect, frame: u32) -> Res<()> {

@@ -28,6 +28,7 @@ pub fn run(opts: &Opts) -> Res<()> {
         profile: opts.str_or("profile", "high"),
         threads: opts.num_or("threads", 2)?,
         stats_every_ms: opts.num_or("stats-ms", 1000)?,
+        settle_us: opts.num_or("settle-us", 1000)?,
     };
     let policy = HostPolicy {
         enabled: true,
