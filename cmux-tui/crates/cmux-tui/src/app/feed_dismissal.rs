@@ -99,4 +99,34 @@ mod tests {
         assert!(!app.tab_is_unread(surface.id));
         mux.close_surface(surface.id).unwrap();
     }
+
+    /// A focus change the server causes (the focused tab closed) is not a
+    /// user view: the newly focused unread tab stays unread.
+    #[test]
+    fn feedfix_server_focus_change_does_not_ack() {
+        let command = ["/bin/sh", "-c", "sleep 30"].map(str::to_string).to_vec();
+        let options =
+            cmux_tui_core::SurfaceOptions { command: Some(command), ..Default::default() };
+        let mux = Mux::new("feed-dismissal-server-focus", options);
+        let first = mux.new_workspace(Some("work".into()), Some((20, 8))).unwrap();
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.report_client_focus();
+        assert_eq!(app.active_surface(), Some(second.id), "the client starts on the new tab");
+        mux.post_notification(
+            "done".into(),
+            "".into(),
+            cmux_tui_core::NotificationLevel::Info,
+            Some(first.id),
+        )
+        .unwrap();
+        mux.close_surface(second.id).unwrap();
+        app.replace_tree(app.session.tree());
+        assert_eq!(app.active_surface(), Some(first.id), "the server moved focus");
+        app.report_client_focus();
+        assert!(mux.surface_notification(first.id).is_some(), "a server focus change never acks");
+        mux.close_surface(first.id).unwrap();
+    }
 }

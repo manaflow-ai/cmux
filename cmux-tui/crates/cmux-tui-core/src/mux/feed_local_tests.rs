@@ -185,3 +185,49 @@ fn reading_the_last_item_clears_the_ring_durably() {
     assert!(acked.contains(notification.as_str()), "the ledger entry is acknowledged");
     assert!(!all(&mux)[0].is_unread());
 }
+
+/// Upgrade A, downgrade B, upgrade C: notifications and acks an older daemon
+/// wrote after the marker was set still reach the local owner, because the
+/// ledger pass runs on every open. Read is one-way.
+#[test]
+fn feedfix_ledger_pass_runs_on_every_open_after_a_downgrade() {
+    let root = root("downgrade");
+    let session = "feed-downgrade";
+    // A: the new daemon migrates and posts n1 as a local item.
+    let mux = open(&root, session);
+    let a = mux.new_workspace(None, None).unwrap();
+    let b = mux.new_workspace(None, None).unwrap();
+    let c = mux.new_workspace(None, None).unwrap();
+    let n1 = post(&mux, "before downgrade", Some(a.id));
+    // B: an older daemon writes ledger rows without items, acks n1 durably
+    // (persisted ack only) and n2 per client (read_by only).
+    let n2 = post(&mux, "older daemon read", Some(b.id));
+    let n3 = post(&mux, "older daemon unread", Some(c.id));
+    let forgotten = [feed_item_id(&n2), feed_item_id(&n3)];
+    let mut registry = mux.workspace_registry.lock().unwrap();
+    registry.forget_feed_local_items_for_test(&forgotten).unwrap();
+    registry.ack_notifications_durable(&[n1.as_str().to_string()], 1, Vec::new(), None).unwrap();
+    drop(registry);
+    let mutation = WorkspaceMutation::new("older-ack", "test").unwrap();
+    mux.ack_notifications(&mutation, None, "mac-b", std::slice::from_ref(&n2)).unwrap();
+    drop(mux);
+
+    // C: the new daemon again.
+    let mux = open(&root, session);
+    let items = all(&mux);
+    let unread = |id: &NotificationPublicId| {
+        items
+            .iter()
+            .find(|item| item.id == feed_item_id(id))
+            .unwrap_or_else(|| panic!("no local item for {id}: {items:?}"))
+            .is_unread()
+    };
+    assert!(!unread(&n1), "a persisted ack written by the older daemon reads the item");
+    assert!(!unread(&n2), "a read_by mark written by the older daemon migrates as read");
+    assert!(unread(&n3), "an unacknowledged notification arrives unread");
+    assert_eq!(items.len(), 3);
+    drop(mux);
+    // Another open changes nothing.
+    let mux = open(&root, session);
+    assert_eq!(all(&mux), items);
+}
