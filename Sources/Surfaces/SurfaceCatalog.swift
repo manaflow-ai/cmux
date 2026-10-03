@@ -1403,6 +1403,18 @@ final class SurfaceCatalog {
         for workspaceID in resolvedWorkspaceIDs {
             reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         }
+        // Session restore commonly stages a Cloud browser before its provider
+        // has published the first resource graph. Once that graph resolves the
+        // pending projection, wake the provider so it rebinds the existing pane
+        // to the live port. Without this callback the projection is durable but
+        // the pane remains on the restore-time unavailable card forever.
+        if !resolved.isEmpty, providers[machine] != nil {
+            // Defer one main-actor turn so a provider can call catalog.restore
+            // while materializing without recursively re-entering this resolver.
+            Task { @MainActor [weak self] in
+                self?.providers[machine]?.projectionsRestored()
+            }
+        }
     }
 
     /// Observers get at most one notification per main-runloop turn: a burst of upserts
