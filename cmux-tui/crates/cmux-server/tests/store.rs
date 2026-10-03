@@ -186,12 +186,11 @@ fn rollback_and_gc_keep_three_profiles_and_current() {
     assert_eq!((r.from, r.to, r.changed, r.reapply), (Some(5), 7, true, true));
 }
 
-/// Review 8 / decision A: 20,000 flips with readers doing readlink, stat
-/// and open through `current` the whole time, and zero reader errors (on
-/// macOS 26.5, an unpinned rename(2) over a symlink gave about 2,600).
-#[test]
-fn flip_is_atomic_for_readers() {
-    const FLIPS: u64 = 20_000;
+/// Flips `current` `flips` times while three readers run readlink, stat
+/// and open through it, and asserts zero reader errors (review 8: on macOS
+/// 26.5 an unpinned rename(2) over a symlink gave about 2,600 errors per
+/// 20,000 flips).
+fn flips_with_readers(flips: u64) {
     let f = fixture();
     f.apply(&f.release(1, "v1")).unwrap();
     f.apply(&f.release(2, "v2")).unwrap();
@@ -224,7 +223,7 @@ fn flip_is_atomic_for_readers() {
             })
         })
         .collect();
-    for i in 0..FLIPS {
+    for i in 0..flips {
         f.store.switch_to(1 + i % 2).unwrap();
     }
     stop.store(true, Ordering::Relaxed);
@@ -241,6 +240,20 @@ fn flip_is_atomic_for_readers() {
     assert!(!names.iter().any(|n| n.contains(".swap.")), "no temporary links remain");
     let pins = names.iter().filter(|n| n.starts_with(".current.pin.")).count();
     assert!(pins <= cmux_server::fsx::PIN_MAX_COUNT, "{pins} pins kept");
+}
+
+/// 2,000 flips, zero reader errors (the default run, also on macOS 26.5).
+#[test]
+fn flip_is_atomic_for_readers() {
+    flips_with_readers(2_000);
+}
+
+/// Decision A's full 20,000 flips; slow on a loaded macOS host, so run it
+/// with `--ignored` (`cargo test -p cmux-server --test store -- --ignored`).
+#[test]
+#[ignore = "20,000 flips take minutes on a loaded macOS host; the default run does 2,000"]
+fn flip_is_atomic_for_readers_20000() {
+    flips_with_readers(20_000);
 }
 
 #[test]

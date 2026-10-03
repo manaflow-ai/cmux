@@ -156,7 +156,10 @@ pub const PIN_MAX_COUNT: usize = 64;
 /// newest [`PIN_MAX_COUNT`].
 pub fn swap_symlink_pinned(link: &Path, target: &Path) -> Result<()> {
     swap(link, target, true)?;
-    prune_pins(link, PIN_MAX_AGE, PIN_MAX_COUNT)
+    // The flip is done; a pin that cannot be removed now is removed by the
+    // next flip or GC, so it never turns a done flip into a failure.
+    let _ = prune_pins(link, PIN_MAX_AGE, PIN_MAX_COUNT);
+    Ok(())
 }
 
 fn swap(link: &Path, target: &Path, pin: bool) -> Result<()> {
