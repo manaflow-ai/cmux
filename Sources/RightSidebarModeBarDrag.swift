@@ -12,8 +12,9 @@ import SwiftUI
 @Observable
 final class RightSidebarModeBarDragController {
     static let coordinateSpace = "RightSidebarModeBarTabs"
-    /// Gentle and nearly critically damped: the tabs part without bouncing.
-    static let spring = Animation.spring(response: 0.28, dampingFraction: 0.86)
+    /// A longer, nearly critically damped spring keeps lateral tab movement
+    /// gradual while staying responsive when the order changes.
+    static let spring = Animation.spring(response: 0.42, dampingFraction: 0.9)
 
     struct Session {
         let mode: RightSidebarMode
