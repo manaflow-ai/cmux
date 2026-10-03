@@ -36,6 +36,11 @@ Flag (slice 2, landed): the hard cap enforces nothing until slice 3 calls `Usage
 
 Abuse defaults (A18, accepted): CPU 10 s and 1,000 subrequests per invocation, 2,000 steps and 5 retries per run, 24 h run wall clock, 50 concurrent runs, 5 creations/s burst 20, 50 deploys a day, 600 egress requests a minute, 7-day instance retention, and the hard USD cap. Included quotas and overage prices come later from dogfood cost data and must exist before any paid launch.
 
+## 2a. UNVERIFIED (open checks)
+
+- Slice 3: tail CPU metering (`AutomationTail` records `automation.cpu_ms`) is not asserted in a test; tails run asynchronously after the tenant invocation. Verify on staging with a real run and the ledger.
+- Slices 1 and 3: real code.storage reads (commit check, bundle fetch) are tested only against a fake; no staging secret yet. Also unverified: code.storage accepts `_` in repository names (team ids contain it).
+
 ## 3. Who I need
 
 - Backend lead (via main): migration tag v11 for `UsageMeterDO` now and a later tag for `AutomationStateDO`; new wrangler bindings (`worker_loaders`, egress and tail entrypoints, a rate-limit namespace block for run creations); staging secrets for code.storage, ClickHouse and Stripe TEST.
