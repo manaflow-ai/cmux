@@ -127,11 +127,14 @@ cursors stay on the Mac; search and contacts are not supported.
    experiment now. When CodeRouter accounts work in the agent pane (R35), the chief moves to the
    CodeRouter route so it uses the team's Claude and Codex accounts.
 4. Done: WorkerDO (pi session, `fetch_url`) and spawn.
-5. Native UI in Home (416320062f3, 3e032168fbe): `CmuxNextChief` target, sidebar item, `chief.show`
-   action (palette, CLI `cmux chief show`). Tagged build `chief2` verified: `chief.show` runs, the
-   view long-polls staging and follows new messages (after=0 -> 1 -> 2). UNVERIFIED: the drawn
-   view and sending from the composer. Rule (coordinator): no Computer Use and no GUI driving on
-   Lawrence's laptop; prove the drawn view with `debug.chief` (state + layer render to PNG).
+5. Native UI in Home (416320062f3, 3e032168fbe, 0cc60689777): `CmuxNextChief` target, sidebar item,
+   `chief.show` action (palette, CLI `cmux chief show`), `debug.chief` (state + layer render to
+   PNG). Tagged build `chief3` verified without GUI automation (launched with `open -g`):
+   `chief.show` with focus selects the tab; `debug.chief` reports online, 2 messages, the rows
+   "Preflight from the agent..." (from you, Delivered) and "Hello, Lawrence..." (from Chief), and
+   the PNG shows the native bubbles. UNVERIFIED: sending from the composer; the Liquid Glass
+   composer draws flat in the layer render. Rule (coordinator): no Computer Use and no GUI
+   driving on Lawrence's laptop.
 6. Freestyle worker.
 
 ## 8. Open
