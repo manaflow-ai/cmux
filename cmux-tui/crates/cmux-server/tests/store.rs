@@ -305,6 +305,25 @@ fn unpack_accepts_only_tar_gz() {
     }
     let tmp = try_unpack(&tar).unwrap();
     assert_eq!(fs::read_to_string(tmp.path().join("out/bin/cmux")).unwrap(), "hi");
+    // A broken gzip stream is corrupt (verification), not "not tar".
+    let big = raw_tar(&[raw_entry(b"bin/big", tar::EntryType::Regular, b"", &noise(64 << 10))]);
+    let gz = gzip(&big);
+    let err = try_unpack_raw(&gz[..gz.len() / 2]).expect_err("a truncated gzip was accepted");
+    assert_eq!(err.kind, ExitKind::Verification, "{err}");
+    assert!(err.message.contains("corrupt"), "{err}");
+}
+
+/// Bytes that do not compress.
+fn noise(len: usize) -> Vec<u8> {
+    let mut x: u32 = 0x9e37_79b9;
+    (0..len)
+        .map(|_| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            x as u8
+        })
+        .collect()
 }
 
 #[test]

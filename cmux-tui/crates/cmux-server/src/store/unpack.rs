@@ -136,23 +136,25 @@ fn open_reader(archive: &Path) -> Result<Box<dyn Read>> {
 
 /// Unpacks `archive` into `dest`, which must not exist yet.
 pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
-    let mut tar = tar::Archive::new(open_reader(archive)?);
+    let corrupt = |e: io::Error| Error::verification(format!("corrupt package archive: {e}"));
+    let mut gz = open_reader(archive)?;
+    // The first tar header, checked by hand: a header checksum that does
+    // not match means a compressed bare binary, not a package. A gzip
+    // stream error stays "corrupt".
+    let mut first = Vec::with_capacity(512);
+    (&mut gz).take(512).read_to_end(&mut first).map_err(corrupt)?;
+    if first.len() == 512 && !first.iter().all(|b| *b == 0) && !tar_checksum_ok(&first) {
+        return Err(Error::rejected(
+            "package is gzip but not tar (the first tar header checksum does not match); \
+             store packages are tar.gz only",
+        ));
+    }
+    let mut tar = tar::Archive::new(io::Cursor::new(first).chain(gz));
     fs::create_dir(dest).ctx(dest.display())?;
     let mut entries_seen = 0u64;
     let mut bytes = 0u64;
-    let corrupt = |e: io::Error| Error::verification(format!("corrupt package archive: {e}"));
     for entry in tar.entries().map_err(corrupt)? {
-        let mut entry = match entry {
-            Ok(entry) => entry,
-            // A gzip stream whose first block is not a tar header: a
-            // compressed bare binary, not a package.
-            Err(e) if entries_seen == 0 => {
-                return Err(Error::rejected(format!(
-                    "package is gzip but not tar ({e}); store packages are tar.gz only"
-                )));
-            }
-            Err(e) => return Err(corrupt(e)),
-        };
+        let mut entry = entry.map_err(corrupt)?;
         entries_seen += 1;
         if entries_seen > limits.max_entries {
             return Err(unsafe_entry(format!("more than {} entries", limits.max_entries)));
@@ -205,6 +207,25 @@ pub fn unpack(archive: &Path, dest: &Path, limits: Limits) -> Result<()> {
     check_tree(&root, dest)
 }
 
+/// The tar header checksum rule: the octal field at 148..156 equals the sum
+/// of all 512 bytes with that field read as spaces.
+fn tar_checksum_ok(block: &[u8]) -> bool {
+    let field = &block[148..156];
+    let text: String = field
+        .iter()
+        .map(|b| *b as char)
+        .take_while(|c| *c != '\0')
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    let Ok(want) = u32::from_str_radix(&text, 8) else { return false };
+    let sum: u32 = block
+        .iter()
+        .enumerate()
+        .map(|(i, b)| if (148..156).contains(&i) { u32::from(b' ') } else { u32::from(*b) })
+        .sum();
+    sum == want
+}
+
 /// Resolves every symlink under `dir` and refuses one that is dangling or
 /// leaves the canonical package `root` (chains of links that each pass the
 /// lexical check). Fsyncs every directory, so the entries are durable
@@ -252,7 +273,13 @@ fn write_file(
     let mut file = options
         .open(path)
         .map_err(|e| unsafe_entry(format!("cannot create {} ({e})", rel.display())))?;
-    let copied = io::copy(&mut entry.take(size), &mut file).ctx(path.display())?;
+    let copied = io::copy(&mut entry.take(size), &mut file).map_err(|e| match e.kind() {
+        // The gzip or tar stream broke while reading this entry.
+        io::ErrorKind::UnexpectedEof | io::ErrorKind::InvalidInput | io::ErrorKind::InvalidData => {
+            Error::verification(format!("corrupt package archive at {}: {e}", rel.display()))
+        }
+        _ => Error::io(path.display(), e),
+    })?;
     if copied != size {
         return Err(Error::verification(format!("truncated entry {}", rel.display())));
     }
