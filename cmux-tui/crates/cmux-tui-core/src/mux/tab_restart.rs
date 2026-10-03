@@ -135,9 +135,11 @@ impl Mux {
             restart_target_locked(&registry, &state, &kept.kept_tabs, surface)?
         };
         if request.only_lost {
-            let end =
-                self.session_shutdown.classify(TerminalEnd::from_receipt(target.receipt.as_ref()));
-            if !matches!(end, TerminalEnd::HostLost(_)) {
+            // A signal end still inside the shutdown lead is not yet a host
+            // loss; the automatic restart treats it as a process end.
+            let receipt = TerminalEnd::from_receipt(target.receipt.as_ref());
+            let settled = self.session_shutdown.settle(receipt);
+            if !matches!(settled.end(), TerminalEnd::HostLost(_)) {
                 return Err(TabRestartError::NotLost(surface).into());
             }
         }
