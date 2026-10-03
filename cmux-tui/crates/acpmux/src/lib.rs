@@ -26,6 +26,7 @@ pub mod server;
 pub mod session_name;
 pub mod store;
 pub mod transcript;
+pub mod trust;
 pub mod tui;
 
 pub mod model_catalog;
