@@ -948,6 +948,9 @@
         if (child && !child._detached) node._child = { frame: child, tree: await frameTree(page, child, null, options, true) };
       } catch (e) {
         if (e instanceof FrameTimeout) node._child = { frame: child, timedOut: true };
+        // The driver does not read a frame that shows a page the domain
+        // policy blocks.
+        else if (e && e.code === "blocked") node._child = { frame: child, blocked: true };
         else if (child && !child._detached) node._child = { frame: child, tree: null };
       }
     }));
@@ -975,6 +978,7 @@
           delete node.frameFocused;
           delete node._child;
           if (child && child.timedOut) node.unread = "timed out";
+          if (child && child.blocked) node.unread = "blocked by the domain policy";
           if (child && child.tree) {
             const inner = stitch(page, child.tree, focusChain && focused, shown);
             if (inner.length) node.children = inner;

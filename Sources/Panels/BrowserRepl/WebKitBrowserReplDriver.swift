@@ -33,6 +33,10 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Set while WebKit refuses the latest policy's content rules: every
     /// call fails with it until a policy that compiles replaces it.
     @MainActor private var policyFailure: BrowserReplDriverError?
+    /// Applies the domain policy to each frame a call reads or acts on, by
+    /// WebKit's record of the frame and its document read in the driver's
+    /// own content world.
+    @MainActor private lazy var frameGate = BrowserReplFrameGate(world: BrowserReplDriverWorld.world)
 
     // Main-actor state.
     private var activeTargetID: String?
@@ -99,6 +103,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func applyDomainPolicy(_ policy: BrowserReplDomainPolicy) async {
         BrowserReplNavigationGuard.shared.setPolicy(policy, sessionID: sessionID)
+        frameGate.policy = policy
         var options = contextOptions ?? BrowserReplContextOptions()
         do {
             let rules = policy.contentRules
@@ -127,7 +132,8 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     private static func isGuarded(_ method: String) -> Bool {
         method == "frame.evaluate" || method.hasPrefix("input.") || method == "tab.screenshot"
             || method == "tab.pdf" || method.hasPrefix("clipboard.") || method == "filechooser.respond"
-            || method.hasPrefix("cookies.")
+            || method.hasPrefix("cookies.") || method == "auth.request"
+            || method == "frame.contentFrame" || method == "frame.contentFrames"
     }
 
     func attach(eventSink: @escaping BrowserReplDriverEventSink) {
@@ -194,6 +200,7 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         do {
             try checkPagePolicy(method: method, params: params)
+            try await checkFramePolicy(method: method, params: params)
             let value = try await handle(method: method, params: params)
             if let raw = value as? BrowserReplRawJSON { return .success(raw.text) }
             guard let json = JSONSerialization.browserReplString(value) else {
@@ -247,9 +254,17 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         case "auth.request":
             // sites.browserAuth: a native sheet collects credentials; see BrowserReplCredentialRequest.
             let panel = try panel(params)
-            let frameInfo = try await frame(panel, params).info
+            let frame = try await frame(panel, params)
+            // The sheet names the frame's origin as WebKit recorded it, and
+            // the fill writes only into a document of that origin, so both
+            // the record and the document the frame shows now must be ones
+            // the domain policy allows.
+            if let reason = frameGate.recordedBlockReason(of: frame, in: panel.webView) {
+                throw Self.error("blocked", "the sign-in fields are in a frame showing \(frame.url), which the domain policy blocks: \(reason)")
+            }
+            try await frameGate.authorize(frame, in: panel.webView)
             return await BrowserReplCredentialRequest.run(
-                webView: panel.webView, frameInfo: frameInfo, params: params,
+                webView: panel.webView, frameInfo: frame.info, params: params,
                 fillSource: bundle.readResource("sites/auth-fill.js")
             )
         default:
@@ -285,6 +300,42 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         guard policy.isActive, let url = panel.webView.url?.absoluteString,
               let reason = policy.blockReason(url) else { return }
         throw Self.error("blocked", "navigation to \(url) was blocked: \(reason); the tab is the user's, so it stays there and the session cannot read it")
+    }
+
+    /// Refuses input and captures that would reach a frame (not only the
+    /// main frame) the domain policy blocks, judged on the frame tree as it
+    /// is now. Calls that run script in one frame are judged where they run
+    /// (`BrowserReplFrameGate.callAsyncJavaScript`).
+    @MainActor
+    private func checkFramePolicy(method: String, params: [String: Any]) async throws {
+        guard currentPolicy.isActive,
+              ["input.mouse", "input.drag", "input.key", "input.insertText", "tab.screenshot", "tab.pdf", "filechooser.respond"].contains(method),
+              let raw = params["targetId"] as? String, let id = UUID(uuidString: raw),
+              let panel = try? reachablePanel(id) else { return }
+        if method == "filechooser.respond", params["cancel"] as? Bool == true { return }
+        let webView = panel.webView
+        let frames = await BrowserReplFrameTree.frames(of: webView)
+        switch method {
+        case "input.mouse":
+            let position = BrowserReplTabAttachments.shared.attachment(for: id)?.mousePosition ?? .zero
+            let point = CGPoint(
+                x: (params["x"] as? NSNumber)?.doubleValue ?? position.x,
+                y: (params["y"] as? NSNumber)?.doubleValue ?? position.y
+            )
+            try await frameGate.checkPointer(at: [point], in: webView, frames: frames)
+        case "input.drag":
+            try await frameGate.checkPointer(at: Self.dragTrail(params), in: webView, frames: frames)
+        case "input.key", "input.insertText":
+            try await frameGate.checkFocus(in: webView, frames: frames)
+        case "filechooser.respond":
+            // The chooser's frame is not recorded with it; while any frame
+            // of the tab shows a blocked page, files go to none.
+            if let entry = frameGate.blocked(frames, in: webView).first {
+                throw Self.error("blocked", "the tab shows frame \(entry.frame.url), which the domain policy blocks: \(entry.reason); a file chooser may only be cancelled")
+            }
+        default:
+            try frameGate.checkCapture(in: webView, frames: frames)
+        }
     }
 
     // MARK: - Tabs
@@ -949,13 +1000,15 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // WebKit drops the completion of a script whose document a navigation
         // replaces (a click on a link, then frames.list), so a read that does
         // not answer falls back to the tree's name, as tab.info does.
+        // A frame the domain policy blocks is not read (frameGate).
         let names = frames.map { frame in
             Task { @MainActor [self] in
                 await withTimeout(milliseconds: 2_000) {
-                    (try? await webView.callAsyncJavaScript(
+                    (try? await self.frameGate.callAsyncJavaScript(
                         "return window.name;",
                         arguments: [:],
-                        in: frame.info,
+                        in: webView,
+                        frame: frame,
                         contentWorld: BrowserReplAgentWorld.world
                     )) as? String
                 } ?? nil
@@ -1077,7 +1130,13 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         Object.defineProperty(window, __key, { value: { got, listener }, configurable: true, enumerable: false });
         return true;
         """
-        _ = try await panel.webView.callAsyncJavaScript(listen, arguments: ["__key": key], in: frame.info, contentWorld: .page)
+        do {
+            _ = try await frameGate.callAsyncJavaScript(listen, arguments: ["__key": key], in: panel.webView, frame: frame, contentWorld: .page)
+        } catch let error as BrowserReplDriverError {
+            throw error
+        } catch {
+            throw Self.translate(error)
+        }
         let dispatch = Self.evaluationBody(
             source: "(...els) => { for (const el of els) el.dispatchEvent(new CustomEvent(__key, { bubbles: true, composed: true })); return els.length; }",
             requiresAgent: true,
@@ -1134,7 +1193,12 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         for attempt in 0..<2 {
             let value: Any?
             do {
-                value = try await panel.webView.callAsyncJavaScript(body, arguments: arguments, in: frame.info, contentWorld: world)
+                // Runs only while the frame shows a document the domain
+                // policy allows; a frame looked up from an earlier tree read
+                // may have navigated since.
+                value = try await frameGate.callAsyncJavaScript(body, arguments: arguments, in: panel.webView, frame: frame, contentWorld: world)
+            } catch let error as BrowserReplDriverError {
+                throw error
             } catch {
                 throw Self.translate(error)
             }
@@ -1222,13 +1286,16 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         };
         """
         do {
-            let value = try await panel.webView.callAsyncJavaScript(
+            let value = try await frameGate.callAsyncJavaScript(
                 script,
                 arguments: ["__index": child.indexInParent],
-                in: parent.info,
+                in: panel.webView,
+                frame: parent,
                 contentWorld: BrowserReplAgentWorld.world
             )
             return value ?? NSNull()
+        } catch let error as BrowserReplDriverError {
+            throw error
         } catch {
             throw Self.translate(error)
         }
@@ -1812,6 +1879,24 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         }
         attachment.mousePosition = last
         return nil
+    }
+
+    /// The points an `input.drag` presses, moves through and releases at
+    /// (`drag`): the first point, then five steps along each segment.
+    private static func dragTrail(_ params: [String: Any]) -> [CGPoint] {
+        let points: [CGPoint] = (params["path"] as? [[String: Any]] ?? []).compactMap { point in
+            guard let x = (point["x"] as? NSNumber)?.doubleValue, let y = (point["y"] as? NSNumber)?.doubleValue else { return nil }
+            return CGPoint(x: x, y: y)
+        }
+        guard let first = points.first else { return [] }
+        var trail = [first]
+        for (previous, next) in zip(points, points.dropFirst()) {
+            for step in 1...5 {
+                let t = CGFloat(step) / 5
+                trail.append(CGPoint(x: previous.x + (next.x - previous.x) * t, y: previous.y + (next.y - previous.y) * t))
+            }
+        }
+        return trail
     }
 
     @MainActor

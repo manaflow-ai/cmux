@@ -174,11 +174,42 @@ native (`BrowserReplBoundary` in the session, and the driver):
 - Domain policy: the session refuses `tab.navigate`/`tabs.open` to a blocked
   URL (`blocked`) and `session.configure` content rules, and calls the
   driver's `setDomainPolicy(policy)` (Swift only). The driver applies the
-  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`,
-  `input.*`, captures, clipboard, file chooser answers) on a tab that shows
-  a blocked page, cancels main-frame navigations to blocked URLs in tabs
-  the session created (`navigation.blocked`), and never navigates a user's
-  tab away for the policy. When WebKit refuses to compile the policy's
+  policy's content rules to the tabs the session created, refuses reads and input (`frame.evaluate`, `auth.request`,
+  `frame.contentFrame(s)`, `input.*`, captures, clipboard, file chooser
+  answers) on a tab that shows a blocked page, cancels main-frame
+  navigations to blocked URLs in tabs the session created
+  (`navigation.blocked`), and never navigates a user's tab away for the
+  policy. It also judges every frame, not only the main frame, by WebKit's
+  record of it (`WKFrameInfo.securityOrigin` and URL) and by its document
+  (`location.origin` and `location.protocol + "//" + location.host`, read
+  in the driver's own content world; `location` cannot be forged by page or
+  agent script). Script the driver runs in a frame (`frame.evaluate` and
+  the calls built on it, `frames.list` names, `frame.ownerBox`) first checks
+  in the frame that the document is one the driver approved, and runs
+  nothing in another: a frame keeps its id when it navigates, so a frame
+  looked up from an earlier tree read is judged again. A frame that shows a
+  blocked page fails with `blocked` (`snapshot()` marks its iframe
+  `[not read: blocked by the domain policy]`). On a fresh tree read the
+  driver refuses `input.mouse` and `input.drag` at a point inside the box
+  of the main frame's child frame that is or holds a blocked frame (overlap
+  is not subtracted, and a blocked frame whose box it cannot find refuses
+  every point), `input.key` and `input.insertText` while a blocked frame
+  holds the focus (its document has it or holds a focused element, or its
+  parent's focused element is its frame; a frame that cannot answer counts
+  as focused), captures while any frame shows a blocked page, and file
+  chooser answers other than `cancel` then too, since the chooser's frame
+  is not recorded. In tabs the session created the content rules keep a
+  blocked frame from loading at all; its empty frame belongs to the parent
+  and refuses nothing. The page can still move a frame or the focus in its
+  own web process between the check and the input reaching it.
+- Page-opened windows: a window a page opens from a tab a session drives
+  becomes a popup tab through cmux's own navigation, which trusts local
+  files and cmux's internal schemes, and the page controls its URL. So it
+  goes to the session (`tab.created`) only when it is an `http`, `https`,
+  `about:blank` or `blob:` (of such an origin) page that the browser's URL
+  allowlist and the creating session's domain policy allow. Otherwise a
+  tab a session created opens nothing, and a user's tab a session only
+  drives leaves the window to the browser's own popup handling. When WebKit refuses to compile the policy's
   content rules, every driver call of the session fails with `invalid`
   (`the domain policy could not be applied: ...`) until the session sets a
   policy that compiles (a locked one needs a reset); the tabs keep the last
@@ -346,8 +377,9 @@ The dev driver implements all of them.
 - `frame.contentFrame { targetId, frameId, element }` returns `{ frameId }` of
   the frame an `<iframe>` agent handle hosts, or `null`. The runtime uses it
   for frame locators, DOM-order frame prefixes and snapshot stitching. Without
-  it the runtime falls back to matching the iframe's content box against each
-  child's `frame.ownerBox`, which fails for overlapping or hidden frames.
+  it (`unsupported`) the runtime finds no frame for an iframe: matching the
+  iframe's box against each child's `frame.ownerBox` would guess, and
+  overlapping iframes share a box.
 - `frame.contentFrames { targetId, frameId, elements: [handle] }` returns one
   `{ frameId }` or `null` per handle, in order: every iframe of a frame in one
   call. Snapshots use it; without it (`unsupported`) they call

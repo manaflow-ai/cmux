@@ -476,10 +476,19 @@ import WebKit
         }
 
         let replAttachment = owner.flatMap { BrowserReplTabAttachments.shared.attachment(for: $0.id) }
+        let ownerID = owner?.id
         let openRequestInNewTab: (URLRequest) -> Void = { [requestNavigation, openInNewTab] request in
-            // A REPL session sees the new tab as a popup it can attach to.
-            if let replAttachment, replAttachment.handlePopup(request: request) {
-                return
+            // A REPL session sees the new tab as a popup it can attach to,
+            // when it passes as an untrusted navigation (popupRoute).
+            if let replAttachment, let ownerID {
+                switch BrowserReplNavigationGuard.shared.popupRoute(panelID: ownerID, url: request.url) {
+                case .refused:
+                    return
+                case .browser:
+                    break
+                case .session:
+                    if replAttachment.handlePopup(request: request) { return }
+                }
             }
             if let requestNavigation {
                 requestNavigation(request, .newTab, nil)

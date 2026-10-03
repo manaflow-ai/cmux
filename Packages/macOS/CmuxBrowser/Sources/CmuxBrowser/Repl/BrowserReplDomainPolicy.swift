@@ -1,3 +1,4 @@
+public import CmuxSettings
 public import Foundation
 
 /// Host names as the domain policy and secret scopes compare them: lower
@@ -403,6 +404,42 @@ public struct BrowserReplDomainPolicy: Sendable, Equatable {
                 out.append(head + "/")
             }
             return out
+        }
+    }
+}
+
+// MARK: - Page-opened windows
+
+extension BrowserReplDomainPolicy {
+    /// Why a window a page opens from a tab a REPL session drives may not
+    /// open, or nil. Called on the creating session's policy (an inactive
+    /// one for a user's tab).
+    ///
+    /// cmux opens such a window as a new tab through its own navigation,
+    /// which trusts local files and cmux's internal schemes, but the page
+    /// controls the URL. So only web pages open: http and https URLs the
+    /// browser's URL allowlist and this policy allow, `about:blank` (also a
+    /// window with no URL), and `blob:` URLs whose origin is such a page.
+    public func popupBlockReason(_ url: URL?, allowlist: BrowserURLAllowlistPolicy) -> String? {
+        guard let url else { return nil }
+        let raw = url.absoluteString
+        switch url.scheme?.lowercased() {
+        case "http", "https":
+            guard allowlist.allows(url) else { return "the browser's URL allowlist does not allow \(raw)" }
+            return blockReason(raw)
+        case "about":
+            let rest = raw.dropFirst("about:".count).lowercased()
+            return rest == "blank" || rest.hasPrefix("blank#") || rest.hasPrefix("blank?")
+                ? nil
+                : "a page may open about:blank, not \(raw)"
+        case "blob":
+            guard let origin = URL(string: String(raw.dropFirst("blob:".count))),
+                  ["http", "https"].contains(origin.scheme?.lowercased() ?? "") else {
+                return "\(raw) does not belong to a web page"
+            }
+            return popupBlockReason(origin, allowlist: allowlist)
+        case let scheme:
+            return "a page may open only http, https, about:blank and blob: windows from a tab a REPL session drives, not \(scheme.map { $0 + ":" } ?? raw)"
         }
     }
 }

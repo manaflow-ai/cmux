@@ -515,3 +515,23 @@ test("url: the JavaScriptCore fallback's setters match WHATWG URL", () => {
     assert.equal(a.href, b.href, `${field} = ${value}`);
   }
 });
+
+test("frames: without the driver's frame identity, an iframe is not matched to a child frame by its box", async () => {
+  // A driver without frame.contentFrame cannot say which child frame an
+  // <iframe> holds. Two overlapping iframes have the same box, so matching
+  // by geometry could act in the wrong frame; the runtime reports none.
+  const { Frame } = ns.core;
+  const box = { x: 10, y: 10, width: 100, height: 80 };
+  const session = {
+    call: async (method) => {
+      if (method === "frame.contentFrame") throw Object.assign(new Error("Unsupported driver method frame.contentFrame"), { code: "unsupported" });
+      if (method === "frame.evaluate" || method === "frame.ownerBox") return box;
+      throw new Error(`unexpected ${method}`);
+    },
+  };
+  let all = [];
+  const page = { _targetId: "t1", _session: session, _blockedError: () => null, _raceDialog: (p) => p, _refreshFrames: async () => {}, frames: () => all };
+  const main = new Frame(page, "", null);
+  all = [main, new Frame(page, "1", main), new Frame(page, "2", main)];
+  assert.equal(await main._contentFrame("h1"), null);
+});

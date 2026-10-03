@@ -326,7 +326,8 @@ rest. Measurements: [performance.md](performance.md).
   its own user agent, headers and content, and cmux's own dialogs, file
   panel, download location, permission prompts and insecure-HTTP prompt.
   The domain policy there only refuses the session's reads and input while
-  the tab shows a blocked page; it never navigates or filters the user's tab. An event the agent registered a handler for on that
+  the tab, or a frame of it, shows a blocked page (see "Guards" in
+  [driver-protocol.md](driver-protocol.md)); it never navigates or filters the user's tab. An event the agent registered a handler for on that
   page (`page.on("dialog")`, `page.on("filechooser")`,
   `page.waitForEvent("download")` and the like) goes to the session instead,
   only while the handler is registered. The runtime reports these handlers

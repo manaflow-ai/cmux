@@ -1,4 +1,5 @@
 import CmuxBrowser
+import CmuxSettings
 import WebKit
 
 /// The driver's own content world. Agent code can run scripts in the agent
@@ -39,6 +40,33 @@ final class BrowserReplNavigationGuard {
               let reason = policy.blockReason(url.absoluteString) else { return false }
         attachment.emit("navigation.blocked", ["url": url.absoluteString, "reason": reason])
         return true
+    }
+
+    /// Where a window a page opens goes.
+    enum PopupRoute: Equatable {
+        /// To the REPL sessions driving the tab, as a new background tab.
+        case session
+        /// The browser's own popup path, as if no session drove the tab.
+        case browser
+        /// Nowhere: the window does not open.
+        case refused(String)
+    }
+
+    /// Routes a window the page in `panelID` opens. The page controls the
+    /// URL, and a session's popup opens through cmux's own navigation, which
+    /// trusts local files and internal schemes, so it goes to the sessions
+    /// only if it passes as an untrusted navigation under the browser's URL
+    /// allowlist and the creating session's domain policy. Otherwise a tab a
+    /// session created opens nothing, and a user's tab a session only drives
+    /// leaves it to the browser.
+    func popupRoute(panelID: UUID, url: URL?) -> PopupRoute {
+        guard let attachment = BrowserReplTabAttachments.shared.attachment(for: panelID),
+              attachment.isAttached else { return .browser }
+        let policy = attachment.creatorSessionID.flatMap { policies[$0] } ?? BrowserReplDomainPolicy()
+        guard let reason = policy.popupBlockReason(url, allowlist: BrowserURLAllowlistPolicy(defaults: .standard)) else {
+            return .session
+        }
+        return attachment.appliesSessionPolicies ? .refused(reason) : .browser
     }
 }
 
