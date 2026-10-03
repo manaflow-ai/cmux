@@ -223,9 +223,35 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public let isRemoteTerminal: Bool
     /// Whether OSC 52 may publish into the local clipboard without a gesture.
     /// Manual mirrors and remote exec PTYs are untrusted unless the Cloud
-    /// provider grants its write-only clipboard path.
+    /// provider grants its write-only clipboard path. Agent copy gestures can
+    /// grant a one-shot permit below.
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
+    }
+    private let clipboardWritePermitLock = NSLock()
+    private var clipboardWritePermitDeadline: UInt64?
+
+    /// Allows one agent-initiated OSC 52 write after a user copy gesture.
+    public func permitClipboardWriteForAgentCopy() {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWritePermitDeadline = DispatchTime.now().uptimeNanoseconds + 15_000_000_000
+    }
+
+    /// Consumes the one-shot agent copy permit.
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard let deadline = clipboardWritePermitDeadline else { return false }
+        clipboardWritePermitDeadline = nil
+        return DispatchTime.now().uptimeNanoseconds <= deadline
+    }
+
+    /// Cancels an agent-copy permit when its key could not be delivered.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWritePermitDeadline = nil
+        clipboardWritePermitLock.unlock()
     }
     /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
     /// remain denied by the runtime policy regardless of this flag.

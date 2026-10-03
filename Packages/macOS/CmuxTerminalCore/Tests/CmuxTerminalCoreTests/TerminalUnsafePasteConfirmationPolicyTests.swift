@@ -22,10 +22,10 @@ struct TerminalUnsafePasteConfirmationPolicyTests {
 
     // Ghostty asks about a terminal clipboard read only under
     // `clipboard-read = ask`; `allow` and `deny` never reach this policy.
-    @Test func asksInAWindowSheetBeforeATerminalReadsTheClipboardWhateverTheSetting() {
+    @Test func deniesTerminalClipboardReadsWhateverTheSetting() {
         for enabled in [true, false] {
             let policy = TerminalUnsafePasteConfirmationPolicy(confirmationEnabled: enabled)
-            #expect(policy.decision(isPasteRequest: false, hasWindow: true) == .askInWindowSheet)
+            #expect(policy.decision(isPasteRequest: false, hasWindow: true) == .reject)
         }
     }
 

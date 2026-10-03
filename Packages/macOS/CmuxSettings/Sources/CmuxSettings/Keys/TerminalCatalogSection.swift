@@ -43,6 +43,16 @@ public struct TerminalCatalogSection: SettingCatalogSection {
         userDefaultsKey: "terminal.copyOnSelect"
     )
 
+    /// Per-agent copy actions sent by cmux when Cmd+C has no terminal selection.
+    /// Values use the same names accepted by ``TerminalSurface/sendNamedKey``.
+    public let agentKeys = JSONKey<[String: String]>(
+        id: "terminal.agentKeys",
+        defaultValue: [
+            "codex": "ctrl+o",
+            "claude": "ctrl+shift+c",
+        ]
+    )
+
     /// Whether copy also rejoins lines an application hard-wrapped to the
     /// terminal width. Off by default. Soft-wrapped rows Ghostty marks with
     /// the row wrap flag are always joined, regardless of this key.

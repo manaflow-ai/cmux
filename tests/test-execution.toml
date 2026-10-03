@@ -147,6 +147,11 @@ lane = "manual"
 reason = "Requires an isolated tagged cmux app and helper, two prepared split workspaces, and a plan with observed divider coordinates for native drags."
 
 [[test]]
+path = "tests/test_agent_copy_policy.py"
+lane = "manual"
+reason = "Compiles a focused Swift policy harness locally; native clipboard and terminal integration are covered by the app test target and CI dogfood tour."
+
+[[test]]
 path = "tests/test_hermes_wrapper_hooks.py"
 lane = "macos-cli-no-socket"
 # Exercises the installer's hard wall-clock deadline and a deliberately slow

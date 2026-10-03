@@ -49,6 +49,27 @@ private func XCTFail(_ message: String) {
 @MainActor
 struct TextBoxSubmitActionTests {
     @Test
+    func agentCopyDefaults() {
+        #expect(
+            TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:codex.session")?.key
+                == "ctrl+o"
+        )
+        #expect(
+            TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:claude.session")?.key
+                == "ctrl+shift+c"
+        )
+        #expect(
+            TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:opencode.session") == nil
+        )
+        #expect(
+            TextBoxAgentDetection.copyKey(
+                context: "agentPIDKey:opencode.session",
+                configuredKeys: ["opencode": "ctrl+y"]
+            )?.key == "ctrl+y"
+        )
+        #expect(TextBoxAgentDetection.defaultCopyKey(context: "agentPIDKey:shell") == nil)
+    }
+    @Test
     func testTextBoxSubmitActionSettingsReadConfiguredDefaults() throws {
         let defaults = try makeIsolatedDefaults()
         defaults.set("custom-router", forKey: TerminalTextBoxInputSettings.defaultSubmitActionKey)

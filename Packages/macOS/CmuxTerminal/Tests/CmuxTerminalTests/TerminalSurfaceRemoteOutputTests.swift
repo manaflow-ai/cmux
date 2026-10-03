@@ -189,6 +189,12 @@ struct TerminalSurfaceRemoteOutputTests {
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.permitClipboardWriteForAgentCopy()
+        #expect(remote.consumeClipboardWritePermit())
+        #expect(!remote.consumeClipboardWritePermit())
+        remote.permitClipboardWriteForAgentCopy()
+        remote.cancelClipboardWritePermit()
+        #expect(!remote.consumeClipboardWritePermit())
 
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),

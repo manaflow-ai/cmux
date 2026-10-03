@@ -8,6 +8,16 @@ enum TextBoxAgentDetection: CaseIterable {
     case pi
     case ollama
 
+    private var configurationKey: String {
+        switch self {
+        case .claudeCode: return "claude"
+        case .codex: return "codex"
+        case .opencode: return "opencode"
+        case .pi: return "pi"
+        case .ollama: return "ollama"
+        }
+    }
+
     private var launchDefinitionIDs: Set<String> {
         switch self {
         case .claudeCode:
@@ -94,6 +104,28 @@ enum TextBoxAgentDetection: CaseIterable {
 
     static func composedPromptSubmitKey(containsNewline: Bool, agentKind: ChatAgentKind) -> String {
         agentKind == .claude && containsNewline ? "ctrl+enter" : "return"
+    }
+
+    static func defaultCopyKey(context: String) -> (agent: String, key: String)? {
+        copyKey(context: context)
+    }
+
+    static func copyKey(
+        context: String,
+        configuredKeys: [String: String] = [:]
+    ) -> (agent: String, key: String)? {
+        for agent in allCases {
+            guard agent.matchesActive(metadataLine: context) else { continue }
+            if let configuredKey = configuredKeys[agent.configurationKey], !configuredKey.isEmpty {
+                return (agent.configurationKey, configuredKey)
+            }
+            switch agent {
+            case .codex: return ("codex", "ctrl+o")
+            case .claudeCode: return ("claude", "ctrl+shift+c")
+            case .opencode, .pi, .ollama: continue
+            }
+        }
+        return nil
     }
 
     static func boundedLaunchCommandContext(from rawCommand: String) -> String? {
