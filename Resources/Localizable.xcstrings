@@ -195972,16 +195972,16 @@
             "value": "إلغاء"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cloud nije omogućen. Podešavanje možete ponovo pokrenuti kada budete spremni."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
+        "value": "Cloud blev ikke aktiveret. Du kan starte opsætningen igen, når du er klar."
           }
         },
         "de": {
@@ -195993,7 +195993,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
+        "value": "Cloud non è stato abilitato. Puoi ripetere la configurazione quando vuoi."
           }
         },
         "es": {
@@ -196011,7 +196011,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
+        "value": "Cloud មិនត្រូវបានបើកទេ។ អ្នកអាចចាប់ផ្តើមការរៀបចំម្តងទៀតនៅពេលរួចរាល់។"
           }
         },
         "ja": {
@@ -196023,7 +196023,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
+        "value": "Cloud ble ikke aktivert. Du kan starte oppsettet på nytt når du er klar."
           }
         },
         "ko": {
@@ -196035,37 +196035,37 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
+        "value": "Cloud nie zostało włączone. Możesz ponownie rozpocząć konfigurację, gdy będziesz gotowy."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
+        "value": "O Cloud não foi ativado. Você pode iniciar a configuração novamente quando quiser."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
+        "value": "Cloud не ввімкнено. Ви можете знову розпочати налаштування, коли будете готові."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
+        "value": "Cloud ยังไม่ได้เปิดใช้ คุณสามารถเริ่มการตั้งค่าใหม่ได้เมื่อพร้อม"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
+        "value": "Cloud etkinleştirilmedi. Hazır olduğunuzda kurulumu yeniden başlatabilirsiniz."
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
+        "value": "Cloud не включён. Вы можете снова начать настройку, когда будете готовы."
           }
         },
         "uk": {
@@ -609984,70 +609984,70 @@
             "value": "Cloud Machines 需要 cmux Pro"
           }
         },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Machines zahtijevaju cmux Pro"
+    "bs": {
+      "stringUnit": {
+        "state": "translated",
+        "value": "Cloud Machines zahtijevaju cmux Pro"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines kræver cmux Pro"
+        "value": "Cloud Machines kræver cmux Pro"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines richiedono cmux Pro"
+        "value": "Cloud Machines richiedono cmux Pro"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines ត្រូវការ cmux Pro"
+        "value": "Cloud Machines ត្រូវការ cmux Pro"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines krever cmux Pro"
+        "value": "Cloud Machines krever cmux Pro"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines wymagają cmux Pro"
+        "value": "Cloud Machines wymagają cmux Pro"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O Cloud Machines requer cmux Pro"
+        "value": "O Cloud Machines requer cmux Pro"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для Cloud Machines требуется cmux Pro"
+        "value": "Для Cloud Machines требуется cmux Pro"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines ต้องใช้ cmux Pro"
+        "value": "Cloud Machines ต้องใช้ cmux Pro"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Machines için cmux Pro gerekir"
+        "value": "Cloud Machines için cmux Pro gerekir"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Для Cloud Machines потрібен cmux Pro"
+        "value": "Для Cloud Machines потрібен cmux Pro"
           }
         }
       }
@@ -617884,7 +617884,7 @@
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그인하지 않음"
+            "value": "로그인하지 않기"
           }
         }
       }
@@ -618155,7 +618155,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب رابط من cmux تسجيل الدخول باسم %@. تابع فقط إذا سجّلت الدخول إلى cmux للتو في متصفحك."
+            "value": "يطلب رابط من cmux تسجيل الدخول باسم %@. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
           }
         },
         "es": {
@@ -618167,19 +618167,19 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連結要求 cmux 以 %@ 身分登入。只有在您剛在瀏覽器中登入 cmux 後才繼續。"
+            "value": "連結要求 cmux 以 %@ 的身分登入。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "链接请求 cmux 以 %@ 身份登录。只有在您刚刚在浏览器中登录 cmux 后才继续。"
+            "value": "链接要求 cmux 以 %@ 的身份登录。只有在你刚在浏览器中登录 cmux 后，才可继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크가 cmux에 %@로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+            "value": "링크에서 cmux가 %@ 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
           }
         }
       }
@@ -618214,7 +618214,7 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يطلب رابط من cmux تسجيل الدخول إلى حساب. تابع فقط إذا سجّلت الدخول إلى cmux للتو في متصفحك."
+            "value": "يطلب رابط من cmux تسجيل الدخول إلى حساب. لا تتابع إلا إذا سجلت الدخول إلى cmux للتو في متصفحك."
           }
         },
         "es": {
@@ -618226,19 +618226,19 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "連結要求 cmux 登入帳戶。只有在您剛在瀏覽器中登入 cmux 後才繼續。"
+            "value": "連結要求 cmux 登入帳戶。只有在你剛在瀏覽器中登入 cmux 後，才可繼續。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "链接请求 cmux 登录账户。只有在您刚刚在浏览器中登录 cmux 后才继续。"
+            "value": "链接要求 cmux 登录账户。只有在你刚在浏览器中登录 cmux 后，才可继续。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "링크가 cmux에 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
+            "value": "링크에서 cmux가 계정으로 로그인하도록 요청합니다. 브라우저에서 방금 cmux에 로그인한 경우에만 계속하세요."
           }
         }
       }
@@ -618267,37 +618267,37 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous êtes connecté en tant que %@. Continuer remplacera cette session et les nouvelles activités cmux appartiendront au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
+            "value": "Vous êtes connecté en tant que %@. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أنت مسجّل الدخول باسم %@. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستنتمي أنشطة cmux الجديدة إلى الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
+            "value": "أنت مسجل الدخول باسم %@. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستتبع أنشطة cmux الجديدة الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Has iniciado sesión como %@. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta, haz clic en «No iniciar sesión»."
+            "value": "Has iniciado sesión como %@. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您目前以 %@ 身分登入。繼續會取代該工作階段，新的 cmux 活動將屬於連結中的帳戶。如果您不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
+            "value": "你目前以 %@ 的身分登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您当前以 %@ 身份登录。继续将替换此会话，新的 cmux 活动将属于链接中的账户。如果您不是刚刚亲自选择此账户，请点击“不登录”。"
+            "value": "你当前以 %@ 的身份登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "현재 %@로 로그인되어 있습니다. 계속하면 해당 세션이 대체되고 새 cmux 활동은 링크의 계정에 속합니다. 방금 직접 이 계정을 선택한 것이 아니라면 “로그인하지 않음”을 클릭하세요."
+            "value": "%@ 계정으로 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
           }
         }
       }
@@ -618326,37 +618326,37 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous êtes déjà connecté. Continuer remplacera cette session et les nouvelles activités cmux appartiendront au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
+            "value": "Vous êtes déjà connecté. Continuer remplacera cette session, et la nouvelle activité cmux appartiendra au compte du lien. Si vous n’avez pas choisi vous-même ce compte, cliquez sur « Ne pas se connecter »."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أنت مسجّل الدخول بالفعل. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستنتمي أنشطة cmux الجديدة إلى الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
+            "value": "أنت مسجل الدخول بالفعل. سيؤدي المتابعة إلى استبدال هذه الجلسة، وستتبع أنشطة cmux الجديدة الحساب الموجود في الرابط. إذا لم تختر هذا الحساب بنفسك للتو، فانقر على «عدم تسجيل الدخول»."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ya has iniciado sesión. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta, haz clic en «No iniciar sesión»."
+            "value": "Ya has iniciado sesión. Continuar reemplazará esa sesión y la nueva actividad de cmux pertenecerá a la cuenta del enlace. Si no acabas de elegir esta cuenta tú mismo, haz clic en «No iniciar sesión»."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "您已登入。繼續會取代該工作階段，新的 cmux 活動將屬於連結中的帳戶。如果您不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
+            "value": "你已登入。繼續後將取代目前的工作階段，新的 cmux 活動將屬於連結中的帳戶。如果你不是剛剛親自選擇此帳戶，請按一下「不要登入」。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "您已登录。继续将替换此会话，新的 cmux 活动将属于链接中的账户。如果您不是刚刚亲自选择此账户，请点击“不登录”。"
+            "value": "你已登录。继续后将替换当前会话，新的 cmux 活动将属于链接中的账户。如果你不是刚刚亲自选择此账户，请点击“不登录”。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이미 로그인되어 있습니다. 계속하면 해당 세션이 대체되고 새 cmux 활동은 링크의 계정에 속합니다. 방금 직접 이 계정을 선택한 것이 아니라면 “로그인하지 않음”을 클릭하세요."
+            "value": "이미 로그인되어 있습니다. 계속하면 이 세션이 대체되고 새로운 cmux 활동은 링크의 계정에 속합니다. 직접 방금 이 계정을 선택한 것이 아니라면 “로그인하지 않기”를 클릭하세요."
           }
         }
       }
