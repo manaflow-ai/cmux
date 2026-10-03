@@ -7,18 +7,16 @@
 # Take <dispatch_epoch_seconds> with `date +%s` right BEFORE
 # `blacksmith testbox warmup`.
 #
-# The run is identified by the strongest proof available, in this order:
+# The run is bound to the box, never guessed:
 #   1. Its title names this box. The warmup workflow sets
-#      `run-name: cmux-tui Rust Testbox setup <tbx>`, so a run whose title
-#      names another box is never approved, and a run that names this box is.
-#   2. Blacksmith's record of this box shows the run URL
+#      `run-name: cmux-tui Rust Testbox setup <tbx>`, so the waiting run says
+#      which box it belongs to before any runner takes the job.
+#   2. Or Blacksmith's record of this box shows the run URL
 #      (`blacksmith testbox status --id <tbx>`). blacksmith 0.4.64 prints it
-#      only after a runner takes the job, which happens only after approval,
-#      so this proof is usually missing while the run waits at the gate.
-#   3. Exactly one waiting warmup run without a box id in its title was created
-#      between the dispatch (minus 60 s for clock skew) and the dispatch plus
-#      CMUX_TESTBOX_APPROVE_WINDOW (default 120 s). Two or more candidates mean
-#      another operator dispatched at the same time: refuse and print them.
+#      only after a runner takes the job, so this proof is usually missing
+#      while the run waits at the gate.
+# A run found only by its creation time is never approved: another operator's
+# run can appear first inside any time window.
 # The chosen run must also be the warmup workflow, event workflow_dispatch,
 # ref main, status waiting, and triggered by the caller or Blacksmith's app.
 # Every failure approves nothing and exits 3. Stop your box then and dispatch
@@ -34,7 +32,6 @@ WORKFLOW_PATH=".github/workflows/$WORKFLOW_FILE"
 TITLE_PREFIX="cmux-tui Rust Testbox setup"
 WAIT_SECONDS="${CMUX_TESTBOX_APPROVE_WAIT:-150}"
 POLL_SECONDS="${CMUX_TESTBOX_APPROVE_POLL:-5}"
-WINDOW_SECONDS="${CMUX_TESTBOX_APPROVE_WINDOW:-120}"
 SKEW_SECONDS=60
 
 [[ "$TBX" =~ ^tbx_[A-Za-z0-9]+$ ]] || { echo "not a Testbox id: $TBX" >&2; exit 2; }
@@ -79,17 +76,7 @@ while :; do
     | grep -Eo "github\.com/$REPO/actions/runs/[0-9]+" | grep -Eo '[0-9]+$' | head -1 || true)"
   if [[ -n "$url_run" ]]; then run_id="$url_run"; proof="run-url"; break; fi
 
-  # 3. Exactly one untitled waiting run created right after the dispatch.
-  lo=$(( DISPATCHED_AT - SKEW_SECONDS )); hi=$(( DISPATCHED_AT + WINDOW_SECONDS ))
-  candidates="$(printf '%s\n' "$runs" | awk -F'\t' -v lo="$lo" -v hi="$hi" -v plain="$TITLE_PREFIX" \
-    'NF >= 2 && $2 >= lo && $2 <= hi && $3 == plain {print $1}')"
-  candidate_count="$(printf '%s' "$candidates" | grep -c . || true)"
-  if (( candidate_count > 1 )); then
-    refuse "$candidate_count waiting runs were dispatched in the window: $(printf '%s' "$candidates" | tr '\n' ' ')"
-  fi
-  if (( candidate_count == 1 )); then run_id="$candidates"; proof="dispatch-window"; break; fi
-
-  (( $(date +%s) < deadline )) || refuse "no waiting warmup run for $TBX appeared within ${WAIT_SECONDS}s"
+  (( $(date +%s) < deadline )) || refuse "no waiting warmup run names $TBX and Blacksmith shows no run URL after ${WAIT_SECONDS}s (a run dispatched before the run-name change has no box in its title)"
   sleep "$POLL_SECONDS"
 done
 
@@ -118,5 +105,5 @@ env_id="$(gh api "repos/$REPO/actions/runs/$run_id/pending_deployments" --jq '.[
 gh api -X POST "repos/$REPO/actions/runs/$run_id/pending_deployments" --input - >/dev/null <<JSON
 {"environment_ids": [$env_id], "state": "approved", "comment": $(printf '%s' "$COMMENT" | jq -Rs .)}
 JSON
-echo "approved run $run_id for $TBX (proof: $proof)"
+echo "approved run $run_id for $TBX (proof: $proof)" >&2
 echo "$run_id"

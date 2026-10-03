@@ -74,25 +74,26 @@ fail() { echo "FAIL: $*" >&2; echo "$out" >&2; exit 1; }
 tbx=tbx_01testboxaaaaaaaaaaaaaaaaaa
 header="ID STATUS REPO WORKFLOW JOB REF CREATED RUN URL"
 
-# 1. The box is still queued (no RUN URL yet), exactly one waiting run was
-#    created right after the dispatch: approve it. (The old helper waited for
-#    a run URL that only appears after approval: a deadlock.)
+# 1. The box is still queued (no RUN URL yet) and its waiting run's title
+#    names the box: approve it. (The old helper waited for a run URL that
+#    only appears after approval: a deadlock.)
 STATUS="$header
 $tbx queued cmux warmup.yml cmux-tui-rust main x" \
-  d="$(fixture one "$(run_json 501 $((now + 5)) waiting)" "$(run_json 400 $((now - 4000)) waiting)")"
+  d="$(fixture one "$(run_json 501 $((now + 5)) waiting "cmux-tui Rust Testbox setup $tbx")" "$(run_json 400 $((now - 4000)) waiting)")"
 run_helper "$d" "$tbx" "$now"
 [[ $rc -eq 0 && "$(approved_of "$d")" == 501 ]] || fail "case 1: expected run 501 approved (rc=$rc, approved=$(approved_of "$d"))"
+[[ "$(printf '%s\n' "$out" | tail -1)" == 501 ]] || fail "case 1: the last output line must be the run id"
 
-# 2. Two waiting runs in the window and no run URL: refuse, approve nothing.
+# 2. A single untitled run right after the dispatch is NOT proof: another
+#    operator's run can appear first inside any time window. Refuse.
 STATUS="$header
 $tbx queued cmux warmup.yml cmux-tui-rust main x" \
-  d="$(fixture two "$(run_json 601 $((now + 3)) waiting)" "$(run_json 602 $((now + 8)) waiting)")"
+  d="$(fixture window "$(run_json 601 $((now + 3)) waiting)")"
 run_helper "$d" "$tbx" "$now"
 [[ $rc -eq 3 && -z "$(approved_of "$d")" ]] || fail "case 2: expected refusal (rc=$rc)"
-[[ "$out" == *601* && "$out" == *602* ]] || fail "case 2: candidates not printed"
 
-# 3. Only runs from before the dispatch: refuse.
-STATUS="" d="$(fixture old "$(run_json 701 $((now - 600)) waiting)")"
+# 3. Two runs both titled with this box: refuse.
+STATUS="" d="$(fixture dup "$(run_json 701 $((now + 1)) waiting "cmux-tui Rust Testbox setup $tbx")" "$(run_json 702 $((now + 2)) waiting "cmux-tui Rust Testbox setup $tbx")")"
 run_helper "$d" "$tbx" "$now"
 [[ $rc -eq 3 && -z "$(approved_of "$d")" ]] || fail "case 3: expected refusal (rc=$rc)"
 
