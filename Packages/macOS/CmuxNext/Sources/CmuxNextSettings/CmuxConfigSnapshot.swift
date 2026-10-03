@@ -98,6 +98,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both
     /// nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.backdropArt`; nil disables the bundled painting.
+    public var backdropArt: BackdropArt?
     /// `appearance.statusIndicator.*`.
     public var statusIndicator = StatusIndicatorSettings()
     /// `status.*`.
@@ -198,6 +200,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.backdropArt = BackdropArtSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
         let (borders, bordersDiagnostic) = BordersSetting.parse(root)

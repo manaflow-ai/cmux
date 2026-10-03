@@ -71,7 +71,7 @@ extension AppThemeGlobalStateTests {
         let settings = SettingsController(registry: services.registry, design: DesignSettings(), fileURL: url)
         await settings.reload()
         ThemeBridge.start()
-        let follower = TerminalThemeSetting()
+        let follower = TerminalThemeSetting(backdropScope: .app)
         follower.follow(settings)
 
         let blurs = BlurLog()

@@ -14,8 +14,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// reload or relaunch of the pane shows the same session.
     case persistSession(String)
     /// A settled transcript scroll's frame intervals in milliseconds, at
-    /// most ``maximumPacingFrames``; the pane picks its rendering rate from them.
+    /// most ``maximumPacingFrames``; returns the native display interval and rate mode.
     case framePacing([Double])
+    /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
+    case renderRate(Bool)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
@@ -85,6 +87,12 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
         case "pane.framePacing":
             if let intervals = params?["intervals"] as? [Double], !intervals.isEmpty {
                 self = .framePacing(Array(intervals.prefix(Self.maximumPacingFrames)))
+            } else {
+                self = .unsupported(method)
+            }
+        case "pane.renderRate":
+            if let full = params?["full"] as? Bool {
+                self = .renderRate(full)
             } else {
                 self = .unsupported(method)
             }
