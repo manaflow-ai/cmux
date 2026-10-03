@@ -67,10 +67,6 @@ struct CloudTeamPickerHeader<Status: View>: View {
                 }
             }
             Spacer(minLength: 0)
-            // Invite is the only action surfaced in the Cloud sidebar header.
-            // Machine creation and refresh remain available through their
-            // command and menu entry points without competing with the team
-            // invite affordance here.
             if let accountFlow, accountFlow.confirmedTeamID != nil {
                 MachinesChromeLabelButton(
                     symbolName: "person.badge.plus",
@@ -82,6 +78,25 @@ struct CloudTeamPickerHeader<Status: View>: View {
                     CloudTeamInvitePopover(accountFlow: accountFlow, presentation: picker)
                 }
                 .accessibilityIdentifier("CloudTeamInviteButton")
+            }
+            switch actions {
+            case .inline:
+                MachinesChromeIconButton(
+                    symbolName: "arrow.clockwise",
+                    accessibilityLabel: refreshLabel,
+                    isBusy: isRefreshing,
+                    action: onRefresh
+                )
+                .accessibilityIdentifier("CloudHeaderRefreshButton")
+                MachinesChromeIconButton(
+                    symbolName: "plus",
+                    accessibilityLabel: newMachineLabel,
+                    isBusy: false,
+                    action: onNewMachine
+                )
+                .accessibilityIdentifier("CloudHeaderNewMachineButton")
+            case .overflowMenu:
+                machineActionsMenu
             }
         }
     }
