@@ -1,5 +1,6 @@
 public import CmuxUpdater
 public import Foundation
+@preconcurrency import Sparkle
 
 /// The rail's update circle over this service: what it shows, what a
 /// click does, and the release notes its menu links.

@@ -1,4 +1,3 @@
-public import Foundation
 @preconcurrency public import Sparkle
 
 /// Opt-in background installs for hosts that never prompt (cmux-next): found updates download

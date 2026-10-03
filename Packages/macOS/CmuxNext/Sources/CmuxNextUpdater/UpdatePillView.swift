@@ -15,7 +15,7 @@ public final class UpdatePillView: NSView {
         surface.translatesAutoresizingMaskIntoConstraints = true
         surface.autoresizingMask = [.width, .height]
         addSubview(surface)
-        label.font = Metrics.bodyEmphasized
+        label.font = Typography.bodyEmphasized
         label.lineBreakMode = .byTruncatingTail
         surface.contentView.addSubview(label)
         setAccessibilityElement(true)
