@@ -1,48 +1,5 @@
 import Foundation
 
-/// A terminal tab copied from a classic cmux session.
-public struct ClassicSessionTab: Codable, Equatable, Sendable {
-    public let workingDirectory: String?
-    public let title: String?
-
-    public init(workingDirectory: String?, title: String?) {
-        self.workingDirectory = workingDirectory
-        self.title = title
-    }
-}
-
-/// A pane and its tabs, in the order shown by classic cmux.
-public struct ClassicSessionPane: Codable, Equatable, Sendable {
-    public let tabs: [ClassicSessionTab]
-    public let selectedTab: Int
-
-    public init(tabs: [ClassicSessionTab], selectedTab: Int = 0) {
-        self.tabs = tabs
-        self.selectedTab = selectedTab
-    }
-}
-
-/// The classic split tree. A pane is a leaf; a split preserves its axis and divider.
-public indirect enum ClassicSessionLayout: Codable, Equatable, Sendable {
-    case pane(ClassicSessionPane)
-    case split(orientation: Orientation, ratio: Double, first: ClassicSessionLayout, second: ClassicSessionLayout)
-
-    public enum Orientation: String, Codable, Sendable { case horizontal, vertical }
-}
-
-/// One workspace eligible for import into cmux-next.
-public struct ClassicSessionWorkspace: Codable, Equatable, Sendable {
-    public let name: String
-    public let workingDirectory: String
-    public let layout: ClassicSessionLayout
-
-    public init(name: String, workingDirectory: String, layout: ClassicSessionLayout) {
-        self.name = name
-        self.workingDirectory = workingDirectory
-        self.layout = layout
-    }
-}
-
 /// Read-only access to classic cmux's saved session file.
 public struct ClassicSessionImporter: Sendable {
     public static let stableBundleIdentifier = "com.cmuxterm.app"
@@ -87,7 +44,7 @@ public struct ClassicSessionImporter: Sendable {
                                           ?? panel["directory"] as? String
                                           ?? panel["working_directory"] as? String,
                                           title: panel["customTitle"] as? String ?? panel["title"] as? String))
-        })
+        }
         let panelMap = Dictionary(uniqueKeysWithValues: panelEntries)
         guard let layoutValue = value["layout"] as? [String: Any] else {
             return ClassicSessionWorkspace(name: name, workingDirectory: cwd, layout: .pane(ClassicSessionPane(tabs: panelEntries.map { $0.1 })))
@@ -100,7 +57,7 @@ public struct ClassicSessionImporter: Sendable {
         if value["type"] as? String == "split" {
             let split = value["split"] as? [String: Any] ?? value
             let orientation = ClassicSessionLayout.Orientation(rawValue: split["orientation"] as? String ?? "horizontal") ?? .horizontal
-            let ratio = split["dividerPosition"] as? Double ?? split["ratio"] as? Double ?? 0.5
+            let ratio = max(0.05, min(0.95, split["dividerPosition"] as? Double ?? split["ratio"] as? Double ?? 0.5))
             let first = layout(split["first"] as? [String: Any] ?? [:], panels: panels)
             let second = layout(split["second"] as? [String: Any] ?? [:], panels: panels)
             return .split(orientation: orientation, ratio: ratio, first: first, second: second)

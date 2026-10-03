@@ -19,9 +19,11 @@ extension AppOnboardingServices {
         Task { @MainActor [weak self] in
             guard let self else { return }
             for saved in workspaces {
-                var spawn = WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name)
-                spawn.onListed = { [weak self] id, _ in self?.restoreClassicLayout(saved.layout, in: id) }
-                do { _ = try await windows.createWorkspace(spawn, into: target) }
+                do {
+                    let id = try await windows.createWorkspace(WorkspaceSpawn(cwd: saved.workingDirectory, name: saved.name), into: target)
+                    guard let daemon = services.machines.daemon(forWorkspace: id), let connection = daemon.connection else { continue }
+                    try await restoreClassicLayout(saved.layout, workspaceID: id, connection: connection)
+                }
                 catch { services.daemon.logger.error("classic session import failed: \(String(describing: error), privacy: .public)") }
             }
         }
@@ -30,8 +32,7 @@ extension AppOnboardingServices {
     /// Rebuilds the imported topology through the same daemon builder used by
     /// workspace duplication. It preserves pane splits, tab order and working
     /// directories without replaying any saved command or scrollback.
-    private func restoreClassicLayout(_ layout: ClassicSessionLayout, in workspaceID: String) {
-        guard let daemon = services.machines.daemon(forWorkspace: workspaceID), let connection = daemon.connection else { return }
+    private func restoreClassicLayout(_ layout: ClassicSessionLayout, workspaceID: String, connection: DaemonConnection) async throws {
         let blueprint = WorkspaceBlueprint(
             name: workspaceID,
             color: nil,
@@ -40,19 +41,13 @@ extension AppOnboardingServices {
                 WorkspaceBlueprint.Column(width: nil, root: blueprintNode(layout))
             ])]
         )
-        Task { @MainActor in
-            do {
-                try await WorkspaceBlueprintBuilder(
-                    connection: connection,
-                    key: WorkspaceKey(rawValue: workspaceID),
-                    browsers: false,
-                    defaultEngine: .webkit
-                ).build(blueprint)
-                try await restoreClassicTitles(layout, workspaceID: workspaceID, connection: connection)
-            } catch {
-                services.daemon.logger.error("classic session layout import failed: \(String(describing: error), privacy: .public)")
-            }
-        }
+        try await WorkspaceBlueprintBuilder(
+            connection: connection,
+            key: WorkspaceKey(rawValue: workspaceID),
+            browsers: false,
+            defaultEngine: .webkit
+        ).build(blueprint)
+        try await restoreClassicTitles(layout, workspaceID: workspaceID, connection: connection)
     }
 
     private func blueprintNode(_ layout: ClassicSessionLayout) -> WorkspaceBlueprint.Node {
@@ -61,7 +56,7 @@ extension AppOnboardingServices {
             return .pane(pane.tabs.map { .terminal(cwd: $0.workingDirectory) })
         case .split(let orientation, let ratio, let first, let second):
             return .split(
-                direction: orientation == .vertical ? .right : .down,
+                direction: orientation == .horizontal ? .right : .down,
                 ratio: ratio,
                 a: blueprintNode(first),
                 b: blueprintNode(second)
