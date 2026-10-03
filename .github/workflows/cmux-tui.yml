@@ -635,7 +635,10 @@ jobs:
         if: inputs.mode == 'full'
         working-directory: ghostty-next
         run: |
-          "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt"
+          # ghostty-next tags release commits; an explicit version keeps
+          # Ghostty's build from reading a non-vX.Y.Z tag (as ghostty-vt-sys does).
+          version="$(sed -nE 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon | head -1)"
+          "$CMUX_ZIG" build test-lib-vt -Dtest-filter="Terminal vt" -Dversion-string="$version"
 
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
