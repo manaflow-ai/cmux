@@ -20,7 +20,7 @@ enum DebugShowcase {
         }
         seedWorkspaceSet(services: services, windowID: window.state.id)
         let key: String
-        if let existing = services.showcaseAgentTabs[pane.paneKey] {
+        if let existing = services.showcase.agentTabs[pane.paneKey] {
             key = existing
         } else {
             key = services.agentTabs.open(
@@ -28,7 +28,7 @@ enum DebugShowcase {
                 of: pane.daemon.store,
                 seed: AgentPaneSeedSource(AgentPaneSeed(cwd: "~/code/cmux", draft: "Review the latest changes"))
             )
-            services.showcaseAgentTabs[pane.paneKey] = key
+            services.showcase.agentTabs[pane.paneKey] = key
         }
         if params["focus"]?.boolValue == true {
             pane.showAgentTab(key)
@@ -56,13 +56,13 @@ enum DebugShowcase {
             ("docs-site", "~/code/docs-site"),
             ("infra", "~/code/infra"),
         ]
-        for (name, cwd) in workspaces where services.showcaseWorkspaces[name] == nil {
+        for (name, cwd) in workspaces where services.showcase.workspaces[name] == nil {
             var spawn = WorkspaceSpawn(cwd: cwd, name: name)
-            spawn.onListed = { [weak services] id, _ in services?.showcaseWorkspaces[name] = id }
+            spawn.onListed = { [weak services] id, _ in services?.showcase.workspaces[name] = id }
             Task { @MainActor in
                 do {
                     let id = try await services.windows.createWorkspace(spawn, into: windowID)
-                    services.showcaseWorkspaces[name] = id
+                    services.showcase.workspaces[name] = id
                 } catch {
                     services.daemon.logger.error("showcase workspace \(name, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
