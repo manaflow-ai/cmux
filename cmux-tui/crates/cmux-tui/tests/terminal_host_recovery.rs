@@ -56,6 +56,9 @@ struct RecoveryHarness {
     /// `false` launches shells without Ghostty shell integration, so they
     /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
     shell_integration: bool,
+    /// Daemon binary other than this build's (an earlier build, to test an
+    /// upgrade); `None` runs this build.
+    binary: Option<PathBuf>,
 }
 
 impl RecoveryHarness {
@@ -77,6 +80,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             extra_args: Vec::new(),
             shell_integration: true,
+            binary: None,
             dir,
         };
         harness.restart();
@@ -147,6 +151,7 @@ impl RecoveryHarness {
             adopt_template_terminal: false,
             extra_args: Vec::new(),
             shell_integration: true,
+            binary: None,
             dir,
         }
     }
@@ -159,7 +164,10 @@ impl RecoveryHarness {
     }
 
     fn daemon_command(&self) -> Command {
-        let mut command = Command::new(bin());
+        let mut command = match &self.binary {
+            Some(binary) => Command::new(binary),
+            None => Command::new(bin()),
+        };
         command
             .args(["--headless", "--session", &self.session, "--socket"])
             .arg(&self.socket)
@@ -5605,6 +5613,9 @@ mod false_exit;
 
 #[path = "terminal_host_recovery/host_death.rs"]
 mod host_death;
+
+#[path = "terminal_host_recovery/upgrade.rs"]
+mod upgrade;
 
 #[path = "terminal_host_recovery/idle_template.rs"]
 mod idle_template;
