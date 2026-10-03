@@ -123,4 +123,13 @@ struct ControlHandleRegistryTests {
         registry.invalidateTopologyRefresh()
         #expect(registry.needsTopologyRefresh)
     }
+
+    @Test @MainActor func coordinatorGatesHandleTopologyRefresh() {
+        let coordinator = ControlCommandCoordinator()
+        #expect(coordinator.needsHandleTopologyRefresh)
+        coordinator.markHandleTopologyRefreshCompleted()
+        #expect(!coordinator.needsHandleTopologyRefresh)
+        coordinator.invalidateHandleTopologyRefresh()
+        #expect(coordinator.needsHandleTopologyRefresh)
+    }
 }

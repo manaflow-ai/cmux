@@ -41,11 +41,13 @@ extension TerminalController {
     nonisolated static let socketMainActorHopDeadlineMilliseconds = 10_000
 
     /// Connection jobs that may run at once.
-    nonisolated static let socketClientMaximumConcurrentJobs = 32
+    /// Scaled to 128 to accommodate concurrent multi-agent fleets (e.g. 12+ agent harnesses
+    /// issuing concurrent CLI commands and tool queries) without saturating the worker pool (#5757).
+    nonisolated static let socketClientMaximumConcurrentJobs = 128
     /// Connection jobs that may wait for a slot.
-    nonisolated static let socketClientMaximumPendingJobs = 64
+    nonisolated static let socketClientMaximumPendingJobs = 256
     /// Unauthenticated peers that may be read concurrently.
-    nonisolated static let socketClientPreauthorizationMaximumClaims = 32
+    nonisolated static let socketClientPreauthorizationMaximumClaims = 64
     /// Rejections the overload responder answers concurrently: everything the
     /// pool can reject in one burst (a batch expiry of the whole pending
     /// queue, or a stop that drops it) plus the preauthorization limiter's
