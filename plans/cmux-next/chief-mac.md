@@ -51,8 +51,9 @@ Placement: the Chief is an actor in the session daemon process (the conversation
   diagnostics only, with a `flock` mark line (branch feat-cmux-next-mux-lock). Upgrade check, REMOVE
   AFTER ONE RELEASE: a lock text without the mark that names a live process whose OS start is no
   later than the recorded start (or the file mtime) plus 1 s is an older host that holds the lock by
-  text only; the new host logs its pid and does not start. The daemon advertises capability
-  `chief-v1`.
+  text only; the new host logs its pid and does not start. The Rust shell must write the same text
+  with the `flock` mark line, or a TypeScript host reads it as an older host. The daemon advertises
+  capability `chief-v1`.
 - Why not the acpmux process: the conversation owner is the single writer of conversations and its
   owner-stamped actor is the security boundary (home.md section 2). An in-process client of the
   owner removes the token handoff (the 0600 file and the "any same-uid process is user_local" gap
