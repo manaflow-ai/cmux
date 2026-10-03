@@ -11,11 +11,15 @@ public nonisolated struct AgentPaneSeed: Sendable, Equatable {
     public var draft: String?
     /// The first prompt, sent without the user pressing Send.
     public var prompt: String?
+    /// An outside chat to resume instead of starting a new one. Kept across
+    /// page reloads: acpmux adopts one id into one session.
+    public var adopt: AgentPaneAdopt?
 
-    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil) {
+    public init(cwd: String? = nil, draft: String? = nil, prompt: String? = nil, adopt: AgentPaneAdopt? = nil) {
         self.cwd = cwd
         self.draft = draft
         self.prompt = prompt
+        self.adopt = adopt
     }
 }
 

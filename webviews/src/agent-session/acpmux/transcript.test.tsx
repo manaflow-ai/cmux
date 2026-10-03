@@ -956,6 +956,74 @@ describe("acpmux host handshake", () => {
     }
   });
 
+  /// A resumed chat: the handshake's adopt is resumed on connect and becomes the tab's session at
+  /// once, before any Send, so restoring the tab reopens that chat rather than an empty one.
+  test("a resumed chat becomes the tab's session without a Send", async () => {
+    const sent: { method: string; params: Record<string, unknown> }[] = [];
+    const native: { method: string; params?: Record<string, unknown> }[] = [];
+    class AdoptSocket extends FakeSocket {
+      override send(raw: string) {
+        const { id, method, params } = JSON.parse(raw) as {
+          id: number;
+          method: string;
+          params: Record<string, unknown>;
+        };
+        sent.push({ method, params });
+        const result =
+          method === "_acpmux/watch"
+            ? { sessions: [] }
+            : method === "session/new"
+              ? { sessionId: "s-adopted", _meta: { acpmux: { agentSessionId: "0a1b2c3d" } } }
+              : method === "_acpmux/attach"
+                ? { session: { sessionId: "s-adopted", harness: "claude" }, events: [] }
+                : {};
+        queueMicrotask(() => this.onmessage?.({ data: JSON.stringify({ id, result }) }));
+      }
+    }
+    const root = createRoot(dom.window.document.getElementById("root")!);
+    const host = dom.window as unknown as Record<string, unknown>;
+    const realSocket = globals.WebSocket;
+    globals.WebSocket = AdoptSocket;
+    host.webkit = {
+      messageHandlers: {
+        agentSession: {
+          postMessage(message: { method: string; params?: Record<string, unknown> }) {
+            if (message.method !== "ready") {
+              native.push(message);
+              return Promise.resolve({ ok: true, value: null });
+            }
+            return Promise.resolve({
+              ok: true,
+              value: {
+                protocolVersion: 1,
+                transport: "acpmux-websocket",
+                endpoint: "ws://127.0.0.1:4100/acp",
+                token: "t",
+                newSession: true,
+                adopt: { harness: "claude", agentSessionId: "0a1b2c3d" },
+              },
+            });
+          },
+        },
+      },
+    };
+    const persisted = () => native.filter((message) => message.method === "chat.persistSession");
+    try {
+      await act(async () => root.render(createElement(AcpmuxApp)));
+      for (let tries = 0; tries < 100 && persisted().length === 0; tries += 1)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+      expect(persisted().map((message) => message.params?.sessionId)).toEqual(["s-adopted"]);
+      expect(sent.filter((message) => message.method === "session/new")).toHaveLength(1);
+      expect(sent.some((message) => message.method === "session/prompt")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      globals.WebSocket = realSocket;
+      delete host.webkit;
+      delete host.cmuxAcpmuxRegistry;
+      FakeSocket.made = [];
+    }
+  });
+
   /// After losing the daemon the page asks Swift again; that retry restarted a daemon the user had stopped.
   test("a page that lost its daemon asks for a handshake that does not start one", async () => {
     const root = createRoot(dom.window.document.getElementById("root")!);

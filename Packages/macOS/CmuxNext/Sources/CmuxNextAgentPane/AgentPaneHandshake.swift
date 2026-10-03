@@ -41,6 +41,9 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     /// A new chat's first prompt, sent by the page once it connects.
     /// Pages that predate it ignore it (the chat just stays empty).
     public var prompt: String?
+    /// An outside chat the page resumes on connect. Pages that predate it
+    /// ignore it and open an empty chat, so the version stays the same.
+    public var adopt: AgentPaneAdopt?
 
     public init(transport: Transport, endpoint: String? = nil, token: String? = nil, sessionId: String? = nil, newSession: Bool? = nil) {
         protocolVersion = Self.currentVersion

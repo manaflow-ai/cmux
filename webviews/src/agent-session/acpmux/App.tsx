@@ -1111,6 +1111,8 @@ function AcpmuxPane() {
           "pane.context": async () => (snapshotRef.current ? paneContext(snapshotRef.current) : { urls: [] }),
         };
         client.snapshot();
+        // A resumed chat is the tab's session from the start, so restoring the tab reopens it.
+        if (client.adopted) void persistSession(client.adopted);
         // Onboarding's first task runs without a Send press, once. If the chat cannot start,
         // the prompt waits in the composer instead of vanishing.
         const prompt = pendingPrompt;

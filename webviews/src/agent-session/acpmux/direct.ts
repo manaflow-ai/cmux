@@ -24,11 +24,28 @@ export type AcpmuxHostConfig = {
   draft?: string;
   /** A new chat's first prompt, sent once the client connects (onboarding's first task). */
   prompt?: string;
+  /** An outside Claude Code or Codex chat this pane resumes once it connects. */
+  adopt?: AcpmuxAdopt;
 };
 
-/** `session/new` params: the host's cwd when it gave one, else acpmux's default. */
-export function newSessionParams(host: Pick<AcpmuxHostConfig, "cwd">, harness?: string): Record<string, unknown> {
+/** A harness's own session for acpmux to adopt (`_meta.acpmux.adopt`). */
+export type AcpmuxAdopt = { harness: string; agentSessionId: string };
+
+/** `session/new` params: the host's cwd when it gave one, else acpmux's default. An adopt
+ *  sends no cwd: acpmux resumes the chat where its harness recorded it. */
+export function newSessionParams(
+  host: Pick<AcpmuxHostConfig, "cwd" | "adopt">,
+  harness?: string,
+): Record<string, unknown> {
+  if (host.adopt)
+    return { mcpServers: [], _meta: { acpmux: { harness: harness ?? host.adopt.harness, adopt: host.adopt } } };
   return { ...(host.cwd ? { cwd: host.cwd } : {}), mcpServers: [], _meta: { acpmux: { harness } } };
+}
+
+/** True when a `session/new` result resumed `adopt`. A daemon without adopt ignores the request
+ *  and starts a fresh chat, whose `agentSessionId` is its own or absent. */
+export function adoptedBy(result: any, adopt: AcpmuxAdopt): boolean {
+  return result?._meta?.acpmux?.agentSessionId === adopt.agentSessionId;
 }
 
 export type EventRecord = {
@@ -378,6 +395,8 @@ export class AcpmuxDirectClient {
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
           await this.fetchMissedEvents(sessionId, generation, resumeAfter, false);
+      } else if (this.host.adopt) {
+        await this.adoptChat(this.host.adopt);
       }
       this.hasConnected = true;
       this.reconnectDelay = 250;
@@ -1116,6 +1135,42 @@ export class AcpmuxDirectClient {
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     if (result?.sessionId) return this.select(String(result.sessionId));
     return undefined;
+  }
+  /** The session an adopt on connect resumed, for the host to keep as the tab's session. */
+  adopted?: string;
+  /// Resumes the outside chat the host named, once. A session that didn't adopt it (an acpmux
+  /// without adopt starts a fresh one) is removed, and the pane says so instead of posing as it.
+  /// A socket that drops meanwhile fails the connect, so the host reconnects and adopts again
+  /// (acpmux maps one chat to one session).
+  private async adoptChat(adopt: AcpmuxAdopt): Promise<void> {
+    this.host = { ...this.host, adopt: undefined };
+    let result: any;
+    try {
+      result = await this.request("session/new", newSessionParams({ adopt }));
+    } catch (error) {
+      if (this.socket?.readyState !== WebSocket.OPEN) throw error;
+      this.adoptFailed(error instanceof Error && error.message ? `: ${error.message}` : "");
+      return;
+    }
+    const sessionId = result?.sessionId ? String(result.sessionId) : undefined;
+    if (sessionId && adoptedBy(result, adopt)) {
+      this.adopted = sessionId;
+      await this.select(sessionId);
+      return;
+    }
+    if (sessionId) await this.request("_acpmux/kill", { sessionId, purge: true }).catch(() => undefined);
+    this.adoptFailed(": this acpmux can't resume chats");
+  }
+  private adoptFailed(reason: string): void {
+    const at = Date.now();
+    this.rows.set(`notice-adopt-${at}`, {
+      id: `notice-adopt-${at}`,
+      version: 1,
+      at,
+      kind: "notice",
+      text: `Couldn't resume this chat${reason}`,
+    });
+    this.emit();
   }
   /// Forks the open session through the turn whose summary is `throughSeq`, and opens the fork.
   /// One fork at a time; a second click while acpmux forks does nothing. A failure says so in the
