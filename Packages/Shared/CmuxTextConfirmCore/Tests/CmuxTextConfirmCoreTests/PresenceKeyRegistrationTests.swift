@@ -70,7 +70,8 @@ final class FakeKeyAttester: AppAttestKeyAttester, @unchecked Sendable {
 
         // The install key signed the exact line, sent raw r||s (DER converted).
         let message = Data("cmux-presence-key-v1\nstaging\nuser_1\ninst_1\n\(thumbprint)".utf8)
-        let signature = try #require(Data(textConfirmBase64URL: try #require(post.body["signature"] as? String)))
+        let encoded = try #require(post.body["signature"] as? String)
+        let signature = try #require(Data(textConfirmBase64URL: encoded))
         #expect(signature.count == 64)
         #expect(installKey.publicKey.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation: signature), for: message))
 
