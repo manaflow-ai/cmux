@@ -16,6 +16,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces: Set<String> = []
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]
+    /// `feed.mirrorNotifications`: what the app copies into the cloud feed.
+    public var feedMirror = FeedMirrorPreferences()
 
     public init() {}
 

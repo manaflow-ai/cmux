@@ -5,6 +5,7 @@ extension SettingsSchema {
         let dismissal = SettingsText.text("settings.group.dismissal", "Dismissal")
         let banners = SettingsText.text("settings.group.banners", "Banners and Sound")
         let ring = SettingsText.text("settings.group.attention", "Attention Ring")
+        let feed = SettingsText.text("settings.group.feedMirror", "Feed")
         let defaults = NotificationPreferences()
         let attention = AttentionSettings()
         let sameAsAbove = SettingsText.text("settings.default.sameAsAbove", "Same as above")
@@ -80,6 +81,25 @@ extension SettingsSchema {
                 ["notifications", "dockBadge"], section: .notifications, group: banners,
                 title: SettingsText.text("settings.notifications.dockBadge", "Unread Count on Dock Icon"),
                 kind: .toggle, default: .bool(defaults.dockBadge)
+            ),
+            SettingDescriptor(
+                ["feed", "mirrorNotifications", "agents"], section: .notifications, group: feed,
+                title: SettingsText.text("settings.feed.mirrorAgents", "Copy Agent Notifications to the Feed"),
+                help: SettingsText.text("settings.feed.mirrorAgents.help",
+                                        "Notifications from agents and cmux notify go to your cmux account's feed and can reach your iPhone."),
+                kind: .toggle, default: .bool(defaults.feedMirror.agents), keywords: ["cloud", "iphone", "push"]
+            ),
+            SettingDescriptor(
+                ["feed", "mirrorNotifications", "terminal"], section: .notifications, group: feed,
+                title: SettingsText.text("settings.feed.mirrorTerminal", "Copy Terminal Notifications to the Feed"),
+                help: SettingsText.text("settings.feed.mirrorTerminal.help",
+                                        "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."),
+                kind: .choice([
+                    SettingChoice(FeedTerminalMirror.off.rawValue, SettingsText.text("settings.choice.feedMirror.off", "Off")),
+                    SettingChoice(FeedTerminalMirror.title.rawValue, SettingsText.text("settings.choice.feedMirror.title", "Title Only")),
+                    SettingChoice(FeedTerminalMirror.full.rawValue, SettingsText.text("settings.choice.feedMirror.full", "Title and Text")),
+                ]),
+                default: .string(defaults.feedMirror.terminal.rawValue), keywords: ["cloud", "iphone", "push", "osc"]
             ),
             SettingDescriptor(
                 ["notifications", "attention", "style"], section: .notifications, group: ring,
