@@ -257,7 +257,8 @@ describe("team SSH CA (TeamDO, workerd)", () => {
           kek: undefined,
           sql: state.storage.sql,
           now: () => Date.now(),
-          submitSystem: (op, params, k) => instance.submitSystem(op, params, k)
+          submitSystem: (op, params, k) => instance.submitSystem(op, params, k),
+          running: new Set()
         },
         t.ownerP,
         { op: "team_vm.ssh_cert", params: { public_key: key, class: "agent" }, idempotency_key: "no-kek" }

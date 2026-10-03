@@ -5,7 +5,7 @@ import { KRL_GRACE_MS, linuxUserFor, MAX_CERT_MS } from "./domains/team-ssh.ts"
 import type { TeamState } from "./domains/team.ts"
 import { open, seal, type SealedSecret } from "./integrations/crypto.ts"
 import type { DomainReply } from "./team-domain-external.ts"
-import { sshPurpose, type PresenceProof, type SshPresence } from "./team-ssh-presence.ts"
+import { keyFingerprint, sshPurpose, type PresenceProof, type SshPresence } from "./team-ssh-presence.ts"
 import { authorizedKeyLine, certLine, certToSign, ed25519Blob, parseUserKey, toBase64, type UserKey } from "./team-ssh-wire.ts"
 
 /**
@@ -45,9 +45,9 @@ export interface SshCaDeps {
   readonly presence?: SshPresence
   /**
    * Requests running in this object instance now (owned by the TeamDO instance, so a reset object starts empty):
-   * a stored request without a reply that is not here crashed. Absent: no duplicate guard (tests).
+   * a stored request without a reply that is not here crashed. Required: without it there is no duplicate guard.
    */
-  readonly running?: Set<string>
+  readonly running: Set<string>
 }
 
 export const ensureSshTables = (sql: SqlStorage) => {
@@ -183,6 +183,9 @@ interface Prepared {
   readonly class: "human" | "agent"
   readonly valid_after: number
   readonly valid_before: number
+  /** The request (op and params hash) and the public key it was prepared for; a resume needs both to match. */
+  readonly request_hash: string
+  readonly key_fingerprint: string
 }
 
 const forget = (sql: SqlStorage, identity: string, idem: string, serial?: number) => {
@@ -226,7 +229,12 @@ const signPrepared = async (deps: SshCaDeps, team: string, key: UserKey, prep: P
  * same serial and certificate. Null when that certificate can no longer be given (the CA rotated,
  * it expired): it never left this object, so the request prepares again.
  */
-const resume = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: string, key: UserKey, prep: Prepared) => {
+const resume = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: string, key: UserKey, prep: Prepared, bound: { hash: string; fingerprint: string }) => {
+  // Prepared for another request or key (its request record expired, for example): never sign it with this key.
+  if (prep.request_hash !== bound.hash || prep.key_fingerprint !== bound.fingerprint) {
+    forget(deps.sql, p.identity, idem, prep.serial)
+    return null
+  }
   try {
     // The same caller checks as a new request (a team server, a removed member or a revoked install gets nothing).
     classFor(deps.state(), p, params)
@@ -266,13 +274,14 @@ const challenge = async (deps: SshCaDeps, p: Principal, params: ChallengeParams)
   return r.value
 }
 
-const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: string) => {
+const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: string, hash: string) => {
   const user = p.user!
   const key = await parseUserKey(params.public_key)
   if (!key) throw new Refusal("team_vm.ssh_key_invalid", "public_key must be one ssh-ed25519 or ecdsa-sha2-nistp256 authorized_keys line")
+  const bound = { hash, fingerprint: await keyFingerprint(key) }
   const row = deps.sql.exec<{ body: string }>(`SELECT body FROM ssh_prepared WHERE identity = ? AND idem = ?`, p.identity, idem).toArray()[0]
   if (row) {
-    const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared)
+    const again = await resume(deps, p, params, idem, key, JSON.parse(row.body) as Prepared, bound)
     if (again) return again
   }
   const cls = classFor(deps.state(), p, params)
@@ -314,7 +323,9 @@ const issue = async (deps: SshCaDeps, p: Principal, params: CertParams, idem: st
       principals: [linuxUserFor(current, cls)],
       class: cls,
       valid_after: now - SKEW_MS,
-      valid_before: now + minutes * 60_000
+      valid_before: now + minutes * 60_000,
+      request_hash: bound.hash,
+      key_fingerprint: bound.fingerprint
     }
     // Logged before the signing await, so the rate limit and a concurrent revoke by user or install see it, and with
     // the prepared certificate in the same write, so a crash during signing resumes this certificate (resume).
@@ -420,7 +431,7 @@ export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: st
   deps.sql.exec(`DELETE FROM ssh_certs WHERE valid_before < ?`, now - RETAIN_MS)
   const prior = deps.sql.exec<{ op: string; hash: string; reply: string | null; at: number }>(`SELECT op, hash, reply, at FROM ssh_requests WHERE identity = ? AND idem = ?`, p.identity, frame.idempotency_key).toArray()[0]
   const run = `${p.identity}|${frame.idempotency_key}`
-  const running = deps.running ?? new Set<string>()
+  const running = deps.running
   if (prior) {
     if (prior.op !== frame.op || prior.hash !== hash) return fail("idempotency.conflict", "this idempotency key was used for another request")
     if (prior.reply !== null) return { ...base, ok: true, value: JSON.parse(prior.reply), replayed: true }
@@ -435,7 +446,7 @@ export const sshExternal = async (deps: SshCaDeps, p: Principal, frame: { op: st
   try {
     const value =
       frame.op === "team_vm.ssh_cert"
-        ? await issue(deps, p, d.value as CertParams, frame.idempotency_key)
+        ? await issue(deps, p, d.value as CertParams, frame.idempotency_key, hash)
         : frame.op === "team_vm.ssh_cert.challenge"
           ? await challenge(deps, p, d.value as ChallengeParams)
           : frame.op === "team_vm.ssh_cert.revoke"

@@ -150,7 +150,8 @@ describe("a crash during a certificate request replays the same certificate", { 
           sql,
           now: () => Date.now(),
           submitSystem: (op, prm, k) => instance.submitSystem(op, prm, k),
-          presence: instance.presenceOwner?.(t.team)
+          presence: instance.presenceOwner?.(t.team),
+          running: new Set()
         },
         p,
         { op: "team_vm.ssh_cert", params, idempotency_key: idem }
@@ -192,6 +193,50 @@ describe("a crash during a certificate request replays the same certificate", { 
     expect((await t.op(p, "team_vm.ssh_cert", { public_key: key }, idem)).error!.code).toBe("team_vm.ssh_class_refused")
     // The prepared certificate is forgotten with its issued-log row: it never left the object.
     expect(await issued(t, p.identity)).not.toContain(lost.serial)
+    // A member who left between the crash and the retry gets nothing either.
+    const m = t.install(t.member, ["read", "mutate-own"], "mac", "inst_00000000000000000096")
+    const idem2 = crypto.randomUUID()
+    const lost2 = await crashOnce(t, m, { public_key: key }, idem2)
+    await inDO(t.stub, async (instance) => {
+      const engine = instance.boundEngine
+      const { [t.member]: _gone, ...members } = engine.currentState.members
+      engine.state = { ...engine.currentState, members }
+    })
+    expect((await t.op(m, "team_vm.ssh_cert", { public_key: key }, idem2)).error!.code).toBe("auth.forbidden")
+    // Refused at the membership gate, before the request runs; its prepared certificate is never signed.
+    expect(lost2.serial).toBeGreaterThan(0)
+  })
+
+  it("a prepared certificate is never signed for another request or key, and a running request is not run twice", async () => {
+    const t = await setup("stack-ssh-0000000016")
+    const keyA = await sshLine("ed25519")
+    const keyB = await sshLine("ed25519")
+    const p = t.install(t.owner, ["read", "mutate-own"])
+    const idem = crypto.randomUUID()
+    const lost = await crashOnce(t, p, { public_key: keyA }, idem)
+    // The request record is gone (expired) but the prepared row is still there: key B under the same key.
+    await inDO(t.stub, async (_i, state) => state.storage.sql.exec(`DELETE FROM ssh_requests WHERE identity = ?`, p.identity))
+    const other = await t.op(p, "team_vm.ssh_cert", { public_key: keyB }, idem)
+    expect(other.ok).toBe(true)
+    expect(other.value.serial).not.toBe(lost.serial)
+    const c = await readCert(other.value.certificate, other.value.ca_public_key)
+    expect(c.verified).toBe(true)
+    expect(other.value.certificate.split(" ")[1]).not.toBe(lost.certificate.split(" ")[1])
+    expect(await issued(t, p.identity)).toEqual([other.value.serial])
+    // A request this object instance is still running is refused, not run a second time.
+    const busy = crypto.randomUUID()
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(["team_vm.ssh_cert", { public_key: keyA }]))))
+    const hash = Array.from(digest, (x) => x.toString(16).padStart(2, "0")).join("")
+    const dup = await inDO(t.stub, async (instance, state) => {
+      const running = new Set([`${p.identity}|${busy}`])
+      state.storage.sql.exec(`INSERT INTO ssh_requests (identity, idem, op, hash, reply, at) VALUES (?, ?, 'team_vm.ssh_cert', ?, NULL, ?)`, p.identity, busy, hash, Date.now())
+      return sshExternal(
+        { state: () => instance.boundEngine.currentState, team: t.team, stream: instance.boundEngine.stream, kek: instance.env.INTEGRATIONS_KEK, sql: state.storage.sql, now: () => Date.now(), submitSystem: (op, prm, k) => instance.submitSystem(op, prm, k), running },
+        p,
+        { op: "team_vm.ssh_cert", params: { public_key: keyA }, idempotency_key: busy }
+      )
+    })
+    expect(dup.error).toMatchObject({ code: "revision.conflict", retryable: true })
   })
 
   it("a full-shell request that crashed after its presence proof resumes without a second approval or certificate", async () => {

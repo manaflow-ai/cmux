@@ -299,7 +299,8 @@ export class TeamDO extends OwnerDO<TeamState> {
         kek: this.env.INTEGRATIONS_KEK,
         sql: this.ctx.storage.sql,
         now: () => Date.now(),
-        submitSystem: (op, params, key) => this.submitSystem(op, params, key)
+        submitSystem: (op, params, key) => this.submitSystem(op, params, key),
+        running: this.sshRunning
       },
       user,
       install
