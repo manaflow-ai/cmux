@@ -5688,6 +5688,9 @@ def test_macos_compile_admission_precedes_expensive_shards() -> None:
     # The compile lives in one script so the nightly cache seeder runs the same
     # invocation; see tests/test_ci_test_compilation_cache_seed.sh.
     assert "scripts/ci/compile-app-host-test-product.sh canonical-build" in admission
+    assert 'grep -Fq "unable to open dependencies file"' in admission
+    assert 'scripts/ci/clear-dirs.sh "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"' in admission
+    assert "retrying compile from a clean tree" in admission
     compile_script = (ROOT / "scripts/ci/compile-app-host-test-product.sh").read_text(encoding="utf-8")
     assert "build-for-testing" in compile_script
     import product_input_identity as identity
